@@ -75,8 +75,9 @@
    * Returns { nodes:Set, edges:Set, hiddenEdges:number, hiddenNodes:number }.
    * `keep` = ids that stay visible even with no visible edge (the vertices the user searched for).
    * `focus` = { id, hops } limits the result to that vertex's neighbourhood (applied after every other filter).
+   * `only` = a Set of ids: nothing outside it is shown (the trace layout shows only what was revealed).
    */
-  function computeVisible(graph, state, keep, focus) {
+  function computeVisible(graph, state, keep, focus, only) {
     var f = normalise(state), hiddenTypes = new Set(f.hiddenScriptTypes || []);
     var nodes = new Set(), edges = new Set();
 
@@ -97,6 +98,7 @@
     function edgeBase(e) {
       var s = graph.nodes.get(e.source), t = graph.nodes.get(e.target), tx = txOfEdge(graph, e);
       if (!s || !t || !tx) return null;
+      if (only && (!only.has(e.source) || !only.has(e.target))) return null;           // trace: only what has been revealed
       if (e.amount < f.minAmount) return null;
       if (f.maxAmount != null && e.amount > f.maxAmount) return null;
       if (!nodeAllowed(s) || !nodeAllowed(t)) return null;
@@ -120,7 +122,16 @@
       if (nodes.has(other)) accept(e);
     });
 
-    if (keep) keep.forEach(function (id) { if (graph.nodes.has(id) && nodeAllowed(graph.nodes.get(id))) nodes.add(id); });
+    if (keep) keep.forEach(function (id) { if (graph.nodes.has(id) && (!only || only.has(id)) && nodeAllowed(graph.nodes.get(id))) nodes.add(id); });
+    if (only) {                                                                    // a trace: a vertex that nothing else on screen touches stays (it was not filtered away, its neighbours were hidden)
+      only.forEach(function (id) {
+        var n = graph.nodes.get(id);
+        if (!n || nodes.has(id) || !nodeAllowed(n)) return;
+        var linked = false, adj = graph.adj.get(id);
+        if (adj) adj.forEach(function (eid) { var e = graph.edges.get(eid); if (e && only.has(e.source) && only.has(e.target)) linked = true; });
+        if (!linked) nodes.add(id);
+      });
+    }
     if (focus) { var fx = applyFocus(graph, nodes, edges, focus); nodes = fx.nodes; edges = fx.edges; }
     return { nodes: nodes, edges: edges, hiddenNodes: graph.nodes.size - nodes.size, hiddenEdges: graph.edges.size - edges.size };
   }

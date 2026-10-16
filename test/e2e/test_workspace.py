@@ -20,7 +20,7 @@ def no_js_errors(errors, request):
 
 def test_page_loads_clean_and_shows_the_empty_state(page):
     assert page.is_visible("#empty")
-    assert page.locator("#layoutSeg button").count() == 3
+    assert page.locator("#layoutSeg button").count() == 4        # Flow, Timeline, Force, Trace
     assert page.inner_text("#counts") == ""
     assert page.is_disabled("#tFrom")           # nothing to slide yet
 

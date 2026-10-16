@@ -70,6 +70,7 @@
       var c = clean(n, 0);
       Tags.sanitize(c);                                                     // tag / colour / shape: only valid values ever reach a canvas
       if ('ext' in c) { var x = Ext.cleanExt(c.ext); if (x) c.ext = x; else delete c.ext; }
+      if ('noCluster' in c && c.noCluster !== true) delete c.noCluster;      // only the flag itself is meaningful
       if (c.type === 'addr' && typeof c.address === 'string') {            // bech32 is case-insensitive: one vertex per address, however it was written
         var canon = Addr.normalise(c.address), cid = 'addr:' + canon;
         if (cid !== c.id) { idMap.set(c.id, cid); c.id = cid; }
@@ -108,10 +109,15 @@
 
   var NODE_COLS = ['id', 'type', 'label', 'note', 'address', 'txid', 'vout', 'script_type', 'time_unix', 'time_utc', 'height', 'confirmed',
                    'first_seen_unix', 'last_seen_unix', 'received_sat', 'sent_sat', 'degree', 'op_return_text', 'op_return_hex',
-                   'tag', 'color', 'shape', 'ext_arkham_name', 'ext_arkham_type', 'ext_arkham_label'];
+                   'tag', 'color', 'shape', 'ext_arkham_name', 'ext_arkham_type', 'ext_arkham_label',
+                   'patterns', 'cluster', 'cluster_size', 'excluded_from_clustering'];
   var EDGE_COLS = ['edge_id', 'txid', 'kind', 'source', 'source_label', 'target', 'target_label', 'amount_sat', 'amount_btc', 'time_unix', 'time_utc',
-                   'confirmed', 'spent', 'spent_by_txid', 'fiat_value', 'fiat_currency', 'fiat_price_per_btc', 'fiat_basis'];
+                   'confirmed', 'spent', 'spent_by_txid', 'fiat_value', 'fiat_currency', 'fiat_price_per_btc', 'fiat_basis', 'likely_change'];
 
+  /**
+   * opts.analysis = { node(n) -> {patterns, cluster, clusterSize}, edge(e) -> 'high'|'medium'|'' } adds what the analysis found
+   * (guesses, labelled as such in the column names of the README); without it those columns are empty.
+   */
   function toCsv(graph, which, opts) {
     opts = opts || {};
     var p = pick(graph, opts.only), lines = [];
@@ -124,16 +130,18 @@
         lines.push(row([cell(e.id), cell(e.txid), cell(e.kind), cell(e.source), cell(labelOf(e.source)), cell(e.target), cell(labelOf(e.target)),
                         cell(e.amount, true), cell(Style.fmtBtc(e.amount), true), cell(t), cell(t != null ? Style.fmtTime(t) : ''),
                         cell(txn && txn.confirmed != null ? txn.confirmed : ''), cell(e.spent != null ? e.spent : ''), cell(e.spentBy ? e.spentBy.txid : ''),
-                        cell(f ? f.value : '', true), cell(f ? f.currency : ''), cell(f ? f.price : '', true), cell(f ? f.basis : '')]));
+                        cell(f ? f.value : '', true), cell(f ? f.currency : ''), cell(f ? f.price : '', true), cell(f ? f.basis : ''),
+                        cell(opts.analysis ? opts.analysis.edge(e) : '')]));
       });
     } else {
       lines.push(row(NODE_COLS));
       p.nodes.forEach(function (n) {
-        var ark = (n.ext && n.ext.arkham) || {};
+        var ark = (n.ext && n.ext.arkham) || {}, an = opts.analysis ? opts.analysis.node(n) : {};
         lines.push(row([cell(n.id), cell(n.type), cell(n.label), cell(n.note), cell(n.address), cell(n.txid), cell(n.vout), cell(n.scriptType),
                         cell(n.time), cell(n.time != null ? Style.fmtTime(n.time) : ''), cell(n.height), cell(n.confirmed),
                         cell(n.firstSeen), cell(n.lastSeen), cell(n.received), cell(n.sent), cell(n.degree), cell(n.dataText), cell(n.dataHex),
-                        cell(n.tag), cell(n.color), cell(n.shape), cell(ark.name), cell(ark.type), cell(ark.label)]));
+                        cell(n.tag), cell(n.color), cell(n.shape), cell(ark.name), cell(ark.type), cell(ark.label),
+                        cell(an.patterns), cell(an.cluster), cell(an.clusterSize), cell(n.noCluster === true ? 'true' : '')]));
       });
     }
     return lines.join('\r\n') + '\r\n';
@@ -163,9 +171,10 @@
 
   var G_NODE = [['label', 'string'], ['type', 'string'], ['note', 'string'], ['address', 'string'], ['txid', 'string'], ['script_type', 'string'],
                 ['time', 'long'], ['time_utc', 'string'], ['received', 'long'], ['sent', 'long'], ['degree', 'int'], ['op_return_text', 'string'],
-                ['tag', 'string'], ['color', 'string'], ['shape', 'string'], ['ext_arkham_name', 'string'], ['ext_arkham_type', 'string']];
+                ['tag', 'string'], ['color', 'string'], ['shape', 'string'], ['ext_arkham_name', 'string'], ['ext_arkham_type', 'string'],
+                ['patterns', 'string'], ['cluster', 'string'], ['cluster_size', 'int'], ['excluded_from_clustering', 'boolean']];
   var G_EDGE = [['kind', 'string'], ['txid', 'string'], ['amount', 'long'], ['amount_btc', 'string'], ['time', 'long'], ['time_utc', 'string'], ['spent', 'boolean'],
-                ['fiat_value', 'double'], ['fiat_currency', 'string'], ['fiat_price_per_btc', 'double'], ['fiat_basis', 'string']];
+                ['fiat_value', 'double'], ['fiat_currency', 'string'], ['fiat_price_per_btc', 'double'], ['fiat_basis', 'string'], ['likely_change', 'string']];
 
   function toGraphMl(graph, opts) {
     opts = opts || {};
@@ -184,6 +193,8 @@
       data('n_', 'received', n.received); data('n_', 'sent', n.sent); data('n_', 'degree', n.degree); data('n_', 'op_return_text', n.dataText);
       data('n_', 'tag', n.tag); data('n_', 'color', n.color); data('n_', 'shape', n.shape);
       if (n.ext && n.ext.arkham) { data('n_', 'ext_arkham_name', n.ext.arkham.name || n.ext.arkham.label); data('n_', 'ext_arkham_type', n.ext.arkham.type); }
+      var an = opts.analysis ? opts.analysis.node(n) : {};
+      data('n_', 'patterns', an.patterns); data('n_', 'cluster', an.cluster); data('n_', 'cluster_size', an.clusterSize); if (n.noCluster === true) data('n_', 'excluded_from_clustering', true);
       out.push('    </node>');
     });
     p.edges.forEach(function (e) {
@@ -193,6 +204,7 @@
       data('e_', 'time', t); data('e_', 'time_utc', t != null ? Style.fmtTime(t) : null); data('e_', 'spent', e.spent);
       var f = opts.fiat ? opts.fiat(e) : null;
       if (f) { data('e_', 'fiat_value', f.value); data('e_', 'fiat_currency', f.currency); data('e_', 'fiat_price_per_btc', f.price); data('e_', 'fiat_basis', f.basis); }
+      if (opts.analysis) data('e_', 'likely_change', opts.analysis.edge(e));
       out.push('    </edge>');
     });
     out.push('  </graph>', '</graphml>', '');

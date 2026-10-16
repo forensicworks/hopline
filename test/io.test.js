@@ -230,3 +230,36 @@ test('import refuses hostile tag, colour, shape and lookup data', () => {
   assert.deepEqual([y.tag, y.color, y.shape], ['EXCH', '#abcdef', 'star']);
   assert.ok(!('ext' in y), 'unusable lookup data is dropped');
 });
+
+test('CSV and GraphML carry what the analysis found when it is given, and are empty without it', () => {
+  const { g, t } = sample();
+  const txId = ID.tx(t.txid), addrId = ID.addr(t.vout[0].scriptpubkey_address);
+  const analysis = {
+    node: (n) => (n.id === txId ? { patterns: 'CONSOL 6→1; PEEL 3/5', cluster: '', clusterSize: '' } : n.id === addrId ? { patterns: '', cluster: 'C2', clusterSize: 4 } : {}),
+    edge: (e) => (e.id === ID.edgeOut(t.txid, 1) ? 'high' : '')
+  };
+  const nodes = parseCsv(IO.toCsv(g, 'nodes', { analysis })), edges = parseCsv(IO.toCsv(g, 'edges', { analysis }));
+  const ncol = (name) => nodes[0].indexOf(name), ecol = (name) => edges[0].indexOf(name);
+  assert.ok(ncol('patterns') > 0 && ncol('cluster') > 0 && ncol('cluster_size') > 0 && ecol('likely_change') > 0);
+  const tx = nodes.find((r) => r[0] === txId), ad = nodes.find((r) => r[0] === addrId);
+  assert.equal(tx[ncol('patterns')], 'CONSOL 6→1; PEEL 3/5');
+  assert.equal(ad[ncol('cluster')], 'C2'); assert.equal(ad[ncol('cluster_size')], '4');
+  assert.deepEqual(edges.slice(1).filter((r) => r[ecol('likely_change')]).map((r) => [r[0], r[ecol('likely_change')]]), [[ID.edgeOut(t.txid, 1), 'high']]);
+  const plain = parseCsv(IO.toCsv(g, 'nodes'));
+  assert.ok(plain.slice(1).every((r) => r[plain[0].indexOf('patterns')] === '' && r[plain[0].indexOf('cluster')] === ''));
+  const xml = IO.toGraphMl(g, { analysis });
+  assert.match(xml, /<key id="n_patterns" for="node"/); assert.match(xml, /<key id="e_likely_change" for="edge"/);
+  assert.match(xml, /<data key="n_cluster">C2<\/data>/); assert.match(xml, /<data key="e_likely_change">high<\/data>/);
+  assert.doesNotMatch(IO.toGraphMl(g), /n_cluster">/);
+});
+
+test('the exclusion from clustering is exported, imported, and nothing but true is accepted', () => {
+  const { g, t } = sample();
+  g.nodes.get(ID.tx(t.txid)).noCluster = true;
+  assert.equal(parseCsv(IO.toCsv(g, 'nodes')).find((r) => r[0] === ID.tx(t.txid))[IO.NODE_COLS.indexOf('excluded_from_clustering')], 'true');
+  const back = IO.fromJson(IO.toJson(g));
+  assert.equal(back.graph.node(ID.tx(t.txid)).noCluster, true);
+  const doc = JSON.parse(IO.toJson(g));
+  doc.nodes.find((n) => n.id === ID.tx(t.txid)).noCluster = 'yes please';
+  assert.equal(IO.fromJson(JSON.stringify(doc)).graph.node(ID.tx(t.txid)).noCluster, undefined);
+});

@@ -169,6 +169,9 @@ test('formatting: BTC without float error, UTC times, shortened ids', () => {
   assert.equal(S.fmtTime(0), '1970-01-01 00:00 UTC');
   assert.equal(S.fmtTime(1649176756, false), '2022-04-05');
   assert.equal(S.fmtTime(null), '—');
+  assert.equal(S.fmtTimeFull(0), '1970-01-01 00:00:00 UTC');
+  assert.equal(S.fmtTimeFull(1649176756), '2022-04-05 16:39:16 UTC');
+  assert.equal(S.fmtTimeFull(null), '—');
   assert.equal(S.shortId('abcdefghijklmnopqrstuvwxyz', 4), 'abcd…wxyz');
   assert.equal(S.shortId('abc', 4), 'abc');
 });
@@ -187,4 +190,25 @@ test('a vertex\'s own colour wins in every colour mode, and a bad colour is igno
     assert.equal(st.nodeColor(n), before, 'invalid colours are not used (' + mode + ')');
     delete n.color;
   });
+});
+
+test('trace (only): a shown vertex that nothing else shown touches stays; one whose edges were filtered away goes', () => {
+  const g = chain();
+  const A = ID.addr('B'), C = ID.addr('C'), tx = ID.tx('t1');
+  // hub hidden: the two wallets are on screen but share no edge
+  const lonely = F.computeVisible(g, {}, null, null, new Set([A, C]));
+  assert.deepEqual([...lonely.nodes].sort(), [A, C].sort());
+  assert.equal(lonely.edges.size, 0);
+  // hub shown, and a minimum amount that removes the small output's edge: that wallet is filtered away, not "isolated"
+  const dust = ID.addr('dust1');                                              // paid 546 sat by t1
+  const only = new Set([tx, A, dust]);
+  assert.ok(F.computeVisible(g, {}, null, null, only).nodes.has(dust));
+  const cut = F.computeVisible(g, { minAmount: 1000 }, null, null, only);
+  assert.ok(cut.nodes.has(A) && cut.nodes.has(tx));
+  assert.ok(!cut.nodes.has(dust), 'it is connected to the transaction, but its only edge is below the minimum');
+  // type filters still apply to isolated vertices
+  assert.ok(F.computeVisible(g, {}, null, null, new Set([C])).nodes.has(C), 'C is p2pkh and shown');
+  assert.ok(!F.computeVisible(g, { hiddenScriptTypes: ['p2pkh'] }, null, null, new Set([C])).nodes.has(C), 'but a hidden address type still hides it');
+  // an empty set shows nothing
+  assert.equal(F.computeVisible(g, {}, null, null, new Set()).nodes.size, 0);
 });

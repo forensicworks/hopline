@@ -82,6 +82,7 @@
           <button type="button" role="radio" data-layout="flow" aria-checked="true" title="Left to right in the direction money moves">Flow</button>
           <button type="button" role="radio" data-layout="timeline" aria-checked="false" title="Transactions placed by confirmation time">Timeline</button>
           <button type="button" role="radio" data-layout="force" aria-checked="false" title="Connected vertices pull together">Force</button>
+          <button type="button" role="radio" data-layout="trace" aria-checked="false" title="Start from one wallet or transaction and build the chain by clicking ◀ ▶">Trace</button>
         </div>
         <div id="scaleRow" hidden>
           <span class="lbl">Time scale</span>
@@ -120,6 +121,51 @@
         <span class="lbl">Address types</span>
         <div id="scriptTypes" class="chips"></div>
         <p class="hint">The time range is the slider below the graph.</p>
+      </div>
+    </details>
+
+    <details open id="anSection">
+      <summary>Analysis</summary>
+      <div class="sec">
+        <p class="hint">Patterns in the transactions that are loaded. They are guesses: each one says why, none proves who owns what.</p>
+        <label class="check" title="CONSOL, BATCH, COINJOIN? and PEEL badges above transactions"><input type="checkbox" id="anFlags" checked> Flag patterns on transactions</label>
+        <label class="check" title="Colours the output that most likely returns to the sender"><input type="checkbox" id="anChange" checked> Mark the likely change output</label>
+        <label class="check" title="Addresses spent together in one transaction (the common-input rule), CoinJoins excluded"><input type="checkbox" id="anClusters" checked> Show address clusters</label>
+        <div id="anFindings" class="findings" aria-live="polite"></div>
+      </div>
+    </details>
+
+    <details id="autoSection">
+      <summary>Auto-expand</summary>
+      <div class="sec">
+        <p class="hint">Follow the money several transactions deep in one go, from the selected transaction or wallet (or right-click it). It stops at the limits below and says why.</p>
+        <span class="lbl">Direction</span>
+        <div class="seg" id="autoDirSeg" role="radiogroup" aria-label="Direction">
+          <button type="button" role="radio" data-dir="next" aria-checked="true" title="Where the money went">Forward ▶</button>
+          <button type="button" role="radio" data-dir="prev" aria-checked="false" title="Where the money came from">◀ Backward</button>
+        </div>
+        <label for="autoHops">Hops (transactions deep)</label>
+        <input id="autoHops" type="number" min="1" max="12" value="3">
+        <label for="autoFollow">Follow</label>
+        <select id="autoFollow">
+          <option value="all">every output</option>
+          <option value="largest">the largest output only</option>
+          <option value="change">the likely change output</option>
+          <option value="peel">a peel chain</option>
+        </select>
+        <p class="hint" id="autoFollowHint"></p>
+        <label for="autoMaxTx">Stop after loading this many transactions</label>
+        <input id="autoMaxTx" type="number" min="1" max="500" value="40">
+        <label for="autoMaxReq">… or this many requests</label>
+        <input id="autoMaxReq" type="number" min="1" max="1000" value="150">
+        <label for="autoPerTx">Most outputs followed per transaction</label>
+        <input id="autoPerTx" type="number" min="1" max="50" value="6">
+        <label for="autoMin">Ignore amounts below (sat)</label>
+        <input id="autoMin" type="number" min="0" max="2100000000000000" value="0">
+        <label class="check"><input type="checkbox" id="autoStopLabel" checked> Stop at labelled or tagged wallets</label>
+        <label class="check"><input type="checkbox" id="autoStopMix" checked> Stop at CoinJoin-like transactions</label>
+        <div class="row"><button type="button" id="autoGo" class="primary" disabled>Auto-expand from selected</button></div>
+        <p class="hint" id="autoHint" role="status"></p>
       </div>
     </details>
 
@@ -195,9 +241,13 @@
         <p><b>Click</b> a vertex to inspect it. Without Focus, <b>double-click</b> loads its neighbours. <b>Drag</b> a vertex to pin it; drag the background to pan; scroll to zoom.</p>
         <p><b>Edges</b> run in the direction money moves. Width = amount (log scale). Dashed = output not spent yet.</p>
         <p><b>Squares</b> are transactions (hollow = not loaded), <b>circles</b> addresses, <b>diamonds</b> coinbase, <b>hexagons</b> OP_RETURN.</p>
+        <p><b>Trace</b> (under Layout) shows one wallet or transaction. Click <b>▶</b> beside it to show where the money went, <b>◀</b> for where it came from; each click moves one wallet along the chain and the vertices already on screen stay put. <b>Double-click</b> = ▶, <kbd>[</kbd> <kbd>]</kbd> = ◀ ▶ for the selected vertex, <kbd>Ctrl+Z</kbd> takes a step back, right-click for <i>Hide this branch</i>. Nothing is ever removed by a click. <b>Shift-click</b> a handle to choose which of the hidden vertices to show. Select vertices (<b>Shift-click</b>, or <kbd>Ctrl+A</kbd>) and use <i>Hide selected</i> / <i>Keep only selected</i>; right-click gives <i>Hide this vertex</i>, <i>Hide this branch</i> and <i>Select this branch</i>. Opening a new wallet or transaction <b>adds</b> it as another starting point; <i>Start over from here</i> replaces the trace. <kbd>Ctrl+Z</kbd> undoes any of these.</p>
+        <p><b>Time line:</b> the scale shows the span of what is on screen; each dot is one transaction at its exact time (hover for the timestamp, click to select it; click a bar to select the transactions in it). Drag the two handles to show only a time window; <kbd>T</kbd> or the arrow folds the bar away.</p>
+        <p><b>Analysis</b> looks for patterns in what is loaded: <i>CONSOL</i> (many inputs gathered into one or two outputs), <i>BATCH</i> (a few inputs paying many outputs), <i>COINJOIN?</i> (several wallets' inputs and several outputs of exactly the same value) and <i>PEEL</i> (a run of transactions that each pay a smaller amount out of a single coin and pass the rest on). A transaction's details also say which output most likely returns to the sender, and why; that output's edge is coloured amber. <b>Clusters</b> group addresses that were spent together in one transaction, which usually means one owner, and are drawn with a dashed ring in one colour; CoinJoin-like transactions are left out, and you can leave out any other by hand. All of it is heuristic: it shows its reasons and none of it is proof.</p>
+        <p><b>Auto-expand</b> follows the money several transactions in one go, forward or backward, from the selected vertex, stopping at the limits you set (hops, transactions, requests) and at labelled wallets or CoinJoins. <i>Follow</i> chooses every output, the largest, the likely change, or a peel chain. In the Trace layout everything it loaded is shown and one <kbd>Ctrl+Z</kbd> takes it back.</p>
         <p><b>Right-click</b> a wallet or transaction for its actions: tag it (EXCH, THREAT, …), look a wallet up in Arkham, load more. <b>Tags</b> give a vertex a colour, a shape and a badge; set them next to the label in the details.</p>
         <p><b>Previous / Next</b> under the graph step along the money: from a transaction to the wallets it paid (or that paid in), from a wallet to the transactions that spent from it. One choice moves at once; several open a list.</p>
-        <p>Keys: <kbd>[</kbd> previous, <kbd>]</kbd> next, <kbd>C</kbd> controls, <kbd>D</kbd> details, <kbd>Del</kbd> remove, <kbd>Esc</kbd> deselect, <kbd>F</kbd> fit, <kbd>/</kbd> search.</p>
+        <p>Keys: <kbd>[</kbd> previous, <kbd>]</kbd> next, <kbd>C</kbd> controls, <kbd>D</kbd> details, <kbd>T</kbd> time line, <kbd>Del</kbd> remove, <kbd>Esc</kbd> deselect, <kbd>F</kbd> fit, <kbd>/</kbd> search.</p>
       </div>
     </details>
   </aside>
@@ -206,6 +256,14 @@
     <canvas id="cv" tabindex="0" aria-label="Transaction graph"></canvas>
     <button type="button" id="sideTab" class="edge-tab left" hidden aria-label="Show controls" aria-controls="side" title="Show controls (C)">Controls ›</button>
     <button type="button" id="inspTab" class="edge-tab right" hidden aria-label="Show details" aria-controls="inspector" title="Show details (D)">‹ <span id="inspTabText">Details</span></button>
+    <div id="traceBar" role="group" aria-label="Trace" hidden>
+      <span class="tb-title">Trace</span>
+      <button type="button" id="traceUndo" disabled title="Take back the last step (Ctrl+Z)">⟲ Undo</button>
+      <button type="button" id="traceHide" disabled title="Take the selected vertices off the screen (they stay loaded). Delete does the same">Hide selected</button>
+      <button type="button" id="traceKeep" disabled title="Hide everything except the selected vertices">Keep only selected</button>
+      <button type="button" id="traceReset" title="Back to the single starting vertex">Reset to start</button>
+      <span id="traceInfo"></span>
+    </div>
     <div id="stepbar" role="group" aria-label="Follow the money" hidden>
       <div id="stepMenu" role="menu" hidden></div>
       <button type="button" id="stepPrev" class="stepbtn" aria-haspopup="menu"><span class="arrow">◀</span> <span class="lbl">Previous</span> <span class="cnt" id="stepPrevN"></span></button>
@@ -233,9 +291,10 @@
         <span class="spacer"></span>
         <button type="button" id="tbPlay" title="Replay the graph growing through time">▶ Replay</button>
         <button type="button" id="tbReset">Reset</button>
+        <button type="button" id="tbCollapse" class="collapse-btn" aria-expanded="true" aria-controls="tbBody" aria-label="Hide the time line" title="Hide the time line (T)">▾</button>
       </div>
-      <div class="tb-body">
-        <canvas id="hist" height="34" aria-hidden="true"></canvas>
+      <div class="tb-body" id="tbBody">
+        <canvas id="hist" height="54" aria-label="Transactions over time: hover for exact times, click to select"></canvas>
         <div class="dual">
           <div class="dual-track"><div id="dualFill"></div></div>
           <input type="range" id="tFrom" min="0" max="1000" value="0" aria-label="Start of time range">
@@ -266,6 +325,8 @@
 <script src="js/orion-io.js"></script>
 <script src="js/orion-render.js"></script>
 <script src="js/orion-steps.js"></script>
+<script src="js/orion-trace.js"></script>
+<script src="js/orion-analysis.js"></script>
 <script src="js/orion-nav.js"></script>
 <script src="data/known-addresses.js"></script>
 <script src="js/workspace.js"></script>

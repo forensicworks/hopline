@@ -70,6 +70,7 @@
     this.anim = null;
     this.hover = { node: null, edge: null };
     this.insets = { bottom: 0 };              // canvas rows covered by overlays (the step bar): fit() and centerOn() keep clear of them
+    this.handleRects = [];                    // expand handles drawn this frame (trace layout): {id, dir, x, y, w, h, tip}
     this.autoFit = false;                     // true while the view is the result of fit(): it is then refitted when the canvas changes size
     this.selected = new Set();
     this.dirty = true;
@@ -134,7 +135,7 @@
     if (!this.data) return;
     var rect = this.canvas.getBoundingClientRect();                      // panels may have opened since the last resize event
     if (Math.round(rect.width) !== this.w || Math.round(rect.height) !== this.h) this.resize();
-    var pad = padding == null ? 60 : padding, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false, self = this;
+    var pad = padding == null ? (this.fitPad || 60) : padding, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false, self = this;
     var src = this.anim && this.target.size ? this.target : this.cur;
     this.data.visible.nodes.forEach(function (id) {
       var p = src.get(id) || self.cur.get(id); if (!p) return; any = true;
@@ -147,6 +148,32 @@
     var k = Math.min((this.w - 2 * pad) / bw, (availH - 2 * pad) / bh, 2.2);
     k = Math.max(k, 0.05);
     this.view = { k: k, x: this.w / 2 - (minX + bw / 2) * k, y: availH / 2 - (minY + bh / 2) * k };
+    this.dirty = true;
+  };
+
+  /**
+   * After vertices were added: when the view is the result of fit() it is simply refitted; otherwise it pans the least
+   * that shows them (and zooms out only if they cannot all fit), so the user's own zoom is respected.
+   */
+  Renderer.prototype.ensureVisible = function (ids, pad) {
+    if (this.autoFit) { this.fit(); return; }
+    pad = pad == null ? 90 : pad;
+    var self = this, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false;
+    ids.forEach(function (id) {
+      var p = self.target.get(id) || self.cur.get(id); if (!p) return; any = true;
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    });
+    if (!any) return;
+    var v = this.view, k = v.k, availH = Math.max(80, this.h - (this.insets.bottom || 0));
+    var x0 = minX * k + v.x - pad, x1 = maxX * k + v.x + pad, y0 = minY * k + v.y - pad, y1 = maxY * k + v.y + pad;
+    if (x1 - x0 > this.w || y1 - y0 > availH) {                         // does not fit at this zoom: zoom out around the group
+      var nk = Math.max(0.05, k * Math.min(this.w / (x1 - x0), availH / (y1 - y0)) * 0.97);
+      var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      this.view = { k: nk, x: this.w / 2 - cx * nk, y: availH / 2 - cy * nk };
+    } else {
+      v.x += x0 < 0 ? -x0 : (x1 > this.w ? this.w - x1 : 0);
+      v.y += y0 < 0 ? -y0 : (y1 > availH ? availH - y1 : 0);
+    }
     this.dirty = true;
   };
 
@@ -195,16 +222,33 @@
   };
 
   // ---- interaction ----------------------------------------------------------------------------
+  /** The expand handle under a canvas point, or null. */
+  Renderer.prototype._pickHandle = function (pt) {
+    for (var i = this.handleRects.length - 1; i >= 0; i--) {
+      var r = this.handleRects[i];
+      if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h) return r;
+    }
+    return null;
+  };
+
   Renderer.prototype._down = function (e) {
     if (e.button !== 0) return;
-    var pt = this._local(e), h = this._pick(pt);
+    var pt = this._local(e), hnd = this._pickHandle(pt);
     try { this.canvas.setPointerCapture(e.pointerId); } catch (x) { /* synthetic events */ }
+    if (hnd) { this.drag = { handle: hnd, start: pt, moved: false, shift: e.shiftKey || e.altKey }; return; }
+    var h = this._pick(pt);
     this.drag = { id: h.node, edge: h.edge, start: pt, last: pt, moved: false, view0: { x: this.view.x, y: this.view.y }, shift: e.shiftKey || e.ctrlKey || e.metaKey };
   };
 
   Renderer.prototype._move = function (e) {
     var pt = this._local(e), d = this.drag;
-    if (!d) { var h = this._pick(pt); this._setHover(h.node, h.edge, e); this.canvas.style.cursor = h.node ? 'pointer' : (h.edge ? 'help' : 'grab'); return; }
+    if (!d) {
+      var hnd = this._pickHandle(pt);
+      if (hnd) { this._setHover(null, null, null); this.canvas.style.cursor = 'pointer'; this.canvas.title = hnd.tip || ''; return; }
+      this.canvas.title = '';
+      var h = this._pick(pt); this._setHover(h.node, h.edge, e); this.canvas.style.cursor = h.node ? 'pointer' : (h.edge ? 'help' : 'grab'); return;
+    }
+    if (d.handle) return;                                               // a press on a handle is a click, never a drag
     if (!d.moved && Math.hypot(pt.x - d.start.x, pt.y - d.start.y) < 4) return;
     d.moved = true;
     if (!d.id) this.autoFit = false;                                  // the user is panning
@@ -226,6 +270,7 @@
     try { this.canvas.releasePointerCapture(e.pointerId); } catch (x) { /* ignore */ }
     this.canvas.style.cursor = 'grab';
     if (cancelled) return;
+    if (d.handle) { if (this.cb.onHandle) this.cb.onHandle(d.handle.id, d.handle.dir, d.shift, { x: e.clientX, y: e.clientY }); return; }
     if (d.moved && d.id) { if (this.cb.onMove) this.cb.onMove(d.id, { x: this.cur.get(d.id).x, y: this.cur.get(d.id).y }); return; }
     if (d.moved) return;
     if (d.id) { if (this.cb.onSelect) this.cb.onSelect(d.id, d.shift); }
@@ -307,6 +352,7 @@
 
     // focus: selection or hover dims everything outside its neighbourhood
     var focusIds = new Set(this.selected); if (this.hover.node) focusIds.add(this.hover.node);
+    if (d.noDim) focusIds.clear();                                                           // a trace stays readable whatever is selected
     if (d.focusId && focusIds.size === 1 && focusIds.has(d.focusId)) focusIds.clear();      // the focus view is already narrowed to this vertex: do not fade the next steps
     var near = focusIds.size ? neighbourhood(g, focusIds) : null;
     var hotEdge = this.hover.edge;
@@ -320,8 +366,10 @@
       if ((A.x < -50 && B.x < -50) || (A.y < -50 && B.y < -50) || (A.x > self.w + 50 && B.x > self.w + 50) || (A.y > self.h + 50 && B.y > self.h + 50)) return;
       var inFocus = !near || ((focusIds.has(e.source) || focusIds.has(e.target)));
       var w = Math.max(1, st.edgeWidth(e) * s * 0.8);
-      var colour = st.edgeColor(e) || th.edge;
+      var mark = d.edgeMark ? d.edgeMark(e) : null;                         // e.g. the output that most likely returns to the sender
+      var colour = mark || st.edgeColor(e) || th.edge;
       ctx.globalAlpha = id === hotEdge || (self.selectedEdge === id) ? 1 : (inFocus ? (near ? 0.95 : 0.55) : 0.08);
+      if (mark && inFocus && ctx.globalAlpha < 0.9) ctx.globalAlpha = 0.9;
       ctx.strokeStyle = id === hotEdge ? th.select : colour;
       ctx.lineWidth = w;
       ctx.setLineDash(e.kind === 'out' && e.spent === false ? [6, 4] : []);
@@ -355,7 +403,8 @@
     }
 
     // nodes
-    var labels = [], badges = [];
+    var labels = [], badges = [], pills = [];
+    this.handleRects = [];
     d.visible.nodes.forEach(function (id) {
       var n = g.nodes.get(id), p = self.cur.get(id); if (!p) return;
       var P = self._toScreen(p), r = st.nodeRadius(n) * s;
@@ -378,18 +427,34 @@
         ctx.strokeStyle = self.selected.has(id) ? th.select : (n.label ? th.accent : th.known);
         ctx.stroke();
       }
+      var ring = d.clusterColor && n.type === 'addr' ? d.clusterColor(id) : null;
+      if (ring) {                                                           // a dashed ring in the cluster's colour: addresses spent together
+        ctx.beginPath(); ctx.arc(P.x, P.y, r + 7.5, 0, Math.PI * 2); ctx.lineWidth = 2.5; ctx.strokeStyle = ring; ctx.setLineDash([5, 3]); ctx.stroke(); ctx.setLineDash([]);
+      }
       if (n.ext) {                                                         // a small blue dot: something was looked up about this wallet
         ctx.beginPath(); ctx.arc(P.x + r * 0.85, P.y - r * 0.85, 3.4, 0, Math.PI * 2); ctx.fillStyle = '#4da3ff'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.stroke();
       }
       ctx.globalAlpha = 1;
-      if (n.tag && !dimmed) badges.push({ text: n.tag, x: P.x, y: P.y - r - 6, color: colour });
+      if (n.tag && !dimmed) badges.push({ text: n.tag, x: P.x, y: P.y - r - 6 - ((d.seedIds ? d.seedIds.has(id) : d.seedId === id) ? 10 : 0), color: colour });
+      var isSeed = d.seedIds ? d.seedIds.has(id) : d.seedId === id;
+      if (isSeed) badges.push({ text: 'START', x: P.x, y: P.y - r - 6, color: '#ffd23f' });
+      var flags = d.nodeFlags && !dimmed ? d.nodeFlags(n) : null;
+      if (flags) flags.forEach(function (f, i) { badges.push({ text: f.text, x: P.x, y: P.y - r - 6 - (isSeed ? 10 : 0) - (n.tag ? 10 : 0) - i * 10, color: f.color }); });
+      if (d.handles) {
+        var hd = d.handles(id);
+        if (hd) {
+          if (hd.left) pills.push({ id: id, dir: 'left', x: P.x - r - 8, y: P.y, label: hd.left.label, tip: hd.left.tip, strong: hd.left.known > 0 });
+          if (hd.right) pills.push({ id: id, dir: 'right', x: P.x + r + 8, y: P.y, label: hd.right.label, tip: hd.right.tip, strong: hd.right.known > 0 });
+        }
+      }
       var text = null;
       if (n.label) text = n.label;
       else if (known) text = known.label;
-      else if (self.selected.has(id) || id === self.hover.node || (d.showLabels && v.k >= 0.9)) {
+      else if (self.selected.has(id) || id === self.hover.node || d.labelAll || (d.showLabels && v.k >= 0.9)) {
         text = n.type === 'tx' ? Style.shortId(n.txid, 5) : n.type === 'addr' ? Style.shortId(n.address, 6) : n.type === 'coinbase' ? 'coinbase' : n.type === 'data' ? (n.dataText ? '“' + n.dataText.slice(0, 18) + '”' : 'OP_RETURN') : 'non-standard';
       }
-      if (text && !dimmed) labels.push({ text: text, x: P.x, y: P.y + r + 12, strong: !!(n.label || known), sel: self.selected.has(id) });
+      var note = d.nodeNote ? d.nodeNote(n) : '';
+      if (text && !dimmed) labels.push({ text: text, sub: note, x: P.x, y: P.y + r + 12, strong: !!(n.label || known), sel: self.selected.has(id) });
     });
     ctx.font = 'bold 9.5px Calibri, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.lineJoin = 'round';
     badges.forEach(function (b) {                                          // the tag, in its own colour, above the vertex
@@ -401,7 +466,29 @@
       var t = l.text.length > 34 ? l.text.slice(0, 33) + '…' : l.text;
       ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(28,20,29,0.9)'; ctx.strokeText(t, l.x, l.y);
       ctx.fillStyle = l.strong ? th.accent : th.text; ctx.fillText(t, l.x, l.y);
+      if (l.sub) {
+        ctx.font = '10px Calibri, Arial, sans-serif';
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(28,20,29,0.9)'; ctx.strokeText(l.sub, l.x, l.y + 11);
+        ctx.fillStyle = th.dim; ctx.fillText(l.sub, l.x, l.y + 11);
+        ctx.font = '11px Calibri, Arial, sans-serif';
+      }
     });
+    ctx.globalAlpha = 1;
+    if (pills.length) {                                                    // expand handles: "◀ 3" on the left of a vertex, "5+ ▶" on the right
+      ctx.font = 'bold 10.5px Calibri, Arial, sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      pills.forEach(function (p) {
+        var text = p.dir === 'left' ? '◀ ' + p.label : p.label + ' ▶', w = Math.max(30, ctx.measureText(text).width + 12), h = 18;
+        var x = p.dir === 'left' ? p.x - w : p.x, y = p.y - h / 2;
+        if (x > self.w + 40 || x + w < -40 || y > self.h + 40 || y + h < -40) return;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x, y, w, h, 9); else ctx.rect(x, y, w, h);
+        ctx.fillStyle = p.strong ? th.accent : 'rgba(28,20,29,0.92)'; ctx.fill();
+        ctx.lineWidth = 1.5; ctx.strokeStyle = th.accent; ctx.stroke();
+        ctx.fillStyle = p.strong ? '#0e0f0e' : th.accent; ctx.fillText(text, x + w / 2, y + h / 2 + 0.5);
+        self.handleRects.push({ id: p.id, dir: p.dir, x: x, y: y, w: w, h: h, tip: p.tip });
+      });
+      ctx.textBaseline = 'alphabetic';
+    }
   };
 
   function fmtGap(sec, short) {

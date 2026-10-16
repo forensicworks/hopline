@@ -229,6 +229,12 @@
     })).then(function () { return left; });
   };
 
+  /** Load full transactions (at most `cap`; with their outspends when asked). Resolves with the usual summary. */
+  Explorer.prototype.loadMany = function (txids, cap, withOutspends) {
+    var ex = this, before = snap(this), errors = [];
+    return this._loadMany(txids, cap, errors, !!withOutspends).then(function (left) { return summarise(ex, before, errors, left > 0); });
+  };
+
   /**
    * Expand a transaction. direction: 'forward' (who spent its outputs), 'backward' (what funded it), 'both'.
    * cap = at most this many transactions are fetched per direction.
@@ -255,6 +261,75 @@
       }
       return Promise.all(jobs);
     }).then(function () { return summarise(ex, before, errors, truncated); });
+  };
+
+  /**
+   * Walk outward from transactions, one level at a time, loading what each step needs. The caller decides where to go:
+   *   opts.dir         'next' (who spent the outputs) or 'prev' (what funded the inputs)
+   *   opts.hops        how many levels beyond the start to load (at least 1)
+   *   opts.maxTx       the most NEW transactions to load in total (stops there, keeping what was loaded)
+   *   opts.successors  (txid, level) -> { next: [txid], stop: reason|null }, called once per loaded transaction; for 'next' its
+   *                    outspends are loaded first, so the spenders are known. The last level is loaded but not asked.
+   * Resolves with the usual summary plus
+   *   levels   [[txid]] the transactions loaded at each level (level 0 = the start)
+   *   stops    [{txid, reason}] where the walk ended on its own
+   *   asked    [{txid, level}] the transactions `successors` was asked about, in order
+   *   loadedNew, left (transactions known but not loaded because of the cap), reason: 'done' | 'cap-tx' | 'cap-requests' | 'cancelled'
+   * Stops between levels when the client was aborted or hit its request cap, so a cancel keeps everything loaded so far.
+   */
+  Explorer.prototype.walk = function (start, opts) {
+    var ex = this, before = snap(this), errors = [], dir = opts.dir === 'prev' ? 'prev' : 'next';
+    var hops = Math.max(1, opts.hops | 0), maxTx = opts.maxTx > 0 ? opts.maxTx : 1e9;
+    var levels = [], stops = [], asked = [], visited = new Set(), newLoaded = 0, left = 0, reason = 'done';
+    var level = [];
+    (start || []).forEach(function (t) { if (level.indexOf(t) < 0) level.push(t); });
+
+    function loaded(id) { var n = ex.graph.nodes.get(ID.tx(id)); return !!(n && n.loaded); }
+    function ensure(ids, withOut) {
+      var budget = maxTx - newLoaded, allowed = new Set();
+      ids.forEach(function (id) {
+        if (loaded(id)) allowed.add(id);
+        else if (budget > 0) { allowed.add(id); budget--; }
+        else left++;
+      });
+      return Promise.all(ids.filter(function (id) { return allowed.has(id); }).map(function (id) {
+        var have = loaded(id);
+        var p = have ? Promise.resolve() : ex.client.tx(id).then(function (t) { ex.graph.addTx(t); newLoaded++; });
+        return p.then(function () {
+          var n = ex.graph.nodes.get(ID.tx(id));
+          if (withOut && n && n.loaded && !n.outspendsLoaded) return ex.client.outspends(id).then(function (o) { ex.graph.addOutspends(id, o); });
+        }).catch(function (e) { note(errors, e); });
+      })).then(function () { return ids.filter(loaded); });
+    }
+    function interrupted() {
+      if (ex.client.aborted) { reason = 'cancelled'; return true; }
+      if (errors.some(function (m) { return /request cap/.test(m); })) { reason = 'cap-requests'; return true; }
+      return false;
+    }
+    function go(h) {
+      if (!level.length) return Promise.resolve();
+      return ensure(level, dir === 'next' && h < hops).then(function (ids) {
+        levels.push(ids);
+        if (interrupted()) return;
+        if (h >= hops) return;
+        var nextLevel = [];
+        ids.forEach(function (id) {
+          if (visited.has(id)) return;
+          visited.add(id); asked.push({ txid: id, level: h });
+          var r = opts.successors(id, h) || {};
+          if (r.stop) stops.push({ txid: id, reason: r.stop });
+          (r.next || []).forEach(function (x) { if (!visited.has(x) && nextLevel.indexOf(x) < 0) nextLevel.push(x); });
+        });
+        level = nextLevel;
+        return go(h + 1);
+      });
+    }
+    return go(0).catch(function (e) { note(errors, e); }).then(function () {
+      if (reason === 'done' && left > 0) reason = 'cap-tx';
+      var r = summarise(ex, before, errors, left > 0);
+      r.levels = levels; r.stops = stops; r.asked = asked; r.loadedNew = newLoaded; r.left = left; r.reason = reason;
+      return r;
+    });
   };
 
   /**

@@ -6,12 +6,12 @@
 (function () {
   'use strict';
 
-  var M = OrionModel, S = OrionStyle, F = OrionFilter, L = OrionLayout, A = OrionApi, IO = OrionIO, R = OrionRender, NV = OrionNav, AD = OrionAddress, PR = OrionPrice, ST = OrionSteps, TG = OrionTags, XT = OrionExternal;
+  var M = OrionModel, S = OrionStyle, F = OrionFilter, L = OrionLayout, A = OrionApi, IO = OrionIO, R = OrionRender, NV = OrionNav, AD = OrionAddress, PR = OrionPrice, ST = OrionSteps, TG = OrionTags, XT = OrionExternal, TR = OrionTrace, AN = OrionAnalysis;
   var ID = M.ID;
   var KNOWN = window.ORION_KNOWN || {};
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
   var SAVE_KEY = 'orion.workspace.v1', PREF_KEY = 'orion.prefs.v1', TOKEN_KEY = 'orion.ext.token';
-  var LAYOUTS = { flow: 1, timeline: 1, force: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SCALES = { compact: 1, proportional: 1 };
+  var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SCALES = { compact: 1, proportional: 1 };
 
   function $(id) { return document.getElementById(id); }
   function el(tag, props, kids) {
@@ -41,7 +41,10 @@
     source: 'clearnet', customBase: '', capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: true,
     focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
-    sideCollapsed: false, inspCollapsed: false, edgeLabels: true, viaWallets: true,
+    sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
+    trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [] },
+    analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null,
+    auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
     busy: false, playMs: 90, layoutRes: null, client: null, explorer: null, tb: { min: null, max: null }, amountMax: 0, playTimer: null,
@@ -135,8 +138,20 @@
     return out;
   }
 
+  var AUTO_FOLLOW = { all: 1, largest: 1, change: 1, peel: 1 };
+  function cleanAuto(a) {
+    var d = { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true };
+    if (!a || typeof a !== 'object') return d;
+    if (a.dir === 'next' || a.dir === 'prev') d.dir = a.dir;
+    if (AUTO_FOLLOW[a.follow] === 1) d.follow = a.follow;
+    d.hops = num(a.hops, 1, 12, 3); d.maxTx = num(a.maxTx, 1, 500, 40); d.maxReq = num(a.maxReq, 1, 1000, 150); d.perTx = num(a.perTx, 1, 50, 6); d.minSats = num(a.minSats, 0, 2100000000000000, 0);
+    d.stopLabel = a.stopLabel !== false; d.stopMix = a.stopMix !== false;
+    return d;
+  }
+  function cleanAnalysis(a) { a = a && typeof a === 'object' ? a : {}; return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false }; }
+
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ source: state.source, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
+    store.set(PREF_KEY, JSON.stringify({ source: state.source, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -149,8 +164,9 @@
       state.persist = p.persist !== false;
       state.focusOn = p.focusOn !== false; state.hops = num(p.hops, 1, 3, 2);
       state.fiat = cleanFiat(p.fiat);
-      state.sideCollapsed = p.sideCollapsed === true; state.inspCollapsed = p.inspCollapsed === true;
+      state.sideCollapsed = p.sideCollapsed === true; state.inspCollapsed = p.inspCollapsed === true; state.tbCollapsed = p.tbCollapsed === true;
       state.edgeLabels = p.edgeLabels !== false; state.viaWallets = p.viaWallets !== false;
+      state.analysis = cleanAnalysis(p.analysis); state.auto = cleanAuto(p.auto);
       if (typeof p.extProxy === 'string' && proxyUrlOk(p.extProxy)) state.ext.proxy = p.extProxy;
       state.ext.remember = p.extRemember === true;
       if (state.ext.remember) state.ext.token = store.get(TOKEN_KEY) || '';
@@ -163,11 +179,11 @@
   }
 
   /** Runs fn() (resolving to an Explorer result) with a request cap and a cancel button, then reports. */
-  function run(title, fn) {
+  function run(title, fn, o) {
     if (state.busy) { toast('Busy: wait for the current action or cancel it.', true); return Promise.resolve(null); }
     if (state.source === 'custom' && !/^https?:\/\//i.test(state.customBase.trim())) { toast('Enter the URL of your Esplora API first (https://… or http://…).', true); return Promise.resolve(null); }
     state.busy = true;
-    var c = state.client; c.resume(); c.resetCount(); c.maxRequests = state.capReq;
+    var c = state.client; c.resume(); c.resetCount(); c.maxRequests = (o && o.maxRequests) || state.capReq;
     showProgress(title);
     var wasEmpty = state.graph.nodes.size === 0;
     return fn().then(function (r) {
@@ -201,11 +217,11 @@
 
   // ---- focus and navigation -------------------------------------------------------------------
   /** The vertex whose neighbourhood is shown, or null when the whole graph is. */
-  function focusOpt() { return state.focusOn && state.focus && state.graph.nodes.has(state.focus) ? { id: state.focus, hops: state.hops } : null; }
+  function focusOpt() { return state.focusOn && state.layout !== 'trace' && state.focus && state.graph.nodes.has(state.focus) ? { id: state.focus, hops: state.hops } : null; }
 
   /** What the graph shows before the time range is applied: every other filter, limited to the focus neighbourhood. */
   function scope(extra) {
-    return F.computeVisible(state.graph, Object.assign({}, state.filter, { timeFrom: null, timeTo: null }, extra || {}), state.keep, focusOpt());
+    return F.computeVisible(state.graph, Object.assign({}, state.filter, { timeFrom: null, timeTo: null }, extra || {}), state.keep, focusOpt(), traceOnly());
   }
 
   function needsLoad(id) {
@@ -271,6 +287,7 @@
     function commit() {
       stopPlay(); $('tooltip').hidden = true;
       state.focus = id; state.keep.add(id);
+      if (traceOn()) { if (o.replaceTrace || !state.trace.shown.size) traceStart(id); else traceAddSeed(id, false); }       // a new vertex is ADDED to the trace; only "Start over" replaces it
       state.filter.timeFrom = null; state.filter.timeTo = null;       // a window chosen for the old neighbourhood may hide the whole new one
       state.pinned.clear();
       if (!o.fromHistory) visitNav(id);
@@ -295,6 +312,301 @@
     });
   }
 
+  // ---- Trace: build the chain by hand ---------------------------------------------------------
+  // Nothing here ever removes a vertex on its own: a click only adds. What goes is what you hide, and every hide can be undone.
+  function traceOn() { return state.layout === 'trace'; }
+  function traceOnly() { return traceOn() ? state.trace.shown : null; }
+  function walletOrTx(id) { return /^(tx|addr):/.test(id) && state.graph.nodes.has(id); }
+  function emptyTrace() { return { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [] }; }
+  function syncSeed() { var T = state.trace; T.seeds = T.seeds.filter(function (s) { return T.shown.has(s); }); T.seed = T.seeds.length ? T.seeds[0] : null; }
+  function traceDrop(id) { var T = state.trace; T.shown.delete(id); T.pos.delete(id); T.prov.delete(id); state.selected.delete(id); }
+
+  /** Begin again from one vertex: only it is shown. */
+  function traceStart(id) {
+    var T = state.trace;
+    T.seed = id; T.seeds = [id]; T.shown = new Set([id]); T.pos = new Map([[id, { x: 0, y: 0 }]]); T.prov = new Map(); T.undo = [];
+    state.keep.add(id);
+  }
+
+  /** The area the trace covers, to put a new starting point clear of it. */
+  function traceBox() {
+    var minX = Infinity, maxX = -Infinity, maxY = -Infinity;
+    state.trace.shown.forEach(function (id) { var p = state.trace.pos.get(id); if (!p) return; minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
+    return isFinite(minX) ? { cx: Math.round((minX + maxX) / 20) * 10, bottom: maxY } : { cx: 0, bottom: -150 };
+  }
+
+  /**
+   * Another starting point, next to what is already there: nothing is removed or moved. A vertex that is already on
+   * screen is left where it is (and marked as a starting point only when `mark` is true). Returns true if it was added.
+   */
+  function traceAddSeed(id, mark) {
+    var T = state.trace;
+    state.keep.add(id);
+    if (T.shown.has(id)) {
+      if (mark && T.seeds.indexOf(id) < 0) { T.seeds.push(id); T.undo.push({ type: 'seed', id: id, added: false }); syncSeed(); }
+      return false;
+    }
+    var b = traceBox();
+    T.shown.add(id); T.pos.set(id, { x: b.cx, y: b.bottom + 150 }); T.seeds.push(id);
+    T.undo.push({ type: 'seed', id: id, added: true }); syncSeed();
+    return true;
+  }
+
+  /** What to start from when the layout is switched on: the selected vertex, else the focus, else the first one loaded. */
+  function traceCandidate() {
+    var g = state.graph, sel = Array.from(state.selected).filter(walletOrTx)[0];
+    if (sel) return sel;
+    if (state.focus && walletOrTx(state.focus)) return state.focus;
+    var first = null;
+    g.nodes.forEach(function (n) { if (!first && (n.type === 'tx' || n.type === 'addr')) first = n.id; });
+    return first;
+  }
+
+  var TRACE_WHAT = { tx: { next: 'wallets this transaction paid', prev: 'wallets that paid into it' }, addr: { next: 'transactions that spent from this wallet', prev: 'transactions that paid this wallet' } };
+
+  /** The two expand handles of a vertex: { left, right } each { label, known, tip } or null. */
+  function handlesFor(id) {
+    var n = state.graph.nodes.get(id);
+    if (!n || (n.type !== 'tx' && n.type !== 'addr')) return null;
+    function one(dir) {
+      var h = TR.hidden(state.graph, state.trace.shown, id, dir), label = TR.handleLabel(h);
+      if (!label) return null;
+      var came = state.trace.prov.get(id);                                       // a bare "?" on the side the trace came from is noise: it stays one key press or menu item away
+      if (label === '?' && came && ((came.dir === 'next' && dir === 'prev') || (came.dir === 'prev' && dir === 'next'))) return null;
+      var what = TRACE_WHAT[n.type][dir];
+      var tip = h.known ? 'Show ' + h.known + ' ' + what + (h.unknown ? ' (more may exist: ' + (n.type === 'addr' ? 'the wallet\'s history is not fully loaded' : 'this transaction is not loaded') + ')' : '') + '. Shift-click to choose which.'
+                        : 'Look for ' + what + ' (loads data)';
+      return { label: label, known: h.known, tip: tip };
+    }
+    return { left: one('prev'), right: one('next') };
+  }
+
+  function traceNote(n) {
+    if (n.type === 'tx') return n.time != null ? S.fmtTime(n.time, false) : (n.confirmed === false ? 'unconfirmed' : (n.loaded === false ? 'not loaded' : ''));
+    if (n.type === 'addr') return n.txCount != null ? fmtInt(n.txCount) + ' txs' : '';
+    return '';
+  }
+
+  function traceSelected() { return Array.from(state.selected).filter(function (id) { return state.trace.shown.has(id); }); }
+
+  function updateTraceUi() {
+    var on = traceOn(), T = state.trace;
+    document.body.classList.toggle('trace-on', on);
+    $('traceBar').hidden = !on;
+    $('focusOn').disabled = on; $('depth').disabled = on;
+    $('focusOn').title = on ? 'Not used in the Trace layout: the trace shows what you reveal' : 'Show only the neighbourhood of the vertex you are looking at';
+    $('traceUndo').disabled = !T.undo.length;
+    var sel = on ? traceSelected().length : 0;
+    $('traceHide').disabled = !sel; $('traceKeep').disabled = !sel || sel >= T.shown.size;
+    $('traceInfo').textContent = !T.shown.size ? 'Nothing shown: open a wallet or a transaction.'
+      : T.shown.size === 1 ? 'Click ◀ or ▶ beside the vertex to show what came before or after it.'
+      : T.shown.size + ' vertices shown' + (sel ? ' · ' + sel + ' selected' : '');
+  }
+
+  /** Redraw after the shown set changed. `fit` refits the whole trace; otherwise the view only pans to what was added. */
+  function traceChanged(newIds, fit) {
+    state.graph.refreshDerived();
+    updateTimebar(); updateAmount(); updateScriptChips();
+    refresh({ relayout: true, traceChanged: true, fit: !!fit });
+    if (!fit && newIds && newIds.length) renderer.ensureVisible(newIds);
+    updateTraceUi(); showInspector(true); scheduleSave();
+  }
+
+  /**
+   * One click on a handle (or ] / [ / double-click): reveal one wallet hop in a direction, loading what is needed.
+   * o.only = a Set of ids: show just those (the chooser).
+   */
+  function traceExpand(id, dir, o) {
+    o = o || {};
+    var g = state.graph, T = state.trace, n = g.nodes.get(id);
+    if (!traceOn() || !n) return Promise.resolve(false);
+    if (n.type !== 'tx' && n.type !== 'addr') { toast('Nothing lies beyond ' + (n.type === 'coinbase' ? 'a coinbase' : n.type === 'data' ? 'an OP_RETURN output' : 'this output') + '.'); return Promise.resolve(false); }
+    var opts = { limit: o.only ? 100000 : state.capTx, inner: 8, only: o.only || null }, combined = null, revealedIds = [];
+    function add(r) {
+      if (!r) return;
+      combined = combined || { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] };
+      combined.requests += r.requests || 0; combined.truncated = combined.truncated || !!r.truncated; combined.errors = combined.errors.concat(r.errors || []);
+      if (r.failed) combined.failed = true;
+    }
+    var title = (dir === 'next' ? 'Show forward from ' : 'Show backward from ') + S.shortId(n.type === 'tx' ? n.txid : n.address, 6);
+    return run(title, function () {
+      var ex = state.explorer, chain = Promise.resolve();
+      if (n.type === 'tx' && (n.loaded === false || (dir === 'next' && !n.outspendsLoaded))) chain = chain.then(function () { return ex.loadTx(n.txid).then(add); });
+      chain = chain.then(function () {
+        var h = TR.hidden(g, T.shown, id, dir), nd = g.nodes.get(id);
+        if (nd.type === 'addr' && h.known === 0 && h.unknown) {                    // nothing known yet: ask for the wallet's history
+          return ex.expandAddress(nd.address, { pages: state.capPages, cap: state.capPages * 25, after: nd.histNext || undefined }).then(function (r) {
+            nd.histNext = r.last || null; nd.histDone = !r.last && !r.truncated && !(r.errors && r.errors.length); add(r);
+          });
+        }
+      });
+      chain = chain.then(function () {
+        var p = TR.plan(g, T.shown, id, dir, opts);
+        if (p.needLoad.length) return ex.loadMany(p.needLoad, opts.limit, dir === 'next').then(add);       // the transactions between wallets, to see the wallets beyond
+      });
+      return chain.then(function () {
+        g.refreshDerived();
+        var p = TR.plan(g, T.shown, id, dir, opts), rev = TR.revealed(p, id, dir);
+        if (rev.length) {
+          TR.place(T.pos, id, dir, p).forEach(function (v, k) { T.pos.set(k, v); });
+          rev.forEach(function (x) { T.shown.add(x.id); T.prov.set(x.id, { via: x.via, dir: x.dir }); revealedIds.push(x.id); });
+          T.undo.push({ type: 'reveal', ids: revealedIds.slice() });
+        }
+        combined = combined || { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] };
+        combined.added = revealedIds.length;
+        return combined;
+      });
+    }).then(function (r) {
+      if (!r) return false;
+      if (!revealedIds.length) { if (!r.failed) toast(ST.emptyReason(g, id, dir, { viaWallets: true })); return false; }
+      traceChanged(revealedIds, false);
+      return true;
+    });
+  }
+
+  /** Shift-click on a handle: a list of what is hidden in that direction, to tick the ones to show. */
+  function traceChoose(id, dir, at) {
+    var g = state.graph, T = state.trace, n = g.nodes.get(id);
+    if (!n || !walletOrTx(id)) return;
+    var h = TR.hidden(g, T.shown, id, dir);
+    if (!h.known) { traceExpand(id, dir); return; }                                  // nothing to choose from yet: this loads it
+    var rows = TR.plan(g, T.shown, id, dir, { limit: 100000 }).primary;
+    var m = $('ctxMenu'); m.textContent = ''; closeStepMenu(); $('tooltip').hidden = true;
+    m.appendChild(el('div', { 'class': 'ctxhead', text: 'Choose what to show ' + (dir === 'next' ? '▶' : '◀') + ' · ' + rows.length + ' hidden' }));
+    var boxes = [], list = el('div', { 'class': 'chooser' });
+    rows.forEach(function (r, i) {
+      var t = stepRowText(r), cb = el('input', { type: 'checkbox', 'aria-label': t.what });
+      cb.checked = i < Math.min(10, state.capTx); cb.addEventListener('change', count);
+      boxes.push({ cb: cb, id: r.id });
+      list.appendChild(el('label', { 'class': 'chooserrow' }, [cb, el('span', { 'class': 'what' }, [t.what, t.sub ? el('small', { text: t.sub }) : null]), el('span', { 'class': 'amt', text: t.amt })]));
+    });
+    m.appendChild(list);
+    var go = el('button', { type: 'button', 'class': 'primary', onclick: function () {
+      var only = new Set(boxes.filter(function (b) { return b.cb.checked; }).map(function (b) { return b.id; }));
+      closeCtx(); if (only.size) traceExpand(id, dir, { only: only });
+    } });
+    function count() { var k = boxes.filter(function (b) { return b.cb.checked; }).length; go.textContent = 'Show ' + k + ' selected'; go.disabled = !k; }
+    function setAll(v) { boxes.forEach(function (b) { b.cb.checked = v; }); count(); }
+    m.appendChild(el('div', { 'class': 'chooserfoot' }, [go, el('button', { type: 'button', text: 'All', onclick: function () { setAll(true); } }), el('button', { type: 'button', text: 'None', onclick: function () { setAll(false); } }),
+                                                         el('button', { type: 'button', text: 'Cancel', onclick: closeCtx })]));
+    count(); placeCtx(at || { x: 400, y: 200 });
+    var first = m.querySelector('input'); if (first) first.focus();
+  }
+
+  // ---- taking things off the screen (always undoable) -------------------------------------------
+  /** Hide vertices. They stay loaded and their neighbours' handles count them again, so they can be shown again. */
+  function traceHideIds(ids) {
+    var T = state.trace; ids = ids.filter(function (id) { return T.shown.has(id); });
+    if (!ids.length) return 0;
+    if (ids.length >= T.shown.size) { toast('Keep at least one vertex on screen: use "Reset to start" or open something else.', true); return 0; }
+    var items = ids.map(function (id) { var p = T.pos.get(id); return { id: id, pos: p ? { x: p.x, y: p.y } : null, prov: T.prov.get(id) || null, seed: T.seeds.indexOf(id) >= 0 }; });
+    ids.forEach(traceDrop);
+    var hadSeed = T.seeds.length; syncSeed();
+    if (!T.seeds.length) {                                                         // every starting point was hidden: the oldest remaining vertex becomes the start
+      var first = Array.from(T.shown)[0]; T.seeds = [first]; T.seed = first;
+    }
+    T.undo.push({ type: 'hide', items: items });
+    syncSelection(); traceChanged(null, false);
+    return ids.length;
+  }
+  function traceHideSelected() {
+    var ids = traceSelected();
+    if (!ids.length) { toast('Select the vertices to hide first (click, Shift-click, or Ctrl+A).'); return; }
+    var k = traceHideIds(ids); if (k) toast('Hid ' + k + (k === 1 ? ' vertex' : ' vertices') + ' (they stay loaded; Ctrl+Z brings them back).');
+  }
+  function traceKeepOnly(ids) {
+    var T = state.trace; ids = ids.filter(function (id) { return T.shown.has(id); });
+    if (!ids.length) { toast('Select the vertices to keep first.'); return; }
+    var keep = new Set(ids), rest = Array.from(T.shown).filter(function (id) { return !keep.has(id); });
+    if (!rest.length) { toast('Everything shown is selected: nothing to hide.'); return; }
+    var k = traceHideIds(rest); if (k) toast('Kept ' + ids.length + ', hid ' + k + ' (Ctrl+Z brings them back).');
+  }
+  /** A vertex and everything that was revealed because of it. */
+  function traceBranch(id) { return [id].concat(TR.descendants(state.trace.prov, id)).filter(function (x) { return state.trace.shown.has(x); }); }
+  function traceHideBranch(id) {
+    var ids = traceBranch(id), k = traceHideIds(ids);
+    if (k) toast('Hid ' + k + (k === 1 ? ' vertex' : ' vertices') + ' (Ctrl+Z brings them back).');
+  }
+  function traceSelectBranch(id) { state.selected = new Set(traceBranch(id)); state.selectedEdge = null; syncSelection(); }
+  function traceSelectAll() { state.selected = new Set(Array.from(state.trace.shown).filter(function (id) { return state.graph.nodes.has(id); })); state.selectedEdge = null; syncSelection(); }
+
+  function traceUndo() {
+    var T = state.trace, last = T.undo.pop();
+    if (!last) return;
+    var back = [];
+    if (last.type === 'hide') {
+      last.items.forEach(function (it) {
+        T.shown.add(it.id); back.push(it.id);
+        if (it.pos) T.pos.set(it.id, it.pos);
+        if (it.prov) T.prov.set(it.id, it.prov);
+        if (it.seed && T.seeds.indexOf(it.id) < 0) T.seeds.push(it.id);
+      });
+    } else if (last.type === 'seed') {
+      T.seeds = T.seeds.filter(function (s) { return s !== last.id; });
+      if (last.added) traceDrop(last.id);
+    } else last.ids.forEach(traceDrop);
+    if (!T.seeds.length && T.shown.size) T.seeds = [Array.from(T.shown)[0]];
+    syncSeed(); syncSelection(); traceChanged(back, false);
+  }
+  function traceReset() {
+    var T = state.trace; if (!T.seed) return;
+    traceStart(T.seed); state.selected = new Set([T.seed]); syncSelection(); traceChanged(null, true);
+  }
+  /** [ and ] in a trace: expand the selected wallet or transaction, or the start. */
+  function traceKey(dir) {
+    var id = Array.from(state.selected).filter(function (x) { return state.trace.shown.has(x) && walletOrTx(x); })[0] || state.trace.seed;
+    if (id) traceExpand(id, dir);
+  }
+  /** Re-run the automatic left-to-right layout over what is shown (positions are otherwise yours). */
+  function traceTidy() {
+    var T = state.trace, vis = F.computeVisible(state.graph, state.filter, state.keep, null, traceOnly());
+    L.layoutFlow(state.graph, vis, {}).pos.forEach(function (p, id) { T.pos.set(id, { x: p.x, y: p.y }); });
+    traceChanged(null, true);
+  }
+
+  /** The trace as plain data for the saved session and the export. */
+  function traceData() {
+    var T = state.trace; if (!T.seed) return null;
+    var pos = {}, prov = {};
+    T.pos.forEach(function (p, id) { if (T.shown.has(id)) pos[id] = [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10]; });
+    T.prov.forEach(function (p, id) { if (T.shown.has(id)) prov[id] = [p.via, p.dir]; });
+    return { seed: T.seed, seeds: T.seeds.slice(), shown: Array.from(T.shown), pos: pos, prov: prov };
+  }
+  function loadTraceData(d) {
+    if (!d || typeof d !== 'object' || typeof d.seed !== 'string' || !NV.isId(d.seed)) return false;
+    var T = state.trace, shown = new Set(), pos = new Map(), prov = new Map();
+    (Array.isArray(d.shown) ? d.shown : []).slice(0, 5000).forEach(function (id) { if (typeof id === 'string' && NV.isId(id)) shown.add(canonicalId(id)); });
+    var seed = canonicalId(d.seed); shown.add(seed);
+    var seeds = (Array.isArray(d.seeds) ? d.seeds : []).filter(function (id) { return typeof id === 'string' && NV.isId(id); }).map(canonicalId).filter(function (id) { return shown.has(id); });
+    if (seeds.indexOf(seed) < 0) seeds.unshift(seed);
+    if (d.pos && typeof d.pos === 'object') Object.keys(d.pos).forEach(function (id) {
+      var a = d.pos[id]; if (NV.isId(id) && Array.isArray(a) && a.length === 2 && isFinite(a[0]) && isFinite(a[1]) && Math.abs(a[0]) < 1e6 && Math.abs(a[1]) < 1e6) pos.set(canonicalId(id), { x: a[0], y: a[1] });
+    });
+    if (d.prov && typeof d.prov === 'object') Object.keys(d.prov).forEach(function (id) {
+      var a = d.prov[id]; if (NV.isId(id) && Array.isArray(a) && typeof a[0] === 'string' && NV.isId(a[0]) && (a[1] === 'next' || a[1] === 'prev')) prov.set(canonicalId(id), { via: canonicalId(a[0]), dir: a[1] });
+    });
+    var i = 0;
+    shown.forEach(function (id) { if (!pos.has(id)) { pos.set(id, id === seed ? { x: 0, y: 0 } : { x: (i % 8) * 200, y: Math.floor(i / 8) * 60 + 120 }); i++; } });
+    T.seed = seeds[0]; T.seeds = seeds; T.shown = shown; T.pos = pos; T.prov = prov; T.undo = [];
+    return true;
+  }
+  /** After a graph was merged in: forget trace vertices that are not in it. */
+  function traceSanitize() {
+    var T = state.trace, g = state.graph;
+    Array.from(T.shown).forEach(function (id) { if (!g.nodes.has(id)) { T.shown.delete(id); T.pos.delete(id); T.prov.delete(id); } });
+    syncSeed();
+    if (!T.seeds.length && T.shown.size) { T.seeds = [Array.from(T.shown)[0]]; T.seed = T.seeds[0]; }
+    if (!T.shown.size) state.trace = emptyTrace();
+  }
+  /** A vertex was deleted from the workspace altogether. */
+  function traceForget(ids) {
+    var T = state.trace;
+    ids.forEach(function (id) { T.shown.delete(id); T.pos.delete(id); T.prov.delete(id); });
+    syncSeed();
+    if (!T.seeds.length && T.shown.size) { T.seeds = [Array.from(T.shown)[0]]; T.seed = T.seeds[0]; }
+    if (!T.shown.size) state.trace = emptyTrace();
+  }
+
   // ---- Previous / Next: follow the money ------------------------------------------------------
   function stepOpts() { return { viaWallets: state.viaWallets }; }
   function closeStepMenu() {
@@ -307,7 +619,7 @@
   function renderStepBar() {
     var bar = $('stepbar'), g = state.graph, id = state.focus, n = id && g.nodes.get(id);
     closeStepMenu();
-    if (!n) { bar.hidden = true; return; }
+    if (!n || traceOn()) { bar.hidden = true; return; }
     bar.hidden = false;
     var c = ST.counts(g, id, stepOpts());
     [['prev', c.prev, $('stepPrev'), $('stepPrevN')], ['next', c.next, $('stepNext'), $('stepNextN')]].forEach(function (x) {
@@ -417,7 +729,7 @@
   function selectOnly(id) { state.selected = id ? new Set([id]) : new Set(); state.selectedEdge = null; syncSelection(); }
   function syncSelection() {
     renderer.setSelection(Array.from(state.selected)); renderer.selectedEdge = state.selectedEdge;
-    showInspector();
+    showInspector(); if (traceOn()) updateTraceUi(); updateAutoUi();
   }
 
   function copy(text) {
@@ -448,6 +760,8 @@
     var hit = edgeLabelCache.get(e.id); if (hit !== undefined) return hit;
     var fx = fiatOn() ? fiatOfEdge(e) : null, mode = fx ? state.fiat.show : 'btc', btc = S.fmtBtcShort(e.amount);
     var t = mode === 'fiat' ? fx.text : mode === 'both' ? btc + ' · ' + fx.text : btc;
+    var cm = state.analysis.change && state.an ? state.an.changeEdges.get(e.id) : null;
+    if (cm) t += ' · ' + (cm.confidence === 'high' ? 'likely change' : 'change?');
     edgeLabelCache.set(e.id, t);
     return t;
   }
@@ -767,12 +1081,30 @@
     if (ids.length > 1) {
       m.appendChild(el('div', { 'class': 'ctxhead', text: ids.length + ' selected' }));
       ctxItem(m, 'Tag as…', function () { buildTagMenu(ids, at); }, { keep: true, right: '▸' });
-      ctxItem(m, 'Remove ' + ids.length + ' from view', function () { removeIds(ids); }, { danger: true });
+      if (traceOn()) {
+        var sel = ids.filter(function (x) { return state.trace.shown.has(x); });
+        ctxItem(m, 'Hide ' + sel.length + ' from the trace', function () { traceHideIds(sel); }, { danger: true, disabled: !sel.length || sel.length >= state.trace.shown.size });
+        ctxItem(m, 'Keep only these ' + sel.length, function () { traceKeepOnly(sel); }, { disabled: !sel.length || sel.length >= state.trace.shown.size });
+      } else ctxItem(m, 'Remove ' + ids.length + ' from view', function () { removeIds(ids); }, { danger: true });
       placeCtx(at); return;
     }
     var n = g.nodes.get(ids[0]); if (!n) return;
     m.appendChild(el('div', { 'class': 'ctxhead', text: (KIND_NAME[n.type] || 'Vertex') + ' · ' + focusLabel(n.id).replace(/^tx /, '') }));
-    if (n.type === 'tx' || n.type === 'addr') ctxItem(m, 'Focus here', function () { navigate(n.id); });
+    if (traceOn() && (n.type === 'tx' || n.type === 'addr')) {
+      function lab(dir) { return TR.handleLabel(TR.hidden(state.graph, state.trace.shown, n.id, dir)); }
+      var T0 = state.trace, isSeed = T0.seeds.indexOf(n.id) >= 0, inTrace = T0.shown.has(n.id), branch = inTrace ? traceBranch(n.id) : [];
+      ctxItem(m, 'Show forward ▶', function () { traceExpand(n.id, 'next'); }, { right: lab('next') });
+      ctxItem(m, '◀ Show backward', function () { traceExpand(n.id, 'prev'); }, { right: lab('prev') });
+      ctxItem(m, 'Choose what to show ▶…', function () { traceChoose(n.id, 'next', at); }, { keep: true, disabled: !TR.hidden(state.graph, T0.shown, n.id, 'next').known });
+      ctxItem(m, '◀ Choose what to show…', function () { traceChoose(n.id, 'prev', at); }, { keep: true, disabled: !TR.hidden(state.graph, T0.shown, n.id, 'prev').known });
+      m.appendChild(el('div', { 'class': 'sep' }));
+      ctxItem(m, 'Hide this vertex', function () { traceHideIds([n.id]); }, { disabled: T0.shown.size <= 1, title: 'Take only this vertex off the screen; what it revealed stays' });
+      ctxItem(m, 'Hide this branch', function () { traceHideBranch(n.id); }, { disabled: branch.length >= T0.shown.size, right: branch.length > 1 ? String(branch.length) : '', title: 'Hide this vertex and everything that was revealed because of it' });
+      ctxItem(m, 'Select this branch', function () { traceSelectBranch(n.id); }, { disabled: branch.length < 2 });
+      m.appendChild(el('div', { 'class': 'sep' }));
+      ctxItem(m, isSeed ? 'Is a starting point' : 'Add as a starting point', function () { traceAddSeed(n.id, true); traceChanged(null, false); }, { disabled: isSeed });
+      ctxItem(m, 'Start over from here', function () { navigate(n.id, { replaceTrace: true, light: true }); }, { title: 'Replace the trace with just this vertex' });
+    } else if (n.type === 'tx' || n.type === 'addr') ctxItem(m, 'Focus here', function () { navigate(n.id); });
     if (n.type === 'tx') {
       ctxItem(m, 'Spenders →', function () { expandNode(n.id, 'forward'); });
       ctxItem(m, '← Funding', function () { expandNode(n.id, 'backward'); });
@@ -781,6 +1113,15 @@
       ctxItem(m, n.histNext ? 'Load more history' : 'Load history', function () { expandNode(n.id); }, { disabled: !!n.histDone });
       ctxItem(m, n.ext && n.ext.arkham ? 'Look up again in Arkham…' : 'Look up in Arkham…', function () { lookupArkham(n.id); },
               { right: 'external', title: 'Sends this wallet\'s address to Arkham Intelligence, through your local proxy' });
+    }
+    if (n.type === 'tx' || n.type === 'addr') {
+      var au = state.auto;
+      m.appendChild(el('div', { 'class': 'sep' }));
+      ctxItem(m, 'Auto-expand forward ▶▶', function () { autoExpand(n.id, { dir: 'next' }); }, { right: au.hops + ' hops', title: 'Follow the money forward with the settings under Auto-expand' });
+      ctxItem(m, '◀◀ Auto-expand backward', function () { autoExpand(n.id, { dir: 'prev' }); }, { right: au.hops + ' hops', title: 'Follow the money backward with the settings under Auto-expand' });
+      if (n.type === 'tx') ctxItem(m, 'Follow a peel chain ▶▶', function () { autoExpand(n.id, { dir: 'next', follow: 'peel', hops: Math.max(au.hops, 10) }); }, { title: 'Follow a run of single-coin payments for up to 10 hops' });
+      var cl0 = n.type === 'addr' ? analysis().clusters.byAddr.get(n.id) : null;
+      if (cl0) ctxItem(m, 'Select its cluster (' + cl0.size + ')', function () { selectIds(cl0.addrs, 'addresses of ' + cl0.label); }, { title: 'The addresses that were spent together with this one' });
     }
     m.appendChild(el('div', { 'class': 'sep' }));
     ctxItem(m, n.tag ? 'Tag: ' + n.tag + ' — change…' : 'Tag as…', function () { buildTagMenu(ids, at); }, { keep: true, right: '▸' });
@@ -791,7 +1132,8 @@
       m.appendChild(link);
     }
     m.appendChild(el('div', { 'class': 'sep' }));
-    ctxItem(m, 'Remove from view', function () { removeIds(ids); }, { danger: true });
+    if (traceOn()) ctxItem(m, 'Hide from the trace', function () { traceHideIds(ids); }, { danger: true, disabled: state.trace.shown.size <= 1 });
+    else ctxItem(m, 'Remove from view', function () { removeIds(ids); }, { danger: true });
     placeCtx(at);
   }
 
@@ -838,7 +1180,27 @@
     return p ? { x: b.left + p.x * v.k + v.x + 12, y: b.top + p.y * v.k + v.y + 12 } : { x: b.left + 40, y: b.top + 40 };
   }
 
+  /** In a trace: show forward / backward from this vertex, hide it or its branch, start over from it. */
+  function traceActions(n) {
+    if (!traceOn() || !state.trace.shown.has(n.id)) return null;
+    var T = state.trace, branch = traceBranch(n.id);
+    function lbl(dir) { return TR.handleLabel(TR.hidden(state.graph, T.shown, n.id, dir)); }
+    return el('div', { 'class': 'insp-section' }, [
+      el('div', { 'class': 'insp-actions' }, [
+        el('button', { type: 'button', text: '◀ Show backward ' + lbl('prev'), title: 'Show what came before ([). Shift-click a handle on the graph to choose which.', onclick: function () { traceExpand(n.id, 'prev'); } }),
+        el('button', { type: 'button', text: 'Show forward ' + lbl('next') + ' ▶', title: 'Show what came after (])', onclick: function () { traceExpand(n.id, 'next'); } })]),
+      el('div', { 'class': 'insp-actions' }, [
+        el('button', { type: 'button', text: 'Hide vertex', disabled: T.shown.size <= 1 ? 'disabled' : null, title: 'Only this one; what it revealed stays', onclick: function () { traceHideIds([n.id]); } }),
+        el('button', { type: 'button', text: 'Hide branch' + (branch.length > 1 ? ' (' + branch.length + ')' : ''), disabled: branch.length >= T.shown.size ? 'disabled' : null, onclick: function () { traceHideBranch(n.id); } }),
+        el('button', { type: 'button', text: 'Start over from here', title: 'Replace the trace with just this vertex', onclick: function () { navigate(n.id, { replaceTrace: true, light: true }); } })])]);
+  }
+
   function focusBtn(n) {
+    if (traceOn()) {
+      var start = state.trace.seeds.indexOf(n.id) >= 0;
+      return el('button', { type: 'button', 'class': 'primary', text: start ? 'A starting point' : 'Add as a starting point', disabled: start ? 'disabled' : null,
+                            title: 'Mark this vertex as another place the trace starts from', onclick: function () { traceAddSeed(n.id, true); traceChanged(null, false); } });
+    }
     var here = state.focusOn && state.focus === n.id;
     return el('button', { type: 'button', 'class': 'primary', text: here ? 'Focused here' : 'Focus here', disabled: here ? 'disabled' : null,
                           title: 'Show this vertex and what is around it', onclick: function () { if (!state.focusOn) { state.focusOn = true; $('focusOn').checked = true; savePrefs(); } navigate(n.id); } });
@@ -894,6 +1256,8 @@
   }
 
   function removeBtn(ids) {
+    if (traceOn()) return el('button', { type: 'button', 'class': 'danger', text: ids.length > 1 ? 'Hide ' + ids.length + ' from the trace' : 'Hide from the trace', disabled: state.trace.shown.size <= ids.length ? 'disabled' : null,
+                                        title: 'They stay loaded; Ctrl+Z brings them back', onclick: function () { traceHideIds(ids); } });
     return el('button', { type: 'button', 'class': 'danger', text: ids.length > 1 ? 'Remove ' + ids.length + ' from view' : 'Remove from view', onclick: function () { removeIds(ids); } });
   }
 
@@ -910,6 +1274,7 @@
       var tot = 0; ids.forEach(function (id) { var n = g.nodes.get(id); tot += (n.type === 'tx' ? n.valueOut : n.received) || 0; });
       var dl0 = el('dl', { 'class': 'kv' }); kv(dl0, 'Total value', S.fmtBtc(tot) + ' BTC'); box.appendChild(dl0);
       box.appendChild(el('div', { 'class': 'insp-actions' }, [removeBtn(ids)]));
+      if (traceOn()) box.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', text: 'Keep only these ' + ids.length, disabled: ids.length >= state.trace.shown.size ? 'disabled' : null, onclick: function () { traceKeepOnly(ids); } })]));
       box.appendChild(el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Tag all ' + ids.length }), tagControls(ids)]));
       return;
     }
@@ -931,6 +1296,7 @@
       }
       box.appendChild(dl);
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), refBtn(n)]));
+      var ta = traceActions(n); if (ta) box.appendChild(ta);
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
         el('button', { type: 'button', text: 'Spenders →', title: 'Load the transactions that spent its outputs', onclick: function () { expandNode(n.id, 'forward'); } }),
         el('button', { type: 'button', text: '← Funding', title: 'Load the transactions it spends from', onclick: function () { expandNode(n.id, 'backward'); } }),
@@ -939,6 +1305,8 @@
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
         el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), removeBtn([n.id])
       ]));
+      box.appendChild(autoButtons(n));
+      (txAnalysisSection(n) || []).forEach(function (s) { box.appendChild(s); });
       connectedTxSections(n).forEach(function (s) { box.appendChild(s); });
     } else if (n.type === 'addr') {
       box.appendChild(el('div', { 'class': 'mono', text: n.address }));
@@ -956,9 +1324,12 @@
       if (n.txCount != null) kv(dl, 'Transactions', fmtInt(n.txCount) + ' on chain' + (n.histNext || !n.histDone ? '' : ' (all loaded)'));
       box.appendChild(dl);
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n)]));
+      var ta2 = traceActions(n); if (ta2) box.appendChild(ta2);
       var acts = [el('button', { type: 'button', text: n.histNext ? 'Load more history' : 'Load history', disabled: n.histDone ? 'disabled' : null, onclick: function () { expandNode(n.id); } }),
                   el('button', { type: 'button', text: 'Copy address', onclick: function () { copy(n.address); } }), extLink('/address/' + n.address, 'Open in explorer ↗'), removeBtn([n.id])];
       box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
+      box.appendChild(autoButtons(n));
+      var cs = addrClusterSection(n); if (cs) box.appendChild(cs);
       connectedTxSections(n).forEach(function (s) { box.appendChild(s); });
       box.appendChild(externalCard(n));
     } else {
@@ -1018,9 +1389,12 @@
   }
 
   function removeIds(ids) {
-    ids.forEach(function (id) { state.graph.removeNode(id); state.keep.delete(id); state.pinned.delete(id); if (state.focus === id) state.focus = null; });
+    ids.forEach(function (id) {
+      state.graph.removeNode(id); state.keep.delete(id); state.pinned.delete(id); if (state.focus === id) state.focus = null;
+    });
+    traceForget(ids);
     state.selected = new Set(); state.selectedEdge = null;
-    state.graph.refreshDerived(); afterGraphChange(); syncSelection(); scheduleSave();
+    state.graph.refreshDerived(); afterGraphChange(); syncSelection(); updateTraceUi(); scheduleSave();
   }
 
   // ---- tooltip --------------------------------------------------------------------------------
@@ -1035,9 +1409,13 @@
       if (n.type === 'tx') {
         line('Transaction', S.shortId(n.txid, 10)); line('Time', n.time != null ? S.fmtTime(n.time) : (n.confirmed === false ? 'unconfirmed' : 'unknown'));
         if (n.loaded) { line('Value', mixText(S.fmtBtc(n.valueOut) + ' BTC', fiatOf(n.valueOut, n.time)) + ' · ' + n.nIn + ' in / ' + n.nOut + ' out'); } else line('', 'Not loaded: double-click to load');
+        var ar = n.loaded ? analysis().tx.get(n.id) : null;
+        if (ar && ar.flags.length) line('Pattern', ar.flags.map(function (f) { return f.short; }).join(', '));
+        if (ar && ar.change && AN.rank(ar.change.confidence) >= 2) line('Likely change', 'output ' + ar.change.vout + ' (' + ar.change.confidence + ' confidence)');
       } else if (n.type === 'addr') {
         line('Address', S.shortId(n.address, 12)); if (KNOWN[n.address]) line('Known', KNOWN[n.address].label);
         line('Type', n.scriptType); line('Received', mixText(S.fmtBtc(n.received) + ' BTC', fiatSum(n, true))); line('First seen', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
+        var cl = analysis().clusters.byAddr.get(n.id); if (cl) line('Cluster', cl.label + ' · ' + cl.size + ' addresses spent together');
       } else if (n.type === 'data') { line('OP_RETURN', n.dataText || (n.dataHex ? n.dataHex.slice(0, 48) + (n.dataHex.length > 48 ? '…' : '') : 'empty')); }
       else if (n.type === 'coinbase') line('Coinbase', 'newly created coins');
       else line('Non-standard output', n.scriptType);
@@ -1052,6 +1430,300 @@
     var w = tip.offsetWidth, h = tip.offsetHeight;
     tip.style.left = Math.min(at.x + 14, window.innerWidth - w - 8) + 'px';
     tip.style.top = Math.min(at.y + 14, window.innerHeight - h - 8) + 'px';
+  }
+
+  // ---- analysis: patterns, likely change, clusters ----------------------------------------------
+  // All of it is a guess from what is loaded; every result carries its reasons (see orion-analysis.js).
+  var CLUSTER_COLORS = ['#00d1b2', '#ff7aa2', '#ffd23f', '#7aa2ff', '#b58cff', '#ff9f43', '#6be675', '#e0e0e0'];
+  var FLAG_NAME = { consolidation: 'CONSOL', batch: 'BATCH', coinjoin: 'COINJOIN?', peel: 'PEEL' };
+
+  /** What marks a wallet as already known: your label, your tag, or the known list. null when nothing does. */
+  function markOf(address) {
+    var n = state.graph.nodes.get(ID.addr(address));
+    if (n && n.label) return n.label;
+    if (n && n.tag) return n.tag;
+    return KNOWN[address] ? KNOWN[address].label : null;
+  }
+
+  /** What the analysis found in everything loaded. Recomputed only when something it depends on has changed. */
+  function analysis() {
+    var g = state.graph, loaded = 0, outs = 0, marked = 0, excluded = 0;
+    g.nodes.forEach(function (n) {
+      if (n.type === 'tx') { if (n.loaded) loaded++; if (n.outspendsLoaded) outs++; if (n.noCluster) excluded++; }
+      else if (n.label || n.tag) marked++;
+    });
+    var sig = g.nodes.size + '/' + g.edges.size + '/' + loaded + '/' + outs + '/' + marked + '/' + excluded;
+    if (!state.an || state.anSig !== sig || state.anGraph !== g) {
+      state.an = AN.analyse(g, { known: function (a) { return !!markOf(a); } }); state.anSig = sig; state.anGraph = g;
+    }
+    return state.an;
+  }
+  // the three hooks the canvas calls for every vertex it draws: they only read what refresh() computed
+  function nodeFlags(n) {
+    var r = n.type === 'tx' && state.an ? state.an.tx.get(n.id) : null;
+    return r && r.flags.length ? r.flags.map(function (f) { return { text: f.short, color: f.color }; }) : null;
+  }
+  function clusterColorOf(cl) { return CLUSTER_COLORS[(parseInt(cl.label.slice(1), 10) - 1) % CLUSTER_COLORS.length]; }
+  function clusterColor(id) { var cl = state.an ? state.an.clusters.byAddr.get(id) : null; return cl ? clusterColorOf(cl) : null; }
+  function changeEdgeMark(e) { return e.kind === 'out' && state.an && state.an.changeEdges.has(e.id) ? AN.COLORS.change : null; }
+
+  /** Select the given vertices that are on screen, and say so when some are not. */
+  function selectIds(ids, what) {
+    var vis = renderer.data ? renderer.data.visible.nodes : null;
+    var show = vis ? ids.filter(function (id) { return vis.has(id); }) : ids.slice();
+    if (!show.length) { toast('None of the ' + what + ' is on screen (the layout or a filter hides them).'); return; }
+    state.selected = new Set(show); state.selectedEdge = null; syncSelection(); renderer.ensureVisible(show);
+    if (show.length < ids.length) toast(show.length + ' of ' + ids.length + ' ' + what + ' are on screen; the rest are hidden by the layout or a filter.');
+  }
+  function setNoCluster(txId, on) {
+    var n = state.graph.nodes.get(txId); if (!n) return;
+    if (on) n.noCluster = true; else delete n.noCluster;
+    showInspector(); refresh(); scheduleSave();
+  }
+
+  /** The Analysis panel: what was found, as lists that select the vertices involved. */
+  var findingsFor = null;
+  function updateFindings() {
+    var box = $('anFindings');
+    if (!state.graph.nodes.size) { box.textContent = ''; findingsFor = null; return; }
+    var an = analysis(), byKind = {}, kinds, loaded = 0;
+    if (findingsFor === an && box.firstChild) return;                       // nothing it shows has changed: leave the buttons alone (a replay refreshes many times a second)
+    findingsFor = an; box.textContent = '';
+    state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded) loaded++; });
+    an.tx.forEach(function (r, id) { r.flags.forEach(function (f) { (byKind[f.kind] = byKind[f.kind] || { f: f, ids: [] }).ids.push(id); }); });
+    kinds = Object.keys(byKind);
+    function row(left, amt, title, fn) { return el('button', { type: 'button', 'class': 'linkrow', title: title, onclick: fn }, [left, el('span', { 'class': 'amt', text: amt })]); }
+    function more(list, shown) { if (list.length > shown) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (list.length - shown) + ' more' })); }
+    if (kinds.length) {
+      box.appendChild(el('span', { 'class': 'lbl', text: 'Patterns' }));
+      kinds.forEach(function (k) {
+        var e = byKind[k], tag = el('span', { 'class': 'flagtag', text: FLAG_NAME[k] }); tag.style.color = e.f.color;
+        box.appendChild(row(tag, String(e.ids.length), 'Select these ' + e.ids.length + ' transactions', function () { selectIds(e.ids, FLAG_NAME[k] + ' transactions'); }));
+      });
+    }
+    if (an.chains.length) {
+      box.appendChild(el('span', { 'class': 'lbl', text: 'Possible peel chains' }));
+      an.chains.slice(0, 6).forEach(function (ch) {
+        box.appendChild(row(el('span', { text: ch.label + ' · ' + ch.ids.length + ' transactions' }), 'peeled ' + S.fmtBtc(ch.totalPeeled), 'Select the ' + ch.ids.length + ' transactions of this chain', function () { selectIds(ch.ids, 'transactions of ' + ch.label); }));
+      });
+      more(an.chains, 6);
+    }
+    var cl = an.clusters.list;
+    if (cl.length) {
+      box.appendChild(el('span', { 'class': 'lbl', text: 'Address clusters' }));
+      cl.slice(0, 6).forEach(function (c) {
+        var sw = el('span', { 'class': 'sw' }); sw.style.color = clusterColorOf(c);
+        box.appendChild(row(el('span', { 'class': 'rowtext' }, [sw, ' ' + c.label + ' · ' + c.size + ' addresses']), c.txs.length + ' tx', 'Select the addresses of this cluster (they were spent together in ' + c.txs.length + ' transaction' + (c.txs.length === 1 ? '' : 's') + ')', function () { selectIds(c.addrs, 'addresses of ' + c.label); }));
+      });
+      more(cl, 6);
+    }
+    var sk = an.clusters.skipped;
+    if (sk.coinjoin || sk.excluded) box.appendChild(el('p', { 'class': 'hint', text: (sk.coinjoin ? sk.coinjoin + ' CoinJoin-like transaction' + (sk.coinjoin === 1 ? '' : 's') : '') + (sk.coinjoin && sk.excluded ? ' and ' : '') + (sk.excluded ? sk.excluded + ' you excluded' : '') + ' not used to link addresses.' }));
+    if (!kinds.length && !cl.length) box.appendChild(el('p', { 'class': 'hint', text: loaded ? 'Nothing notable in the ' + loaded + ' transaction' + (loaded === 1 ? '' : 's') + ' loaded.' : 'Load transactions to look for patterns.' }));
+  }
+
+  /** Patterns, the change guess and the common-input link for one transaction, in the details panel. */
+  function txAnalysisSection(n) {
+    if (!n.loaded) return null;
+    var r = analysis().tx.get(n.id), v = AN.txView(state.graph, n.id), parts = [], ch = r && r.change;
+    if (r && r.flags.length) {
+      var s = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Patterns' })]);
+      r.flags.forEach(function (f) { var t = el('span', { 'class': 'flagtag', text: f.short }); t.style.color = f.color; s.appendChild(el('p', { 'class': 'hint' }, [t, f.title])); });
+      parts.push(s);
+    }
+    if (ch) {
+      var s2 = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Likely change' })]);
+      s2.appendChild(el('p', { 'class': 'hint' }, [el('b', { text: 'Output ' + ch.vout + (ch.address ? ' → ' + S.shortId(ch.address, 8) : '') }), ' · ' + amountText(ch.amount, n.time) + ' · ' + ch.confidence + ' confidence']));
+      var ul = el('ul', { 'class': 'reasons' }); ch.reasons.forEach(function (x) { ul.appendChild(el('li', { text: x })); }); s2.appendChild(ul);
+      s2.appendChild(el('div', { 'class': 'insp-actions' }, [
+        el('button', { type: 'button', text: 'Select that output', onclick: function () { selectIds([ch.id], 'outputs'); } }),
+        el('button', { type: 'button', text: 'Follow the change ▶▶', title: 'Auto-expand forward along this output only', onclick: function () { autoExpand(n.id, { dir: 'next', follow: 'change' }); } })]));
+      s2.appendChild(el('p', { 'class': 'hint', text: 'A guess from the evidence above, not a certainty.' }));
+      parts.push(s2);
+    } else if (v && v.complete && !v.coinbase && AN.payOuts(v).length >= 2) {
+      parts.push(el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Likely change' }), el('p', { 'class': 'hint', text: 'None named: the evidence does not single out one output.' })]));
+    }
+    if (v && v.complete && !v.coinbase) {
+      var owners = new Set(v.inputs.filter(function (i) { return i.address; }).map(function (i) { return i.address; })).size;
+      if (owners >= 2) {
+        var mix = AN.coinjoinLike(v), btn = null, text;
+        if (n.noCluster) { text = 'Its ' + owners + ' input addresses are NOT linked: you excluded this transaction.'; btn = el('button', { type: 'button', text: 'Link them again', onclick: function () { setNoCluster(n.id, false); } }); }
+        else if (mix) text = 'Its input addresses are not linked: it looks like a CoinJoin, so they are probably different owners.';
+        else { text = 'Its ' + owners + ' input addresses are treated as one owner (they were spent together).'; btn = el('button', { type: 'button', text: 'Not the same owner: exclude', title: 'Leave this transaction out of address clusters (a CoinJoin, a PayJoin, a shared wallet)', onclick: function () { setNoCluster(n.id, true); } }); }
+        parts.push(el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Address link' }), el('p', { 'class': 'hint', text: text }), btn ? el('div', { 'class': 'insp-actions' }, [btn]) : null]));
+      }
+    }
+    return parts;
+  }
+
+  /** The cluster an address belongs to, in the details panel. */
+  function addrClusterSection(n) {
+    var cl = analysis().clusters.byAddr.get(n.id); if (!cl) return null;
+    var s = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Cluster ' + cl.label })]), g = state.graph;
+    s.appendChild(el('p', { 'class': 'hint', text: cl.size + ' addresses were spent together in ' + cl.txs.length + ' transaction' + (cl.txs.length === 1 ? '' : 's') + ', which usually means one owner. It is a guess: a CoinJoin or a service sharing a wallet can break it.' }));
+    s.appendChild(el('div', { 'class': 'insp-actions' }, [
+      el('button', { type: 'button', text: 'Select the cluster', onclick: function () { selectIds(cl.addrs, 'addresses of ' + cl.label); } }),
+      el('button', { type: 'button', text: 'Tag the cluster…', title: 'Tag every address of the cluster at once', onclick: function () { openTagEditor(cl.addrs.filter(function (id) { return g.nodes.has(id); })); } })]));
+    var list = el('div', { 'class': 'linkrows' });
+    cl.addrs.slice(0, 8).forEach(function (id) {
+      var a = g.nodes.get(id), who = a ? (a.label || (KNOWN[a.address] && KNOWN[a.address].label) || S.shortId(a.address, 8)) : id;
+      list.appendChild(el('button', { type: 'button', 'class': 'linkrow', title: id, onclick: function () { navigate(id, { light: true }); } }, [el('span', { text: (id === n.id ? '● ' : '') + who })]));
+    });
+    if (cl.addrs.length > 8) list.appendChild(el('div', { 'class': 'hint', text: '… and ' + (cl.addrs.length - 8) + ' more' }));
+    s.appendChild(list);
+    return s;
+  }
+
+  function autoButtons(n) {
+    var hops = state.auto.hops;
+    return el('div', { 'class': 'insp-actions' }, [
+      el('button', { type: 'button', text: 'Auto-expand ▶▶', title: 'Follow the money forward, ' + hops + ' transactions deep (settings under Auto-expand)', onclick: function () { autoExpand(n.id, { dir: 'next' }); } }),
+      el('button', { type: 'button', text: '◀◀ Auto-expand', title: 'Follow the money backward, ' + hops + ' transactions deep', onclick: function () { autoExpand(n.id, { dir: 'prev' }); } })]);
+  }
+
+  // ---- auto-expand: follow the money several transactions deep -------------------------------------
+  var FOLLOW_HINT = {
+    all: 'Follows every spent output, the largest first, up to the limit per transaction. The wallets it does not follow stay on screen so you can expand them by hand.',
+    largest: 'Follows only the largest output of each transaction.',
+    change: 'Follows the output that most likely returns to the sender, and stops where the evidence is not clear enough to name one.',
+    peel: 'Follows the large output of each transaction that has one input and two outputs, the small one at most half the large one, and stops at anything else. Forward only.'
+  };
+  function autoTarget() {
+    var sel = Array.from(state.selected).filter(walletOrTx);
+    if (sel.length === 1) return sel[0];
+    return !sel.length && state.focus && walletOrTx(state.focus) ? state.focus : null;
+  }
+  function syncAutoUi() {
+    var a = state.auto;
+    setSeg('autoDirSeg', 'data-dir', a.dir);
+    $('autoHops').value = a.hops; $('autoFollow').value = a.follow; $('autoMaxTx').value = a.maxTx; $('autoMaxReq').value = a.maxReq; $('autoPerTx').value = a.perTx; $('autoMin').value = a.minSats;
+    $('autoStopLabel').checked = a.stopLabel; $('autoStopMix').checked = a.stopMix;
+    $('anFlags').checked = state.analysis.flags; $('anChange').checked = state.analysis.change; $('anClusters').checked = state.analysis.clusters;
+    updateAutoUi();
+  }
+  function updateAutoUi() {
+    var a = state.auto, id = autoTarget(), btn = $('autoGo');
+    $('autoFollowHint').textContent = FOLLOW_HINT[a.follow] + (a.dir === 'prev' && (a.follow === 'change' || a.follow === 'peel') ? ' Backward this follows the largest input instead.' : '');
+    btn.disabled = !id;
+    btn.textContent = id ? 'Auto-expand from ' + focusLabel(id).replace(/^tx /, '') : 'Auto-expand from selected';
+    $('autoHint').textContent = id ? '' : 'Select a transaction or a wallet first.';
+  }
+  function readAuto() {
+    state.auto = cleanAuto({ dir: state.auto.dir, hops: $('autoHops').value, follow: $('autoFollow').value, maxTx: $('autoMaxTx').value, maxReq: $('autoMaxReq').value, perTx: $('autoPerTx').value, minSats: $('autoMin').value,
+                             stopLabel: $('autoStopLabel').checked, stopMix: $('autoStopMix').checked });
+    syncAutoUi(); savePrefs();
+  }
+
+  function successorOpts(o) {
+    return { follow: o.follow, perTx: o.perTx, minSats: o.minSats, stopAtMix: o.stopMix, mark: o.stopLabel ? markOf : null, known: function (a) { return !!markOf(a); } };
+  }
+  /** The transactions a wallet's money went through (forward) or came from (backward), largest first. */
+  function txNeighbourIds(id, dir, limit) {
+    var g = state.graph, rows = Array.from(TR.neighbours(g, id, dir).values()).filter(function (r) { return r.type === 'tx'; });
+    rows.sort(function (a, b) { return b.amount - a.amount; });
+    return rows.slice(0, limit).map(function (r) { return g.nodes.get(r.id).txid; });
+  }
+  /** Where the walk went, transaction by transaction, as the rules see it now (the same call the walk made). */
+  function walkSteps(w, dir, sopts) {
+    return (w.asked || []).map(function (a) { return { txid: a.txid, level: a.level, res: AN.successors(state.graph, ID.tx(a.txid), dir, sopts) }; });
+  }
+
+  /** In the Trace layout: show what the walk loaded, placed in columns beside the vertex it came from. Returns the ids shown. */
+  function traceRevealWalk(startId, dir, w, steps) {
+    var g = state.graph, T = state.trace, revealed = [], loadedAt = new Set();
+    w.levels.forEach(function (l) { l.forEach(function (t) { loadedAt.add(t); }); });
+    function put(parentId, ids) {
+      var fresh = []; ids.forEach(function (id) { if (g.nodes.has(id) && !T.shown.has(id) && fresh.indexOf(id) < 0) fresh.push(id); });
+      if (!fresh.length) return;
+      TR.place(T.pos, parentId, dir, { primary: fresh.map(function (id) { return { id: id }; }), secondary: [] }).forEach(function (p, id) { T.pos.set(id, p); });
+      fresh.forEach(function (id) { T.shown.add(id); T.prov.set(id, { via: parentId, dir: dir }); revealed.push(id); });
+    }
+    if (g.nodes.get(startId).type === 'addr') put(startId, (w.levels[0] || []).map(ID.tx));
+    steps.forEach(function (st) {
+      var tx = ID.tx(st.txid);
+      if (!T.shown.has(tx)) return;
+      put(tx, st.res.items.map(function (it) { return it.id; }));
+      st.res.items.forEach(function (it) { if (it.followed && it.spender && loadedAt.has(it.spender)) put(it.id, [ID.tx(it.spender)]); });
+    });
+    return revealed;
+  }
+
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many || one + 's'); }
+
+  /** One sentence on what happened, one on why it stopped, and the details of how each branch ended. */
+  function autoMessage(w, steps, dir, o) {
+    var hops = Math.max(0, w.levels.length - 1);
+    var msg = 'Followed ' + (dir === 'next' ? 'forward' : 'backward') + ' ' + plural(hops, 'hop') + ': ' + plural(w.loadedNew, 'new transaction') + ' loaded, ' + plural(w.requests, 'request') + '.';
+    var ends = { unspent: 0, labelled: 0, mix: 0, change: 0, peel: 0, unknown: 0, coinbase: 0 }, names = [];
+    steps.forEach(function (st) {
+      var s = st.res.stop;
+      if (s) { if (/CoinJoin/.test(s)) ends.mix++; else if (/clear change/.test(s)) ends.change++; else if (/peel step/.test(s)) ends.peel++; else if (/coinbase/.test(s)) ends.coinbase++; }
+      st.res.items.forEach(function (it) {
+        if (!it.why) return;
+        if (/^labelled/.test(it.why)) { ends.labelled++; var nm = it.why.slice(10); if (names.indexOf(nm) < 0 && names.length < 3) names.push(nm); }
+        else if (it.why === 'unspent') ends.unspent++;
+        else if (/not known/.test(it.why)) ends.unknown++;
+      });
+    });
+    var bits = [];
+    if (ends.labelled) bits.push(plural(ends.labelled, 'output') + ' reached a labelled wallet (' + names.join(', ') + ')');
+    if (ends.mix) bits.push(plural(ends.mix, 'transaction') + ' looked like a CoinJoin');
+    if (ends.change) bits.push(plural(ends.change, 'transaction') + ' had no clear change output');
+    if (ends.peel) bits.push(plural(ends.peel, 'transaction') + ' was not a peel step');
+    if (ends.unspent) bits.push(plural(ends.unspent, 'output') + ' unspent');
+    if (ends.unknown) bits.push(plural(ends.unknown, 'output') + ' with no known spender');
+    if (bits.length) msg += ' Ended at: ' + bits.join(', ') + '.';
+    if (w.reason === 'cap-tx') msg += ' Stopped at the limit of ' + plural(o.maxTx, 'transaction') + (w.left ? ' (' + w.left + ' more known, not loaded)' : '') + '.';
+    else if (w.reason === 'cap-requests') msg += ' Stopped at the limit of ' + plural(o.maxReq, 'request') + '.';
+    else if (w.reason === 'cancelled') msg += ' Cancelled: what was loaded is kept.';
+    else if (hops < o.hops && !bits.length) msg += ' Nothing further to follow.';
+    return msg;
+  }
+
+  /**
+   * Follow the money several transactions deep from a transaction or a wallet. `over` overrides the panel's settings
+   * ({dir, follow, hops, ...}). The load is one cancellable action under the request limit; in the Trace layout what it
+   * loaded is shown, in one step that Ctrl+Z takes back.
+   */
+  function autoExpand(id, over) {
+    var o = Object.assign({}, state.auto, over || {}), g = state.graph, n = g.nodes.get(id);
+    if (!n || (n.type !== 'tx' && n.type !== 'addr')) { toast('Select a transaction or a wallet to expand from.'); return Promise.resolve(false); }
+    if (traceOn() && !state.trace.shown.has(id)) { toast('That vertex is not on screen: show it first.'); return Promise.resolve(false); }
+    var dir = o.dir === 'prev' ? 'prev' : 'next', sopts = successorOpts(o), walk = null;
+    var title = 'Auto-expand ' + (dir === 'next' ? 'forward' : 'backward') + ' from ' + S.shortId(n.type === 'tx' ? n.txid : n.address, 6);
+    return run(title, function () {
+      var ex = state.explorer, total = { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] };
+      function add(r) {
+        if (!r) return;
+        total.added += r.added || 0; total.requests += r.requests || 0; total.truncated = total.truncated || !!r.truncated; total.errors = total.errors.concat(r.errors || []);
+        if (r.failed) total.failed = true;
+      }
+      return Promise.resolve().then(function () {
+        var nd = g.nodes.get(id);
+        if (nd.type === 'addr' && !txNeighbourIds(id, dir, 1).length && (nd.txCount == null || nd.histNext)) {            // nothing known on this side yet: ask for the wallet's history
+          return ex.expandAddress(nd.address, { pages: state.capPages, cap: state.capPages * 25, after: nd.histNext || undefined }).then(function (r) {
+            nd.histNext = r.last || null; nd.histDone = !r.last && !r.truncated && !(r.errors && r.errors.length); add(r);
+          });
+        }
+      }).then(function () {
+        var nd = g.nodes.get(id), starts = nd.type === 'tx' ? [nd.txid] : txNeighbourIds(id, dir, o.perTx);
+        if (!starts.length) return;
+        return ex.walk(starts, { dir: dir, hops: o.hops, maxTx: o.maxTx, successors: function (txid) { return AN.successors(g, ID.tx(txid), dir, sopts); } }).then(function (w) { walk = w; add(w); });
+      }).then(function () { return total; });
+    }, { maxRequests: o.maxReq }).then(function (r) {
+      if (!r) return false;
+      if (!walk) { if (!r.failed) toast(n.type === 'addr' ? 'No transactions known ' + (dir === 'next' ? 'spending from' : 'paying') + ' this wallet.' : 'Nothing to follow from here.'); return false; }
+      var steps = walkSteps(walk, dir, sopts), msg = autoMessage(walk, steps, dir, o), shownNow = 0;
+      if (traceOn()) {
+        var T = state.trace, rev = traceRevealWalk(id, dir, walk, steps);
+        if (rev.length) { T.undo.push({ type: 'reveal', ids: rev.slice() }); traceChanged(rev, false); shownNow = rev.length; msg += ' ' + plural(rev.length, 'vertex', 'vertices') + ' shown (Ctrl+Z takes them back).'; }
+      } else if (state.focusOn && walk.loadedNew) {
+        state.focusOn = false; $('focusOn').checked = false; savePrefs(); afterGraphChange({ fit: true });                // a focus view shows at most 3 steps: show the whole path
+        msg += ' The Focus view was switched off so the whole path shows.';
+      }
+      toast(msg, !!(r.errors || []).filter(function (e) { return !/request cap/.test(e); }).length);
+      return walk.loadedNew > 0 || shownNow > 0;
+    });
   }
 
   // ---- refresh --------------------------------------------------------------------------------
@@ -1071,24 +1743,41 @@
     o = o || {};
     var g = state.graph, f = state.filter;
     edgeLabelCache.clear();
-    renderer.insets.bottom = state.focus && g.nodes.has(state.focus) ? Math.max(84, $('stepbar').offsetHeight + 22) : 0;       // keep the graph clear of the step bar
+    renderer.fitPad = traceOn() ? 120 : 60;                                  // a trace needs room for the expand handles beside the outer vertices
+    renderer.insets.bottom = state.focus && g.nodes.has(state.focus) && !traceOn() ? Math.max(84, $('stepbar').offsetHeight + 22) : 0;       // keep the graph clear of the step bar
+    analysis();                                                              // the canvas hooks below read the cached result
     var structural = scope();
-    if (o.relayout || !state.layoutRes) {
+    if (traceOn()) {
+      var T = state.trace, tpos = new Map();
+      T.shown.forEach(function (id) { if (g.nodes.has(id) && T.pos.has(id)) tpos.set(id, { x: T.pos.get(id).x, y: T.pos.get(id).y }); });
+      if (o.relayout || o.traceChanged || !state.layoutRes || !state.layoutRes.trace) {
+        tpos.forEach(function (p, id) {                                    // new vertices grow out of the one that revealed them
+          if (renderer.cur.has(id)) return;
+          var via = T.prov.get(id), a = via && renderer.positionOf(via.via);
+          if (a) renderer.cur.set(id, { x: a.x, y: a.y });
+        });
+        state.layoutRes = { pos: tpos, axis: null, trace: true };
+        renderer.setPositions(tpos, !!o.instant || !renderer.cur.size);
+      }
+    } else if (o.relayout || !state.layoutRes || state.layoutRes.trace) {
       var opts = state.layout === 'force' ? { start: seedPositions(structural), seed: 1 } : state.layout === 'timeline' ? { width: 1600, scale: state.timeScale } : {};
       state.layoutRes = L.layout(state.layout, g, structural, opts);
       state.pinned.forEach(function (p, id) { if (state.layoutRes.pos.has(id)) state.layoutRes.pos.set(id, { x: p.x, y: p.y }); });
       renderer.setPositions(state.layoutRes.pos, !!o.instant || !renderer.cur.size);
     }
-    var visible = F.computeVisible(g, f, state.keep, focusOpt());
+    var visible = F.computeVisible(g, f, state.keep, focusOpt(), traceOnly());
     var style = S.makeStyle(g, structural, { colorBy: state.colorBy });
     renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, axis: state.layout === 'timeline' ? state.layoutRes.axis : null,
                        range: { from: f.timeFrom, to: f.timeTo }, showLabels: state.showLabels, focusId: focusOpt() ? state.focus : null,
-                       edgeLabel: state.edgeLabels ? edgeLabelFor : null });
+                       edgeLabel: state.edgeLabels ? edgeLabelFor : null,
+                       handles: traceOn() ? handlesFor : null, seedIds: traceOn() ? new Set(state.trace.seeds) : null, noDim: traceOn(), labelAll: traceOn(), nodeNote: traceOn() ? traceNote : null,
+                       nodeFlags: state.analysis.flags ? nodeFlags : null, clusterColor: state.analysis.clusters ? clusterColor : null, edgeMark: state.analysis.change ? changeEdgeMark : null });
     if (o.fit) renderer.fit();
     var fo = focusOpt();
-    $('counts').textContent = g.nodes.size ? (fo ? 'Focus: ' + focusLabel(fo.id) + ' · depth ' + fo.hops + ' · ' : '') + visible.nodes.size + ' of ' + g.nodes.size + ' vertices · ' + visible.edges.size + ' of ' + g.edges.size + ' edges' : '';
+    if (traceOn() && state.trace.seed) $('counts').textContent = 'Trace from ' + focusLabel(state.trace.seed) + ' · ' + visible.nodes.size + ' shown · ' + Math.max(0, g.nodes.size - visible.nodes.size) + ' more loaded';
+    else $('counts').textContent = g.nodes.size ? (fo ? 'Focus: ' + focusLabel(fo.id) + ' · depth ' + fo.hops + ' · ' : '') + visible.nodes.size + ' of ' + g.nodes.size + ' vertices · ' + visible.edges.size + ' of ' + g.edges.size + ' edges' : '';
     $('empty').hidden = g.nodes.size > 0;
-    updateLegend();
+    updateLegend(); updateFindings(); updateAutoUi();
   }
 
   function afterGraphChange(o) {
@@ -1113,6 +1802,7 @@
       box.appendChild(legendItem(lg.unknown, 'time unknown'));
     } else lg.items.forEach(function (i) { box.appendChild(legendItem(i.color, i.label)); });
     box.appendChild(el('div', { 'class': 'item', text: 'Edge width = amount · dashed = unspent output' }));
+    if (state.analysis.change && state.an && state.an.changeEdges.size) box.appendChild(legendItem(AN.COLORS.change, 'amber edge = likely change (a guess)'));
     var tags = TG.summarise(Array.from(state.graph.nodes.values()));
     if (tags.length) {
       box.appendChild(el('div', { 'class': 'item', style: 'margin-top:6px;color:var(--text)', text: 'Tags (click to select them)' }));
@@ -1175,6 +1865,9 @@
   function updateTimebar() {
     var sc = scope(); state.scopeNodes = sc.nodes;
     var b = state.graph.timeBounds(sc.nodes); state.tb = b;
+    var dots = [];
+    state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.time != null && sc.nodes.has(n.id)) dots.push({ id: n.id, time: n.time, value: n.valueOut, loaded: n.loaded !== false }); });
+    dots.sort(function (a, c) { return a.time - c.time; }); state.tbTxs = dots;
     var on = timebarEnabled(), f = state.filter;
     $('tFrom').disabled = $('tTo').disabled = !on; $('tbPlay').disabled = $('tbReset').disabled = !on;
     if (on) {
@@ -1205,25 +1898,119 @@
     state.filter.timeTo = z >= 1000 ? null : timeOfSlider(z);
     syncTimeLabels(); drawHistogram(); refresh(); scheduleSave();
   }
+  var TB_PAD = 8;                                       // room at each end of the time line for the slider handles
+  function timeX(t, w) { var b = state.tb; return TB_PAD + (t - b.min) / (b.max - b.min) * (w - 2 * TB_PAD); }
+
+  /** The time line: a time scale, a bar per slice of time, and one dot per transaction at its exact time. */
   function drawHistogram() {
     var cv = $('hist'), dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
-    if (!w) return;
+    if (!w || !h) return;
     cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
     var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
-    var b = state.tb; if (!timebarEnabled()) return;
-    var bins = Math.max(10, Math.floor((w - 16) / 6)), counts = new Array(bins).fill(0), max = 1;
-    state.graph.nodes.forEach(function (n) {
-      if (n.type !== 'tx' || n.time == null || (state.scopeNodes && !state.scopeNodes.has(n.id))) return;
-      var i = Math.min(bins - 1, Math.floor((n.time - b.min) / (b.max - b.min) * bins)); counts[i]++; if (counts[i] > max) max = counts[i];
+    var b = state.tb; state.tbGeom = null;
+    if (!timebarEnabled()) return;
+    var barsH = h - 18, f = state.filter, from = f.timeFrom == null ? b.min : f.timeFrom, to = f.timeTo == null ? b.max : f.timeTo, span = b.max - b.min, inner = w - 2 * TB_PAD;
+    var bins = Math.max(10, Math.floor(inner / 6)), bw = inner / bins, counts = new Array(bins).fill(0), max = 1, txs = state.tbTxs || [];
+    txs.forEach(function (t) { var i = Math.min(bins - 1, Math.floor((t.time - b.min) / span * bins)); counts[i]++; if (counts[i] > max) max = counts[i]; });
+
+    // time scale: calendar-aligned ticks with labels along the bottom
+    ctx.font = '10px Calibri, Arial, sans-serif'; ctx.textBaseline = 'alphabetic'; ctx.lineWidth = 1;
+    var ticks = R.niceTicks(b.min, b.max, inner / span, 90);
+    ticks.forEach(function (tk) {
+      var x = Math.round(timeX(tk.t, w)) + 0.5, tw = ctx.measureText(tk.label).width;
+      ctx.strokeStyle = 'rgba(242,242,242,0.10)'; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, barsH + 4); ctx.stroke();
+      ctx.fillStyle = '#9d8f9d'; ctx.textAlign = 'left'; ctx.fillText(tk.label, x + tw + 6 > w ? x - tw - 3 : x + 3, h - 3);
     });
-    var f = state.filter, from = f.timeFrom == null ? b.min : f.timeFrom, to = f.timeTo == null ? b.max : f.timeTo, bw = (w - 16) / bins;
+    if (!ticks.length) {                                                          // too short a span for round dates: label the two ends
+      ctx.fillStyle = '#9d8f9d'; ctx.textAlign = 'left'; ctx.fillText(S.fmtTime(b.min), TB_PAD, h - 3);
+      ctx.textAlign = 'right'; ctx.fillText(S.fmtTime(b.max), w - TB_PAD, h - 3);
+    }
     counts.forEach(function (c, i) {
       if (!c) return;
-      var t0 = b.min + i / bins * (b.max - b.min), t1 = b.min + (i + 1) / bins * (b.max - b.min), inside = t1 >= from && t0 <= to;
+      var t0 = b.min + i / bins * span, t1 = b.min + (i + 1) / bins * span, inside = t1 >= from && t0 <= to;
       ctx.fillStyle = inside ? '#aee7f8' : '#5a4a5a';
-      var bh = Math.max(2, (c / max) * (h - 2)); ctx.fillRect(8 + i * bw, h - bh, Math.max(1, bw - 1), bh);
+      var bh = Math.max(3, (c / max) * (barsH - 6)); ctx.fillRect(TB_PAD + i * bw, barsH - bh, Math.max(1, bw - 1), bh);
     });
+    ctx.strokeStyle = 'rgba(242,242,242,0.28)'; ctx.beginPath(); ctx.moveTo(TB_PAD, barsH + 0.5); ctx.lineTo(w - TB_PAD, barsH + 0.5); ctx.stroke();
+    if (txs.length <= 300) txs.forEach(function (t) {                             // one dot per transaction, at its exact time
+      var x = timeX(t.time, w), inside = t.time >= from && t.time <= to;
+      ctx.beginPath(); ctx.arc(x, barsH + 0.5, 3, 0, Math.PI * 2); ctx.fillStyle = inside ? '#ffffff' : '#7a6a7a'; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = inside ? '#4a8ca8' : '#3a2c3a'; ctx.stroke();
+    });
+    if (state.tbHover) { ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(Math.round(state.tbHover.x) + 0.5, 0); ctx.lineTo(Math.round(state.tbHover.x) + 0.5, barsH + 6); ctx.stroke(); }
+    state.tbGeom = { w: w, h: h, barsH: barsH, bins: bins, bw: bw };
   }
+
+  /** What is under a point on the time line: the dot within reach, else the slice of time (with the transactions in it). */
+  function timeHit(x) {
+    var g = state.tbGeom, b = state.tb;
+    if (!g || !timebarEnabled()) return null;
+    var span = b.max - b.min, txs = state.tbTxs || [], near = null, best = 7;
+    txs.forEach(function (t) { var d = Math.abs(timeX(t.time, g.w) - x); if (d < best) { near = t; best = d; } });
+    var dots = near ? txs.filter(function (t) { return Math.abs(timeX(t.time, g.w) - timeX(near.time, g.w)) <= 3; }) : [];      // dots drawn on top of each other (e.g. one block) act as one
+    var bin = Math.min(g.bins - 1, Math.max(0, Math.floor((x - TB_PAD) / g.bw))), t0 = b.min + bin / g.bins * span, t1 = b.min + (bin + 1) / g.bins * span;
+    var inBin = txs.filter(function (t) { return t.time >= t0 && (t.time < t1 || (bin === g.bins - 1 && t.time <= t1)); });
+    var at = b.min + Math.max(0, Math.min(1, (x - TB_PAD) / (g.w - 2 * TB_PAD))) * span;
+    return { dots: dots, bin: bin, inBin: inBin, at: Math.round(at) };
+  }
+
+  function showTimeTip(e) {
+    var tip = $('tooltip'), r = $('hist').getBoundingClientRect(), hit = timeHit(e.clientX - r.left);
+    if (!hit) { tip.hidden = true; return; }
+    tip.textContent = '';
+    function line(k, v) { tip.appendChild(el('div', {}, k ? [el('b', { text: k + ' ' }), String(v)] : [String(v)])); }
+    if (hit.dots.length === 1) {
+      var d = hit.dots[0];
+      line('Transaction', S.shortId(d.id.slice(3), 8)); line('Time', S.fmtTimeFull(d.time));
+      if (d.loaded) line('Value', amountText(d.value, d.time)); else line('', 'Not loaded yet');
+      line('', 'Click to select it');
+    } else if (hit.dots.length) {
+      line('Time', S.fmtTimeFull(hit.dots[0].time));
+      line('', hit.dots.length + ' transactions here');
+      hit.dots.slice(0, 4).forEach(function (t) { line('', S.shortId(t.id.slice(3), 6) + (t.loaded ? ' · ' + amountText(t.value, t.time) : ' · not loaded')); });
+      if (hit.dots.length > 4) line('', '… and ' + (hit.dots.length - 4) + ' more');
+      line('', 'Click to select them');
+    } else {
+      line('Time', S.fmtTimeFull(hit.at));
+      if (!hit.inBin.length) line('', 'No transactions here');
+      else {
+        line('', hit.inBin.length + (hit.inBin.length === 1 ? ' transaction' : ' transactions') + (hit.inBin.length > 1 ? ', ' + S.fmtTime(hit.inBin[0].time) + ' to ' + S.fmtTime(hit.inBin[hit.inBin.length - 1].time) : ''));
+        hit.inBin.slice(0, 4).forEach(function (t) { line('', S.shortId(t.id.slice(3), 6) + ' · ' + S.fmtTimeFull(t.time)); });
+        if (hit.inBin.length > 4) line('', '… and ' + (hit.inBin.length - 4) + ' more');
+        line('', 'Click to select ' + (hit.inBin.length === 1 ? 'it' : 'them'));
+      }
+    }
+    tip.hidden = false;
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.max(4, Math.min(e.clientX + 14, window.innerWidth - w - 8)) + 'px';
+    tip.style.top = Math.max(4, e.clientY - h - 14) + 'px';                         // above the pointer: the time line is at the bottom of the window
+  }
+
+  function onTimeHover(e) {
+    var r = $('hist').getBoundingClientRect(); state.tbHover = { x: e.clientX - r.left }; drawHistogram(); showTimeTip(e);
+  }
+  function onTimeLeave() { state.tbHover = null; $('tooltip').hidden = true; drawHistogram(); }
+  function onTimeClick(e) {
+    var r = $('hist').getBoundingClientRect(), hit = timeHit(e.clientX - r.left);
+    if (!hit) return;
+    var ids = (hit.dots.length ? hit.dots : hit.inBin).map(function (t) { return t.id; });
+    var on = renderer.data ? renderer.data.visible.nodes : new Set(), vis = ids.filter(function (id) { return on.has(id); });
+    if (!ids.length) return;
+    if (!vis.length) { toast('Those transactions are not on screen (a filter or the layout is hiding them).'); return; }
+    state.selected = new Set(vis); state.selectedEdge = null; syncSelection(); renderer.ensureVisible(vis);
+  }
+
+  function setTbCollapsed(c) {
+    state.tbCollapsed = !!c;
+    document.body.classList.toggle('tb-collapsed', state.tbCollapsed);
+    var b = $('tbCollapse');
+    b.setAttribute('aria-expanded', String(!state.tbCollapsed)); b.textContent = state.tbCollapsed ? '▴' : '▾';
+    b.title = (state.tbCollapsed ? 'Show' : 'Hide') + ' the time line (T)'; b.setAttribute('aria-label', (state.tbCollapsed ? 'Show' : 'Hide') + ' the time line');
+    $('tooltip').hidden = true; state.tbHover = null;
+    savePrefs();
+    if (!state.tbCollapsed) requestAnimationFrame(function () { drawHistogram(); });
+  }
+
   function resetTime() {
     stopPlay(); state.filter.timeFrom = null; state.filter.timeTo = null;
     $('tFrom').value = 0; $('tTo').value = 1000; syncTimeLabels(); drawHistogram(); refresh(); scheduleSave();
@@ -1250,8 +2037,13 @@
   }
   function setLayout(name, o) {
     if (!LAYOUTS[name]) return;
-    state.layout = name; setSeg('layoutSeg', 'data-layout', name); $('scaleRow').hidden = name !== 'timeline';
-    state.pinned.clear(); refresh({ relayout: true, fit: !o || o.fit !== false }); scheduleSave();
+    if (name === 'trace' && (!state.trace.seed || !state.graph.nodes.has(state.trace.seed))) {
+      var c = traceCandidate();
+      if (!c) { toast('Open a transaction or a wallet first, then switch to Trace.', true); return; }
+      traceStart(c);
+    }
+    state.layout = name; document.body.classList.toggle('trace-on', name === 'trace'); setSeg('layoutSeg', 'data-layout', name); $('scaleRow').hidden = name !== 'timeline';
+    state.pinned.clear(); refresh({ relayout: true, fit: !o || o.fit !== false }); updateTraceUi(); renderStepBar(); scheduleSave();
   }
   function setScale(name) {
     if (!SCALES[name]) return;
@@ -1264,7 +2056,7 @@
   }
 
   // ---- export / import ------------------------------------------------------------------------
-  function viewState() { return { layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, source: state.source === 'custom' ? 'clearnet' : state.source }; }
+  function viewState() { return { trace: traceData(), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, source: state.source === 'custom' ? 'clearnet' : state.source }; }
 
   function download(name, text, mime) {
     var blob = new Blob([text], { type: mime }), a = el('a', { href: URL.createObjectURL(blob), download: name });
@@ -1273,17 +2065,29 @@
   function stamp() { var d = new Date(); return d.getUTCFullYear() + pad2(d.getUTCMonth() + 1) + pad2(d.getUTCDate()) + '-' + pad2(d.getUTCHours()) + pad2(d.getUTCMinutes()); }
   function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 
+  /** What the analysis found, as extra export columns: patterns and cluster per vertex, the likely change per output. */
+  function exportAnalysis() {
+    var an = analysis();
+    return {
+      node: function (n) {
+        var r = n.type === 'tx' ? an.tx.get(n.id) : null, cl = n.type === 'addr' ? an.clusters.byAddr.get(n.id) : null;
+        return { patterns: r ? r.flags.map(function (f) { return f.short; }).join('; ') : '', cluster: cl ? cl.label : '', clusterSize: cl ? cl.size : '' };
+      },
+      edge: function (e) { var c = an.changeEdges.get(e.id); return c ? c.confidence : ''; }
+    };
+  }
+
   function doExport(kind) {
     var g = state.graph;
     if (!g.nodes.size) { toast('Nothing to export yet.', true); return; }
     g.refreshDerived();
-    var only = $('exportVisible').checked ? F.computeVisible(g, state.filter, state.keep, focusOpt()) : null;
+    var only = $('exportVisible').checked ? F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly()) : null;
     var name = 'orion-' + stamp();
     if (fiatOn() && !fiatLoaded() && (kind === 'csv-edges' || kind === 'graphml')) toast('Prices are not loaded, so the fiat columns are empty.', true);
     if (kind === 'json') download(name + '.json', IO.toJson(g, { only: only, view: viewState(), source: sourceBase() }), 'application/json');
-    else if (kind === 'csv-nodes') download(name + '-nodes.csv', '﻿' + IO.toCsv(g, 'nodes', { only: only }), 'text/csv;charset=utf-8');
-    else if (kind === 'csv-edges') download(name + '-edges.csv', '﻿' + IO.toCsv(g, 'edges', { only: only, fiat: exportFiat() }), 'text/csv;charset=utf-8');
-    else if (kind === 'graphml') download(name + '.graphml', IO.toGraphMl(g, { only: only, fiat: exportFiat() }), 'application/xml');
+    else if (kind === 'csv-nodes') download(name + '-nodes.csv', '﻿' + IO.toCsv(g, 'nodes', { only: only, analysis: exportAnalysis() }), 'text/csv;charset=utf-8');
+    else if (kind === 'csv-edges') download(name + '-edges.csv', '﻿' + IO.toCsv(g, 'edges', { only: only, fiat: exportFiat(), analysis: exportAnalysis() }), 'text/csv;charset=utf-8');
+    else if (kind === 'graphml') download(name + '.graphml', IO.toGraphMl(g, { only: only, fiat: exportFiat(), analysis: exportAnalysis() }), 'application/xml');
     else if (kind === 'png') { var a = el('a', { href: renderer.toDataUrl(), download: name + '.png' }); document.body.appendChild(a); a.click(); a.remove(); }
     $('exportMenu').open = false;
     log('Exported ' + kind + (only ? ' (visible part)' : ''));
@@ -1291,7 +2095,9 @@
 
   function applyView(v) {
     if (!v || typeof v !== 'object') return;
-    if (LAYOUTS[v.layout]) { state.layout = v.layout; setSeg('layoutSeg', 'data-layout', v.layout); $('scaleRow').hidden = v.layout !== 'timeline'; }
+    var traceOk = loadTraceData(v.trace);
+    if (v.layout === 'trace' && !traceOk) v = Object.assign({}, v, { layout: 'flow' });
+    if (LAYOUTS[v.layout]) { state.layout = v.layout; document.body.classList.toggle('trace-on', v.layout === 'trace'); setSeg('layoutSeg', 'data-layout', v.layout); $('scaleRow').hidden = v.layout !== 'timeline'; }
     if (SCALES[v.timeScale]) { state.timeScale = v.timeScale; setSeg('scaleSeg', 'data-scale', v.timeScale); }
     if (COLORS[v.colorBy]) { state.colorBy = v.colorBy; setSeg('colorSeg', 'data-color', v.colorBy); }
     if (typeof v.focusOn === 'boolean') { state.focusOn = v.focusOn; $('focusOn').checked = v.focusOn; }
@@ -1322,9 +2128,10 @@
     if (wasEmpty) applyView(r.view);
     if (wasEmpty && fiatOn()) ensurePrices();
     if (state.focus && !g.nodes.has(state.focus)) state.focus = null;
+    traceSanitize(); if (traceOn() && !state.trace.seed) { state.layout = 'flow'; setSeg('layoutSeg', 'data-layout', 'flow'); document.body.classList.remove('trace-on'); }
     if (wasEmpty && state.focus) { state.keep.add(state.focus); state.nav.reset(); visitNav(state.focus); }
     state.layoutRes = null; state.graph.refreshDerived();
-    afterGraphChange({ fit: true }); updateNavUi(); scheduleSave();
+    afterGraphChange({ fit: true }); updateNavUi(); updateTraceUi(); scheduleSave();
     toast('Imported ' + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length);
   }
 
@@ -1333,9 +2140,10 @@
     setGraph(new M.Graph()); state.keep = new Set(); state.pinned = new Map(); state.selected = new Set(); state.selectedEdge = null;
     state.filter.timeFrom = null; state.filter.timeTo = null;
     state.focus = null; state.nav.reset();
+    state.trace = emptyTrace();
     try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the old hash stays, harmless */ }
     renderer.cur = new Map(); renderer.target = new Map(); renderer.anim = null;
-    afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); store.del(SAVE_KEY); log('Workspace cleared');
+    afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); store.del(SAVE_KEY); log('Workspace cleared');
   }
 
   // ---- autosave -------------------------------------------------------------------------------
@@ -1378,16 +2186,24 @@
       },
       onSelectEdge: function (id) { state.selected = new Set(); state.selectedEdge = id; syncSelection(); },
       onHover: onHover,
-      onMove: function (id, p) { state.pinned.set(id, { x: p.x, y: p.y }); },
+      onMove: function (id, p) { state.pinned.set(id, { x: p.x, y: p.y }); if (traceOn() && state.trace.shown.has(id)) { state.trace.pos.set(id, { x: p.x, y: p.y }); scheduleSave(); } },
+      onHandle: function (id, dir, shift, at) { if (shift) traceChoose(id, dir === 'left' ? 'prev' : 'next', at); else traceExpand(id, dir === 'left' ? 'prev' : 'next'); },
       onContext: openCtx,
-      onExpand: function (id) { if (state.focusOn) navigate(id); else expandNode(id, 'both'); }
+      onExpand: function (id) { if (traceOn()) traceExpand(id, 'next'); else if (state.focusOn) navigate(id); else expandNode(id, 'both'); }
     });
     loadPrefs();
     makeClient();
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets;
-    setSideCollapsed(state.sideCollapsed); setInspCollapsed(state.inspCollapsed);
+    setSideCollapsed(state.sideCollapsed); setInspCollapsed(state.inspCollapsed); setTbCollapsed(state.tbCollapsed);
+    syncAutoUi();
+    Array.prototype.forEach.call($('autoDirSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { state.auto.dir = b.getAttribute('data-dir'); syncAutoUi(); savePrefs(); }); });
+    ['autoHops', 'autoFollow', 'autoMaxTx', 'autoMaxReq', 'autoPerTx', 'autoMin', 'autoStopLabel', 'autoStopMix'].forEach(function (id) { $(id).addEventListener('change', readAuto); });
+    $('autoGo').addEventListener('click', function () { var id = autoTarget(); if (id) autoExpand(id); });
+    [['anFlags', 'flags'], ['anChange', 'change'], ['anClusters', 'clusters']].forEach(function (p) {
+      $(p[0]).addEventListener('change', function () { state.analysis[p[1]] = this.checked; savePrefs(); edgeLabelCache.clear(); refresh(); });
+    });
 
     $('searchForm').addEventListener('submit', function (e) { e.preventDefault(); openQuery($('q').value); });
     // the box shows the proper form of whatever was pasted
@@ -1455,7 +2271,11 @@
     });
     $('depth').addEventListener('change', function () { state.hops = num(this.value, 1, 3, 2); savePrefs(); afterGraphChange({ fit: true }); scheduleSave(); });
     $('btnFit').addEventListener('click', function () { renderer.fit(); });
-    $('btnRelayout').addEventListener('click', function () { state.pinned.clear(); refresh({ relayout: true, fit: true }); });
+    $('btnRelayout').addEventListener('click', function () { if (traceOn()) { traceTidy(); return; } state.pinned.clear(); refresh({ relayout: true, fit: true }); });
+    $('traceUndo').addEventListener('click', traceUndo);
+    $('traceHide').addEventListener('click', traceHideSelected);
+    $('traceKeep').addEventListener('click', function () { traceKeepOnly(traceSelected()); });
+    $('traceReset').addEventListener('click', traceReset);
     $('zoomIn').addEventListener('click', function () { renderer.zoomBy(1.3); });
     $('zoomOut').addEventListener('click', function () { renderer.zoomBy(1 / 1.3); });
     $('cancel').addEventListener('click', function () { state.client.abort(); });
@@ -1518,6 +2338,10 @@
     $('tFrom').addEventListener('input', function () { stopPlay(); onTimeSlider('from'); });
     $('tTo').addEventListener('input', function () { stopPlay(); onTimeSlider('to'); });
     $('tbReset').addEventListener('click', resetTime);
+    $('tbCollapse').addEventListener('click', function () { setTbCollapsed(!state.tbCollapsed); });
+    $('hist').addEventListener('pointermove', onTimeHover);
+    $('hist').addEventListener('pointerleave', onTimeLeave);
+    $('hist').addEventListener('click', onTimeClick);
     $('tbPlay').addEventListener('click', togglePlay);
 
     // keyboard
@@ -1525,21 +2349,27 @@
       var tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (!$('ctxMenu').hidden && e.key === 'Escape') { closeCtx(); return; }
-      if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selected.size) { e.preventDefault(); removeIds(Array.from(state.selected)); } }
+      if (traceOn() && (e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); traceSelectAll(); return; }
+      if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selected.size) { e.preventDefault(); if (traceOn()) traceHideSelected(); else removeIds(Array.from(state.selected)); } }
       else if (e.key === 'Escape') { if (!$('stepMenu').hidden) closeStepMenu(); else { state.selected = new Set(); state.selectedEdge = null; syncSelection(); } }
       else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
         var id = state.selected.size ? Array.from(state.selected)[0] : state.focus;
         if (id && state.graph.nodes.has(id)) { e.preventDefault(); openCtx(id, null, clientPosOf(id)); }
       }
-      else if (e.key === '[') { e.preventDefault(); stepClick('prev'); }
-      else if (e.key === ']') { e.preventDefault(); stepClick('next'); }
+      else if (e.key === '[') { e.preventDefault(); if (traceOn()) traceKey('prev'); else stepClick('prev'); }
+      else if (e.key === ']') { e.preventDefault(); if (traceOn()) traceKey('next'); else stepClick('next'); }
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && traceOn()) { e.preventDefault(); traceUndo(); }
       else if (e.key === 'c' || e.key === 'C') { setSideCollapsed(!state.sideCollapsed); }
       else if (e.key === 'd' || e.key === 'D') { setInspCollapsed(!state.inspCollapsed); }
+      else if (e.key === 't' || e.key === 'T') { setTbCollapsed(!state.tbCollapsed); }
       else if (e.key === 'f' || e.key === 'F') { renderer.fit(); }
       else if (e.key === '/') { e.preventDefault(); $('q').focus(); }
     });
     window.addEventListener('resize', function () { renderer.resize(); drawHistogram(); });
-    if (typeof ResizeObserver === 'function') new ResizeObserver(function () { renderer.resize(); if (renderer.autoFit) renderer.fit(); drawHistogram(); }).observe($('stage'));
+    if (typeof ResizeObserver === 'function') {
+      var ro = new ResizeObserver(function () { renderer.resize(); if (renderer.autoFit) renderer.fit(); drawHistogram(); });
+      ro.observe($('stage')); ro.observe($('cv'));                                         // the canvas also changes size when the time line folds away
+    }
 
     updateLegend(); updateTimebar(); updateAmount(); updateScriptChips();
     refresh({ relayout: true });
@@ -1556,6 +2386,6 @@
     if (fiatOn()) ensurePrices();
   }
 
-  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
+  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, traceExpand: traceExpand, traceStart: traceStart, traceHideIds: traceHideIds, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

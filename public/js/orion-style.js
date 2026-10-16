@@ -140,8 +140,14 @@
     var s = d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
     return withTime === false ? s : s + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' UTC';
   }
+  /** UTC with seconds, for exact timestamps (hovering a transaction on the time line). */
+  function fmtTimeFull(unix) {
+    if (unix == null) return '—';
+    var d = new Date(unix * 1000);
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds()) + ' UTC';
+  }
   function shortId(s, n) { n = n || 6; return s && s.length > 2 * n + 1 ? s.slice(0, n) + '…' + s.slice(-n) : (s || ''); }
 
   return { SCRIPT_COLORS: SCRIPT_COLORS, TYPE_COLORS: TYPE_COLORS, ageColor: ageColor, logScale: logScale, linScale: linScale,
-           makeStyle: makeStyle, legend: legend, fmtBtc: fmtBtc, fmtBtcShort: fmtBtcShort, fmtTime: fmtTime, shortId: shortId };
+           makeStyle: makeStyle, legend: legend, fmtBtc: fmtBtc, fmtBtcShort: fmtBtcShort, fmtTime: fmtTime, fmtTimeFull: fmtTimeFull, shortId: shortId };
 }));
