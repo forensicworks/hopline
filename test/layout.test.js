@@ -227,3 +227,48 @@ test('timeline compact layout keeps transactions in time order and exposes the a
   assert.ok(prop.pos.get(ID.tx('t3')).x - prop.pos.get(ID.tx('t1')).x < 3, 'proportional squashes the same burst');
   assert.equal(prop.axis.mode, 'proportional');
 });
+
+// ---- time x amount ----------------------------------------------------------------------------
+test('timeamount: x is the timeline\'s time, bigger amounts are higher, nothing overlaps, and the axis carries an amount scale', () => {
+  const g = realGraph(), v = F.computeVisible(g, {});
+  const tl = L.layout('timeline', g, v, { scale: 'proportional' }), ta = L.layout('timeamount', g, v, { scale: 'proportional' });
+  assert.equal(ta.pos.size, v.nodes.size);
+  v.nodes.forEach((id) => { assert.equal(ta.pos.get(id).x, tl.pos.get(id).x, 'same x as the timeline: ' + id); });
+  ta.pos.forEach((p, id) => assert.ok(Number.isFinite(p.y), id));
+  assert.ok(allDistinct(ta.pos, 20), 'no two vertices on top of each other');
+  const txs = [...v.nodes].filter((id) => g.nodes.get(id).type === 'tx' && g.nodes.get(id).loaded && g.nodes.get(id).time != null);
+  const byAmount = txs.slice().sort((a, b) => g.nodes.get(b).valueOut - g.nodes.get(a).valueOut);
+  const big = byAmount[0], small = byAmount[byAmount.length - 1];
+  if (g.nodes.get(big).valueOut > g.nodes.get(small).valueOut * 3) assert.ok(ta.pos.get(big).y < ta.pos.get(small).y, 'the larger transaction is higher up the page (smaller y)');
+  assert.ok(ta.axis && ta.axis.yTicks.length >= 2);
+  ta.axis.yTicks.forEach((t, i) => { assert.ok(/ sat$| BTC$/.test(t.label) && Number.isFinite(t.y)); if (i) assert.ok(t.y < ta.axis.yTicks[i - 1].y, 'ticks rise with the amount'); });
+  assert.equal(ta.axis.tMin, tl.axis.tMin);
+});
+
+test('timeamount: a wallet sits level with the largest movement it took part in, and equal amounts at one time fan out', () => {
+  const g = new Graph();
+  const mk = (txid, time, ins, outs) => g.addTx({ txid, fee: 1, weight: 400, status: { confirmed: true, block_height: 1, block_time: time },
+    vin: ins.map(([p, vout, a, value]) => ({ txid: p, vout, is_coinbase: false, prevout: { scriptpubkey_address: a, scriptpubkey_type: 'v0_p2wpkh', value } })),
+    vout: outs.map(([a, value]) => ({ scriptpubkey_address: a, scriptpubkey_type: 'v0_p2wpkh', value })) });
+  mk('a', 1000, [['z', 0, 'src', 1000000]], [['big', 900000], ['mid', 90000], ['tiny', 900], ['same1', 5000], ['same2', 5000], ['same3', 5000]]);
+  mk('b', 5000, [['a', 0, 'big', 900000]], [['next', 899000]]);
+  g.refreshDerived();
+  const v = F.computeVisible(g, {}), r = L.layout('timeamount', g, v, { scale: 'proportional' });
+  const y = (id) => r.pos.get(id).y;
+  assert.ok(y(ID.addr('big')) < y(ID.addr('mid')) && y(ID.addr('mid')) < y(ID.addr('tiny')));
+  assert.equal(L.vertexAmount(g, v, ID.addr('big')), 900000);
+  assert.equal(L.vertexAmount(g, v, ID.tx('a')), g.nodes.get(ID.tx('a')).valueOut, 'a transaction stands for its total output');
+  const sames = ['same1', 'same2', 'same3'].map((a) => ID.addr(a));
+  assert.equal(new Set(sames.map((id) => Math.round(y(id)))).size, 3, 'equal amounts at the same x are spread apart');
+});
+
+test('timeamount: degenerate inputs do not break it (nothing, one vertex, all the same amount)', () => {
+  const g = new Graph();
+  assert.equal(L.layout('timeamount', g, F.computeVisible(g, {})).pos.size, 0);
+  g.addTx({ txid: 'only', fee: 1, weight: 400, status: { confirmed: true, block_height: 1, block_time: 5 }, vin: [{ txid: 'p', vout: 0, is_coinbase: false, prevout: { scriptpubkey_address: 'x', scriptpubkey_type: 'v0_p2wpkh', value: 1000 } }],
+                 vout: [{ scriptpubkey_address: 'y', scriptpubkey_type: 'v0_p2wpkh', value: 1000 }] });
+  g.refreshDerived();
+  const r = L.layout('timeamount', g, F.computeVisible(g, {}));
+  assert.equal(r.pos.size, 4); r.pos.forEach((p) => assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y)));
+  assert.deepEqual(r.axis.yTicks, [], 'one amount, nothing to scale');
+});

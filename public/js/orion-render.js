@@ -73,6 +73,8 @@
     this.handleRects = [];                    // expand handles drawn this frame (trace layout): {id, dir, x, y, w, h, tip}
     this.autoFit = false;                     // true while the view is the result of fit(): it is then refitted when the canvas changes size
     this.selected = new Set();
+    this.boxMode = false;                     // true: dragging the background draws a box that selects what it covers (Shift-drag does it either way)
+    this.box = null;                          // the box being drawn: {x0, y0, x1, y1} in canvas pixels
     this.dirty = true;
     this.dpr = 1;
     this.drag = null;
@@ -197,6 +199,18 @@
   Renderer.prototype._toScreen = function (p) { return { x: p.x * this.view.k + this.view.x, y: p.y * this.view.k + this.view.y }; };
   Renderer.prototype._scale = function () { return Math.max(0.6, Math.min(1.7, this.view.k)); };
 
+  /** Ids of the visible vertices whose centre is inside a box given in canvas pixels ({x0, y0, x1, y1}, any corner first). */
+  Renderer.prototype.nodesIn = function (r) {
+    var x0 = Math.min(r.x0, r.x1), x1 = Math.max(r.x0, r.x1), y0 = Math.min(r.y0, r.y1), y1 = Math.max(r.y0, r.y1), self = this, out = [];
+    if (!this.data) return out;
+    this.data.visible.nodes.forEach(function (id) {
+      var p = self.cur.get(id); if (!p) return;
+      var s = self._toScreen(p);
+      if (s.x >= x0 && s.x <= x1 && s.y >= y0 && s.y <= y1) out.push(id);
+    });
+    return out;
+  };
+
   // ---- picking --------------------------------------------------------------------------------
   Renderer.prototype._pick = function (pt) {
     var d = this.data; if (!d) return { node: null, edge: null };
@@ -237,7 +251,7 @@
     try { this.canvas.setPointerCapture(e.pointerId); } catch (x) { /* synthetic events */ }
     if (hnd) { this.drag = { handle: hnd, start: pt, moved: false, shift: e.shiftKey || e.altKey }; return; }
     var h = this._pick(pt);
-    this.drag = { id: h.node, edge: h.edge, start: pt, last: pt, moved: false, view0: { x: this.view.x, y: this.view.y }, shift: e.shiftKey || e.ctrlKey || e.metaKey };
+    this.drag = { id: h.node, edge: h.edge, start: pt, last: pt, moved: false, view0: { x: this.view.x, y: this.view.y }, shift: e.shiftKey || e.ctrlKey || e.metaKey, box: !h.node && (e.shiftKey || this.boxMode) };
   };
 
   Renderer.prototype._move = function (e) {
@@ -246,10 +260,11 @@
       var hnd = this._pickHandle(pt);
       if (hnd) { this._setHover(null, null, null); this.canvas.style.cursor = 'pointer'; this.canvas.title = hnd.tip || ''; return; }
       this.canvas.title = '';
-      var h = this._pick(pt); this._setHover(h.node, h.edge, e); this.canvas.style.cursor = h.node ? 'pointer' : (h.edge ? 'help' : 'grab'); return;
+      var h = this._pick(pt); this._setHover(h.node, h.edge, e); this.canvas.style.cursor = h.node ? 'pointer' : (h.edge ? 'help' : (this.boxMode ? 'crosshair' : 'grab')); return;
     }
     if (d.handle) return;                                               // a press on a handle is a click, never a drag
     if (!d.moved && Math.hypot(pt.x - d.start.x, pt.y - d.start.y) < 4) return;
+    if (d.box) { d.moved = true; this.box = { x0: d.start.x, y0: d.start.y, x1: pt.x, y1: pt.y }; this.canvas.style.cursor = 'crosshair'; this.dirty = true; return; }
     d.moved = true;
     if (!d.id) this.autoFit = false;                                  // the user is panning
     if (d.id) {
@@ -268,8 +283,13 @@
     var d = this.drag; this.drag = null;
     if (!d) return;
     try { this.canvas.releasePointerCapture(e.pointerId); } catch (x) { /* ignore */ }
-    this.canvas.style.cursor = 'grab';
-    if (cancelled) return;
+    this.canvas.style.cursor = this.boxMode ? 'crosshair' : 'grab';
+    if (cancelled) { this.box = null; this.dirty = true; return; }
+    if (d.box && d.moved) {                                               // the box ended: what it covers is selected
+      var rect = this.box; this.box = null; this.dirty = true;
+      if (rect && this.cb.onBox) this.cb.onBox(this.nodesIn(rect), d.shift);
+      return;
+    }
     if (d.handle) { if (this.cb.onHandle) this.cb.onHandle(d.handle.id, d.handle.dir, d.shift, { x: e.clientX, y: e.clientY }); return; }
     if (d.moved && d.id) { if (this.cb.onMove) this.cb.onMove(d.id, { x: this.cur.get(d.id).x, y: this.cur.get(d.id).y }); return; }
     if (d.moved) return;
@@ -489,6 +509,11 @@
       });
       ctx.textBaseline = 'alphabetic';
     }
+    if (this.box) {                                                        // the selection box
+      var bx = Math.min(this.box.x0, this.box.x1), by = Math.min(this.box.y0, this.box.y1), bw = Math.abs(this.box.x1 - this.box.x0), bh = Math.abs(this.box.y1 - this.box.y0);
+      ctx.fillStyle = 'rgba(174,231,248,0.10)'; ctx.fillRect(bx, by, bw, bh);
+      ctx.lineWidth = 1; ctx.strokeStyle = th.accent; ctx.setLineDash([4, 3]); ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh); ctx.setLineDash([]);
+    }
   };
 
   function fmtGap(sec, short) {
@@ -531,6 +556,15 @@
       });
     } else {
       ctx.fillStyle = th.dim; ctx.fillText(Style.fmtTime(axis.tMin), sx(axis.x0) + 4, 15);
+    }
+    if (axis.yTicks && axis.yTicks.length) {                                     // amount scale: a faint line per power of ten, labelled at the left edge
+      ctx.font = '10.5px Calibri, Arial, sans-serif'; ctx.textAlign = 'left';
+      axis.yTicks.forEach(function (t) {
+        var y = t.y * v.k + v.y;
+        if (y < 30 || y > h - 4) return;
+        ctx.strokeStyle = th.grid; ctx.beginPath(); ctx.moveTo(0, Math.round(y) + 0.5); ctx.lineTo(w, Math.round(y) + 0.5); ctx.stroke();
+        ctx.fillStyle = th.dim; ctx.fillText(t.label, 6, y - 3);
+      });
     }
     if (range && axis.xOf && (range.from != null || range.to != null) && axis.knots.length > 1) {
       var xa2 = range.from != null ? sx(axis.xOf(range.from)) : 0, xb2 = range.to != null ? sx(axis.xOf(range.to)) : w;

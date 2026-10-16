@@ -212,3 +212,39 @@ test('trace (only): a shown vertex that nothing else shown touches stays; one wh
   // an empty set shows nothing
   assert.equal(F.computeVisible(g, {}, null, null, new Set()).nodes.size, 0);
 });
+
+test('hidden: hidden vertices and their edges go, the neighbours that lose their only edge stay as lone vertices, nothing is deleted', () => {
+  const g = chain();
+  const hub = ID.tx('t1'), B = ID.addr('B'), A = ID.addr('A'), dust = ID.addr('dust1');
+  const all = F.computeVisible(g, {});
+  const v = F.computeVisible(g, {}, null, null, null, new Set([hub]));
+  assert.ok(!v.nodes.has(hub));
+  [...v.edges].forEach((id) => { const e = g.edges.get(id); assert.ok(e.source !== hub && e.target !== hub, 'no edge of a hidden vertex'); });
+  assert.ok(v.nodes.has(A) && v.nodes.has(dust), 'its neighbours stay, though nothing else touches them');
+  assert.ok(v.nodes.has(B), 'B is also the input of t2, so it stays through that edge');
+  assert.ok(v.nodes.size < all.nodes.size && v.edges.size < all.edges.size);
+  assert.ok(g.nodes.has(hub), 'the graph itself is untouched');
+  assert.deepEqual([...F.computeVisible(g, {}, null, null, null, new Set()).nodes].sort(), [...all.nodes].sort(), 'an empty set changes nothing');
+});
+
+test('hidden: a hidden wallet takes its edge with it and leaves the transaction; hidden wins over keep', () => {
+  const g = chain();
+  const B = ID.addr('B'), t1 = ID.tx('t1'), t2 = ID.tx('t2');
+  const v = F.computeVisible(g, {}, new Set([B]), null, null, new Set([B]));
+  assert.ok(!v.nodes.has(B), 'keep does not override hiding');
+  assert.ok(v.nodes.has(t1) && v.nodes.has(t2), 'the transactions around it stay');
+  assert.ok(![...v.edges].some((id) => g.edges.get(id).source === B || g.edges.get(id).target === B));
+});
+
+test('hidden: still obeys the other filters, the trace set and the time range', () => {
+  const g = chain();
+  const t1 = ID.tx('t1'), A = ID.addr('A'), dust = ID.addr('dust1');
+  const cut = F.computeVisible(g, { minAmount: 1000 }, null, null, null, new Set([t1]));
+  assert.ok(!cut.nodes.has(dust), 'the dust wallet was filtered away, not isolated: a lone vertex is only for what hiding alone left over');
+  assert.ok(cut.nodes.has(A));
+  const only = new Set([t1, A, dust]);
+  const tr = F.computeVisible(g, {}, null, null, only, new Set([t1]));
+  assert.deepEqual([...tr.nodes].sort(), [A, dust].sort(), 'inside a trace set, only members can appear');
+  const late = F.computeVisible(g, { timeFrom: 1500, timeTo: 2500 }, null, null, null, new Set([ID.tx('t2')]));
+  assert.ok(!late.nodes.has(A) && !late.nodes.has(dust), 'the time range still removes what it removes: t1 is outside it');
+});

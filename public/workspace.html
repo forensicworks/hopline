@@ -82,7 +82,7 @@
           <button type="button" role="radio" data-layout="flow" aria-checked="true" title="Left to right in the direction money moves">Flow</button>
           <button type="button" role="radio" data-layout="timeline" aria-checked="false" title="Transactions placed by confirmation time">Timeline</button>
           <button type="button" role="radio" data-layout="force" aria-checked="false" title="Connected vertices pull together">Force</button>
-          <button type="button" role="radio" data-layout="trace" aria-checked="false" title="Start from one wallet or transaction and build the chain by clicking ◀ ▶">Trace</button>
+          <button type="button" role="radio" data-layout="trace" aria-checked="false" title="Start from one wallet or transaction and build the chain by clicking ◀ ▶. Its Arrange menu can spread what you build over time, by force, or by time and amount">Trace</button>
         </div>
         <div id="scaleRow" hidden>
           <span class="lbl">Time scale</span>
@@ -242,12 +242,14 @@
         <p><b>Edges</b> run in the direction money moves. Width = amount (log scale). Dashed = output not spent yet.</p>
         <p><b>Squares</b> are transactions (hollow = not loaded), <b>circles</b> addresses, <b>diamonds</b> coinbase, <b>hexagons</b> OP_RETURN.</p>
         <p><b>Trace</b> (under Layout) shows one wallet or transaction. Click <b>▶</b> beside it to show where the money went, <b>◀</b> for where it came from; each click moves one wallet along the chain and the vertices already on screen stay put. <b>Double-click</b> = ▶, <kbd>[</kbd> <kbd>]</kbd> = ◀ ▶ for the selected vertex, <kbd>Ctrl+Z</kbd> takes a step back, right-click for <i>Hide this branch</i>. Nothing is ever removed by a click. <b>Shift-click</b> a handle to choose which of the hidden vertices to show. Select vertices (<b>Shift-click</b>, or <kbd>Ctrl+A</kbd>) and use <i>Hide selected</i> / <i>Keep only selected</i>; right-click gives <i>Hide this vertex</i>, <i>Hide this branch</i> and <i>Select this branch</i>. Opening a new wallet or transaction <b>adds</b> it as another starting point; <i>Start over from here</i> replaces the trace. <kbd>Ctrl+Z</kbd> undoes any of these.</p>
+        <p><b>Arrange</b> (in the Trace layout's bar): <i>Columns</i> keeps the vertices where you put them, <i>Timeline</i> spreads them over time (left to right), <i>Force</i> pulls connected vertices together, and <i>Time × amount</i> spreads them over time with the bigger amounts higher up, on a log scale with a scale at the left. What is shown is still only what you revealed; the other arrangements place it all again each time you add something, <i>Columns</i> never moves what is there.</p>
+        <p><b>Selecting and hiding</b> work in every layout. Click, <b>Shift-click</b> to add, or <b>drag a box</b> (Shift-drag, or switch <i>⬚ Box</i> on with <kbd>B</kbd>); <i>Select ▾</i> picks everything, all wallets, all transactions, everything above an amount, or a tag; <kbd>Ctrl+A</kbd> selects all on screen. <i>Hide selected</i> (or <kbd>Delete</kbd>) takes them off the screen without deleting anything, <i>Keep only selected</i> hides the rest, <i>Hidden (n)</i> shows some or all of them again, and <kbd>Ctrl+Z</kbd> undoes. <kbd>Shift+Delete</kbd> (or <i>Remove from view</i>) really deletes a vertex from the workspace.</p>
         <p><b>Time line:</b> the scale shows the span of what is on screen; each dot is one transaction at its exact time (hover for the timestamp, click to select it; click a bar to select the transactions in it). Drag the two handles to show only a time window; <kbd>T</kbd> or the arrow folds the bar away.</p>
         <p><b>Analysis</b> looks for patterns in what is loaded: <i>CONSOL</i> (many inputs gathered into one or two outputs), <i>BATCH</i> (a few inputs paying many outputs), <i>COINJOIN?</i> (several wallets' inputs and several outputs of exactly the same value) and <i>PEEL</i> (a run of transactions that each pay a smaller amount out of a single coin and pass the rest on). A transaction's details also say which output most likely returns to the sender, and why; that output's edge is coloured amber. <b>Clusters</b> group addresses that were spent together in one transaction, which usually means one owner, and are drawn with a dashed ring in one colour; CoinJoin-like transactions are left out, and you can leave out any other by hand. All of it is heuristic: it shows its reasons and none of it is proof.</p>
         <p><b>Auto-expand</b> follows the money several transactions in one go, forward or backward, from the selected vertex, stopping at the limits you set (hops, transactions, requests) and at labelled wallets or CoinJoins. <i>Follow</i> chooses every output, the largest, the likely change, or a peel chain. In the Trace layout everything it loaded is shown and one <kbd>Ctrl+Z</kbd> takes it back.</p>
         <p><b>Right-click</b> a wallet or transaction for its actions: tag it (EXCH, THREAT, …), look a wallet up in Arkham, load more. <b>Tags</b> give a vertex a colour, a shape and a badge; set them next to the label in the details.</p>
         <p><b>Previous / Next</b> under the graph step along the money: from a transaction to the wallets it paid (or that paid in), from a wallet to the transactions that spent from it. One choice moves at once; several open a list.</p>
-        <p>Keys: <kbd>[</kbd> previous, <kbd>]</kbd> next, <kbd>C</kbd> controls, <kbd>D</kbd> details, <kbd>T</kbd> time line, <kbd>Del</kbd> remove, <kbd>Esc</kbd> deselect, <kbd>F</kbd> fit, <kbd>/</kbd> search.</p>
+        <p>Keys: <kbd>[</kbd> previous, <kbd>]</kbd> next, <kbd>C</kbd> controls, <kbd>D</kbd> details, <kbd>T</kbd> time line, <kbd>B</kbd> box select, <kbd>Ctrl+A</kbd> select all, <kbd>Ctrl+Z</kbd> undo, <kbd>Del</kbd> hide, <kbd>Esc</kbd> deselect, <kbd>F</kbd> fit, <kbd>/</kbd> search.</p>
       </div>
     </details>
   </aside>
@@ -256,12 +258,22 @@
     <canvas id="cv" tabindex="0" aria-label="Transaction graph"></canvas>
     <button type="button" id="sideTab" class="edge-tab left" hidden aria-label="Show controls" aria-controls="side" title="Show controls (C)">Controls ›</button>
     <button type="button" id="inspTab" class="edge-tab right" hidden aria-label="Show details" aria-controls="inspector" title="Show details (D)">‹ <span id="inspTabText">Details</span></button>
-    <div id="traceBar" role="group" aria-label="Trace" hidden>
-      <span class="tb-title">Trace</span>
-      <button type="button" id="traceUndo" disabled title="Take back the last step (Ctrl+Z)">⟲ Undo</button>
+    <div id="traceBar" role="group" aria-label="Selection and trace" hidden>
+      <span class="tb-title" id="barTitle">Selection</span>
+      <button type="button" id="traceUndo" disabled title="Take back the last step or hide (Ctrl+Z)">⟲ Undo</button>
       <button type="button" id="traceHide" disabled title="Take the selected vertices off the screen (they stay loaded). Delete does the same">Hide selected</button>
       <button type="button" id="traceKeep" disabled title="Hide everything except the selected vertices">Keep only selected</button>
-      <button type="button" id="traceReset" title="Back to the single starting vertex">Reset to start</button>
+      <button type="button" id="hiddenBtn" hidden aria-haspopup="menu" title="The vertices you hid: show some or all of them again">Hidden (0) ▾</button>
+      <button type="button" id="selMenu" aria-haspopup="menu" title="Select all wallets, all transactions, everything above an amount, … (Ctrl+A selects everything on screen)">Select ▾</button>
+      <button type="button" id="boxSel" aria-pressed="false" title="Draw a box on the graph to select what it covers (B). Shift-drag does the same without switching it on">⬚ Box</button>
+      <label class="trace-only sr-inline" for="traceArrange">Arrange</label>
+      <select id="traceArrange" class="trace-only" title="Where the traced vertices are placed">
+        <option value="columns">Columns (as you build)</option>
+        <option value="timeline">Timeline</option>
+        <option value="force">Force</option>
+        <option value="timeamount">Time × amount</option>
+      </select>
+      <button type="button" id="traceReset" class="trace-only" title="Back to the single starting vertex">Reset to start</button>
       <span id="traceInfo"></span>
     </div>
     <div id="stepbar" role="group" aria-label="Follow the money" hidden>

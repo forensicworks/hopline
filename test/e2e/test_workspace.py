@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from conftest import ADDRESS, ADDR_TXS, COINBASE, NORMAL, OPRETURN, OUTSPENDS, SPENDERS, shot
-from helpers import (canvas_has_ink, click_node, counts, idle, node_ids, open_query, selected, set_slider, toast_text, xy)
+from helpers import (canvas_has_ink, click_node, counts, idle, node_ids, open_query, selected, set_slider, settle, toast_text, xy)
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
 
@@ -365,12 +365,17 @@ def test_known_address_is_labelled_in_the_tooltip(page):
     assert page.is_visible("#tooltip") and "Known" in page.inner_text("#tooltip")
 
 
-def test_delete_key_removes_the_selection(page):
+def test_delete_hides_the_selection_and_shift_delete_removes_it(page):
     open_query(page, NORMAL["txid"])
     click_node(page, NORMAL_ID)
     page.keyboard.press("Delete")
-    assert counts(page)["nodes"] == 0
+    assert counts(page)["nodes"] == 7 and counts(page)["vnodes"] < 7, "hidden, not deleted: still loaded"
     assert page.is_hidden("#inspector")
+    page.keyboard.press("Control+z"); settle(page)
+    assert counts(page)["vnodes"] == 7
+    click_node(page, NORMAL_ID); settle(page)
+    page.keyboard.press("Shift+Delete")
+    assert counts(page)["nodes"] == 0
 
 
 def test_session_is_saved_and_can_be_restored(ctx, errors):

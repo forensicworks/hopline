@@ -232,7 +232,7 @@ def test_clear_resets_the_trail(fpage):
 def test_removing_the_focused_vertex_clears_the_focus(fpage):
     open_query(fpage, NORMAL["txid"])
     click_node(fpage, NORMAL_ID)
-    fpage.keyboard.press("Delete")
+    fpage.keyboard.press("Shift+Delete")                                   # Delete only hides; Shift+Delete removes it from the workspace
     assert focus(fpage) is None and counts(fpage)["nodes"] == 0
 
 

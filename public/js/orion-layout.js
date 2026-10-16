@@ -6,6 +6,7 @@
  *   flow      left-to-right in the direction money moves, ordered to reduce crossings
  *   timeline  x = confirmation time, y = lanes packed so nothing overlaps
  *   force     spring layout; starts from existing positions so it can be re-run to tidy up
+ *   timeamount  x = confirmation time (as timeline), y = amount on a log scale (bigger is higher), nothing overlapping
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -255,7 +256,57 @@
     return { pos: pos, axis: null };
   }
 
+  // ---- time x amount --------------------------------------------------------------------------
+  /**
+   * What a vertex stands for in the amount layout and in "select by amount": a transaction's total output, otherwise the
+   * largest single movement among the visible edges that touch it (so a wallet sits level with what it received).
+   */
+  function vertexAmount(graph, visible, id) {
+    var n = graph.nodes.get(id);
+    if (n && n.type === 'tx' && n.loaded && n.valueOut != null) return n.valueOut;
+    var best = 0;
+    graph.edgesOf(id).forEach(function (e) { if ((!visible || visible.edges.has(e.id)) && e.amount > best) best = e.amount; });
+    return best;
+  }
+
+  function fmtAmount(sats) {
+    if (sats < 1e4) return String(sats).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' sat';
+    return (sats / 1e8).toFixed(8).replace(/\.?0+$/, '') + ' BTC';
+  }
+
+  /**
+   * Time along x exactly as the timeline places it (compact or proportional), amount up the page on a log scale, so big
+   * movements stand high and a burst of small ones sits low. Vertices that would land on each other are moved up or down
+   * to the nearest free place. The axis gains `yTicks` ([{y, label}], one per power of ten) for the amount scale.
+   */
+  function layoutTimeAmount(graph, visible, opts) {
+    opts = opts || {};
+    var base = layoutTimeline(graph, visible, opts), ids = Array.from(visible.nodes);
+    var height = opts.height || 560, stepY = opts.stepY || 30, minDx = opts.minSep || 70;
+    var amt = new Map(), lo = Infinity, hi = -Infinity;
+    ids.forEach(function (id) {
+      var a = vertexAmount(graph, visible, id), l = Math.log10(1 + a);
+      amt.set(id, a); if (l < lo) lo = l; if (l > hi) hi = l;
+    });
+    function yOf(sats) { return hi > lo ? -(Math.log10(1 + sats) - lo) / (hi - lo) * height : 0; }
+    var order = ids.slice().sort(function (a, b) { return base.pos.get(a).x - base.pos.get(b).x || amt.get(b) - amt.get(a) || (a < b ? -1 : 1); });
+    var placed = [], pos = new Map();
+    order.forEach(function (id) {
+      var x = base.pos.get(id).x, want = yOf(amt.get(id)), y = want;
+      for (var k = 0; k < 2000; k++) {
+        var cand = want + (k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2) * stepY), clash = false;
+        for (var i = placed.length - 1; i >= 0 && x - placed[i].x < minDx; i--) { if (Math.abs(placed[i].y - cand) < stepY * 0.9) { clash = true; break; } }
+        if (!clash) { y = cand; break; }
+      }
+      placed.push({ x: x, y: y }); pos.set(id, { x: x, y: y });
+    });
+    var ticks = [];
+    if (hi > lo) for (var k = Math.ceil(lo); k <= Math.floor(hi) && ticks.length < 14; k++) { var s = Math.pow(10, k); ticks.push({ sats: s, y: yOf(s), label: fmtAmount(s) }); }
+    return { pos: pos, axis: Object.assign({}, base.axis, { yTicks: ticks }) };
+  }
+
   function layout(name, graph, visible, opts) {
+    if (name === 'timeamount') return layoutTimeAmount(graph, visible, opts);
     if (name === 'timeline') return layoutTimeline(graph, visible, opts);
     if (name === 'force') return layoutForce(graph, visible, opts);
     return layoutFlow(graph, visible, opts);
@@ -271,5 +322,5 @@
     return b;
   }
 
-  return { layout: layout, timeMapper: timeMapper, layoutFlow: layoutFlow, layoutTimeline: layoutTimeline, layoutForce: layoutForce, bounds: bounds, rng: rng };
+  return { layout: layout, timeMapper: timeMapper, layoutFlow: layoutFlow, layoutTimeline: layoutTimeline, layoutForce: layoutForce, layoutTimeAmount: layoutTimeAmount, vertexAmount: vertexAmount, bounds: bounds, rng: rng };
 }));

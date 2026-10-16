@@ -11,6 +11,7 @@
   var KNOWN = window.ORION_KNOWN || {};
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
   var SAVE_KEY = 'orion.workspace.v1', PREF_KEY = 'orion.prefs.v1', TOKEN_KEY = 'orion.ext.token';
+  var ARRANGE = { columns: 1, timeline: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeamount: 1 };
   var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SCALES = { compact: 1, proportional: 1 };
 
   function $(id) { return document.getElementById(id); }
@@ -44,6 +45,7 @@
     sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
     trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [] },
     analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null,
+    hidden: new Set(), hideUndo: [], arrange: 'columns', boxMode: false,
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -221,7 +223,7 @@
 
   /** What the graph shows before the time range is applied: every other filter, limited to the focus neighbourhood. */
   function scope(extra) {
-    return F.computeVisible(state.graph, Object.assign({}, state.filter, { timeFrom: null, timeTo: null }, extra || {}), state.keep, focusOpt(), traceOnly());
+    return F.computeVisible(state.graph, Object.assign({}, state.filter, { timeFrom: null, timeTo: null }, extra || {}), state.keep, focusOpt(), traceOnly(), hiddenOpt());
   }
 
   function needsLoad(id) {
@@ -390,17 +392,23 @@
   function traceSelected() { return Array.from(state.selected).filter(function (id) { return state.trace.shown.has(id); }); }
 
   function updateTraceUi() {
-    var on = traceOn(), T = state.trace;
+    var on = traceOn(), T = state.trace, has = state.graph.nodes.size > 0, hid = hiddenCount();
+    var sel = on ? traceSelected().length : Array.from(state.selected).filter(function (id) { return state.graph.nodes.has(id); }).length;
+    var vis = renderer && renderer.data ? renderer.data.visible.nodes.size : 0;
     document.body.classList.toggle('trace-on', on);
-    $('traceBar').hidden = !on;
+    $('traceBar').hidden = !(on || has);
+    $('barTitle').textContent = on ? 'Trace' : 'Selection';
     $('focusOn').disabled = on; $('depth').disabled = on;
     $('focusOn').title = on ? 'Not used in the Trace layout: the trace shows what you reveal' : 'Show only the neighbourhood of the vertex you are looking at';
-    $('traceUndo').disabled = !T.undo.length;
-    var sel = on ? traceSelected().length : 0;
-    $('traceHide').disabled = !sel; $('traceKeep').disabled = !sel || sel >= T.shown.size;
-    $('traceInfo').textContent = !T.shown.size ? 'Nothing shown: open a wallet or a transaction.'
-      : T.shown.size === 1 ? 'Click ◀ or ▶ beside the vertex to show what came before or after it.'
-      : T.shown.size + ' vertices shown' + (sel ? ' · ' + sel + ' selected' : '');
+    $('traceUndo').disabled = on ? !T.undo.length : !state.hideUndo.length;
+    $('traceHide').disabled = !sel; $('traceKeep').disabled = !sel || sel >= (on ? T.shown.size : vis);
+    $('hiddenBtn').hidden = on || !hid; $('hiddenBtn').textContent = 'Hidden (' + hid + ') ▾';
+    $('boxSel').setAttribute('aria-pressed', String(state.boxMode));
+    $('traceArrange').value = state.arrange;
+    $('traceInfo').textContent = on ? (!T.shown.size ? 'Nothing shown: open a wallet or a transaction.'
+        : T.shown.size === 1 ? 'Click ◀ or ▶ beside the vertex to show what came before or after it.'
+        : T.shown.size + ' vertices shown' + (sel ? ' · ' + sel + ' selected' : ''))
+      : sel ? sel + ' selected' : 'Click, Shift-click or drag a box to select';
   }
 
   /** Redraw after the shown set changed. `fit` refits the whole trace; otherwise the view only pans to what was added. */
@@ -559,6 +567,7 @@
   }
   /** Re-run the automatic left-to-right layout over what is shown (positions are otherwise yours). */
   function traceTidy() {
+    if (state.arrange !== 'columns') { state.pinned.clear(); refresh({ relayout: true, fit: true }); return; }
     var T = state.trace, vis = F.computeVisible(state.graph, state.filter, state.keep, null, traceOnly());
     L.layoutFlow(state.graph, vis, {}).pos.forEach(function (p, id) { T.pos.set(id, { x: p.x, y: p.y }); });
     traceChanged(null, true);
@@ -725,11 +734,152 @@
     }
   }
 
+  // ---- hiding and selecting, in every layout -----------------------------------------------------
+  // Hiding never deletes: a hidden vertex stays loaded, every hide can be undone, and what you hid is saved with the session.
+  // (In the Trace layout the same buttons work on what the trace shows: see traceHideIds.)
+  function hiddenOpt() { return traceOn() || !state.hidden.size ? null : state.hidden; }
+  function hiddenCount() { var k = 0; state.hidden.forEach(function (id) { if (state.graph.nodes.has(id)) k++; }); return k; }
+  function visibleIds() { return renderer && renderer.data ? Array.from(renderer.data.visible.nodes) : []; }
+  function afterHide() { afterGraphChange(); syncSelection(); scheduleSave(); }
+
+  /** Hide vertices (outside a trace). The focused vertex stays: the Focus view needs it. Returns how many were hidden. */
+  function hideIds(ids) {
+    if (traceOn()) return traceHideIds(ids);
+    var g = state.graph, list = [], skipped = false;
+    ids.forEach(function (id) {
+      if (!g.nodes.has(id) || state.hidden.has(id) || list.indexOf(id) >= 0) return;
+      if (state.focusOn && state.focus === id) { skipped = true; return; }
+      list.push(id);
+    });
+    if (!list.length) { if (skipped) toast('The focused vertex stays: move the focus first, or untick Focus.'); return 0; }
+    list.forEach(function (id) { state.hidden.add(id); state.selected.delete(id); });
+    state.selectedEdge = null; state.hideUndo.push({ type: 'hide', ids: list });
+    if (skipped) toast('The focused vertex was not hidden: move the focus first, or untick Focus.');
+    afterHide();
+    return list.length;
+  }
+  function showIds(ids) {
+    var list = ids.filter(function (id) { return state.hidden.has(id); });
+    if (!list.length) return 0;
+    list.forEach(function (id) { state.hidden.delete(id); });
+    state.hideUndo.push({ type: 'show', ids: list }); afterHide();
+    return list.length;
+  }
+  function hideUndoLast() {
+    var e = state.hideUndo.pop(); if (!e) return;
+    e.ids.forEach(function (id) { if (e.type === 'hide') state.hidden.delete(id); else state.hidden.add(id); });
+    afterHide();
+  }
+  function undoLast() { if (traceOn()) traceUndo(); else hideUndoLast(); }
+  function hideSelected() {
+    if (traceOn()) { traceHideSelected(); return; }
+    var ids = Array.from(state.selected).filter(function (id) { return state.graph.nodes.has(id); });
+    if (!ids.length) { toast('Select the vertices to hide first (click, Shift-click, drag a box, or use Select).'); return; }
+    var k = hideIds(ids);
+    if (k) toast('Hid ' + plural(k, 'vertex', 'vertices') + ' (they stay loaded; Ctrl+Z brings them back).');
+  }
+  function keepOnly(ids) {
+    if (traceOn()) { traceKeepOnly(ids); return; }
+    var vis = visibleIds(), keep = new Set(ids.filter(function (id) { return vis.indexOf(id) >= 0; }));
+    if (!keep.size) { toast('Select the vertices to keep first.'); return; }
+    var rest = vis.filter(function (id) { return !keep.has(id); });
+    if (!rest.length) { toast('Everything shown is selected: nothing to hide.'); return; }
+    var k = hideIds(rest);
+    if (k) toast('Kept ' + keep.size + ', hid ' + k + ' (Ctrl+Z brings them back).');
+  }
+  function hideBtn(ids) {
+    if (traceOn()) return null;                                                     // in a trace the "Hide … from the trace" button is the hide
+    return el('button', { type: 'button', text: ids.length > 1 ? 'Hide ' + ids.length : 'Hide', title: 'Take off the screen; it stays loaded and Ctrl+Z brings it back',
+                          onclick: function () { var k = hideIds(ids); if (k) toast('Hid ' + plural(k, 'vertex', 'vertices') + ' (Ctrl+Z brings them back).'); } });
+  }
+
+  function setSel(ids) { state.selected = new Set(ids); state.selectedEdge = null; syncSelection(); }
+  function selectAllVisible() { setSel(visibleIds()); }
+  function setBoxMode(on) {
+    state.boxMode = !!on; renderer.boxMode = state.boxMode;
+    document.body.classList.toggle('box-mode', state.boxMode); $('boxSel').setAttribute('aria-pressed', String(state.boxMode));
+    renderer.canvas.style.cursor = state.boxMode ? 'crosshair' : 'grab';
+  }
+  /** Keep only the wallets (or only the transactions) of the current selection. */
+  function narrowSelection(type) { setSel(Array.from(state.selected).filter(function (id) { var n = state.graph.nodes.get(id); return n && n.type === type; })); }
+
+  /** The Select menu: everything on screen, by kind, by amount, by tag. */
+  function openSelectMenu() {
+    var m = $('ctxMenu'), g = state.graph, vis = visibleIds(), r = $('selMenu').getBoundingClientRect();
+    closeStepMenu(); $('tooltip').hidden = true; m.textContent = '';
+    function ofType(t) { return vis.filter(function (id) { var n = g.nodes.get(id); return n && n.type === t; }); }
+    var wallets = ofType('addr'), txs = ofType('tx');
+    m.appendChild(el('div', { 'class': 'ctxhead', text: 'Select (what is on screen)' }));
+    ctxItem(m, 'All', function () { selectAllVisible(); }, { right: vis.length + ' · Ctrl+A' });
+    ctxItem(m, 'None', function () { setSel([]); }, { disabled: !state.selected.size });
+    ctxItem(m, 'Invert', function () { var cur = state.selected; setSel(vis.filter(function (id) { return !cur.has(id); })); });
+    m.appendChild(el('div', { 'class': 'sep' }));
+    ctxItem(m, 'All wallets', function () { setSel(wallets); }, { right: String(wallets.length), disabled: !wallets.length });
+    ctxItem(m, 'All transactions', function () { setSel(txs); }, { right: String(txs.length), disabled: !txs.length });
+    m.appendChild(el('div', { 'class': 'sep' }));
+    var input = el('input', { type: 'number', min: '0', step: 'any', value: '0.1', 'aria-label': 'Amount in BTC', style: 'width:90px' });
+    function byAmount(types) {
+      var sats = Math.round(Number(input.value) * 1e8);
+      if (!isFinite(sats) || sats < 0) { toast('Enter an amount in BTC.', true); return; }
+      var vs = renderer.data.visible;
+      var ids = vis.filter(function (id) { var n = g.nodes.get(id); return n && types.indexOf(n.type) >= 0 && L.vertexAmount(g, vs, id) >= sats; });
+      closeCtx(); setSel(ids); toast(plural(ids.length, 'vertex', 'vertices') + ' of ' + S.fmtBtc(sats) + ' BTC or more selected.');
+    }
+    m.appendChild(el('div', { 'class': 'chooserfoot' }, [el('span', { text: 'Amount ≥' }), input, el('span', { text: 'BTC' })]));
+    m.appendChild(el('div', { 'class': 'chooserfoot' }, [
+      el('button', { type: 'button', text: 'Wallets', onclick: function () { byAmount(['addr']); } }), el('button', { type: 'button', text: 'Transactions', onclick: function () { byAmount(['tx']); } }),
+      el('button', { type: 'button', text: 'Both', onclick: function () { byAmount(['addr', 'tx']); } })]));
+    var tags = TG.summarise(Array.from(g.nodes.values()));
+    if (tags.length) {
+      m.appendChild(el('div', { 'class': 'sep' }));
+      tags.forEach(function (t) {
+        var ids = vis.filter(function (id) { var n = g.nodes.get(id); return n && n.tag === t.tag; });
+        ctxItem(m, 'Tagged ' + t.tag, function () { setSel(ids); }, { right: String(ids.length), disabled: !ids.length, glyph: SHAPE_GLYPH[t.shape] || '●', glyphColor: t.color });
+      });
+    }
+    placeCtx({ x: r.left, y: r.bottom + 4 });
+  }
+
+  /** The Hidden menu: the vertices you hid, to show some or all of them again. */
+  function openHiddenMenu() {
+    var g = state.graph, ids = Array.from(state.hidden).filter(function (id) { return g.nodes.has(id); }), r = $('hiddenBtn').getBoundingClientRect();
+    if (!ids.length) { toast('Nothing is hidden.'); return; }
+    ids.sort(function (a, b) { return L.vertexAmount(g, null, b) - L.vertexAmount(g, null, a); });
+    var m = $('ctxMenu'); m.textContent = ''; closeStepMenu(); $('tooltip').hidden = true;
+    m.appendChild(el('div', { 'class': 'ctxhead', text: 'Hidden · ' + ids.length }));
+    var boxes = [], list = el('div', { 'class': 'chooser' });
+    ids.slice(0, 300).forEach(function (id) {
+      var n = g.nodes.get(id), cb = el('input', { type: 'checkbox', 'aria-label': focusLabel(id) });
+      cb.addEventListener('change', count); boxes.push({ cb: cb, id: id });
+      list.appendChild(el('label', { 'class': 'chooserrow' }, [cb, el('span', { 'class': 'what' }, [focusLabel(id), el('small', { text: (KIND_NAME[n.type] || 'Vertex') + (n.tag ? ' · ' + n.tag : '') })]), el('span', { 'class': 'amt', text: S.fmtBtcShort(L.vertexAmount(g, null, id)) })]));
+    });
+    m.appendChild(list);
+    if (ids.length > 300) m.appendChild(el('div', { 'class': 'hint', text: '… and ' + (ids.length - 300) + ' more (Show all brings them back)' }));
+    var go = el('button', { type: 'button', 'class': 'primary', onclick: function () {
+      var pick = boxes.filter(function (b) { return b.cb.checked; }).map(function (b) { return b.id; });
+      closeCtx(); if (pick.length) { var k = showIds(pick); toast('Showing ' + plural(k, 'vertex', 'vertices') + ' again.'); }
+    } });
+    function count() { var k = boxes.filter(function (b) { return b.cb.checked; }).length; go.textContent = 'Show ' + k + ' selected'; go.disabled = !k; }
+    m.appendChild(el('div', { 'class': 'chooserfoot' }, [go,
+      el('button', { type: 'button', text: 'Show all ' + ids.length, onclick: function () { closeCtx(); var k = showIds(ids); toast('Showing ' + plural(k, 'vertex', 'vertices') + ' again.'); } }),
+      el('button', { type: 'button', text: 'Cancel', onclick: closeCtx })]));
+    count(); placeCtx({ x: r.left, y: r.bottom + 4 });
+  }
+
+  // ---- how a trace is arranged: columns you build, or spread over time / by force / by time and amount ----
+  function usesAxis() { return state.layout === 'timeline' || (traceOn() && !!TIME_ARR[state.arrange]); }
+  function updateScaleRow() { $('scaleRow').hidden = !usesAxis(); }
+  function setArrange(name) {
+    if (!ARRANGE[name]) return;
+    state.arrange = name; $('traceArrange').value = name; updateScaleRow();
+    state.pinned.clear(); state.layoutRes = null; refresh({ relayout: true, fit: true }); scheduleSave();
+  }
+
   // ---- selection and inspector ----------------------------------------------------------------
   function selectOnly(id) { state.selected = id ? new Set([id]) : new Set(); state.selectedEdge = null; syncSelection(); }
   function syncSelection() {
     renderer.setSelection(Array.from(state.selected)); renderer.selectedEdge = state.selectedEdge;
-    showInspector(); if (traceOn()) updateTraceUi(); updateAutoUi();
+    showInspector(); updateTraceUi(); updateAutoUi();
   }
 
   function copy(text) {
@@ -1074,6 +1224,7 @@
     var m = $('ctxMenu'), g = state.graph; m.textContent = '';
     if (!ids) {
       m.appendChild(el('div', { 'class': 'ctxhead', text: 'Graph' }));
+      ctxItem(m, 'Select all', function () { selectAllVisible(); }, { right: 'Ctrl+A' });
       ctxItem(m, 'Fit view', function () { renderer.fit(); });
       ctxItem(m, 'Re-layout', function () { state.pinned.clear(); refresh({ relayout: true, fit: true }); });
       placeCtx(at); return;
@@ -1085,7 +1236,11 @@
         var sel = ids.filter(function (x) { return state.trace.shown.has(x); });
         ctxItem(m, 'Hide ' + sel.length + ' from the trace', function () { traceHideIds(sel); }, { danger: true, disabled: !sel.length || sel.length >= state.trace.shown.size });
         ctxItem(m, 'Keep only these ' + sel.length, function () { traceKeepOnly(sel); }, { disabled: !sel.length || sel.length >= state.trace.shown.size });
-      } else ctxItem(m, 'Remove ' + ids.length + ' from view', function () { removeIds(ids); }, { danger: true });
+      } else {
+        ctxItem(m, 'Hide ' + ids.length, function () { var k = hideIds(ids); if (k) toast('Hid ' + plural(k, 'vertex', 'vertices') + ' (Ctrl+Z brings them back).'); });
+        ctxItem(m, 'Keep only these ' + ids.length, function () { keepOnly(ids); });
+        ctxItem(m, 'Remove ' + ids.length + ' from view', function () { removeIds(ids); }, { danger: true, title: 'Delete them from the workspace (Hide keeps them loaded)' });
+      }
       placeCtx(at); return;
     }
     var n = g.nodes.get(ids[0]); if (!n) return;
@@ -1133,7 +1288,10 @@
     }
     m.appendChild(el('div', { 'class': 'sep' }));
     if (traceOn()) ctxItem(m, 'Hide from the trace', function () { traceHideIds(ids); }, { danger: true, disabled: state.trace.shown.size <= 1 });
-    else ctxItem(m, 'Remove from view', function () { removeIds(ids); }, { danger: true });
+    else {
+      ctxItem(m, 'Hide this vertex', function () { var k = hideIds(ids); if (k) toast('Hid it (Ctrl+Z brings it back).'); }, { title: 'Take it off the screen; it stays loaded' });
+      ctxItem(m, 'Remove from view', function () { removeIds(ids); }, { danger: true, title: 'Delete it from the workspace (Hide keeps it loaded)' });
+    }
     placeCtx(at);
   }
 
@@ -1273,8 +1431,14 @@
       box.appendChild(el('h3', { text: ids.length + ' selected' }));
       var tot = 0; ids.forEach(function (id) { var n = g.nodes.get(id); tot += (n.type === 'tx' ? n.valueOut : n.received) || 0; });
       var dl0 = el('dl', { 'class': 'kv' }); kv(dl0, 'Total value', S.fmtBtc(tot) + ' BTC'); box.appendChild(dl0);
-      box.appendChild(el('div', { 'class': 'insp-actions' }, [removeBtn(ids)]));
-      if (traceOn()) box.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', text: 'Keep only these ' + ids.length, disabled: ids.length >= state.trace.shown.size ? 'disabled' : null, onclick: function () { traceKeepOnly(ids); } })]));
+      var kinds = { addr: 0, tx: 0 }; ids.forEach(function (id) { var t = g.nodes.get(id).type; if (t in kinds) kinds[t]++; });
+      var total = traceOn() ? state.trace.shown.size : visibleIds().length;
+      box.appendChild(el('div', { 'class': 'insp-actions' }, [hideBtn(ids), removeBtn(ids),
+        el('button', { type: 'button', text: 'Keep only these ' + ids.length, disabled: ids.length >= total ? 'disabled' : null, title: 'Hide everything else on screen', onclick: function () { keepOnly(ids); } })]));
+      var narrow = [];
+      if (kinds.addr && kinds.addr < ids.length) narrow.push(el('button', { type: 'button', text: 'Wallets only (' + kinds.addr + ')', title: 'Narrow the selection to its wallets', onclick: function () { narrowSelection('addr'); } }));
+      if (kinds.tx && kinds.tx < ids.length) narrow.push(el('button', { type: 'button', text: 'Transactions only (' + kinds.tx + ')', title: 'Narrow the selection to its transactions', onclick: function () { narrowSelection('tx'); } }));
+      if (narrow.length) box.appendChild(el('div', { 'class': 'insp-actions' }, narrow));
       box.appendChild(el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Tag all ' + ids.length }), tagControls(ids)]));
       return;
     }
@@ -1303,7 +1467,7 @@
         el('button', { type: 'button', text: '↔ Both', onclick: function () { expandNode(n.id, 'both'); } })
       ]));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
-        el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), removeBtn([n.id])
+        el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), hideBtn([n.id]), removeBtn([n.id])
       ]));
       box.appendChild(autoButtons(n));
       (txAnalysisSection(n) || []).forEach(function (s) { box.appendChild(s); });
@@ -1326,7 +1490,7 @@
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n)]));
       var ta2 = traceActions(n); if (ta2) box.appendChild(ta2);
       var acts = [el('button', { type: 'button', text: n.histNext ? 'Load more history' : 'Load history', disabled: n.histDone ? 'disabled' : null, onclick: function () { expandNode(n.id); } }),
-                  el('button', { type: 'button', text: 'Copy address', onclick: function () { copy(n.address); } }), extLink('/address/' + n.address, 'Open in explorer ↗'), removeBtn([n.id])];
+                  el('button', { type: 'button', text: 'Copy address', onclick: function () { copy(n.address); } }), extLink('/address/' + n.address, 'Open in explorer ↗'), hideBtn([n.id]), removeBtn([n.id])];
       box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
       box.appendChild(autoButtons(n));
       var cs = addrClusterSection(n); if (cs) box.appendChild(cs);
@@ -1340,7 +1504,7 @@
         kv(dl, 'Output', S.shortId(n.txid, 8) + ':' + n.vout); kv(dl, 'Script type', n.scriptType);
       } else kv(dl, 'Note', 'Newly created coins paid to the miner of the block');
       box.appendChild(dl);
-      box.appendChild(el('div', { 'class': 'insp-actions' }, [removeBtn([n.id])]));
+      box.appendChild(el('div', { 'class': 'insp-actions' }, [hideBtn([n.id]), removeBtn([n.id])]));
     }
     box.appendChild(annotateBox(n));
   }
@@ -1390,7 +1554,7 @@
 
   function removeIds(ids) {
     ids.forEach(function (id) {
-      state.graph.removeNode(id); state.keep.delete(id); state.pinned.delete(id); if (state.focus === id) state.focus = null;
+      state.graph.removeNode(id); state.keep.delete(id); state.pinned.delete(id); state.hidden.delete(id); if (state.focus === id) state.focus = null;
     });
     traceForget(ids);
     state.selected = new Set(); state.selectedEdge = null;
@@ -1747,7 +1911,14 @@
     renderer.insets.bottom = state.focus && g.nodes.has(state.focus) && !traceOn() ? Math.max(84, $('stepbar').offsetHeight + 22) : 0;       // keep the graph clear of the step bar
     analysis();                                                              // the canvas hooks below read the cached result
     var structural = scope();
-    if (traceOn()) {
+    if (traceOn() && state.arrange !== 'columns') {                          // a trace spread over time, by force, or by time and amount: the same layouts as the other views, over what is shown
+      if (o.relayout || o.traceChanged || !state.layoutRes || state.layoutRes.arr !== state.arrange) {
+        var aopts = state.arrange === 'force' ? { start: seedPositions(structural), seed: 1 } : { width: 1600, scale: state.timeScale };
+        state.layoutRes = L.layout(state.arrange, g, structural, aopts); state.layoutRes.arr = state.arrange;
+        state.pinned.forEach(function (p, id) { if (state.layoutRes.pos.has(id)) state.layoutRes.pos.set(id, { x: p.x, y: p.y }); });
+        renderer.setPositions(state.layoutRes.pos, !!o.instant || !renderer.cur.size);
+      }
+    } else if (traceOn()) {
       var T = state.trace, tpos = new Map();
       T.shown.forEach(function (id) { if (g.nodes.has(id) && T.pos.has(id)) tpos.set(id, { x: T.pos.get(id).x, y: T.pos.get(id).y }); });
       if (o.relayout || o.traceChanged || !state.layoutRes || !state.layoutRes.trace) {
@@ -1759,25 +1930,26 @@
         state.layoutRes = { pos: tpos, axis: null, trace: true };
         renderer.setPositions(tpos, !!o.instant || !renderer.cur.size);
       }
-    } else if (o.relayout || !state.layoutRes || state.layoutRes.trace) {
+    } else if (o.relayout || !state.layoutRes || state.layoutRes.trace || state.layoutRes.arr) {
       var opts = state.layout === 'force' ? { start: seedPositions(structural), seed: 1 } : state.layout === 'timeline' ? { width: 1600, scale: state.timeScale } : {};
       state.layoutRes = L.layout(state.layout, g, structural, opts);
       state.pinned.forEach(function (p, id) { if (state.layoutRes.pos.has(id)) state.layoutRes.pos.set(id, { x: p.x, y: p.y }); });
       renderer.setPositions(state.layoutRes.pos, !!o.instant || !renderer.cur.size);
     }
-    var visible = F.computeVisible(g, f, state.keep, focusOpt(), traceOnly());
+    var visible = F.computeVisible(g, f, state.keep, focusOpt(), traceOnly(), hiddenOpt());
     var style = S.makeStyle(g, structural, { colorBy: state.colorBy });
-    renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, axis: state.layout === 'timeline' ? state.layoutRes.axis : null,
+    renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, axis: usesAxis() && state.layoutRes ? state.layoutRes.axis : null,
                        range: { from: f.timeFrom, to: f.timeTo }, showLabels: state.showLabels, focusId: focusOpt() ? state.focus : null,
                        edgeLabel: state.edgeLabels ? edgeLabelFor : null,
                        handles: traceOn() ? handlesFor : null, seedIds: traceOn() ? new Set(state.trace.seeds) : null, noDim: traceOn(), labelAll: traceOn(), nodeNote: traceOn() ? traceNote : null,
                        nodeFlags: state.analysis.flags ? nodeFlags : null, clusterColor: state.analysis.clusters ? clusterColor : null, edgeMark: state.analysis.change ? changeEdgeMark : null });
+    document.body.classList.toggle('axis-on', usesAxis());
     if (o.fit) renderer.fit();
     var fo = focusOpt();
     if (traceOn() && state.trace.seed) $('counts').textContent = 'Trace from ' + focusLabel(state.trace.seed) + ' · ' + visible.nodes.size + ' shown · ' + Math.max(0, g.nodes.size - visible.nodes.size) + ' more loaded';
     else $('counts').textContent = g.nodes.size ? (fo ? 'Focus: ' + focusLabel(fo.id) + ' · depth ' + fo.hops + ' · ' : '') + visible.nodes.size + ' of ' + g.nodes.size + ' vertices · ' + visible.edges.size + ' of ' + g.edges.size + ' edges' : '';
     $('empty').hidden = g.nodes.size > 0;
-    updateLegend(); updateFindings(); updateAutoUi();
+    updateLegend(); updateFindings(); updateAutoUi(); updateTraceUi();
   }
 
   function afterGraphChange(o) {
@@ -2042,7 +2214,7 @@
       if (!c) { toast('Open a transaction or a wallet first, then switch to Trace.', true); return; }
       traceStart(c);
     }
-    state.layout = name; document.body.classList.toggle('trace-on', name === 'trace'); setSeg('layoutSeg', 'data-layout', name); $('scaleRow').hidden = name !== 'timeline';
+    state.layout = name; document.body.classList.toggle('trace-on', name === 'trace'); setSeg('layoutSeg', 'data-layout', name); updateScaleRow();
     state.pinned.clear(); refresh({ relayout: true, fit: !o || o.fit !== false }); updateTraceUi(); renderStepBar(); scheduleSave();
   }
   function setScale(name) {
@@ -2056,7 +2228,7 @@
   }
 
   // ---- export / import ------------------------------------------------------------------------
-  function viewState() { return { trace: traceData(), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, source: state.source === 'custom' ? 'clearnet' : state.source }; }
+  function viewState() { return { trace: traceData(), arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, source: state.source === 'custom' ? 'clearnet' : state.source }; }
 
   function download(name, text, mime) {
     var blob = new Blob([text], { type: mime }), a = el('a', { href: URL.createObjectURL(blob), download: name });
@@ -2081,7 +2253,7 @@
     var g = state.graph;
     if (!g.nodes.size) { toast('Nothing to export yet.', true); return; }
     g.refreshDerived();
-    var only = $('exportVisible').checked ? F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly()) : null;
+    var only = $('exportVisible').checked ? F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()) : null;
     var name = 'orion-' + stamp();
     if (fiatOn() && !fiatLoaded() && (kind === 'csv-edges' || kind === 'graphml')) toast('Prices are not loaded, so the fiat columns are empty.', true);
     if (kind === 'json') download(name + '.json', IO.toJson(g, { only: only, view: viewState(), source: sourceBase() }), 'application/json');
@@ -2096,9 +2268,12 @@
   function applyView(v) {
     if (!v || typeof v !== 'object') return;
     var traceOk = loadTraceData(v.trace);
+    if (ARRANGE[v.arrange]) state.arrange = v.arrange;
+    if (Array.isArray(v.hidden)) { state.hidden = new Set(v.hidden.filter(function (id) { return typeof id === 'string' && NV.isId(id); }).slice(0, 5000).map(canonicalId)); state.hideUndo = []; }
     if (v.layout === 'trace' && !traceOk) v = Object.assign({}, v, { layout: 'flow' });
-    if (LAYOUTS[v.layout]) { state.layout = v.layout; document.body.classList.toggle('trace-on', v.layout === 'trace'); setSeg('layoutSeg', 'data-layout', v.layout); $('scaleRow').hidden = v.layout !== 'timeline'; }
+    if (LAYOUTS[v.layout]) { state.layout = v.layout; document.body.classList.toggle('trace-on', v.layout === 'trace'); setSeg('layoutSeg', 'data-layout', v.layout); }
     if (SCALES[v.timeScale]) { state.timeScale = v.timeScale; setSeg('scaleSeg', 'data-scale', v.timeScale); }
+    $('traceArrange').value = state.arrange; updateScaleRow();
     if (COLORS[v.colorBy]) { state.colorBy = v.colorBy; setSeg('colorSeg', 'data-color', v.colorBy); }
     if (typeof v.focusOn === 'boolean') { state.focusOn = v.focusOn; $('focusOn').checked = v.focusOn; }
     if (typeof v.hops === 'number') { state.hops = num(v.hops, 1, 3, 2); $('depth').value = String(state.hops); }
@@ -2140,7 +2315,7 @@
     setGraph(new M.Graph()); state.keep = new Set(); state.pinned = new Map(); state.selected = new Set(); state.selectedEdge = null;
     state.filter.timeFrom = null; state.filter.timeTo = null;
     state.focus = null; state.nav.reset();
-    state.trace = emptyTrace();
+    state.trace = emptyTrace(); state.hidden = new Set(); state.hideUndo = []; state.arrange = 'columns';
     try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the old hash stays, harmless */ }
     renderer.cur = new Map(); renderer.target = new Map(); renderer.anim = null;
     afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); store.del(SAVE_KEY); log('Workspace cleared');
@@ -2186,9 +2361,10 @@
       },
       onSelectEdge: function (id) { state.selected = new Set(); state.selectedEdge = id; syncSelection(); },
       onHover: onHover,
-      onMove: function (id, p) { state.pinned.set(id, { x: p.x, y: p.y }); if (traceOn() && state.trace.shown.has(id)) { state.trace.pos.set(id, { x: p.x, y: p.y }); scheduleSave(); } },
+      onMove: function (id, p) { state.pinned.set(id, { x: p.x, y: p.y }); if (traceOn() && state.arrange === 'columns' && state.trace.shown.has(id)) { state.trace.pos.set(id, { x: p.x, y: p.y }); scheduleSave(); } },
       onHandle: function (id, dir, shift, at) { if (shift) traceChoose(id, dir === 'left' ? 'prev' : 'next', at); else traceExpand(id, dir === 'left' ? 'prev' : 'next'); },
       onContext: openCtx,
+      onBox: function (ids, additive) { setSel(additive ? Array.from(state.selected).concat(ids) : ids); },
       onExpand: function (id) { if (traceOn()) traceExpand(id, 'next'); else if (state.focusOn) navigate(id); else expandNode(id, 'both'); }
     });
     loadPrefs();
@@ -2272,9 +2448,13 @@
     $('depth').addEventListener('change', function () { state.hops = num(this.value, 1, 3, 2); savePrefs(); afterGraphChange({ fit: true }); scheduleSave(); });
     $('btnFit').addEventListener('click', function () { renderer.fit(); });
     $('btnRelayout').addEventListener('click', function () { if (traceOn()) { traceTidy(); return; } state.pinned.clear(); refresh({ relayout: true, fit: true }); });
-    $('traceUndo').addEventListener('click', traceUndo);
-    $('traceHide').addEventListener('click', traceHideSelected);
-    $('traceKeep').addEventListener('click', function () { traceKeepOnly(traceSelected()); });
+    $('traceUndo').addEventListener('click', undoLast);
+    $('traceHide').addEventListener('click', hideSelected);
+    $('traceKeep').addEventListener('click', function () { keepOnly(traceOn() ? traceSelected() : Array.from(state.selected)); });
+    $('selMenu').addEventListener('click', openSelectMenu);
+    $('hiddenBtn').addEventListener('click', openHiddenMenu);
+    $('boxSel').addEventListener('click', function () { setBoxMode(!state.boxMode); });
+    $('traceArrange').addEventListener('change', function () { setArrange(this.value); });
     $('traceReset').addEventListener('click', traceReset);
     $('zoomIn').addEventListener('click', function () { renderer.zoomBy(1.3); });
     $('zoomOut').addEventListener('click', function () { renderer.zoomBy(1 / 1.3); });
@@ -2349,16 +2529,17 @@
       var tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (!$('ctxMenu').hidden && e.key === 'Escape') { closeCtx(); return; }
-      if (traceOn() && (e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); traceSelectAll(); return; }
-      if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selected.size) { e.preventDefault(); if (traceOn()) traceHideSelected(); else removeIds(Array.from(state.selected)); } }
-      else if (e.key === 'Escape') { if (!$('stepMenu').hidden) closeStepMenu(); else { state.selected = new Set(); state.selectedEdge = null; syncSelection(); } }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); selectAllVisible(); return; }
+      if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selected.size) { e.preventDefault(); if (e.shiftKey && !traceOn()) removeIds(Array.from(state.selected)); else hideSelected(); } }
+      else if (e.key === 'Escape') { if (!$('stepMenu').hidden) closeStepMenu(); else if (state.boxMode) setBoxMode(false); else { state.selected = new Set(); state.selectedEdge = null; syncSelection(); } }
       else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
         var id = state.selected.size ? Array.from(state.selected)[0] : state.focus;
         if (id && state.graph.nodes.has(id)) { e.preventDefault(); openCtx(id, null, clientPosOf(id)); }
       }
       else if (e.key === '[') { e.preventDefault(); if (traceOn()) traceKey('prev'); else stepClick('prev'); }
       else if (e.key === ']') { e.preventDefault(); if (traceOn()) traceKey('next'); else stepClick('next'); }
-      else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && traceOn()) { e.preventDefault(); traceUndo(); }
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undoLast(); }
+      else if (e.key === 'b' || e.key === 'B') { setBoxMode(!state.boxMode); }
       else if (e.key === 'c' || e.key === 'C') { setSideCollapsed(!state.sideCollapsed); }
       else if (e.key === 'd' || e.key === 'D') { setInspCollapsed(!state.inspCollapsed); }
       else if (e.key === 't' || e.key === 'T') { setTbCollapsed(!state.tbCollapsed); }
@@ -2386,6 +2567,6 @@
     if (fiatOn()) ensurePrices();
   }
 
-  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, traceExpand: traceExpand, traceStart: traceStart, traceHideIds: traceHideIds, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
+  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, traceExpand: traceExpand, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

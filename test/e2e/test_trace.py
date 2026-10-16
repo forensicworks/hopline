@@ -271,7 +271,8 @@ def test_switching_layouts_keeps_the_trace_and_shows_everything_in_the_others(fp
     click_handle(fpage, NORMAL_ID, "right"); idle(fpage)
     traced = shown(fpage)
     fpage.click("#layoutSeg [data-layout=flow]"); settle(fpage)
-    assert len(shown(fpage)) > len(traced) and fpage.is_hidden("#traceBar")
+    assert len(shown(fpage)) > len(traced) and fpage.is_visible("#traceBar"), "the selection tools stay"
+    assert fpage.is_hidden("#traceArrange") and fpage.is_hidden("#traceReset"), "but the trace-only parts of the bar go"
     assert fpage.is_enabled("#focusOn")
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     assert shown(fpage) == traced

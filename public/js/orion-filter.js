@@ -10,6 +10,7 @@
  *   hiddenScriptTypes     array of script types whose addresses are hidden
  *   showData, showNonstd  show OP_RETURN / non-standard outputs    (default true)
  * }
+ * Separately, computeVisible takes a Set of vertices the user hid. Hiding is not deleting: the vertex stays in the graph.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -76,8 +77,10 @@
    * `keep` = ids that stay visible even with no visible edge (the vertices the user searched for).
    * `focus` = { id, hops } limits the result to that vertex's neighbourhood (applied after every other filter).
    * `only` = a Set of ids: nothing outside it is shown (the trace layout shows only what was revealed).
+   * `hidden` = a Set of ids the user hid: they and their edges are not shown, but a neighbour that would otherwise
+   *   have nothing left to hang on stays as a lone vertex (hiding a hub does not make its neighbours vanish).
    */
-  function computeVisible(graph, state, keep, focus, only) {
+  function computeVisible(graph, state, keep, focus, only, hidden) {
     var f = normalise(state), hiddenTypes = new Set(f.hiddenScriptTypes || []);
     var nodes = new Set(), edges = new Set();
 
@@ -101,9 +104,15 @@
       if (only && (!only.has(e.source) || !only.has(e.target))) return null;           // trace: only what has been revealed
       if (e.amount < f.minAmount) return null;
       if (f.maxAmount != null && e.amount > f.maxAmount) return null;
+      if (hidden && hidden.size && (hidden.has(e.source) || hidden.has(e.target))) {
+        var other = hidden.has(e.source) ? e.target : e.source;                          // the edge is not shown, but its other end survives it
+        return { s: s, t: t, tx: tx, orphan: !hidden.has(other) && nodeAllowed(graph.nodes.get(other)) ? other : null, dropped: true };
+      }
       if (!nodeAllowed(s) || !nodeAllowed(t)) return null;
       return { s: s, t: t, tx: tx };
     }
+    var orphans = new Set();
+    function take(e, b) { if (b.dropped) { if (b.orphan) orphans.add(b.orphan); } else accept(e); }
     function accept(e) { edges.add(e.id); nodes.add(e.source); nodes.add(e.target); }
 
     graph.edges.forEach(function (e) {
@@ -112,17 +121,18 @@
       var time = edgeTime(graph, e);
       if (time == null && b.tx.confirmed !== false) {                 // unknown time, not pending
         if (!f.includeUnknownTime) return;
-        if (bounded) unknownEdges.push(e); else accept(e);
+        if (bounded) unknownEdges.push({ e: e, b: b }); else take(e, b);
         return;
       }
-      if (timePasses(f, time, b.tx.confirmed)) accept(e);
+      if (timePasses(f, time, b.tx.confirmed)) take(e, b);
     });
-    unknownEdges.forEach(function (e) {
-      var other = e.kind === 'out' ? e.target : e.source;               // the vertex that is not the transaction
-      if (nodes.has(other)) accept(e);
+    unknownEdges.forEach(function (u) {
+      var other = u.e.kind === 'out' ? u.e.target : u.e.source;         // the vertex that is not the transaction
+      if (nodes.has(other)) take(u.e, u.b);
     });
+    orphans.forEach(function (id) { nodes.add(id); });
 
-    if (keep) keep.forEach(function (id) { if (graph.nodes.has(id) && (!only || only.has(id)) && nodeAllowed(graph.nodes.get(id))) nodes.add(id); });
+    if (keep) keep.forEach(function (id) { if (graph.nodes.has(id) && (!only || only.has(id)) && !(hidden && hidden.has(id)) && nodeAllowed(graph.nodes.get(id))) nodes.add(id); });
     if (only) {                                                                    // a trace: a vertex that nothing else on screen touches stays (it was not filtered away, its neighbours were hidden)
       only.forEach(function (id) {
         var n = graph.nodes.get(id);
