@@ -208,6 +208,28 @@
     return txId;
   };
 
+  /**
+   * Ingest GET /address/<addr> (the totals the server keeps for an address): what it ever received and spent on chain, and the
+   * same for unconfirmed transactions. meta = { at: unix seconds it was read, source: the API }. See balanceOf.
+   */
+  Graph.prototype.addAddressStats = function (addr, a, meta) {
+    var cs = (a && a.chain_stats) || {}, ms = (a && a.mempool_stats) || {};
+    function num(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
+    return this.upsertNode({ id: ID.addr(addr), type: 'addr', address: addr, txCount: (num(cs.tx_count) || 0) + (num(ms.tx_count) || 0),
+                             fundedSum: num(cs.funded_txo_sum), spentSum: num(cs.spent_txo_sum), mempoolFundedSum: num(ms.funded_txo_sum), mempoolSpentSum: num(ms.spent_txo_sum),
+                             statsAt: meta && meta.at != null ? meta.at : null, statsSource: meta && meta.source ? meta.source : null });
+  };
+
+  /**
+   * What an address holds, from its stats: { confirmed, pending, total, received, sent } in satoshis (pending = unconfirmed
+   * received minus unconfirmed spent, which can be negative), or null when its stats were never loaded.
+   */
+  function balanceOf(n) {
+    if (!n || n.type !== 'addr' || n.fundedSum == null || n.spentSum == null) return null;
+    var confirmed = n.fundedSum - n.spentSum, pending = (n.mempoolFundedSum || 0) - (n.mempoolSpentSum || 0);
+    return { confirmed: confirmed, pending: pending, total: confirmed + pending, received: n.fundedSum, sent: n.spentSum };
+  }
+
   /** Ingest GET /tx/<id>/outspends: marks which outputs are spent, and by whom (with the spender's time). */
   Graph.prototype.addOutspends = function (txid, outspends) {
     var g = this;
@@ -336,5 +358,5 @@
     return g;
   };
 
-  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto };
+  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf };
 }));

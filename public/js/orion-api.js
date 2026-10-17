@@ -376,7 +376,7 @@
     }
     var stats = opts.after ? Promise.resolve(true) : ex.client.address(addr).then(function (a) {
       total = (a.chain_stats ? a.chain_stats.tx_count : 0) + (a.mempool_stats ? a.mempool_stats.tx_count : 0);
-      ex.graph.upsertNode({ id: ID.addr(addr), type: 'addr', address: addr, txCount: total });
+      ex.graph.addAddressStats(addr, a, { at: Math.floor(Date.now() / 1000), source: ex.client.base });
       return true;
     }, function (e) {
       if (e && (e.status === 400 || e.kind === 'notfound')) errors.push('"' + addr + '" is not a valid Bitcoin address (the server rejected it)');
@@ -390,6 +390,22 @@
       r.last = last; r.total = total; r.addedTx = added;
       return r;
     });
+  };
+
+  /**
+   * Read the totals the server keeps for each address (what it received and spent, so what it holds now): one request each,
+   * no history. At most `cap` addresses (the rest are counted in `truncated`). Resolves with the usual summary.
+   */
+  Explorer.prototype.loadBalances = function (addrs, cap) {
+    var ex = this, before = snap(this), errors = [], todo = [], left = 0;
+    addrs.forEach(function (a) {
+      if (todo.indexOf(a) >= 0) return;
+      if (cap > 0 && todo.length >= cap) { left++; return; }
+      todo.push(a);
+    });
+    return Promise.all(todo.map(function (a) {
+      return ex.client.address(a).then(function (s) { ex.graph.addAddressStats(a, s, { at: Math.floor(Date.now() / 1000), source: ex.client.base }); }, function (e) { note(errors, e); });
+    })).then(function () { return summarise(ex, before, errors, left > 0); });
   };
 
   /** Search box: a 64-hex string is a transaction, anything else is treated as an address. */

@@ -62,6 +62,9 @@
     if ('locktime' in c && !int(c.locktime, 0, 4294967295)) delete c.locktime;
     if ('fetchedAt' in c && !int(c.fetchedAt, 0, 4102444800)) delete c.fetchedAt;
     if ('spendsCheckedAt' in c && !int(c.spendsCheckedAt, 0, 4102444800)) delete c.spendsCheckedAt;
+    ['fundedSum', 'spentSum', 'mempoolFundedSum', 'mempoolSpentSum'].forEach(function (k) { if (k in c && !int(c[k], 0, 2100000000000000)) delete c[k]; });
+    if ('statsAt' in c && !int(c.statsAt, 0, 4102444800)) delete c.statsAt;
+    if ('statsSource' in c && !(typeof c.statsSource === 'string' && c.statsSource.length <= 300 && /^https?:\/\/[^\s<>"']+$/i.test(c.statsSource))) delete c.statsSource;
     if ('source' in c && !(typeof c.source === 'string' && c.source.length <= 300 && /^https?:\/\/[^\s<>"']+$/i.test(c.source))) delete c.source;
     if ('seqs' in c) c.seqs = Array.isArray(c.seqs) ? c.seqs.filter(function (s) { return int(s, 0, 4294967295); }).slice(0, 4) : [];
     if ('bip69' in c && typeof c.bip69 !== 'boolean') delete c.bip69;
@@ -123,7 +126,7 @@
   var NODE_COLS = ['id', 'type', 'label', 'note', 'address', 'txid', 'vout', 'script_type', 'time_unix', 'time_utc', 'height', 'confirmed',
                    'first_seen_unix', 'last_seen_unix', 'received_sat', 'sent_sat', 'degree', 'op_return_text', 'op_return_hex',
                    'tag', 'color', 'shape', 'ext_arkham_name', 'ext_arkham_type', 'ext_arkham_label',
-                   'patterns', 'cluster', 'cluster_size', 'excluded_from_clustering', 'data_source', 'retrieved_unix', 'retrieved_utc', 'version', 'locktime'];
+                   'patterns', 'cluster', 'cluster_size', 'excluded_from_clustering', 'data_source', 'retrieved_unix', 'retrieved_utc', 'version', 'locktime', 'balance_sat', 'balance_pending_sat', 'balance_as_of_utc'];
   var EDGE_COLS = ['edge_id', 'txid', 'kind', 'source', 'source_label', 'target', 'target_label', 'amount_sat', 'amount_btc', 'time_unix', 'time_utc',
                    'confirmed', 'spent', 'spent_by_txid', 'fiat_value', 'fiat_currency', 'fiat_price_per_btc', 'fiat_basis', 'likely_change'];
 
@@ -149,13 +152,14 @@
     } else {
       lines.push(row(NODE_COLS));
       p.nodes.forEach(function (n) {
-        var ark = (n.ext && n.ext.arkham) || {}, an = opts.analysis ? opts.analysis.node(n) : {};
+        var ark = (n.ext && n.ext.arkham) || {}, an = opts.analysis ? opts.analysis.node(n) : {}, bal = Model.balanceOf(n);
         lines.push(row([cell(n.id), cell(n.type), cell(n.label), cell(n.note), cell(n.address), cell(n.txid), cell(n.vout), cell(n.scriptType),
                         cell(n.time), cell(n.time != null ? Style.fmtTime(n.time) : ''), cell(n.height), cell(n.confirmed),
                         cell(n.firstSeen), cell(n.lastSeen), cell(n.received), cell(n.sent), cell(n.degree), cell(n.dataText), cell(n.dataHex),
                         cell(n.tag), cell(n.color), cell(n.shape), cell(ark.name), cell(ark.type), cell(ark.label),
                         cell(an.patterns), cell(an.cluster), cell(an.clusterSize), cell(n.noCluster === true ? 'true' : ''),
-                        cell(n.source), cell(n.fetchedAt), cell(n.fetchedAt != null ? Style.fmtTimeFull(n.fetchedAt) : ''), cell(n.version), cell(n.locktime)]));
+                        cell(n.source), cell(n.fetchedAt), cell(n.fetchedAt != null ? Style.fmtTimeFull(n.fetchedAt) : ''), cell(n.version), cell(n.locktime),
+                        cell(bal ? bal.confirmed : ''), cell(bal ? bal.pending : ''), cell(bal && n.statsAt != null ? Style.fmtTimeFull(n.statsAt) : '')]));
       });
     }
     return lines.join('\r\n') + '\r\n';
@@ -186,7 +190,7 @@
   var G_NODE = [['label', 'string'], ['type', 'string'], ['note', 'string'], ['address', 'string'], ['txid', 'string'], ['script_type', 'string'],
                 ['time', 'long'], ['time_utc', 'string'], ['received', 'long'], ['sent', 'long'], ['degree', 'int'], ['op_return_text', 'string'],
                 ['tag', 'string'], ['color', 'string'], ['shape', 'string'], ['ext_arkham_name', 'string'], ['ext_arkham_type', 'string'],
-                ['patterns', 'string'], ['cluster', 'string'], ['cluster_size', 'int'], ['excluded_from_clustering', 'boolean']];
+                ['patterns', 'string'], ['cluster', 'string'], ['cluster_size', 'int'], ['excluded_from_clustering', 'boolean'], ['balance', 'long']];
   var G_EDGE = [['kind', 'string'], ['txid', 'string'], ['amount', 'long'], ['amount_btc', 'string'], ['time', 'long'], ['time_utc', 'string'], ['spent', 'boolean'],
                 ['fiat_value', 'double'], ['fiat_currency', 'string'], ['fiat_price_per_btc', 'double'], ['fiat_basis', 'string'], ['likely_change', 'string']];
 
@@ -207,7 +211,8 @@
       data('n_', 'received', n.received); data('n_', 'sent', n.sent); data('n_', 'degree', n.degree); data('n_', 'op_return_text', n.dataText);
       data('n_', 'tag', n.tag); data('n_', 'color', n.color); data('n_', 'shape', n.shape);
       if (n.ext && n.ext.arkham) { data('n_', 'ext_arkham_name', n.ext.arkham.name || n.ext.arkham.label); data('n_', 'ext_arkham_type', n.ext.arkham.type); }
-      var an = opts.analysis ? opts.analysis.node(n) : {};
+      var an = opts.analysis ? opts.analysis.node(n) : {}, bal = Model.balanceOf(n);
+      if (bal) data('n_', 'balance', bal.confirmed);
       data('n_', 'patterns', an.patterns); data('n_', 'cluster', an.cluster); data('n_', 'cluster_size', an.clusterSize); if (n.noCluster === true) data('n_', 'excluded_from_clustering', true);
       out.push('    </node>');
     });

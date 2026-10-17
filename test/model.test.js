@@ -290,3 +290,22 @@ test('a coinbase and a transaction without those fields are handled', () => {
   const n = g.node(ID.tx(bare.txid));
   assert.equal(n.version, null); assert.equal(n.locktime, null); assert.deepEqual(n.seqs, []);
 });
+
+test('address stats give a balance: confirmed, unconfirmed apart, and null until they are read', () => {
+  const { balanceOf } = require('../public/js/orion-model.js');
+  const g = new Graph();
+  g.upsertNode({ id: ID.addr('A'), type: 'addr', address: 'A' });
+  assert.equal(balanceOf(g.node(ID.addr('A'))), null, 'never read: unknown, not zero');
+  g.addAddressStats('A', { chain_stats: { funded_txo_sum: 900000, spent_txo_sum: 400000, tx_count: 7 }, mempool_stats: { funded_txo_sum: 30000, spent_txo_sum: 0, tx_count: 1 } }, { at: 1700000000, source: 'https://x/api' });
+  const n = g.node(ID.addr('A')), b = balanceOf(n);
+  assert.deepEqual(b, { confirmed: 500000, pending: 30000, total: 530000, received: 900000, sent: 400000 });
+  assert.equal(n.txCount, 8); assert.equal(n.statsAt, 1700000000); assert.equal(n.statsSource, 'https://x/api');
+  g.addAddressStats('A', { chain_stats: { funded_txo_sum: 900000, spent_txo_sum: 400000, tx_count: 7 }, mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 20000, tx_count: 1 } }, { at: 1700000100 });
+  assert.equal(balanceOf(g.node(ID.addr('A'))).pending, -20000, 'unconfirmed spending is a negative pending amount');
+  assert.equal(g.node(ID.addr('A')).statsSource, 'https://x/api', 'a missing source never erases a known one');
+  assert.equal(balanceOf(null), null); assert.equal(balanceOf({ type: 'tx' }), null);
+  g.addAddressStats('B', { chain_stats: { funded_txo_sum: 'x', spent_txo_sum: NaN } }, {});
+  assert.equal(balanceOf(g.node(ID.addr('B'))), null, 'rubbish in the stats counts as not read');
+  g.addAddressStats('C', {}, {});
+  assert.equal(balanceOf(g.node(ID.addr('C'))), null); assert.equal(g.node(ID.addr('C')).txCount, 0);
+});

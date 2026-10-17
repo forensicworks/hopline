@@ -59,6 +59,13 @@
     return esc(Style.fmtBtc(sats)) + ' BTC' + (fx ? ' <span class="hint">· ' + esc(fx) + '</span>' : '');
   }
 
+  /** What a wallet held when the server was asked (its confirmed balance, with the time), or "not read". */
+  function balanceCell(model, n) {
+    if (n.fundedSum == null || n.spentSum == null) return '<span class="hint">not read</span>';
+    var pending = (n.mempoolFundedSum || 0) - (n.mempoolSpentSum || 0);
+    return amountCell(model, n.fundedSum - n.spentSum, n.statsAt) + '<div class="hint">as of ' + esc(n.statsAt != null ? t(n.statsAt) : 'an unknown time') + (pending ? '; ' + (pending > 0 ? '+' : '') + esc(Style.fmtBtc(pending)) + ' BTC unconfirmed' : '') + '</div>';
+  }
+
   function vertexText(model, nodes, id) {
     var n = nodes.get(id);
     if (!n) return esc(id);
@@ -183,15 +190,15 @@
     txs.slice(0, MAX_TX).forEach(function (n) { h.push(txBlock(model, nodes, edgesByTx, n)); });
     if (!txs.length) h.push('<p>No loaded transaction in this selection.</p>');
 
-    h.push('<h2>Wallets</h2><table><tr><th>Address</th><th>Name</th><th>First seen</th><th>Last seen</th><th>Received</th><th>Sent</th><th>Cluster</th></tr>');
+    h.push('<h2>Wallets</h2><table><tr><th>Address</th><th>Name</th><th>First seen</th><th>Last seen</th><th>Received</th><th>Sent</th><th>Balance</th><th>Cluster</th></tr>');
     var clusterOf = {}; (an.clusters || []).forEach(function (c) { c.addrs.forEach(function (id) { clusterOf[id] = c.label; }); });
     wallets.slice().sort(function (a, b) { return (b.received || 0) - (a.received || 0); }).slice(0, MAX_WALLETS).forEach(function (n) {
-      h.push('<tr><td><code>' + esc(n.address) + '</code></td><td>' + esc(walletName(model, n)) + '</td><td>' + esc(n.firstSeen != null ? t(n.firstSeen) : '') + '</td><td>' + esc(n.lastSeen != null ? t(n.lastSeen) : '') + '</td><td class="num">' + amountCell(model, n.received || 0, n.firstSeen) + '</td><td class="num">' + amountCell(model, n.sent || 0, n.lastSeen) + '</td><td>' + esc(clusterOf[n.id] || '') + '</td></tr>');
+      h.push('<tr><td><code>' + esc(n.address) + '</code></td><td>' + esc(walletName(model, n)) + '</td><td>' + esc(n.firstSeen != null ? t(n.firstSeen) : '') + '</td><td>' + esc(n.lastSeen != null ? t(n.lastSeen) : '') + '</td><td class="num">' + amountCell(model, n.received || 0, n.firstSeen) + '</td><td class="num">' + amountCell(model, n.sent || 0, n.lastSeen) + '</td><td class="num">' + balanceCell(model, n) + '</td><td>' + esc(clusterOf[n.id] || '') + '</td></tr>');
     });
     h.push('</table>' + (wallets.length > MAX_WALLETS ? '<p class="hint">Showing the ' + MAX_WALLETS + ' wallets that received most; the embedded data has all ' + wallets.length + '.</p>' : ''));
 
     h.push('<h2>Method and limits</h2><ul>'
-      + '<li><b>Data:</b> transactions, amounts, times and spending status were read from the source named in the summary at the retrieval times shown. "Unspent" means unspent when its status was last checked, not now.</li>'
+      + '<li><b>Data:</b> transactions, amounts, times and spending status were read from the source named in the summary at the retrieval times shown. "Unspent" means unspent when its status was last checked, not now. A wallet\'s <i>Received</i> and <i>Sent</i> count only the transactions in this report; its <i>Balance</i> is what the server reported for the whole address at the time shown, and is not read for every wallet.</li>'
       + '<li><b>Patterns</b> are rules over the loaded transactions: consolidation (5 or more inputs into 1 or 2 outputs), batch payment (up to 3 inputs, 6 or more outputs), CoinJoin-like (3 or more input wallets and several outputs of exactly the same value), peel chain (4 or more linked one-input, two-output transactions whose small output is at most half the large one).</li>'
       + '<li><b>Likely change</b> weighs: the output address is also an input; the only output of the same address type as the inputs; a round payment amount; the other output paying a known or tagged wallet; an output smaller than every input; the spender having the same wallet habits. Each reason is listed beside the finding. Close calls are not named.</li>'
       + '<li><b>Clusters</b> use the common-input rule (inputs spent together share an owner). A CoinJoin, a PayJoin or a shared wallet can break it.</li>'

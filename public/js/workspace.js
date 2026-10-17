@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var M = OrionModel, S = OrionStyle, F = OrionFilter, L = OrionLayout, A = OrionApi, IO = OrionIO, R = OrionRender, NV = OrionNav, AD = OrionAddress, PR = OrionPrice, ST = OrionSteps, TG = OrionTags, XT = OrionExternal, TR = OrionTrace, AN = OrionAnalysis, LB = OrionLabels, RP = OrionReport;
+  var M = OrionModel, S = OrionStyle, F = OrionFilter, L = OrionLayout, A = OrionApi, IO = OrionIO, R = OrionRender, NV = OrionNav, AD = OrionAddress, PR = OrionPrice, ST = OrionSteps, TG = OrionTags, XT = OrionExternal, TR = OrionTrace, AN = OrionAnalysis, LB = OrionLabels, RP = OrionReport, balanceOf = M.balanceOf;
   var ID = M.ID;
   var KNOWN_BASE = window.ORION_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
@@ -45,7 +45,7 @@
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
     trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [] },
-    analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
+    undoLoads: [], analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], arrange: 'columns', boxMode: false,
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
@@ -63,9 +63,10 @@
     state.log.forEach(function (l) { ul.appendChild(el('li', { text: l.msg, 'class': l.bad ? 'bad' : '' })); });
     $('logCount').textContent = '(' + state.log.length + ')';
   }
-  function toast(msg, bad) {
+  function toast(msg, bad, action) {
     var t = $('toast'); t.textContent = msg; t.className = bad ? 'bad' : ''; t.hidden = false;
-    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, bad ? 9000 : 5000);
+    if (action) t.appendChild(el('button', { type: 'button', text: action.text, onclick: function () { t.hidden = true; action.fn(); } }));
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, action ? 15000 : bad ? 9000 : 5000);
     log(msg, bad);
   }
 
@@ -191,27 +192,79 @@
     if (state.source === 'custom' && !/^https?:\/\//i.test(state.customBase.trim())) { toast('Enter the URL of your Esplora API first (https://… or http://…).', true); return Promise.resolve(null); }
     state.busy = true;
     var c = state.client; c.resume(); c.resetCount(); c.maxRequests = (o && o.maxRequests) || state.capReq;
-    showProgress(title);
-    var wasEmpty = state.graph.nodes.size === 0;
+    showProgress(title); updateUndoLoad();
+    var wasEmpty = state.graph.nodes.size === 0, snap = snapshotGraph(title), g0 = state.graph, n0 = g0.nodes.size, e0 = g0.edges.size, big = null;
+    if (o && o.before && snap && !snap.tooBig) {                                                         // the caller changed the focus before running: undo goes back to what it was
+      if ('focus' in o.before) snap.focus = o.before.focus;
+      if (o.before.dropKeep) snap.keep = snap.keep.filter(function (k) { return k !== o.before.dropKeep; });
+    }
     return fn().then(function (r) {
       if (!r) return r;
+      var grew = state.graph === g0 ? state.graph.nodes.size - n0 : 0;
+      if (state.graph !== g0 || state.graph.nodes.size !== n0 || state.graph.edges.size !== e0) {           // something was added: remember how it was before
+        pushUndoLoad(snap, '+' + plural(Math.max(0, grew), 'vertex', 'vertices'));
+        if (grew >= BIG_LOAD) big = { text: 'Undo load', fn: undoLoad };
+      }
       var capHit = (r.errors || []).some(function (e) { return /request cap/.test(e); });
       var msg = title + ': ' + (r.added ? '+' + r.added + ' vertices' : 'nothing new') + ', ' + r.requests + ' request' + (r.requests === 1 ? '' : 's') + '.';
       if (r.truncated) msg += ' Stopped at the per-expand limit; raise it under Expansion limits.';
       if (capHit) msg += ' Stopped at the request limit.';
       var errs = (r.errors || []).filter(function (e) { return !/request cap/.test(e); });
       if (errs.length) msg += ' ' + errs.length + ' request(s) failed: ' + errs[0] + (errs.length > 1 ? ' …' : '');
-      toast(msg, !!errs.length || !!r.failed);
+      if (big) msg += ' That is a lot: Undo load takes it back.';
+      toast(msg, !!errs.length || !!r.failed, big);
       return r;
     }).catch(function (e) {
       toast(title + ' failed: ' + (e && e.message ? e.message : e), true); return null;
     }).then(function (r) {
-      state.busy = false; $('progress').hidden = true; updateReqStats();
+      state.busy = false; $('progress').hidden = true; updateReqStats(); updateUndoLoad();
       state.graph.refreshDerived();
       afterGraphChange({ fit: wasEmpty });
       scheduleSave();
       return r;
     });
+  }
+
+  // ---- undo for loads, imports and removals ----------------------------------------------------
+  // Before anything that changes what is loaded, the graph is kept as text (compact), with what depends on it. "Undo load" puts it back.
+  var UNDO_DEPTH = 10, UNDO_BUDGET = 30000000, BIG_LOAD = 150;
+  function clone(v) { return JSON.parse(JSON.stringify(v)); }
+  function snapshotGraph(title) {
+    var g = state.graph, text;
+    try { text = JSON.stringify(g.toData()); } catch (e) { return { title: title, tooBig: true }; }
+    if (text.length > UNDO_BUDGET) return { title: title, tooBig: true };
+    return { title: title, graph: text, nodes: g.nodes.size, keep: Array.from(state.keep), focus: state.focus, trace: traceData(), traceUndo: clone(state.trace.undo || []), hidden: Array.from(state.hidden), hideUndo: clone(state.hideUndo) };
+  }
+  function pushUndoLoad(snap, info) {
+    if (!snap) return;
+    snap.info = info; state.undoLoads.push(snap);
+    while (state.undoLoads.length > UNDO_DEPTH) state.undoLoads.shift();
+    var total = 0;
+    for (var i = state.undoLoads.length - 1; i >= 0; i--) { total += (state.undoLoads[i].graph || '').length; if (total > UNDO_BUDGET) { state.undoLoads.splice(0, i + 1); break; } }
+    updateUndoLoad();
+  }
+  function updateUndoLoad() {
+    var b = $('btnUndoLoad'), top = state.undoLoads[state.undoLoads.length - 1];
+    b.disabled = !top || state.busy;
+    b.textContent = '↶ Undo load' + (state.undoLoads.length > 1 ? ' (' + state.undoLoads.length + ')' : '');
+    b.title = !top ? 'Nothing to undo: a load, an import or a removal can be taken back here'
+      : top.tooBig ? 'Too large to undo (no copy was kept): ' + top.title
+      : 'Undo: ' + top.title + (top.info ? ' (' + top.info + ')' : '') + ' — back to ' + plural(top.nodes, 'vertex', 'vertices');
+  }
+  function undoLoad() {
+    if (state.busy) { toast('Wait for the current action to finish, or press Cancel first.', true); return; }
+    var s = state.undoLoads.pop();
+    if (!s) return;
+    if (s.tooBig) { toast('That change was too large to keep a copy of, so it cannot be undone. Remove the vertices you do not want instead.', true); updateUndoLoad(); return; }
+    stopPlay(); $('tooltip').hidden = true;
+    setGraph(M.Graph.fromData(JSON.parse(s.graph)));
+    state.keep = new Set(s.keep); state.hidden = new Set(s.hidden); state.hideUndo = s.hideUndo;
+    state.focus = s.focus && state.graph.nodes.has(s.focus) ? s.focus : null;
+    if (s.trace && loadTraceData(s.trace)) { state.trace.undo = s.traceUndo; traceSanitize(); } else state.trace = emptyTrace();
+    if (traceOn() && !state.trace.seed) { state.layout = 'flow'; setSeg('layoutSeg', 'data-layout', 'flow'); document.body.classList.remove('trace-on'); updateScaleRow(); }
+    state.selected = new Set(); state.selectedEdge = null; state.pinned = new Map();
+    state.graph.refreshDerived(); afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); scheduleSave(); updateUndoLoad();
+    toast('Undid: ' + s.title + '. Back to ' + plural(s.nodes, 'vertex', 'vertices') + '.');
   }
 
   function openQuery(raw) {
@@ -311,7 +364,7 @@
     var must = needsLoad(id) && !(o.light && id.indexOf('addr:') === 0 && state.graph.nodes.has(id));
     if (!must) return Promise.resolve(commit());
     state.focus = id; state.keep.add(id);                              // provisional, so the refresh at the end of the load already looks right
-    return run(load.title, load.fn).then(function () {
+    return run(load.title, load.fn, { before: { focus: prev, dropKeep: hadKeep ? null : id } }).then(function () {
       if (load.done(state.graph.nodes.get(id))) return commit();
       state.focus = prev; if (!hadKeep) state.keep.delete(id);          // failed: stay where we were
       afterGraphChange(); updateNavUi();
@@ -807,6 +860,57 @@
   }
   /** Keep only the wallets (or only the transactions) of the current selection. */
   function narrowSelection(type) { setSel(Array.from(state.selected).filter(function (id) { var n = state.graph.nodes.get(id); return n && n.type === type; })); }
+
+  /** What a balance is worth now (today's price, whatever basis the rest of the view uses): {text, title, approx} or null. */
+  function fiatToday(sats) {
+    if (sats == null || !fiatOn()) return null;
+    var td = todayRate(); if (!td) return null;
+    var cur = state.fiat.currency, v = PR.convert(sats, td.price);
+    return { value: v, text: PR.format(v, cur), approx: false, title: PR.format(td.price, cur) + ' per BTC today' };
+  }
+  /** Read the totals the server keeps for these addresses (what they hold now): one request each. */
+  function loadBalances(ids) {
+    var g = state.graph, addrs = ids.map(function (id) { var n = g.nodes.get(id); return n && n.type === 'addr' ? n.address : null; }).filter(Boolean);
+    if (!addrs.length) { toast('Select wallets to read the balance of.'); return Promise.resolve(null); }
+    return run('Read ' + plural(addrs.length, 'balance'), function () { return state.explorer.loadBalances(addrs, 100); }).then(function (r) { showInspector(true); return r; });
+  }
+  function balanceText(b) { return S.fmtBtc(b.confirmed) + ' BTC'; }
+  /** The balance rows of one wallet's details, or what to do to get them. */
+  function balanceRows(dl, n, box) {
+    var b = balanceOf(n);
+    if (!b) {
+      dl.appendChild(el('dt', { text: 'Balance' })); dl.appendChild(el('dd', { text: 'not loaded yet' }));
+      return el('button', { type: 'button', text: 'Load balance', title: 'Ask the server what this wallet holds now (one request, no history)', onclick: function () { loadBalances([n.id]); } });
+    }
+    kvf(dl, 'Balance', balanceText(b), fiatToday(b.confirmed));
+    if (b.pending) kv(dl, 'Unconfirmed', (b.pending > 0 ? '+' : '') + S.fmtBtc(b.pending) + ' BTC (not in the balance above)');
+    kv(dl, 'On chain', 'received ' + S.fmtBtc(b.received) + ' BTC, sent ' + S.fmtBtc(b.sent) + ' BTC');
+    if (n.statsAt != null) kv(dl, 'Balance as of', S.fmtTimeFull(n.statsAt) + (n.statsSource ? ' from ' + n.statsSource.replace(/^https?:\/\//i, '').replace(/\/api\/?$/, '') : ''));
+    return null;
+  }
+
+  /** The balance of every selected wallet in one list, largest first, with the total of those that are known. */
+  function balanceList(addrIds) {
+    var g = state.graph, rows = [], total = 0, known = 0, unknown = [];
+    addrIds.forEach(function (id) {
+      var n = g.nodes.get(id), b = balanceOf(n);
+      if (b) { rows.push({ id: id, n: n, b: b }); total += b.confirmed; known++; } else unknown.push(id);
+    });
+    rows.sort(function (a, c) { return c.b.confirmed - a.b.confirmed; });
+    var list = el('div', { 'class': 'balrows' });
+    rows.slice(0, 30).forEach(function (r) {
+      var who = r.n.label || (KNOWN[r.n.address] && KNOWN[r.n.address].label) || S.shortId(r.n.address, 8), fx = fiatToday(r.b.confirmed);
+      list.appendChild(el('div', { 'class': 'balrow', title: r.n.address + (fx ? ' · ' + fx.text : '') }, [el('span', { text: who }), el('span', { 'class': 'amt', text: balanceText(r.b) })]));
+    });
+    if (rows.length > 30) list.appendChild(el('div', { 'class': 'hint', text: '… and ' + (rows.length - 30) + ' more' }));
+    var kids = [el('span', { 'class': 'lbl', text: 'Balances (' + addrIds.length + ' wallet' + (addrIds.length === 1 ? '' : 's') + ')' })];
+    if (known) { var dl = el('dl', { 'class': 'kv' }); kvf(dl, 'Total of ' + known, S.fmtBtc(total) + ' BTC', fiatToday(total)); kids.push(dl); kids.push(list); }
+    if (unknown.length) {
+      kids.push(el('p', { 'class': 'hint', text: plural(unknown.length, 'wallet') + (known ? ' not loaded yet.' : ': balances not loaded yet.') }));
+      kids.push(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', text: 'Load ' + plural(unknown.length, 'balance'), title: 'One request per wallet, no history', onclick: function () { loadBalances(unknown); } })]));
+    }
+    return el('div', { 'class': 'insp-section' }, kids);
+  }
 
   /** The Select menu: everything on screen, by kind, by amount, by tag. */
   function openSelectMenu() {
@@ -1445,6 +1549,7 @@
       var tot = 0; ids.forEach(function (id) { var n = g.nodes.get(id); tot += (n.type === 'tx' ? n.valueOut : n.received) || 0; });
       var dl0 = el('dl', { 'class': 'kv' }); kv(dl0, 'Total value', S.fmtBtc(tot) + ' BTC'); box.appendChild(dl0);
       var kinds = { addr: 0, tx: 0 }; ids.forEach(function (id) { var t = g.nodes.get(id).type; if (t in kinds) kinds[t]++; });
+      if (kinds.addr) box.appendChild(balanceList(ids.filter(function (id) { return g.nodes.get(id).type === 'addr'; })));
       var total = traceOn() ? state.trace.shown.size : visibleIds().length;
       box.appendChild(el('div', { 'class': 'insp-actions' }, [hideBtn(ids), removeBtn(ids),
         el('button', { type: 'button', text: 'Keep only these ' + ids.length, disabled: ids.length >= total ? 'disabled' : null, title: 'Hide everything else on screen', onclick: function () { keepOnly(ids); } })]));
@@ -1501,11 +1606,12 @@
       kv(dl, 'Script type', n.scriptType);
       kvf(dl, 'Received here', S.fmtBtc(n.received) + ' BTC (in this graph)', fiatSum(n, true));
       kvf(dl, 'Sent from here', S.fmtBtc(n.sent) + ' BTC (in this graph)', fiatSum(n, false));
+      var balButton = balanceRows(dl, n, box);
       kv(dl, 'First seen', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
       kv(dl, 'Last seen', n.lastSeen != null ? S.fmtTime(n.lastSeen) : null);
       if (n.txCount != null) kv(dl, 'Transactions', fmtInt(n.txCount) + ' on chain' + (n.histNext || !n.histDone ? '' : ' (all loaded)'));
       box.appendChild(dl);
-      box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n)]));
+      box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), balButton]));
       var ta2 = traceActions(n); if (ta2) box.appendChild(ta2);
       var acts = [el('button', { type: 'button', text: n.histNext ? 'Load more history' : 'Load history', disabled: n.histDone ? 'disabled' : null, onclick: function () { expandNode(n.id); } }),
                   el('button', { type: 'button', text: 'Copy address', onclick: function () { copy(n.address); } }), extLink('/address/' + n.address, 'Open in explorer ↗'), hideBtn([n.id]), removeBtn([n.id])];
@@ -1571,6 +1677,7 @@
   }
 
   function removeIds(ids) {
+    pushUndoLoad(snapshotGraph('Remove ' + plural(ids.length, 'vertex', 'vertices')), 'removed ' + ids.length);
     ids.forEach(function (id) {
       state.graph.removeNode(id); state.keep.delete(id); state.pinned.delete(id); state.hidden.delete(id); if (state.focus === id) state.focus = null;
     });
@@ -2453,7 +2560,7 @@
   function doImport(text) {
     var r;
     try { r = IO.fromJson(text); } catch (e) { toast('Import failed: ' + e.message, true); return; }
-    var wasEmpty = state.graph.nodes.size === 0, g = state.graph;
+    var wasEmpty = state.graph.nodes.size === 0, g = state.graph, snap = snapshotGraph('Import'), n0 = g.nodes.size;
     r.graph.nodes.forEach(function (n) { g.upsertNode(n); });
     r.graph.edges.forEach(function (e) { g.upsertEdge(e); });
     r.graph.nodes.forEach(function (n) { if (n.label !== undefined || n.note !== undefined) { var cur = g.nodes.get(n.id); if (n.label) cur.label = n.label; if (n.note) cur.note = n.note; } });
@@ -2464,10 +2571,12 @@
     if (wasEmpty && state.focus) { state.keep.add(state.focus); state.nav.reset(); visitNav(state.focus); }
     state.layoutRes = null; state.graph.refreshDerived();
     afterGraphChange({ fit: true }); updateNavUi(); updateTraceUi(); scheduleSave();
+    pushUndoLoad(snap, '+' + plural(g.nodes.size - n0, 'vertex', 'vertices'));
     toast('Imported ' + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length);
   }
 
   function clearAll() {
+    if (state.graph.nodes.size) pushUndoLoad(snapshotGraph('Clear'), 'cleared ' + plural(state.graph.nodes.size, 'vertex', 'vertices'));
     stopPlay(); state.client.abort(); state.client.resume();
     setGraph(new M.Graph()); state.keep = new Set(); state.pinned = new Map(); state.selected = new Set(); state.selectedEdge = null;
     state.filter.timeFrom = null; state.filter.timeTo = null;
@@ -2615,6 +2724,7 @@
     });
     $('depth').addEventListener('change', function () { state.hops = num(this.value, 1, 3, 2); savePrefs(); afterGraphChange({ fit: true }); scheduleSave(); });
     $('btnFit').addEventListener('click', function () { renderer.fit(); });
+    $('btnUndoLoad').addEventListener('click', undoLoad);
     $('btnRelayout').addEventListener('click', function () { if (traceOn()) { traceTidy(); return; } state.pinned.clear(); refresh({ relayout: true, fit: true }); });
     $('traceUndo').addEventListener('click', undoLast);
     $('traceHide').addEventListener('click', hideSelected);
@@ -2737,6 +2847,6 @@
     if (fiatOn()) ensurePrices();
   }
 
-  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, importPack: importPack, traceExpand: traceExpand, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
+  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, importPack: importPack, undoLoad: undoLoad, traceExpand: traceExpand, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

@@ -283,3 +283,21 @@ test('provenance and wallet habits survive a round trip, appear in the CSV, and 
   bad.source = 'https://ok.example/api"><img src=x>';
   assert.equal(IO.fromJson(JSON.stringify(doc)).graph.node(id).source, undefined, 'no markup characters in an address');
 });
+
+test('balances are exported, survive a round trip, and hostile values are dropped on import', () => {
+  const g = new Graph();
+  g.upsertNode({ id: ID.addr('A'), type: 'addr', address: 'A' });
+  g.upsertNode({ id: ID.addr('B'), type: 'addr', address: 'B' });
+  g.addAddressStats('A', { chain_stats: { funded_txo_sum: 900000, spent_txo_sum: 400000, tx_count: 3 }, mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 5000, tx_count: 1 } }, { at: 1700000000, source: 'https://my-node.example/api' });
+  const rows = parseCsv(IO.toCsv(g, 'nodes')), col = (name) => rows[0].indexOf(name);
+  const a = rows.find((r) => r[0] === ID.addr('A')), b = rows.find((r) => r[0] === ID.addr('B'));
+  assert.equal(a[col('balance_sat')], '500000'); assert.equal(a[col('balance_pending_sat')], '-5000'); assert.equal(a[col('balance_as_of_utc')], '2023-11-14 22:13:20 UTC');
+  assert.equal(b[col('balance_sat')], '', 'empty, not zero, where it was never read');
+  assert.match(IO.toGraphMl(g), /<data key="n_balance">500000<\/data>/); assert.doesNotMatch(IO.toGraphMl(g).split('addr:B')[1], /n_balance/);
+  const back = IO.fromJson(IO.toJson(g)).graph.node(ID.addr('A'));
+  assert.equal(back.fundedSum, 900000); assert.equal(back.spentSum, 400000); assert.equal(back.mempoolSpentSum, 5000); assert.equal(back.statsAt, 1700000000);
+  const doc = JSON.parse(IO.toJson(g)), bad = doc.nodes.find((n) => n.id === ID.addr('A'));
+  Object.assign(bad, { fundedSum: -1, spentSum: 1.5, mempoolFundedSum: 1e20, mempoolSpentSum: 'a lot', statsAt: 'yesterday', statsSource: 'javascript:alert(1)' });
+  const clean = IO.fromJson(JSON.stringify(doc)).graph.node(ID.addr('A'));
+  ['fundedSum', 'spentSum', 'mempoolFundedSum', 'mempoolSpentSum', 'statsAt', 'statsSource'].forEach((k) => assert.equal(clean[k], undefined, k));
+});

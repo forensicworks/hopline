@@ -113,3 +113,13 @@ test('known wallets, tags and notes get their own table, with the pack named', a
   const r = await RP.build(modelOf(g, { known: (a) => (a === 'shop' ? { label: 'Acme Exchange', pack: 'OFAC-like pack', category: 'EXCH', note: 'listed 2023' } : null) }));
   assert.match(r.html, /Labelled wallets \(2\)/); assert.match(r.html, /known: Acme Exchange \(OFAC-like pack\)/); assert.match(r.html, /\[EXCH\]/); assert.match(r.html, /tag THREAT/); assert.match(r.html, /seen twice/);
 });
+
+test('the wallets table has a balance column: what the server reported, with the time, and "not read" otherwise', async () => {
+  const g = sample();
+  g.addAddressStats('me', { chain_stats: { funded_txo_sum: 139000, spent_txo_sum: 100000, tx_count: 2 }, mempool_stats: { funded_txo_sum: 7000, spent_txo_sum: 0, tx_count: 1 } }, { at: 1700000000, source: 'https://mempool.space/api' });
+  const r = await RP.build(modelOf(g));
+  assert.match(r.html, /<th>Balance<\/th>/);
+  assert.match(r.html, /0\.00039000 BTC<div class="hint">as of 2023-11-14 22:13:20 UTC; \+0\.00007000 BTC unconfirmed<\/div>/s);
+  assert.match(r.html, /<span class="hint">not read<\/span>/);
+  assert.match(r.html, /its <i>Balance<\/i> is what the server reported for the whole address/);
+});

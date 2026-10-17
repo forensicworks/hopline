@@ -392,3 +392,27 @@ test('cumulative totals count retries and failures', async () => {
   c.resetCount();
   assert.deepEqual(c.total, { network: 4, failed: 1, retried: 2 });
 });
+
+test('Explorer.loadBalances reads the totals of each wallet, nothing else, caps the list, and reports failures', async () => {
+  const stat = (f, s) => ({ chain_stats: { funded_txo_sum: f, spent_txo_sum: s, tx_count: 2 }, mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 0, tx_count: 0 } });
+  const f = fakeFetch({ '/address/a1': stat(1000, 400), '/address/a2': stat(5000, 5000) });          // a3 answers 404
+  const c = new Client(quick({ fetch: f })), g = new Graph(), ex = new Explorer(c, g);
+  const before = Math.floor(Date.now() / 1000);
+  const r = await ex.loadBalances(['a1', 'a2', 'a3', 'a1'], 0);
+  assert.deepEqual(f.log.map((l) => l.p).sort(), ['/address/a1', '/address/a2', '/address/a3'], 'one request each, a repeat is not asked twice, no history');
+  assert.equal(r.requests, 3); assert.equal(r.errors.length, 1); assert.match(r.errors[0], /a3/);
+  assert.equal(g.node(ID.addr('a1')).fundedSum, 1000); assert.equal(g.node(ID.addr('a1')).source === undefined, true);
+  assert.equal(g.node(ID.addr('a1')).statsSource, 'https://x/api'); assert.ok(g.node(ID.addr('a1')).statsAt >= before);
+  assert.equal(g.node(ID.addr('a2')).spentSum, 5000); assert.equal(g.nodes.has(ID.addr('a3')), false, 'a failed read leaves nothing behind');
+  const capped = await new Explorer(new Client(quick({ fetch: fakeFetch({ '/address/b1': stat(1, 0), '/address/b2': stat(2, 0), '/address/b3': stat(3, 0) }) })), new Graph()).loadBalances(['b1', 'b2', 'b3'], 2);
+  assert.equal(capped.requests, 2); assert.equal(capped.truncated, true);
+});
+
+test('expanding an address records its totals as well as its history', async () => {
+  const f = fakeFetch({ ['/address/' + ADDR.address]: ADDR, ['/address/' + ADDR.address + '/txs']: [] });
+  const g = new Graph(), ex = new Explorer(new Client(quick({ fetch: f })), g);
+  await ex.expandAddress(ADDR.address, {});
+  const n = g.node(ID.addr(ADDR.address));
+  assert.equal(n.fundedSum, ADDR.chain_stats.funded_txo_sum); assert.equal(n.spentSum, ADDR.chain_stats.spent_txo_sum);
+  assert.equal(n.txCount, ADDR.chain_stats.tx_count + ADDR.mempool_stats.tx_count);
+});
