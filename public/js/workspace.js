@@ -11,8 +11,8 @@
   var KNOWN = window.ORION_KNOWN || {};
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
   var SAVE_KEY = 'orion.workspace.v1', PREF_KEY = 'orion.prefs.v1', TOKEN_KEY = 'orion.ext.token';
-  var ARRANGE = { columns: 1, timeline: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeamount: 1 };
-  var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SCALES = { compact: 1, proportional: 1 };
+  var ARRANGE = { columns: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 };
+  var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SIZES = { auto: 1, area: 1, log: 1 }, SCALES = { compact: 1, proportional: 1 };
 
   function $(id) { return document.getElementById(id); }
   function el(tag, props, kids) {
@@ -37,7 +37,7 @@
 
   // ---- state ----------------------------------------------------------------------------------
   var state = {
-    graph: new M.Graph(), layout: 'flow', colorBy: 'type', timeScale: 'compact', filter: F.defaults(),
+    graph: new M.Graph(), layout: 'flow', colorBy: 'type', sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
     keep: new Set(), pinned: new Map(), selected: new Set(), selectedEdge: null,
     source: 'clearnet', customBase: '', capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: true,
     focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
@@ -1911,9 +1911,12 @@
     renderer.insets.bottom = state.focus && g.nodes.has(state.focus) && !traceOn() ? Math.max(84, $('stepbar').offsetHeight + 22) : 0;       // keep the graph clear of the step bar
     analysis();                                                              // the canvas hooks below read the cached result
     var structural = scope();
+    var style = S.makeStyle(g, structural, { colorBy: state.colorBy, sizeBy: effectiveSizeBy() });
+    function radiusOf(id) { var nd = g.nodes.get(id); return nd ? style.nodeRadius(nd) : 0; }       // how big a shape is drawn: the force layout leaves room for it
     if (traceOn() && state.arrange !== 'columns') {                          // a trace spread over time, by force, or by time and amount: the same layouts as the other views, over what is shown
       if (o.relayout || o.traceChanged || !state.layoutRes || state.layoutRes.arr !== state.arrange) {
-        var aopts = state.arrange === 'force' ? { start: seedPositions(structural), seed: 1 } : { width: 1600, scale: state.timeScale };
+        var aopts = state.arrange === 'force' ? { start: seedPositions(structural), seed: 1, radius: radiusOf }
+                   : state.arrange === 'timeforce' ? { width: 1600, scale: state.timeScale, start: seedPositions(structural), seed: 1, radius: radiusOf } : { width: 1600, scale: state.timeScale };
         state.layoutRes = L.layout(state.arrange, g, structural, aopts); state.layoutRes.arr = state.arrange;
         state.pinned.forEach(function (p, id) { if (state.layoutRes.pos.has(id)) state.layoutRes.pos.set(id, { x: p.x, y: p.y }); });
         renderer.setPositions(state.layoutRes.pos, !!o.instant || !renderer.cur.size);
@@ -1931,13 +1934,12 @@
         renderer.setPositions(tpos, !!o.instant || !renderer.cur.size);
       }
     } else if (o.relayout || !state.layoutRes || state.layoutRes.trace || state.layoutRes.arr) {
-      var opts = state.layout === 'force' ? { start: seedPositions(structural), seed: 1 } : state.layout === 'timeline' ? { width: 1600, scale: state.timeScale } : {};
+      var opts = state.layout === 'force' ? { start: seedPositions(structural), seed: 1, radius: radiusOf } : state.layout === 'timeline' ? { width: 1600, scale: state.timeScale } : {};
       state.layoutRes = L.layout(state.layout, g, structural, opts);
       state.pinned.forEach(function (p, id) { if (state.layoutRes.pos.has(id)) state.layoutRes.pos.set(id, { x: p.x, y: p.y }); });
       renderer.setPositions(state.layoutRes.pos, !!o.instant || !renderer.cur.size);
     }
     var visible = F.computeVisible(g, f, state.keep, focusOpt(), traceOnly(), hiddenOpt());
-    var style = S.makeStyle(g, structural, { colorBy: state.colorBy });
     renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, axis: usesAxis() && state.layoutRes ? state.layoutRes.axis : null,
                        range: { from: f.timeFrom, to: f.timeTo }, showLabels: state.showLabels, focusId: focusOpt() ? state.focus : null,
                        edgeLabel: state.edgeLabels ? edgeLabelFor : null,
@@ -1974,6 +1976,7 @@
       box.appendChild(legendItem(lg.unknown, 'time unknown'));
     } else lg.items.forEach(function (i) { box.appendChild(legendItem(i.color, i.label)); });
     box.appendChild(el('div', { 'class': 'item', text: 'Edge width = amount · dashed = unspent output' }));
+    box.appendChild(el('div', { 'class': 'item', text: effectiveSizeBy() === 'area' ? 'Shape size = value (area proportional to the amount)' : 'Shape size = value (compact scale: sizes differ little)' }));
     if (state.analysis.change && state.an && state.an.changeEdges.size) box.appendChild(legendItem(AN.COLORS.change, 'amber edge = likely change (a guess)'));
     var tags = TG.summarise(Array.from(state.graph.nodes.values()));
     if (tags.length) {
@@ -2222,13 +2225,20 @@
     state.timeScale = name; setSeg('scaleSeg', 'data-scale', name);
     state.pinned.clear(); refresh({ relayout: true, fit: true }); scheduleSave();
   }
+  /** What 'Auto' means for the shape size: proportional to value in the Force layout (where position says nothing about amounts), compact elsewhere. */
+  function effectiveSizeBy() { return state.sizeBy === 'auto' ? (state.layout === 'force' || (traceOn() && (state.arrange === 'force' || state.arrange === 'timeforce')) ? 'area' : 'log') : state.sizeBy; }
+  function setSizeBy(name) {
+    if (!SIZES[name]) return;
+    state.sizeBy = name; setSeg('sizeSeg', 'data-size', name); state.layoutRes = null;
+    refresh({ relayout: true }); scheduleSave();                    // the force layout leaves room for the shapes, so it is placed again (from where things are)
+  }
   function setColor(name) {
     if (!COLORS[name]) return;
     state.colorBy = name; setSeg('colorSeg', 'data-color', name); refresh(); scheduleSave();
   }
 
   // ---- export / import ------------------------------------------------------------------------
-  function viewState() { return { trace: traceData(), arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, source: state.source === 'custom' ? 'clearnet' : state.source }; }
+  function viewState() { return { sizeBy: state.sizeBy, trace: traceData(), arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, source: state.source === 'custom' ? 'clearnet' : state.source }; }
 
   function download(name, text, mime) {
     var blob = new Blob([text], { type: mime }), a = el('a', { href: URL.createObjectURL(blob), download: name });
@@ -2275,6 +2285,7 @@
     if (SCALES[v.timeScale]) { state.timeScale = v.timeScale; setSeg('scaleSeg', 'data-scale', v.timeScale); }
     $('traceArrange').value = state.arrange; updateScaleRow();
     if (COLORS[v.colorBy]) { state.colorBy = v.colorBy; setSeg('colorSeg', 'data-color', v.colorBy); }
+    if (SIZES[v.sizeBy]) { state.sizeBy = v.sizeBy; setSeg('sizeSeg', 'data-size', v.sizeBy); }
     if (typeof v.focusOn === 'boolean') { state.focusOn = v.focusOn; $('focusOn').checked = v.focusOn; }
     if (typeof v.hops === 'number') { state.hops = num(v.hops, 1, 3, 2); $('depth').value = String(state.hops); }
     state.focus = typeof v.focus === 'string' && NV.isId(v.focus) ? canonicalId(v.focus) : null;
@@ -2495,6 +2506,7 @@
     Array.prototype.forEach.call($('layoutSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setLayout(b.getAttribute('data-layout')); }); });
     Array.prototype.forEach.call($('scaleSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setScale(b.getAttribute('data-scale')); }); });
     Array.prototype.forEach.call($('colorSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setColor(b.getAttribute('data-color')); }); });
+    Array.prototype.forEach.call($('sizeSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setSizeBy(b.getAttribute('data-size')); }); });
     $('showLabels').addEventListener('change', function () { state.showLabels = this.checked; refresh(); savePrefs(); });
     $('persist').addEventListener('change', function () {
       state.persist = this.checked; savePrefs();

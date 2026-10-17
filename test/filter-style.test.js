@@ -248,3 +248,24 @@ test('hidden: still obeys the other filters, the trace set and the time range', 
   const late = F.computeVisible(g, { timeFrom: 1500, timeTo: 2500 }, null, null, null, new Set([ID.tx('t2')]));
   assert.ok(!late.nodes.has(A) && !late.nodes.has(dust), 'the time range still removes what it removes: t1 is outside it');
 });
+
+test('sizeBy "area": the area of a shape is proportional to its value, the largest is the biggest, tiny values stay visible, and the default is unchanged', () => {
+  const g = new Graph();
+  const mk = (txid, value) => g.addTx({ txid, fee: 1, weight: 400, status: { confirmed: true, block_height: 1, block_time: 1000 },
+    vin: [{ txid: 'p' + txid, vout: 0, is_coinbase: false, prevout: { scriptpubkey_address: 'in' + txid, scriptpubkey_type: 'v0_p2wpkh', value: value + 100 } }],
+    vout: [{ scriptpubkey_address: 'out' + txid, scriptpubkey_type: 'v0_p2wpkh', value }] });
+  mk('big', 1000000); mk('quarter', 250000); mk('tiny', 100);
+  g.refreshDerived();
+  const v = F.computeVisible(g, {});
+  const area = S.makeStyle(g, v, { sizeBy: 'area' }), log = S.makeStyle(g, v);
+  const r = (st, id) => st.nodeRadius(g.node(ID.tx(id)));
+  assert.ok(Math.abs(r(area, 'big') - 20) < 0.01, 'the largest takes (almost exactly) the full radius: the funding wallet of the same transaction is a hair larger');
+  assert.ok(Math.abs(r(area, 'big') / r(area, 'quarter') - 2) < 1e-9, 'a quarter of the value is half the radius, a quarter of the area');
+  assert.equal(r(area, 'tiny'), 4, 'a tiny amount is still a visible dot');
+  g.nodes.forEach((n) => { const x = area.nodeRadius(n); assert.ok(x >= 4 && x <= 20, n.id); });
+  assert.ok(r(area, 'big') > r(area, 'quarter') && r(area, 'quarter') > r(area, 'tiny'));
+  const spread = (st) => r(st, 'big') - r(st, 'quarter');
+  assert.ok(spread(area) > spread(log), 'the proportional scale tells a big amount from a medium one more clearly than the compact one');
+  assert.ok(Math.abs(r(log, 'big') - 16) < 0.01, 'the default log scale is as it was');
+  assert.equal(S.makeStyle(g, v, { sizeBy: 'log' }).nodeRadius(g.node(ID.tx('big'))), r(log, 'big'));
+});

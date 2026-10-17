@@ -455,3 +455,49 @@ def test_the_time_slider_and_hiding_work_together(fpage):
     fpage.evaluate("() => { const el = document.getElementById('tTo'); el.value = 1000; el.dispatchEvent(new Event('input', { bubbles: true })); }")
     settle(fpage)
     assert BIG_ADDR not in shown(fpage) and hidden(fpage) == {BIG_ADDR}
+
+
+# ---------------------------------------------------------------- timeline + force
+def test_timeline_plus_force_keeps_time_along_x_and_lays_the_rest_out_by_force(fpage, mock):
+    ids = traced(fpage, mock, hops=5)
+    columns = {i: pos(fpage, i) for i in ids}
+    arrange(fpage, "timeline")
+    tl_x = {i: pos(fpage, i)[0] for i in ids}
+    arrange(fpage, "timeforce")
+    assert fpage.input_value("#traceArrange") == "timeforce" and sorted(shown(fpage)) == ids, "only where changes, never what"
+    assert {i: pos(fpage, i)[0] for i in ids} == tl_x, "time runs along x exactly as in the timeline"
+    assert fpage.evaluate("() => window.__orion.renderer.data.axis !== null") and fpage.is_visible("#scaleRow"), "with the time axis and its scale choice"
+    assert any(t.startswith("04-15") or t.startswith("2022") for t in drawn_texts(fpage))
+    radii = fpage.evaluate("""() => { const o = window.__orion, g = o.state.graph, st = o.renderer.data.style, out = {};
+        o.renderer.data.visible.nodes.forEach(id => { out[id] = st.nodeRadius(g.nodes.get(id)); }); return out; }""")
+    for n, a in enumerate(ids):
+        for b in ids[n + 1:]:
+            pa, pb = pos(fpage, a), pos(fpage, b)
+            assert ((pa[0] - pb[0]) ** 2 + (pa[1] - pb[1]) ** 2) ** 0.5 >= radii[a] + radii[b] + 7, (a, b)
+    spine = [pos(fpage, "tx:" + tid(10 + k))[1] for k in range(6)]
+    assert max(spine) - min(spine) < 160, "the chain of transactions runs roughly level across: %s" % spine
+    arrange(fpage, "columns")
+    assert {i: pos(fpage, i) for i in ids} == columns, "back to Columns: exactly where you had them"
+
+
+def test_timeline_plus_force_uses_proportional_sizes_under_auto_and_is_saved(fpage, mock):
+    traced(fpage, mock, hops=3)
+    assert "compact scale" in fpage.inner_text("#legend").lower()
+    arrange(fpage, "timeforce")
+    assert "area proportional" in fpage.inner_text("#legend").lower(), "position says nothing about amounts here, so size does"
+    fpage.wait_for_timeout(1100)
+    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
+    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); settle(fpage)
+    assert fpage.evaluate("() => window.__orion.state.arrange") == "timeforce" and fpage.input_value("#traceArrange") == "timeforce"
+
+
+def test_adding_to_a_timeline_plus_force_trace_keeps_the_picture_steady(fpage, mock):
+    traced(fpage, mock, hops=2)
+    arrange(fpage, "timeforce")
+    before = {i: pos(fpage, i) for i in shown(fpage)}
+    fpage.evaluate("(id) => window.__orion.traceExpand(id, 'next')", "tx:" + tid(12)); idle(fpage); settle(fpage)
+    now = shown(fpage)
+    assert set(before) < now
+    moved = max(abs(pos(fpage, i)[1] - before[i][1]) for i in before)
+    assert moved < 120, "what was there stays roughly where it was in height (largest move %s)" % moved
+    assert len({tuple(pos(fpage, i)) for i in now}) == len(now), "and nothing is on top of anything"

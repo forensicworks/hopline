@@ -5,8 +5,11 @@
  *
  *   flow      left-to-right in the direction money moves, ordered to reduce crossings
  *   timeline  x = confirmation time, y = lanes packed so nothing overlaps
- *   force     spring layout; starts from existing positions so it can be re-run to tidy up
+ *   force     spring layout; starts from existing positions so it can be re-run to tidy up. With opts.radius(id) -> pixels
+ *             each shape takes room by its size: bigger shapes push their neighbours further away and never overlap them
  *   timeamount  x = confirmation time (as timeline), y = amount on a log scale (bigger is higher), nothing overlapping
+ *   timeforce   x = confirmation time (as timeline), y = a spring layout: connected vertices are pulled to the same height
+ *               and unconnected ones pushed apart, so a chain runs straight across and branches fan out above and below
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -226,6 +229,9 @@
       else { var r = k * Math.sqrt(n) * 0.5 * rand(), a = rand() * Math.PI * 2; px[i] = Math.cos(a) * r; py[i] = Math.sin(a) * r; }
     });
     var links = edges.map(function (e) { return [idx.get(e.source), idx.get(e.target)]; });
+    var rad = new Float64Array(n), sized = typeof opts.radius === 'function';
+    if (sized) ids.forEach(function (id, i) { rad[i] = Math.max(0, Number(opts.radius(id)) || 0); });
+    var pad = opts.pad == null ? 8 : opts.pad;
     var iters = opts.iterations || Math.max(n > 2000 ? 10 : 30, Math.min(300, Math.floor(4e7 / Math.max(1, n * n))));
     var temp = k * 3, cool = temp / (iters + 1);
     for (var it = 0; it < iters; it++) {
@@ -235,7 +241,8 @@
           var ddx = px[i] - px[j], ddy = py[i] - py[j];
           var d2 = ddx * ddx + ddy * ddy;
           if (d2 < 0.01) { ddx = rand() - 0.5; ddy = rand() - 0.5; d2 = ddx * ddx + ddy * ddy + 0.01; }
-          var f = (k * k) / d2;                                       // repulsion ~ k^2/d, applied along the unit vector
+          var room = sized ? rad[i] + rad[j] : 0, kk = (k + room) * (k + room);   // two big shapes need more room between them than two small ones
+          var f = kk / d2;                                            // repulsion ~ k^2/d, applied along the unit vector
           dxs[i] += ddx * f; dys[i] += ddy * f; dxs[j] -= ddx * f; dys[j] -= ddy * f;
         }
       }
@@ -251,9 +258,90 @@
       }
       temp -= cool;
     }
+    if (sized && n <= 800) {                                           // finally, no overlaps: push apart whatever still touches (a few quick passes)
+      for (var pass = 0; pass < 40; pass++) {
+        var moved = false;
+        for (var a = 0; a < n; a++) {
+          for (var b = a + 1; b < n; b++) {
+            var ex = px[a] - px[b], ey = py[a] - py[b], dist = Math.sqrt(ex * ex + ey * ey), need = rad[a] + rad[b] + pad;
+            if (dist >= need) continue;
+            if (dist < 0.01) { ex = rand() - 0.5; ey = rand() - 0.5; dist = Math.sqrt(ex * ex + ey * ey) || 1; }
+            var push = (need - dist) / 2 + 0.5, ux = ex / dist, uy = ey / dist;
+            px[a] += ux * push; py[a] += uy * push; px[b] -= ux * push; py[b] -= uy * push; moved = true;
+          }
+        }
+        if (!moved) break;
+      }
+    }
     var pos = new Map();
     ids.forEach(function (id, i) { pos.set(id, { x: px[i], y: py[i] }); });
     return { pos: pos, axis: null };
+  }
+
+  // ---- time + force ----------------------------------------------------------------------------
+  /**
+   * Time along x exactly as the timeline places it, and a force layout up and down: only y moves. Edges pull the vertices
+   * they join to the same height, vertices that are close in time push each other apart, and what is left is resolved so
+   * nothing overlaps (shapes take room by opts.radius(id), as in the force layout). opts.start (id -> {x, y}) continues
+   * from where things are, so adding to the picture does not reshuffle it.
+   */
+  function layoutTimeForce(graph, visible, opts) {
+    opts = opts || {};
+    var base = layoutTimeline(graph, visible, opts), ids = Array.from(visible.nodes).sort(), edges = visibleEdges(graph, visible);
+    var n = ids.length, k = opts.spacing || 64, pad = opts.pad == null ? 8 : opts.pad, rand = rng(opts.seed == null ? 1 : opts.seed);
+    var idx = new Map(); ids.forEach(function (id, i) { idx.set(id, i); });
+    var xs = new Float64Array(n), ys = new Float64Array(n), rad = new Float64Array(n), dy = new Float64Array(n), start = opts.start, sized = typeof opts.radius === 'function', maxRad = 0;
+    ids.forEach(function (id, i) {
+      var p = base.pos.get(id), s = start && start.get(id);
+      xs[i] = p.x; ys[i] = s ? s.y + (rand() - 0.5) * 0.5 : (rand() - 0.5) * k * 0.5;   // from where it was, else near the middle, a little apart (the forces decide which way)
+      rad[i] = sized ? Math.max(0, Number(opts.radius(id)) || 0) : 0; if (rad[i] > maxRad) maxRad = rad[i];
+    });
+    var links = edges.map(function (e) { return [idx.get(e.source), idx.get(e.target)]; });
+    var order = ids.map(function (id, i) { return i; }).sort(function (a, b) { return xs[a] - xs[b] || a - b; });      // left to right: only neighbours in time are compared
+    var reach = k + 2 * maxRad;                                                          // beyond this in x two vertices never interact
+    var iters = opts.iterations || Math.max(40, Math.min(220, Math.floor(2e7 / Math.max(1, n * n)))), temp = k * 1.5, cool = temp / (iters + 1);
+    for (var it = 0; it < iters; it++) {
+      dy.fill(0);
+      for (var a = 0; a < n; a++) {
+        var i = order[a];
+        for (var b = a + 1; b < n; b++) {
+          var j = order[b], ddx = xs[i] - xs[j];
+          if (-ddx > reach) break;                                                        // sorted by x: nothing further right is close enough
+          var ddy = ys[i] - ys[j];
+          if (Math.abs(ddy) < 0.01) ddy = (rand() < 0.5 ? 1 : -1) * (0.01 + rand() * 0.5);        // a tie: either way, so a chain is not tilted by always pushing the same direction
+          var want = k + rad[i] + rad[j], d = Math.sqrt(ddx * ddx + ddy * ddy);
+          if (d >= want) continue;                                                        // a soft core: vertices only push each other when they are closer than `want`
+          var push = (want - d) * 1.5 * (ddy / Math.max(d, 1));
+          dy[i] += push; dy[j] -= push;
+        }
+      }
+      links.forEach(function (l) { var ey = ys[l[0]] - ys[l[1]]; dy[l[0]] -= ey * 0.4; dy[l[1]] += ey * 0.4; });    // edges pull their ends to the same height
+      for (var m = 0; m < n; m++) {
+        dy[m] -= ys[m] * 0.04;                                                            // a gentle pull to the middle keeps separate chains together
+        var len = Math.abs(dy[m]) || 0.0001;
+        ys[m] += dy[m] / len * Math.min(len, temp);
+      }
+      temp -= cool;
+    }
+    for (var pass = 0; pass < 60; pass++) {                                               // finally, no overlaps: x is fixed, so whatever touches is moved up or down
+      var moved = false;
+      for (var a2 = 0; a2 < n; a2++) {
+        var p = order[a2];
+        for (var b2 = a2 + 1; b2 < n; b2++) {
+          var q = order[b2], dx = xs[q] - xs[p], need = rad[p] + rad[q] + pad;
+          if (dx > 2 * maxRad + pad) break;
+          if (dx >= need) continue;
+          var needY = Math.sqrt(need * need - dx * dx), gapY = ys[p] - ys[q];
+          if (Math.abs(gapY) >= needY) continue;
+          var dir = gapY === 0 ? (p < q ? 1 : -1) : (gapY > 0 ? 1 : -1), push = (needY - Math.abs(gapY)) / 2 + 0.25;
+          ys[p] += dir * push; ys[q] -= dir * push; moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    var pos = new Map();
+    ids.forEach(function (id, i) { pos.set(id, { x: xs[i], y: ys[i] }); });
+    return { pos: pos, axis: base.axis };
   }
 
   // ---- time x amount --------------------------------------------------------------------------
@@ -306,6 +394,7 @@
   }
 
   function layout(name, graph, visible, opts) {
+    if (name === 'timeforce') return layoutTimeForce(graph, visible, opts);
     if (name === 'timeamount') return layoutTimeAmount(graph, visible, opts);
     if (name === 'timeline') return layoutTimeline(graph, visible, opts);
     if (name === 'force') return layoutForce(graph, visible, opts);
@@ -322,5 +411,5 @@
     return b;
   }
 
-  return { layout: layout, timeMapper: timeMapper, layoutFlow: layoutFlow, layoutTimeline: layoutTimeline, layoutForce: layoutForce, layoutTimeAmount: layoutTimeAmount, vertexAmount: vertexAmount, bounds: bounds, rng: rng };
+  return { layout: layout, timeMapper: timeMapper, layoutFlow: layoutFlow, layoutTimeline: layoutTimeline, layoutForce: layoutForce, layoutTimeAmount: layoutTimeAmount, layoutTimeForce: layoutTimeForce, vertexAmount: vertexAmount, bounds: bounds, rng: rng };
 }));

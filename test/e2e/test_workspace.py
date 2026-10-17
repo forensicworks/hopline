@@ -373,7 +373,8 @@ def test_delete_hides_the_selection_and_shift_delete_removes_it(page):
     assert page.is_hidden("#inspector")
     page.keyboard.press("Control+z"); settle(page)
     assert counts(page)["vnodes"] == 7
-    click_node(page, NORMAL_ID); settle(page)
+    page.evaluate("(id) => window.__orion.setSel([id])", NORMAL_ID); settle(page)      # (selected directly: a mouse click can land mid-refit when the machine is busy)
+    page.locator("#cv").focus()
     page.keyboard.press("Shift+Delete")
     assert counts(page)["nodes"] == 0
 

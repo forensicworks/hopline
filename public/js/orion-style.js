@@ -50,12 +50,16 @@
 
   /**
    * Builds the style functions for the currently visible part of the graph.
-   * opts: { colorBy: 'type'|'age'|'script', minWidth, maxWidth, minRadius, maxRadius }
+   * opts: { colorBy: 'type'|'age'|'script', sizeBy: 'log'|'area', minWidth, maxWidth, minRadius, maxRadius }
+   *   sizeBy 'log'   (default) a compact log scale between minRadius and maxRadius: sizes differ little
+   *   sizeBy 'area'  the AREA of a shape is proportional to its value (radius ~ sqrt), up to areaMaxRadius for the largest,
+   *                  never below areaMinRadius so a tiny amount is still a visible dot
    */
   function makeStyle(graph, visible, opts) {
     opts = opts || {};
     var colorBy = opts.colorBy || 'type';
     var minW = opts.minWidth || 1, maxW = opts.maxWidth || 12, minR = opts.minRadius || 5, maxR = opts.maxRadius || 16;
+    var byArea = opts.sizeBy === 'area', areaMin = opts.areaMinRadius || 4, areaMax = opts.areaMaxRadius || 20;
 
     var aMin = null, aMax = null, tMin = null, tMax = null, vMin = null, vMax = null;
     visible.edges.forEach(function (id) {
@@ -79,7 +83,9 @@
       nodeRadius: function (n) {
         if (n.type === 'coinbase') return (minR + maxR) / 2;
         var v = n.type === 'tx' ? n.valueOut : n.received;
-        return v == null ? minR : minR + (maxR - minR) * valueScale(v);
+        if (v == null) return byArea ? areaMin : minR;
+        if (byArea) return vMax > 0 ? Math.max(areaMin, areaMax * Math.sqrt(Math.max(0, v) / vMax)) : areaMin;
+        return minR + (maxR - minR) * valueScale(v);
       },
       nodeColor: function (n) {
         if (n.color && /^#[0-9a-fA-F]{6}$/.test(n.color)) return n.color;                    // your tag colour, in every colour mode

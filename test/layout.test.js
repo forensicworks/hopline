@@ -272,3 +272,84 @@ test('timeamount: degenerate inputs do not break it (nothing, one vertex, all th
   assert.equal(r.pos.size, 4); r.pos.forEach((p) => assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y)));
   assert.deepEqual(r.axis.yTicks, [], 'one amount, nothing to scale');
 });
+
+// ---- force: shapes take room by their size ---------------------------------------------------------
+test('force with radii: no two shapes overlap, bigger ones keep more distance, and without radii nothing changes', () => {
+  const g = realGraph(), v = F.computeVisible(g, {});
+  const radius = (id) => (id.startsWith('tx:') ? 20 : id.startsWith('addr:') ? 12 : 6);
+  const plain = L.layout('force', g, v, { seed: 1 }), sized = L.layout('force', g, v, { seed: 1, radius });
+  const ids = [...v.nodes];
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+    const a = sized.pos.get(ids[i]), b = sized.pos.get(ids[j]);
+    assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= radius(ids[i]) + radius(ids[j]) + 7.5, `${ids[i]} / ${ids[j]} overlap`);
+  }
+  const span = (r) => { const b = L.bounds(r.pos); return Math.max(b.maxX - b.minX, b.maxY - b.minY); };
+  assert.ok(span(sized) > span(plain), 'leaving room for the shapes spreads the picture out');
+  assert.deepEqual([...L.layout('force', g, v, { seed: 1 }).pos], [...plain.pos], 'no radii given: exactly as before');
+  assert.deepEqual([...L.layout('force', g, v, { seed: 1, radius }).pos], [...sized.pos], 'deterministic');
+});
+
+test('force with radii copes with an empty graph, one vertex, and a radius function that returns rubbish', () => {
+  const g = new Graph();
+  assert.equal(L.layout('force', g, F.computeVisible(g, {}), { radius: () => 10 }).pos.size, 0);
+  const real = realGraph(), v = F.computeVisible(real, {});
+  const r = L.layout('force', real, v, { seed: 1, radius: (id) => (id.length % 3 === 0 ? NaN : id.length % 3 === 1 ? -5 : undefined) });
+  r.pos.forEach((p) => assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y)));
+});
+
+// ---- time + force ---------------------------------------------------------------------------------
+function peelishGraph(n) {
+  // a chain of n transactions, each paying a small output off to the side and passing the rest on
+  const g = new Graph();
+  let value = 1000000;
+  for (let i = 0; i < n; i++) {
+    const small = 1000 + i * 13, large = value - small - 200;
+    g.addTx({ txid: 'c' + i, fee: 1, weight: 400, status: { confirmed: true, block_height: 1, block_time: 1000 + i * 600 },
+      vin: [{ txid: i ? 'c' + (i - 1) : 'origin', vout: i ? 1 : 0, is_coinbase: false, prevout: { scriptpubkey_address: i ? 'w' + (i - 1) : 'src', scriptpubkey_type: 'v0_p2wpkh', value } }],
+      vout: [{ scriptpubkey_address: 'peel' + i, scriptpubkey_type: 'v0_p2wpkh', value: small }, { scriptpubkey_address: 'w' + i, scriptpubkey_type: 'v0_p2wpkh', value: large }] });
+    value = large;
+  }
+  g.refreshDerived();
+  return g;
+}
+
+test('timeforce: x is the timeline\'s time, a chain runs level across and nothing overlaps', () => {
+  const g = peelishGraph(8), v = F.computeVisible(g, {});
+  const radius = (id) => (id.startsWith('tx:') ? 12 : id.startsWith('addr:peel') ? 4 : 10);
+  const tl = L.layout('timeline', g, v, { scale: 'proportional' }), tf = L.layout('timeforce', g, v, { scale: 'proportional', radius });
+  assert.equal(tf.pos.size, v.nodes.size);
+  v.nodes.forEach((id) => assert.equal(tf.pos.get(id).x, tl.pos.get(id).x, 'same x as the timeline: ' + id));
+  tf.pos.forEach((p, id) => assert.ok(Number.isFinite(p.y), id));
+  const ids = [...v.nodes];
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+    const a = tf.pos.get(ids[i]), b = tf.pos.get(ids[j]);
+    assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= radius(ids[i]) + radius(ids[j]) + 7.5, `${ids[i]} / ${ids[j]} overlap`);
+  }
+  const spine = []; for (let i = 0; i < 8; i++) { spine.push(tf.pos.get(ID.tx('c' + i)).y); if (i < 7) spine.push(tf.pos.get(ID.addr('w' + i)).y); }
+  const range = (a) => Math.max(...a) - Math.min(...a);
+  const laneSpine = []; for (let i = 0; i < 8; i++) laneSpine.push(tl.pos.get(ID.tx('c' + i)).y);
+  assert.ok(range(spine) <= Math.max(range(laneSpine), 120), 'the main chain stays close to one height: ' + range(spine));
+  const peels = [...Array(8).keys()].map((i) => tf.pos.get(ID.addr('peel' + i)).y);
+  assert.ok(peels.every((y, i) => Math.abs(y - tf.pos.get(ID.tx('c' + i)).y) > 10), 'what each transaction peeled off sits beside the chain, not on it');
+  assert.ok(tf.axis && tf.axis.tMin === tl.axis.tMin && tf.axis.knots.length === tl.axis.knots.length, 'the time axis comes with it');
+});
+
+test('timeforce: deterministic, continues from where things are, and survives degenerate input', () => {
+  const g = peelishGraph(6), v = F.computeVisible(g, {});
+  const a = L.layout('timeforce', g, v, { scale: 'proportional', seed: 3 }), b = L.layout('timeforce', g, v, { scale: 'proportional', seed: 3 });
+  assert.deepEqual([...a.pos], [...b.pos], 'the same input gives the same picture');
+  const again = L.layout('timeforce', g, v, { scale: 'proportional', seed: 3, start: a.pos });
+  let drift = 0; a.pos.forEach((p, id) => { drift = Math.max(drift, Math.abs(p.y - again.pos.get(id).y)); });
+  assert.ok(drift < 25, 'running it again from where it ended hardly moves anything: ' + drift);
+  const empty = new Graph();
+  assert.equal(L.layout('timeforce', empty, F.computeVisible(empty, {})).pos.size, 0);
+  const rubbish = L.layout('timeforce', g, v, { scale: 'proportional', radius: (id) => (id.length % 2 ? NaN : -3) });
+  rubbish.pos.forEach((p) => assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y)));
+});
+
+test('timeforce: connected vertices end up closer in height than in the timeline\'s lanes', () => {
+  const g = realGraph(), v = F.computeVisible(g, {});
+  const tl = L.layout('timeline', g, v, { scale: 'proportional' }), tf = L.layout('timeforce', g, v, { scale: 'proportional' });
+  const edgeGap = (r) => { let s = 0, c = 0; v.edges.forEach((id) => { const e = g.edges.get(id); s += Math.abs(r.pos.get(e.source).y - r.pos.get(e.target).y); c++; }); return s / c; };
+  assert.ok(edgeGap(tf) <= edgeGap(tl) + 1, `average height difference along an edge: ${edgeGap(tf).toFixed(1)} against ${edgeGap(tl).toFixed(1)} for the lanes`);
+});
