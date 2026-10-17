@@ -106,12 +106,13 @@
     var ts = Array.from(new Set(times)).sort(function (a, b) { return a - b; });
     var tMin = ts.length ? ts[0] : 0, tMax = ts.length ? ts[ts.length - 1] : 0;
     var res = { tMin: tMin, tMax: tMax, mode: mode, pxPerSec: 0, knots: [], breaks: [], x1: 0 };
-    if (ts.length < 2) { res.knots = ts.map(function (t) { return { t: t, x: 0 }; }); res.xOf = function () { return 0; }; return res; }
+    if (ts.length < 2) { res.knots = ts.map(function (t) { return { t: t, x: 0 }; }); res.xOf = function () { return 0; }; res.tAt = function () { return ts.length ? { t: tMin, gap: false } : null; }; return res; }
     var span = tMax - tMin, pps = width / span;
     if (mode !== 'compact') {
       res.pxPerSec = pps; res.x1 = width;
       res.knots = ts.map(function (t) { return { t: t, x: (t - tMin) * pps }; });
       res.xOf = function (t) { return (t - tMin) * pps; };
+      res.tAt = function (x) { return x < 0 || x > res.x1 ? null : { t: tMin + x / pps, gap: false }; };
       return res;
     }
     // A gap is "long" when it is more than 8x the median gap. Long gaps are squeezed to `cap` pixels; the rest share
@@ -128,6 +129,13 @@
     res.pxPerSec = pps; res.x1 = x[x.length - 1];
     res.knots = ts.map(function (t, i) { return { t: t, x: x[i] }; });
     dts.forEach(function (d, i) { if (longGap[i]) res.breaks.push({ x0: x[i], x1: x[i + 1], seconds: d, t0: ts[i], t1: ts[i + 1] }); });
+    res.tAt = function (px) {                                          // the time at a place on the line; `gap` when it falls inside a gap that was shortened (the time there is only interpolated)
+      if (px < 0 || px > res.x1) return null;
+      var lo = 0, hi = ts.length - 1;
+      while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (x[mid] <= px) lo = mid; else hi = mid; }
+      var span = x[hi] - x[lo];
+      return { t: span > 0 ? ts[lo] + (px - x[lo]) / span * (ts[hi] - ts[lo]) : ts[lo], gap: !!longGap[lo] };
+    };
     res.xOf = function (t) {
       if (t <= tMin) return 0;
       if (t >= tMax) return res.x1;
@@ -210,7 +218,7 @@
 
     var pos = new Map();
     ids.forEach(function (id) { pos.set(id, { x: x.get(id), y: laneOf.get(id) * laneH }); });
-    return { pos: pos, axis: { tMin: tMin, tMax: tMax, x0: 0, x1: tm.x1, pendingX: pendingX, pxPerSec: tm.pxPerSec, mode: tm.mode, knots: tm.knots, breaks: tm.breaks, xOf: xOf,
+    return { pos: pos, axis: { tMin: tMin, tMax: tMax, x0: 0, x1: tm.x1, pendingX: pendingX, pxPerSec: tm.pxPerSec, mode: tm.mode, knots: tm.knots, breaks: tm.breaks, xOf: xOf, tAt: tm.tAt,
                                hasPending: ids.some(function (id) { var n = graph.nodes.get(id); return n.type === 'tx' && n.time == null && n.confirmed === false; }) } };
   }
 

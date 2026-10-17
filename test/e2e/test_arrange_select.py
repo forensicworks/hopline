@@ -93,7 +93,7 @@ def test_the_arrange_menu_belongs_to_a_trace_and_columns_is_where_it_starts(fpag
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     assert fpage.is_visible("#traceArrange") and fpage.input_value("#traceArrange") == "columns"
     assert fpage.is_hidden("#scaleRow"), "the time scale choice only matters once time is on an axis"
-    assert fpage.evaluate("() => window.__orion.renderer.data.axis") is None
+    assert fpage.evaluate("() => window.__orion.renderer.data.axis.mode") == "marks", "Columns is not a time scale, but its transactions carry timestamps along the top"
 
 
 def test_timeline_places_the_traced_vertices_by_time_and_nothing_is_added_or_lost(fpage, mock):
@@ -110,7 +110,7 @@ def test_timeline_places_the_traced_vertices_by_time_and_nothing_is_added_or_los
     assert len({tuple(pos(fpage, i)) for i in ids}) == len(ids), "no two on the same spot"
     arrange(fpage, "columns")
     assert {i: pos(fpage, i) for i in ids} == columns, "back to Columns: exactly where you had them"
-    assert fpage.evaluate("() => window.__orion.renderer.data.axis") is None and fpage.is_hidden("#scaleRow")
+    assert fpage.evaluate("() => window.__orion.renderer.data.axis.mode") == "marks" and fpage.is_hidden("#scaleRow")
 
 
 def test_force_places_every_traced_vertex_apart(fpage, mock):

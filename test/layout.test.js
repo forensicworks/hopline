@@ -353,3 +353,31 @@ test('timeforce: connected vertices end up closer in height than in the timeline
   const edgeGap = (r) => { let s = 0, c = 0; v.edges.forEach((id) => { const e = g.edges.get(id); s += Math.abs(r.pos.get(e.source).y - r.pos.get(e.target).y); c++; }); return s / c; };
   assert.ok(edgeGap(tf) <= edgeGap(tl) + 1, `average height difference along an edge: ${edgeGap(tf).toFixed(1)} against ${edgeGap(tl).toFixed(1)} for the lanes`);
 });
+
+// ---- reading the time off the axis --------------------------------------------------------------
+test('timeMapper tAt is the inverse of xOf: proportional exactly, compact at the knots and flagged inside a shortened gap', () => {
+  const prop = L.timeMapper([1000, 2000, 5000], 'proportional', 1000, 40, 100);
+  [1000, 1500, 2000, 3333, 5000].forEach((t) => assert.ok(Math.abs(prop.tAt(prop.xOf(t)).t - t) < 1e-6, 'proportional ' + t));
+  assert.equal(prop.tAt(-1), null); assert.equal(prop.tAt(1001), null, 'off the ends of the line there is no time');
+  assert.equal(prop.tAt(500).gap, false);
+  const times = [0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 10000000];             // a burst, then one outlier long after
+  const comp = L.timeMapper(times, 'compact', 1000, 30, 120);
+  assert.ok(comp.breaks.length >= 1);
+  times.forEach((t) => { const r = comp.tAt(comp.xOf(t)); assert.ok(r && Math.abs(r.t - t) < 1e-3, 'compact round trip ' + t); });
+  const br = comp.breaks[0], mid = comp.tAt((br.x0 + br.x1) / 2);
+  assert.equal(mid.gap, true, 'inside the shortened gap the time is only interpolated, and says so');
+  assert.ok(mid.t > br.t0 && mid.t < br.t1);
+  assert.equal(comp.tAt(comp.xOf(120)).gap, false);
+  assert.equal(L.timeMapper([42], 'compact', 1000, 30, 120).tAt(0).t, 42, 'one time: that time');
+  assert.equal(L.timeMapper([], 'proportional', 1000, 30, 120).tAt(0), null);
+});
+
+test('the timeline axis carries tAt and the combined layouts keep it', () => {
+  const g = realGraph(), v = F.computeVisible(g, {});
+  ['timeline', 'timeforce', 'timeamount'].forEach((name) => {
+    const ax = L.layout(name, g, v, { scale: 'compact' }).axis;
+    assert.equal(typeof ax.tAt, 'function', name);
+    const k = ax.knots[ax.knots.length - 1];
+    assert.ok(Math.abs(ax.tAt(ax.xOf(k.t)).t - k.t) < 1e-3, name);
+  });
+});

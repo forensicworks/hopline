@@ -58,6 +58,8 @@
     return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
   }
 
+  var AXIS_H = 22;                                                           // height of the time axis band at the top of the canvas, in pixels
+
   function Renderer(canvas, callbacks) {
     var self = this;
     this.canvas = canvas;
@@ -69,6 +71,7 @@
     this.target = new Map();
     this.anim = null;
     this.hover = { node: null, edge: null };
+    this.axisPointer = null;                  // x of the pointer while it is over the time axis (top of the canvas): the axis then reads out the time there
     this.insets = { bottom: 0 };              // canvas rows covered by overlays (the step bar): fit() and centerOn() keep clear of them
     this.handleRects = [];                    // expand handles drawn this frame (trace layout): {id, dir, x, y, w, h, tip}
     this.autoFit = false;                     // true while the view is the result of fit(): it is then refitted when the canvas changes size
@@ -85,7 +88,7 @@
     canvas.addEventListener('pointermove', function (e) { self._move(e); });
     canvas.addEventListener('pointerup', function (e) { self._up(e); });
     canvas.addEventListener('pointercancel', function (e) { self._up(e, true); });
-    canvas.addEventListener('pointerleave', function () { if (!self.drag) self._setHover(null, null, null); });
+    canvas.addEventListener('pointerleave', function () { if (self.axisPointer != null) { self.axisPointer = null; self.dirty = true; } if (!self.drag) self._setHover(null, null, null); });
     canvas.addEventListener('wheel', function (e) { e.preventDefault(); self._wheel(e); }, { passive: false });
     canvas.addEventListener('contextmenu', function (e) {
       e.preventDefault();
@@ -112,7 +115,7 @@
   Renderer.prototype.invalidate = function () { this.dirty = true; };
 
   /** d = { graph, visible, style, known, axis, range:{from,to}, showLabels } */
-  Renderer.prototype.setData = function (d) { this.data = d; this.dirty = true; };
+  Renderer.prototype.setData = function (d) { this.data = d; if (!d || !d.axis) this.axisPointer = null; this.dirty = true; };
 
   Renderer.prototype.setSelection = function (ids) { this.selected = new Set(ids || []); this.dirty = true; };
 
@@ -257,6 +260,9 @@
   Renderer.prototype._move = function (e) {
     var pt = this._local(e), d = this.drag;
     if (!d) {
+      var onAxis = !!(this.data && this.data.axis && pt.y <= AXIS_H + 2);                // the time axis: it answers "what time is this?"
+      if (onAxis !== (this.axisPointer != null) || (onAxis && this.axisPointer !== pt.x)) { this.axisPointer = onAxis ? pt.x : null; this.dirty = true; }
+      if (onAxis) { this._setHover(null, null, null); this.canvas.style.cursor = 'crosshair'; this.canvas.title = ''; return; }
       var hnd = this._pickHandle(pt);
       if (hnd) { this._setHover(null, null, null); this.canvas.style.cursor = 'pointer'; this.canvas.title = hnd.tip || ''; return; }
       this.canvas.title = '';
@@ -509,11 +515,46 @@
       });
       ctx.textBaseline = 'alphabetic';
     }
+    if (d.axis) this._drawAxisReadout(d, s);
     if (this.box) {                                                        // the selection box
       var bx = Math.min(this.box.x0, this.box.x1), by = Math.min(this.box.y0, this.box.y1), bw = Math.abs(this.box.x1 - this.box.x0), bh = Math.abs(this.box.y1 - this.box.y0);
       ctx.fillStyle = 'rgba(174,231,248,0.10)'; ctx.fillRect(bx, by, bw, bh);
       ctx.lineWidth = 1; ctx.strokeStyle = th.accent; ctx.setLineDash([4, 3]); ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh); ctx.setLineDash([]);
     }
+  };
+
+  /**
+   * The time axis answers two questions: what time is this place on the line (the pointer is over it), and what time did this
+   * transaction happen (the pointer is over one): a guide runs down from the line and its exact time, to the second, is
+   * written on it. In a gap that was shortened to keep a burst readable, the time at the pointer is only interpolated and says so.
+   */
+  Renderer.prototype._drawAxisReadout = function (d, s) {
+    var ctx = this.ctx, th = this.theme, axis = d.axis, v = this.view, self = this, x = null, text = null, dashed = false;
+    function label(px, t, hot) {
+      ctx.font = 'bold 11px Calibri, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      var w = ctx.measureText(t).width + 14, bx = Math.max(4, Math.min(self.w - w - 4, px - w / 2));
+      ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(bx, 3, w, 17, 8); else ctx.rect(bx, 3, w, 17);
+      ctx.fillStyle = 'rgba(28,20,29,0.97)'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = hot ? '#ffffff' : th.accent; ctx.stroke();
+      ctx.fillStyle = hot ? '#ffffff' : th.accent; ctx.fillText(t, bx + w / 2, 11.5); ctx.textBaseline = 'alphabetic';
+    }
+    if (this.axisPointer != null && axis.mode === 'marks') {                         // over the line: the nearest transaction's exact time
+      var near = null;
+      this._timeMarks().forEach(function (m) { var dist = Math.abs(m.x - self.axisPointer); if (dist <= 16 && (!near || dist < Math.abs(near.x - self.axisPointer))) near = m; });
+      if (near) { x = near.x; text = Style.fmtTimeFull(near.t); }
+    } else if (this.axisPointer != null && axis.tAt) {
+      var hit = axis.tAt((this.axisPointer - v.x) / v.k - (axis.x0 || 0));
+      if (hit) { x = this.axisPointer; text = (hit.gap ? '≈ ' : '') + Style.fmtTimeFull(Math.round(hit.t)) + (hit.gap ? ' · shortened gap' : ''); dashed = hit.gap; }
+    } else if (this.hover.node) {
+      var n = d.graph.nodes.get(this.hover.node), p = this.cur.get(this.hover.node);
+      if (n && n.type === 'tx' && n.time != null && p) { x = this._toScreen(p).x; text = Style.fmtTimeFull(n.time); }
+    }
+    if (x == null) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1; ctx.setLineDash(dashed ? [2, 4] : [4, 3]);
+    var yEnd = this.axisPointer != null ? this.h : (this.cur.get(this.hover.node) ? this._toScreen(this.cur.get(this.hover.node)).y : this.h);
+    ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, AXIS_H); ctx.lineTo(Math.round(x) + 0.5, yEnd); ctx.stroke(); ctx.setLineDash([]);
+    label(x, text, this.axisPointer == null);
+    ctx.restore();
   };
 
   function fmtGap(sec, short) {
@@ -524,19 +565,44 @@
     return Math.max(1, Math.round(sec / 60)) + (short ? 'm' : ' min');
   }
 
+  /**
+   * The transactions on screen with a known time, left to right: [{x, t, id}] (x in canvas pixels). The 'marks' axis of the
+   * Trace layout's Columns arrangement is made of these: there x is not time, so the axis cannot be a scale, but it can
+   * still put a tick and a timestamp over every transaction, so the order of events can be read along the top.
+   */
+  Renderer.prototype._timeMarks = function () {
+    var d = this.data, out = [], self = this;
+    d.visible.nodes.forEach(function (id) {
+      var n = d.graph.nodes.get(id), p = self.cur.get(id);
+      if (n && n.type === 'tx' && n.time != null && p) out.push({ x: self._toScreen(p).x, t: n.time, id: id });
+    });
+    return out.sort(function (a, b) { return a.x - b.x || a.t - b.t; });
+  };
+
   Renderer.prototype._drawAxis = function (axis, range) {
     var ctx = this.ctx, v = this.view, th = this.theme, h = this.h, w = this.w;
     function sx(worldX) { return worldX * v.k + v.x; }
     ctx.font = '11px Calibri, Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = 'rgba(242,242,242,0.04)'; ctx.fillRect(0, 0, w, 22);
-    ctx.lineWidth = 1;
+    ctx.fillStyle = 'rgba(242,242,242,0.04)'; ctx.fillRect(0, 0, w, AXIS_H);
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(242,242,242,0.30)';                            // the line itself
+    ctx.beginPath(); ctx.moveTo(0, AXIS_H + 0.5); ctx.lineTo(w, AXIS_H + 0.5); ctx.stroke();
+    function tick(x) { ctx.strokeStyle = 'rgba(242,242,242,0.55)'; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, AXIS_H - 6); ctx.lineTo(Math.round(x) + 0.5, AXIS_H + 1); ctx.stroke(); }
+    if (axis.mode === 'marks') {                                                     // a tick and a timestamp over each transaction, wherever it was put
+      var lastMark = -1e9;
+      this._timeMarks().forEach(function (m) {
+        if (m.x < -20 || m.x > w + 20) return;
+        tick(m.x);
+        if (m.x - lastMark >= 104) { ctx.fillStyle = th.dim; ctx.fillText(Style.fmtTime(m.t).replace(' UTC', ''), m.x + 4, 15); lastMark = m.x; }
+      });
+      return;
+    }
     if (axis.mode === 'compact' && axis.knots.length > 1) {
       var short = (axis.tMax - axis.tMin) < 3 * DAY, lastX = -1e9, step = [short ? 60 : DAY, 's'];
       axis.knots.forEach(function (kn) {
         var x = sx(axis.x0 + kn.x);
         if (x < -60 || x > w + 60) return;
         ctx.strokeStyle = th.grid; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 22); ctx.lineTo(Math.round(x) + 0.5, h); ctx.stroke();
-        if (x - lastX >= 92) { ctx.fillStyle = th.dim; ctx.fillText(labelFor(kn.t, step), x + 4, 15); lastX = x; }
+        if (x - lastX >= 92) { tick(x); ctx.fillStyle = th.dim; ctx.fillText(labelFor(kn.t, step), x + 4, 15); lastX = x; }
       });
       axis.breaks.forEach(function (b) {
         var xa = sx(axis.x0 + b.x0), xb = sx(axis.x0 + b.x1);
@@ -552,7 +618,7 @@
         var x = sx(axis.x0 + (tk.t - axis.tMin) * axis.pxPerSec);
         if (x < -40 || x > w + 40) return;
         ctx.strokeStyle = th.grid; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 22); ctx.lineTo(Math.round(x) + 0.5, h); ctx.stroke();
-        ctx.fillStyle = th.dim; ctx.fillText(tk.label, x + 4, 15);
+        tick(x); ctx.fillStyle = th.dim; ctx.fillText(tk.label, x + 4, 15);
       });
     } else {
       ctx.fillStyle = th.dim; ctx.fillText(Style.fmtTime(axis.tMin), sx(axis.x0) + 4, 15);

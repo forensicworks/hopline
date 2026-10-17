@@ -867,8 +867,16 @@
   }
 
   // ---- how a trace is arranged: columns you build, or spread over time / by force / by time and amount ----
-  function usesAxis() { return state.layout === 'timeline' || (traceOn() && !!TIME_ARR[state.arrange]); }
-  function updateScaleRow() { $('scaleRow').hidden = !usesAxis(); }
+  function timeScaleOn() { return state.layout === 'timeline' || (traceOn() && !!TIME_ARR[state.arrange]); }           // x IS time: a real axis, with its scale choice
+  /** Columns in a trace: x is not time, but the transactions on screen have times, so the line over them carries their timestamps. */
+  function marksOn() {
+    if (!traceOn() || state.arrange !== 'columns') return false;
+    var any = false;
+    state.trace.shown.forEach(function (id) { var n = state.graph.nodes.get(id); if (n && n.type === 'tx' && n.time != null) any = true; });
+    return any;
+  }
+  function usesAxis() { return timeScaleOn() || marksOn(); }
+  function updateScaleRow() { $('scaleRow').hidden = !timeScaleOn(); }
   function setArrange(name) {
     if (!ARRANGE[name]) return;
     state.arrange = name; $('traceArrange').value = name; updateScaleRow();
@@ -1449,7 +1457,7 @@
     if (n.type === 'tx') {
       box.appendChild(el('div', { 'class': 'mono', text: n.txid }));
       kv(dl, 'Status', n.loaded === false ? 'not loaded yet' : n.confirmed ? 'confirmed' : n.confirmed === false ? 'unconfirmed' : 'unknown');
-      kv(dl, 'Time', n.time != null ? S.fmtTime(n.time) : null);
+      kv(dl, 'Time', n.time != null ? S.fmtTimeFull(n.time) : null);
       kv(dl, 'Block', n.height);
       if (n.loaded) {
         kv(dl, 'Inputs', n.nIn); kv(dl, 'Outputs', n.nOut);
@@ -1571,7 +1579,7 @@
     if (nodeId) {
       var n = g.nodes.get(nodeId); if (!n) { tip.hidden = true; return; }
       if (n.type === 'tx') {
-        line('Transaction', S.shortId(n.txid, 10)); line('Time', n.time != null ? S.fmtTime(n.time) : (n.confirmed === false ? 'unconfirmed' : 'unknown'));
+        line('Transaction', S.shortId(n.txid, 10)); line('Time', n.time != null ? S.fmtTimeFull(n.time) : (n.confirmed === false ? 'unconfirmed' : 'unknown'));
         if (n.loaded) { line('Value', mixText(S.fmtBtc(n.valueOut) + ' BTC', fiatOf(n.valueOut, n.time)) + ' · ' + n.nIn + ' in / ' + n.nOut + ' out'); } else line('', 'Not loaded: double-click to load');
         var ar = n.loaded ? analysis().tx.get(n.id) : null;
         if (ar && ar.flags.length) line('Pattern', ar.flags.map(function (f) { return f.short; }).join(', '));
@@ -1940,7 +1948,7 @@
       renderer.setPositions(state.layoutRes.pos, !!o.instant || !renderer.cur.size);
     }
     var visible = F.computeVisible(g, f, state.keep, focusOpt(), traceOnly(), hiddenOpt());
-    renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, axis: usesAxis() && state.layoutRes ? state.layoutRes.axis : null,
+    renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, axis: timeScaleOn() && state.layoutRes ? state.layoutRes.axis : marksOn() ? { mode: 'marks' } : null,
                        range: { from: f.timeFrom, to: f.timeTo }, showLabels: state.showLabels, focusId: focusOpt() ? state.focus : null,
                        edgeLabel: state.edgeLabels ? edgeLabelFor : null,
                        handles: traceOn() ? handlesFor : null, seedIds: traceOn() ? new Set(state.trace.seeds) : null, noDim: traceOn(), labelAll: traceOn(), nodeNote: traceOn() ? traceNote : null,
