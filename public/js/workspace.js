@@ -6,11 +6,12 @@
 (function () {
   'use strict';
 
-  var M = OrionModel, S = OrionStyle, F = OrionFilter, L = OrionLayout, A = OrionApi, IO = OrionIO, R = OrionRender, NV = OrionNav, AD = OrionAddress, PR = OrionPrice, ST = OrionSteps, TG = OrionTags, XT = OrionExternal, TR = OrionTrace, AN = OrionAnalysis;
+  var M = OrionModel, S = OrionStyle, F = OrionFilter, L = OrionLayout, A = OrionApi, IO = OrionIO, R = OrionRender, NV = OrionNav, AD = OrionAddress, PR = OrionPrice, ST = OrionSteps, TG = OrionTags, XT = OrionExternal, TR = OrionTrace, AN = OrionAnalysis, LB = OrionLabels, RP = OrionReport;
   var ID = M.ID;
-  var KNOWN = window.ORION_KNOWN || {};
+  var KNOWN_BASE = window.ORION_KNOWN || {};
+  var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
-  var SAVE_KEY = 'orion.workspace.v1', PREF_KEY = 'orion.prefs.v1', TOKEN_KEY = 'orion.ext.token';
+  var SAVE_KEY = 'orion.workspace.v1', PREF_KEY = 'orion.prefs.v1', TOKEN_KEY = 'orion.ext.token', PACKS_KEY = 'orion.packs.v1';
   var ARRANGE = { columns: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 };
   var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SIZES = { auto: 1, area: 1, log: 1 }, SCALES = { compact: 1, proportional: 1 };
 
@@ -40,11 +41,11 @@
     graph: new M.Graph(), layout: 'flow', colorBy: 'type', sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
     keep: new Set(), pinned: new Map(), selected: new Set(), selectedEdge: null,
     source: 'clearnet', customBase: '', capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: true,
-    focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
+    customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
     trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [] },
-    analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null,
+    analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], arrange: 'columns', boxMode: false,
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
@@ -80,6 +81,8 @@
   function priceBase() {
     var p = A.PRESETS[state.source] || A.PRESETS.custom;
     if (p.prices) return p.prices;
+    if (state.customPrices === 'off') return null;
+    if (state.customPrices === 'mempool') return A.PRESETS.clearnet.prices;                      // a plain Esplora has no price service: only the currency and the dates go to mempool.space
     return /^https?:\/\//i.test(state.customBase.trim()) ? state.customBase.trim() : null;
   }
 
@@ -125,7 +128,7 @@
   };
   function applySourceUi() {
     $('source').value = state.source;
-    $('customBase').hidden = state.source !== 'custom';
+    $('customBase').hidden = state.source !== 'custom'; $('customPricesRow').hidden = state.source !== 'custom'; $('customPrices').value = state.customPrices;
     $('customBase').value = state.customBase;
     $('sourceHint').textContent = SOURCE_HINT[state.source];
     $('testResult').textContent = ''; $('testResult').className = '';
@@ -153,7 +156,7 @@
   function cleanAnalysis(a) { a = a && typeof a === 'object' ? a : {}; return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false }; }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ source: state.source, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
+    store.set(PREF_KEY, JSON.stringify({ source: state.source, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -169,6 +172,8 @@
       state.sideCollapsed = p.sideCollapsed === true; state.inspCollapsed = p.inspCollapsed === true; state.tbCollapsed = p.tbCollapsed === true;
       state.edgeLabels = p.edgeLabels !== false; state.viaWallets = p.viaWallets !== false;
       state.analysis = cleanAnalysis(p.analysis); state.auto = cleanAuto(p.auto);
+      state.reportBy = typeof p.reportBy === 'string' ? LB.cleanText(p.reportBy, 80) : '';
+      if (p.customPrices === 'server' || p.customPrices === 'mempool' || p.customPrices === 'off') state.customPrices = p.customPrices;
       if (typeof p.extProxy === 'string' && proxyUrlOk(p.extProxy)) state.ext.proxy = p.extProxy;
       state.ext.remember = p.extRemember === true;
       if (state.ext.remember) state.ext.token = store.get(TOKEN_KEY) || '';
@@ -1465,6 +1470,8 @@
         if (!n.coinbase) kvf(dl, 'Value in', S.fmtBtc(n.valueIn) + ' BTC', fiatOf(n.valueIn, n.time));
         if (n.fee != null) kvf(dl, 'Fee', fmtInt(n.fee) + ' sat' + (n.vsize ? ' (' + (n.fee / n.vsize).toFixed(1) + ' sat/vB)' : ''), fiatOf(n.fee, n.time));
         if (n.coinbase) kv(dl, 'Note', 'Coinbase: creates new coins');
+        var fpr = AN.fingerprint(n); if (fpr) kv(dl, 'Wallet habits', fpr.text);
+        if (n.fetchedAt != null) kv(dl, 'Fetched', S.fmtTimeFull(n.fetchedAt) + (n.source ? ' from ' + n.source.replace(/^https?:\/\//i, '').replace(/\/api\/?$/, '') : ''));
       }
       box.appendChild(dl);
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), refBtn(n)]));
@@ -1484,8 +1491,11 @@
       box.appendChild(el('div', { 'class': 'mono', text: n.address }));
       var known = KNOWN[n.address];
       if (known) {
-        var tags = el('div', {}, [el('span', { 'class': 'tag known', text: 'known: ' + known.label })]);
+        var tags = el('div', {}, [el('span', { 'class': 'tag known', text: 'known: ' + known.label + (known.pack ? ' (' + known.pack + ')' : '') })]);
+        if (known.category) tags.appendChild(el('span', { 'class': 'tag', text: known.category }));
         (known.alt || []).forEach(function (a) { tags.appendChild(el('span', { 'class': 'tag', text: 'also listed as: ' + a })); });
+        if (known.note) tags.appendChild(el('p', { 'class': 'hint', text: known.note }));
+        if (known.url && LB.cleanUrl(known.url)) tags.appendChild(el('a', { href: known.url, target: '_blank', rel: 'noopener noreferrer', text: 'source ↗' }));
         box.appendChild(tags);
       }
       kv(dl, 'Script type', n.scriptType);
@@ -1604,6 +1614,89 @@
     tip.style.top = Math.min(at.y + 14, window.innerHeight - h - 8) + 'px';
   }
 
+  // ---- label packs: other people's lists of wallets and names ----------------------------------------
+  var PACK_STORE_LIMIT = 2500000;                                          // characters kept in this browser; a bigger pack works until the page is closed
+  function rebuildKnown() {
+    Object.keys(KNOWN).forEach(function (k) { delete KNOWN[k]; });
+    Object.keys(KNOWN_BASE).forEach(function (k) { KNOWN[k] = KNOWN_BASE[k]; });
+    state.packs.forEach(function (p) {
+      if (!p.enabled) return;
+      p.entries.forEach(function (e) {
+        var cur = KNOWN[e.address];
+        if (!cur) KNOWN[e.address] = { label: e.label, pack: p.name, category: e.category || undefined, url: e.url || undefined, note: e.note || undefined };
+        else { cur = Object.assign({}, cur); cur.alt = (cur.alt || []).concat([e.label + ' (' + p.name + ')']).slice(0, 5); KNOWN[e.address] = cur; }
+      });
+    });
+    state.knownVersion++;
+  }
+  function savePacks() {
+    var text = JSON.stringify(state.packs.map(function (p) { return { id: p.id, name: p.name, source: p.source, enabled: p.enabled, entries: p.entries.map(function (e) { return [e.address, e.label, e.category, e.url, e.note]; }) }; }));
+    state.packs.forEach(function (p) { p.stored = true; });
+    if (text.length > PACK_STORE_LIMIT || !store.set(PACKS_KEY, text)) {
+      store.del(PACKS_KEY); state.packs.forEach(function (p) { p.stored = false; });
+      if (state.packs.length) log('The label packs are too large to keep in this browser: they stay until the page is closed.', true);
+    }
+  }
+  function loadPacks() {
+    var raw = store.get(PACKS_KEY); if (!raw) return;
+    try {
+      var list = JSON.parse(raw);
+      if (!Array.isArray(list)) return;
+      state.packs = list.slice(0, 20).map(function (p, i) {
+        var entries = (Array.isArray(p.entries) ? p.entries : []).filter(function (e) { return Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string'; })
+          .map(function (e) { return { address: e[0], label: LB.cleanText(e[1], 120), category: LB.cleanText(e[2], 40), url: LB.cleanUrl(e[3]), note: LB.cleanText(e[4], 500) }; });
+        return { id: String(p.id || 'p' + i).slice(0, 40), name: LB.cleanText(p.name, 80) || 'Labels', source: LB.cleanText(p.source, 200), enabled: p.enabled !== false, entries: entries, stored: true };
+      });
+    } catch (e) { /* ignore corrupt data */ }
+    rebuildKnown();
+  }
+  function packMatches(p) {
+    var k = 0;
+    state.graph.nodes.forEach(function (n) { if (n.type === 'addr' && p.entries.length && p.index && p.index.has(n.address)) k++; });
+    return k;
+  }
+  function renderPacks() {
+    var box = $('packList'); box.textContent = '';
+    state.packs.forEach(function (p) {
+      if (!p.index) p.index = new Set(p.entries.map(function (e) { return e.address; }));
+      var cb = el('input', { type: 'checkbox', 'aria-label': 'Use ' + p.name }); cb.checked = p.enabled;
+      cb.addEventListener('change', function () { p.enabled = cb.checked; rebuildKnown(); savePacks(); refresh(); showInspector(true); renderPacks(); });
+      var hits = packMatches(p);
+      box.appendChild(el('div', { 'class': 'packrow' }, [cb,
+        el('span', { 'class': 'packname', title: p.source || p.name }, [p.name, el('small', { text: fmtInt(p.entries.length) + ' wallets' + (hits ? ' · ' + hits + ' on screen or loaded' : '') + (p.stored === false ? ' · not kept in this browser' : '') })]),
+        el('button', { type: 'button', title: 'Remove this pack', 'aria-label': 'Remove ' + p.name, onclick: function () { removePack(p.id); } , text: '×' })]));
+    });
+    $('packHint').textContent = state.packs.length ? '' : 'No packs imported yet.';
+  }
+  function removePack(id) {
+    state.packs = state.packs.filter(function (p) { return p.id !== id; });
+    rebuildKnown(); savePacks(); renderPacks(); refresh(); showInspector(true);
+  }
+  function importPack(text, filename) {
+    var r;
+    try { r = LB.parse(text, String(filename || 'Imported labels').replace(/\.(csv|json|txt)$/i, '')); } catch (e) { toast('Import failed: ' + e.message, true); return; }
+    var replaced = state.packs.filter(function (p) { return p.name === r.name; }).length;
+    state.packs = state.packs.filter(function (p) { return p.name !== r.name; }).slice(0, 19);
+    var pack = { id: 'p' + Date.now().toString(36), name: r.name, source: r.source, enabled: true, entries: r.entries, stored: true, index: new Set(r.entries.map(function (e) { return e.address; })) };
+    state.packs.push(pack);
+    rebuildKnown(); savePacks(); renderPacks(); refresh(); showInspector(true);
+    var s = r.skipped, left = [];
+    if (s.invalid) left.push(s.invalid + ' failed the address checksum');
+    if (s.otherChain) left.push(s.otherChain + ' were not Bitcoin addresses');
+    if (s.duplicate) left.push(s.duplicate + ' repeated');
+    if (s.empty) left.push(s.empty + ' had no label');
+    toast((replaced ? 'Replaced the pack "' + r.name + '": ' : 'Imported ') + fmtInt(r.entries.length) + ' labelled wallets' + (packMatches(pack) ? ', ' + packMatches(pack) + ' of them already in the workspace' : '') + '.'
+      + (left.length ? ' Left out: ' + left.join(', ') + '.' : '') + (r.truncated ? ' Stopped at ' + fmtInt(LB.MAX_ENTRIES) + ' entries.' : ''), !!left.length && !r.entries.length);
+  }
+  function exportOwnLabels(kind) {
+    var entries = LB.fromGraph(state.graph);
+    if (!entries.length) { toast('Nothing to export: label or tag a wallet first (its details panel).', true); return; }
+    var name = 'orion-labels-' + stamp();
+    if (kind === 'json') download(name + '.json', LB.toJson(entries, { name: 'Orion labels ' + stamp(), source: 'exported from Orion' }), 'application/json');
+    else download(name + '.csv', '\ufeff' + LB.toCsv(entries), 'text/csv;charset=utf-8');
+    log('Exported ' + entries.length + ' labelled wallets (' + kind + ')');
+  }
+
   // ---- analysis: patterns, likely change, clusters ----------------------------------------------
   // All of it is a guess from what is loaded; every result carries its reasons (see orion-analysis.js).
   var CLUSTER_COLORS = ['#00d1b2', '#ff7aa2', '#ffd23f', '#7aa2ff', '#b58cff', '#ff9f43', '#6be675', '#e0e0e0'];
@@ -1624,7 +1717,7 @@
       if (n.type === 'tx') { if (n.loaded) loaded++; if (n.outspendsLoaded) outs++; if (n.noCluster) excluded++; }
       else if (n.label || n.tag) marked++;
     });
-    var sig = g.nodes.size + '/' + g.edges.size + '/' + loaded + '/' + outs + '/' + marked + '/' + excluded;
+    var sig = g.nodes.size + '/' + g.edges.size + '/' + loaded + '/' + outs + '/' + marked + '/' + excluded + '/' + state.knownVersion;
     if (!state.an || state.anSig !== sig || state.anGraph !== g) {
       state.an = AN.analyse(g, { known: function (a) { return !!markOf(a); } }); state.anSig = sig; state.anGraph = g;
     }
@@ -2267,9 +2360,54 @@
     };
   }
 
+  /** How the fiat values in a report were worked out, in words. */
+  function fiatNoteText() {
+    if (!fiatOn()) return '';
+    var f = state.fiat, cur = f.currency;
+    return 'Shown in ' + cur + ' at ' + (f.basis === 'today' ? 'today\'s price' : f.basis === 'ref' && f.ref ? 'the price at ' + S.fmtTimeFull(f.ref.time) + ' for every amount' : 'the price at each transaction\'s own time')
+      + ', from the mempool.space price history, interpolated between its points (a value marked ≈ was interpolated across more than two days and is rough).';
+  }
+
+  /** The investigation report: what is on screen, as one file with its evidence embedded. */
+  function doReport() {
+    var g = state.graph; g.refreshDerived();
+    var vis = F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt());
+    if (!vis.nodes.size) { toast('Nothing on screen to put in a report.', true); return Promise.resolve(false); }
+    var an = analysis(), title = LB.cleanText($('reportTitle').value, 120) || 'Orion investigation report', by = LB.cleanText($('reportBy').value, 80);
+    var base = JSON.parse(IO.toJson(g, { only: vis, view: viewState(), source: sourceBase() }));
+    if (base.view) delete base.view.hidden;                                    // what you hid is not part of what is reported
+    var atx = {};
+    vis.nodes.forEach(function (id) {
+      var r = an.tx.get(id);
+      if (r && (r.flags.length || r.change || r.chain)) atx[id] = { flags: r.flags.map(function (f) { return { kind: f.kind, short: f.short, title: f.title }; }),
+        change: r.change && vis.nodes.has(r.change.id) ? { vout: r.change.vout, edgeId: r.change.edgeId, address: r.change.address, confidence: r.change.confidence, reasons: r.change.reasons } : null, chain: r.chain };
+    });
+    // the report describes what is on screen: a chain or cluster is cut to the vertices that are shown, so nothing hidden leaks in through them
+    var chains = an.chains.filter(function (c) { return c.ids.some(function (id) { return vis.nodes.has(id); }); }).map(function (c) { return { label: c.label, ids: c.ids.filter(function (id) { return vis.nodes.has(id); }), start: c.start, end: c.end, totalPeeled: c.totalPeeled, continues: c.continues }; });
+    var clusters = an.clusters.list.filter(function (c) { return c.addrs.some(function (id) { return vis.nodes.has(id); }); }).map(function (c) {
+      return { label: c.label, size: c.size, addrs: c.addrs.filter(function (id) { return vis.nodes.has(id); }), txs: c.txs.filter(function (txid) { return vis.nodes.has(ID.tx(txid)); }) };
+    });
+    var loadedTx = base.nodes.filter(function (n) { return n.type === 'tx' && n.loaded; }).length;
+    base.evidence = { generatedBy: 'Orion workspace', title: title, preparedBy: by, generated: new Date().toISOString(), source: sourceBase(), fiat: state.fiat,
+                      counts: { nodes: base.nodes.length, edges: base.edges.length, transactionsLoaded: loadedTx },
+                      analysis: { transactions: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped, thresholds: AN.DEFAULTS } };
+    var image = null; try { image = renderer.toDataUrl(); } catch (e) { /* a tainted or empty canvas: the report simply has no picture */ }
+    var model = { title: title, preparedBy: by, generated: Date.now(), evidence: base, nodes: base.nodes, edges: base.edges,
+                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped },
+                  known: function (a) { return KNOWN[a] || null; }, fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
+                  image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
+    return RP.build(model).then(function (r) {
+      download('orion-report-' + stamp() + '.html', r.html, 'text/html;charset=utf-8');
+      toast('Report written: ' + plural(loadedTx, 'transaction') + ', ' + plural(base.edges.length, 'movement') + '. SHA-256 of its evidence: ' + r.hash.slice(0, 16) + '…', false);
+      log('Report SHA-256 ' + r.hash);
+      return true;
+    }, function (e) { toast('The report could not be made: ' + (e && e.message ? e.message : e), true); return false; });
+  }
+
   function doExport(kind) {
     var g = state.graph;
     if (!g.nodes.size) { toast('Nothing to export yet.', true); return; }
+    if (kind === 'report') { $('exportMenu').open = false; doReport(); return; }
     g.refreshDerived();
     var only = $('exportVisible').checked ? F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()) : null;
     var name = 'orion-' + stamp();
@@ -2392,6 +2530,17 @@
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets;
     setSideCollapsed(state.sideCollapsed); setInspCollapsed(state.inspCollapsed); setTbCollapsed(state.tbCollapsed);
+    loadPacks(); renderPacks();
+    $('reportBy').value = state.reportBy || ''; $('reportBy').addEventListener('change', savePrefs);
+    $('packImport').addEventListener('click', function () { $('packFile').click(); });
+    $('packFile').addEventListener('change', function () {
+      var f = this.files && this.files[0]; this.value = '';
+      if (!f) return;
+      if (f.size > 40 * 1024 * 1024) { toast('That file is too large (limit 40 MB).', true); return; }
+      var rd = new FileReader(); rd.onload = function () { importPack(String(rd.result), f.name); }; rd.onerror = function () { toast('Could not read the file.', true); }; rd.readAsText(f);
+    });
+    $('packExportCsv').addEventListener('click', function () { exportOwnLabels('csv'); });
+    $('packExportJson').addEventListener('click', function () { exportOwnLabels('json'); });
     syncAutoUi();
     Array.prototype.forEach.call($('autoDirSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { state.auto.dir = b.getAttribute('data-dir'); syncAutoUi(); savePrefs(); }); });
     ['autoHops', 'autoFollow', 'autoMaxTx', 'autoMaxReq', 'autoPerTx', 'autoMin', 'autoStopLabel', 'autoStopMix'].forEach(function (id) { $(id).addEventListener('change', readAuto); });
@@ -2501,6 +2650,7 @@
     // source
     $('source').addEventListener('change', function () { state.source = this.value; applySourceUi(); makeClient(); savePrefs(); });
     $('customBase').addEventListener('change', function () { state.customBase = this.value.trim(); makeClient(); savePrefs(); });
+    $('customPrices').addEventListener('change', function () { state.customPrices = this.value; state.books = {}; state.today = null; makePriceClient(); savePrefs(); if (fiatOn()) ensurePrices(); else syncFiatUi(); });
     $('testSource').addEventListener('click', function () {
       var out = $('testResult'), t0 = performance.now();
       if (state.source === 'custom' && !/^https?:\/\//i.test(state.customBase.trim())) { out.textContent = 'Enter a URL first.'; out.className = 'bad'; return; }
@@ -2587,6 +2737,6 @@
     if (fiatOn()) ensurePrices();
   }
 
-  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, traceExpand: traceExpand, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
+  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, importPack: importPack, traceExpand: traceExpand, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

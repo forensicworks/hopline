@@ -37,6 +37,11 @@
       <button type="button" data-export="csv-edges">Edges (.csv)</button>
       <button type="button" data-export="graphml">GraphML (.graphml) — Gephi, Maltego, yEd</button>
       <button type="button" data-export="png">Image (.png)</button>
+      <div class="menu-group">
+        <input type="text" id="reportTitle" placeholder="Report title (optional)" maxlength="120" aria-label="Report title" autocomplete="off">
+        <input type="text" id="reportBy" placeholder="Prepared by (optional)" maxlength="80" aria-label="Prepared by" autocomplete="off">
+        <button type="button" data-export="report" title="One HTML file with the findings, the transactions in time order, the graph, how each finding was reached, and a SHA-256 of the evidence it embeds. Covers what is on screen">Investigation report (.html)</button>
+      </div>
     </div>
   </details>
   <button type="button" id="btnImport">Import</button>
@@ -68,6 +73,14 @@
           <option value="custom">My own Esplora URL…</option>
         </select>
         <input id="customBase" type="url" placeholder="https://my-node.example/api" hidden>
+        <div id="customPricesRow" hidden>
+          <label for="customPrices">Fiat prices from</label>
+          <select id="customPrices" title="A plain Esplora server has no price service: ask mempool.space for prices only, or nowhere">
+            <option value="server">my server (needs a mempool.space backend)</option>
+            <option value="mempool">mempool.space (only the currency and dates are sent)</option>
+            <option value="off">nowhere (no fiat values)</option>
+          </select>
+        </div>
         <p class="hint" id="sourceHint"></p>
         <div class="row"><button type="button" id="testSource">Test connection</button><span id="testResult" role="status"></span></div>
         <p class="hint" id="reqStats" aria-live="off"></p>
@@ -218,6 +231,18 @@
       </div>
     </details>
 
+    <details id="packSection">
+      <summary>Label packs</summary>
+      <div class="sec">
+        <p class="hint">Lists of wallets with names (an exchange's addresses, a sanctions list, your team's findings) from a CSV or JSON file. They are other people's claims: shown as "known (pack name)", kept apart from your own labels, and never sent anywhere. Addresses are checked (checksum included) when the file is read.</p>
+        <div class="row wrap"><button type="button" id="packImport">Import labels…</button><input type="file" id="packFile" accept=".csv,.json,.txt,text/csv,application/json" hidden></div>
+        <div id="packList" class="packlist"></div>
+        <span class="lbl">Share your own labels</span>
+        <div class="row wrap"><button type="button" id="packExportCsv" title="Your labelled, tagged and annotated wallets as a CSV">Export (.csv)</button><button type="button" id="packExportJson" title="The same as a label pack (.json) that Import labels reads back">Export (.json)</button></div>
+        <p class="hint" id="packHint"></p>
+      </div>
+    </details>
+
     <details>
       <summary>Expansion limits</summary>
       <div class="sec">
@@ -253,6 +278,8 @@
         <p><b>Selecting and hiding</b> work in every layout. Click, <b>Shift-click</b> to add, or <b>drag a box</b> (Shift-drag, or switch <i>⬚ Box</i> on with <kbd>B</kbd>); <i>Select ▾</i> picks everything, all wallets, all transactions, everything above an amount, or a tag; <kbd>Ctrl+A</kbd> selects all on screen. <i>Hide selected</i> (or <kbd>Delete</kbd>) takes them off the screen without deleting anything, <i>Keep only selected</i> hides the rest, <i>Hidden (n)</i> shows some or all of them again, and <kbd>Ctrl+Z</kbd> undoes. <kbd>Shift+Delete</kbd> (or <i>Remove from view</i>) really deletes a vertex from the workspace.</p>
         <p><b>The time axis</b> along the top of the Timeline layout and of the trace's time arrangements is a line with ticks and timestamps. Hover it to read the exact time under the pointer; hover a transaction and its exact time appears on the line. Inside a shortened (Compact) gap the time shown is only interpolated and is marked ≈. In the trace's Columns arrangement the line carries a timestamp over each transaction instead of a scale, since the columns are not time.</p>
         <p><b>Time line:</b> the scale shows the span of what is on screen; each dot is one transaction at its exact time (hover for the timestamp, click to select it; click a bar to select the transactions in it). Drag the two handles to show only a time window; <kbd>T</kbd> or the arrow folds the bar away.</p>
+        <p><b>The investigation report</b> (Export menu) is one HTML file for what is on screen: a summary, the findings with their reasons, the transactions in time order with inputs and outputs, the wallets, the graph as a picture, where and when every transaction was fetched, and the method and limits. It embeds the evidence as data and states its SHA-256, so a reader can check the file was not changed afterwards (<code>tools/verify_report.py</code>).</p>
+        <p><b>Label packs</b> (left panel) import lists of wallets and names from a CSV (<code>address,label,category,url,note</code>) or JSON file, such as an exchange's addresses or a sanctions list. They appear as <i>known (pack name)</i> with a gold ring, stop an auto-expand like any known wallet, and can be switched off or removed. <i>Export</i> writes your own labels and tags in the same format to share with a colleague. A pack is someone else's claim, not a finding.</p>
         <p><b>Analysis</b> looks for patterns in what is loaded: <i>CONSOL</i> (many inputs gathered into one or two outputs), <i>BATCH</i> (a few inputs paying many outputs), <i>COINJOIN?</i> (several wallets' inputs and several outputs of exactly the same value) and <i>PEEL</i> (a run of transactions that each pay a smaller amount out of a single coin and pass the rest on). A transaction's details also say which output most likely returns to the sender, and why; that output's edge is coloured amber. <b>Clusters</b> group addresses that were spent together in one transaction, which usually means one owner, and are drawn with a dashed ring in one colour; CoinJoin-like transactions are left out, and you can leave out any other by hand. All of it is heuristic: it shows its reasons and none of it is proof.</p>
         <p><b>Auto-expand</b> follows the money several transactions in one go, forward or backward, from the selected vertex, stopping at the limits you set (hops, transactions, requests) and at labelled wallets or CoinJoins. <i>Follow</i> chooses every output, the largest, the likely change, or a peel chain. In the Trace layout everything it loaded is shown and one <kbd>Ctrl+Z</kbd> takes it back.</p>
         <p><b>Right-click</b> a wallet or transaction for its actions: tag it (EXCH, THREAT, …), look a wallet up in Arkham, load more. <b>Tags</b> give a vertex a colour, a shape and a badge; set them next to the label in the details.</p>
@@ -348,6 +375,8 @@
 <script src="js/orion-steps.js"></script>
 <script src="js/orion-trace.js"></script>
 <script src="js/orion-analysis.js"></script>
+<script src="js/orion-labels.js"></script>
+<script src="js/orion-report.js"></script>
 <script src="js/orion-nav.js"></script>
 <script src="data/known-addresses.js"></script>
 <script src="js/workspace.js"></script>

@@ -194,6 +194,23 @@
    */
   function Explorer(client, graph) { this.client = client; this.graph = graph; }
 
+  /**
+   * Put a fetched transaction into the graph and note where and when it came from (`source` = the API base, `fetchedAt` =
+   * unix seconds): what an investigator needs to say "I saw this at that time, from that server".
+   */
+  Explorer.prototype._ingest = function (t) {
+    var id = this.graph.addTx(t), n = this.graph.nodes.get(id);
+    if (n) { n.source = this.client.base; n.fetchedAt = Math.floor(Date.now() / 1000); }
+    return id;
+  };
+
+  /** Put an outspends answer into the graph and note when it was read: "unspent" is only true as of that time. */
+  Explorer.prototype._spends = function (txid, o) {
+    this.graph.addOutspends(txid, o);
+    var n = this.graph.nodes.get(ID.tx(txid));
+    if (n) n.spendsCheckedAt = Math.floor(Date.now() / 1000);
+  };
+
   function summarise(ex, before, errors, truncated) {
     return { added: ex.graph.nodes.size - before.n, addedEdges: ex.graph.edges.size - before.e,
              requests: ex.client.count.network - before.r, truncated: !!truncated, errors: errors };
@@ -205,8 +222,8 @@
   Explorer.prototype.loadTx = function (txid) {
     var ex = this, before = snap(this), errors = [];
     return this.client.tx(txid).then(function (t) {
-      ex.graph.addTx(t);
-      return ex.client.outspends(txid).then(function (o) { ex.graph.addOutspends(txid, o); }, function (e) { note(errors, e); });
+      ex._ingest(t);
+      return ex.client.outspends(txid).then(function (o) { ex._spends(txid, o); }, function (e) { note(errors, e); });
     }).then(function () { return summarise(ex, before, errors, false); }, function (e) {
       note(errors, e); var r = summarise(ex, before, errors, false); r.failed = true; return r;
     });
@@ -223,8 +240,8 @@
     });
     return Promise.all(todo.map(function (id) {
       return ex.client.tx(id).then(function (t) {
-        ex.graph.addTx(t);
-        if (withOutspends) return ex.client.outspends(id).then(function (o) { ex.graph.addOutspends(id, o); });
+        ex._ingest(t);
+        if (withOutspends) return ex.client.outspends(id).then(function (o) { ex._spends(id, o); });
       }).catch(function (e) { note(errors, e); });
     })).then(function () { return left; });
   };
@@ -247,7 +264,7 @@
     return ready.then(function () {
       var jobs = [];
       if ((direction === 'forward' || direction === 'both') && node) {
-        var p = node.outspendsLoaded ? Promise.resolve() : ex.client.outspends(txid).then(function (o) { ex.graph.addOutspends(txid, o); }).catch(function (e) { note(errors, e); });
+        var p = node.outspendsLoaded ? Promise.resolve() : ex.client.outspends(txid).then(function (o) { ex._spends(txid, o); }).catch(function (e) { note(errors, e); });
         jobs.push(p.then(function () {
           var spenders = [];
           ex.graph.edgesOf(ID.tx(txid)).forEach(function (e) { if (e.kind === 'out' && e.source === ID.tx(txid) && e.spentBy) spenders.push(e.spentBy.txid); });
@@ -294,10 +311,10 @@
       });
       return Promise.all(ids.filter(function (id) { return allowed.has(id); }).map(function (id) {
         var have = loaded(id);
-        var p = have ? Promise.resolve() : ex.client.tx(id).then(function (t) { ex.graph.addTx(t); newLoaded++; });
+        var p = have ? Promise.resolve() : ex.client.tx(id).then(function (t) { ex._ingest(t); newLoaded++; });
         return p.then(function () {
           var n = ex.graph.nodes.get(ID.tx(id));
-          if (withOut && n && n.loaded && !n.outspendsLoaded) return ex.client.outspends(id).then(function (o) { ex.graph.addOutspends(id, o); });
+          if (withOut && n && n.loaded && !n.outspendsLoaded) return ex.client.outspends(id).then(function (o) { ex._spends(id, o); });
         }).catch(function (e) { note(errors, e); });
       })).then(function () { return ids.filter(loaded); });
     }
@@ -349,7 +366,7 @@
       return ex.client.addressTxs(addr, last).then(function (txs) {
         for (var i = 0; i < txs.length; i++) {
           if (cap > 0 && added >= cap) { truncated = true; return; }
-          ex.graph.addTx(txs[i]); added++;
+          ex._ingest(txs[i]); added++;
           last = txs[i].txid;
         }
         if (txs.length < 25) { last = null; return; }

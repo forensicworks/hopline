@@ -55,6 +55,18 @@
     return null;
   }
 
+  /** Where a transaction was fetched from and the habits of its wallet: numbers and a URL only, nothing else survives an import. */
+  function cleanProvenance(c) {
+    function int(v, lo, hi) { return typeof v === 'number' && isFinite(v) && Math.floor(v) === v && v >= lo && v <= hi; }
+    if ('version' in c && !int(c.version, -2147483648, 2147483647)) delete c.version;
+    if ('locktime' in c && !int(c.locktime, 0, 4294967295)) delete c.locktime;
+    if ('fetchedAt' in c && !int(c.fetchedAt, 0, 4102444800)) delete c.fetchedAt;
+    if ('spendsCheckedAt' in c && !int(c.spendsCheckedAt, 0, 4102444800)) delete c.spendsCheckedAt;
+    if ('source' in c && !(typeof c.source === 'string' && c.source.length <= 300 && /^https?:\/\/[^\s<>"']+$/i.test(c.source))) delete c.source;
+    if ('seqs' in c) c.seqs = Array.isArray(c.seqs) ? c.seqs.filter(function (s) { return int(s, 0, 4294967295); }).slice(0, 4) : [];
+    if ('bip69' in c && typeof c.bip69 !== 'boolean') delete c.bip69;
+  }
+
   /** Returns { graph, view, positions, warnings } or throws Error with a user-readable message. */
   function fromJson(text) {
     var d;
@@ -71,6 +83,7 @@
       Tags.sanitize(c);                                                     // tag / colour / shape: only valid values ever reach a canvas
       if ('ext' in c) { var x = Ext.cleanExt(c.ext); if (x) c.ext = x; else delete c.ext; }
       if ('noCluster' in c && c.noCluster !== true) delete c.noCluster;      // only the flag itself is meaningful
+      cleanProvenance(c);
       if (c.type === 'addr' && typeof c.address === 'string') {            // bech32 is case-insensitive: one vertex per address, however it was written
         var canon = Addr.normalise(c.address), cid = 'addr:' + canon;
         if (cid !== c.id) { idMap.set(c.id, cid); c.id = cid; }
@@ -110,7 +123,7 @@
   var NODE_COLS = ['id', 'type', 'label', 'note', 'address', 'txid', 'vout', 'script_type', 'time_unix', 'time_utc', 'height', 'confirmed',
                    'first_seen_unix', 'last_seen_unix', 'received_sat', 'sent_sat', 'degree', 'op_return_text', 'op_return_hex',
                    'tag', 'color', 'shape', 'ext_arkham_name', 'ext_arkham_type', 'ext_arkham_label',
-                   'patterns', 'cluster', 'cluster_size', 'excluded_from_clustering'];
+                   'patterns', 'cluster', 'cluster_size', 'excluded_from_clustering', 'data_source', 'retrieved_unix', 'retrieved_utc', 'version', 'locktime'];
   var EDGE_COLS = ['edge_id', 'txid', 'kind', 'source', 'source_label', 'target', 'target_label', 'amount_sat', 'amount_btc', 'time_unix', 'time_utc',
                    'confirmed', 'spent', 'spent_by_txid', 'fiat_value', 'fiat_currency', 'fiat_price_per_btc', 'fiat_basis', 'likely_change'];
 
@@ -141,7 +154,8 @@
                         cell(n.time), cell(n.time != null ? Style.fmtTime(n.time) : ''), cell(n.height), cell(n.confirmed),
                         cell(n.firstSeen), cell(n.lastSeen), cell(n.received), cell(n.sent), cell(n.degree), cell(n.dataText), cell(n.dataHex),
                         cell(n.tag), cell(n.color), cell(n.shape), cell(ark.name), cell(ark.type), cell(ark.label),
-                        cell(an.patterns), cell(an.cluster), cell(an.clusterSize), cell(n.noCluster === true ? 'true' : '')]));
+                        cell(an.patterns), cell(an.cluster), cell(an.clusterSize), cell(n.noCluster === true ? 'true' : ''),
+                        cell(n.source), cell(n.fetchedAt), cell(n.fetchedAt != null ? Style.fmtTimeFull(n.fetchedAt) : ''), cell(n.version), cell(n.locktime)]));
       });
     }
     return lines.join('\r\n') + '\r\n';

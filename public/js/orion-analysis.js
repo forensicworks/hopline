@@ -56,7 +56,7 @@
       }
     });
     ins.sort(byKey('vin')); outs.sort(byKey('vout'));
-    return { id: txId, txid: n.txid, node: n, coinbase: !!n.coinbase, time: n.time, inputs: ins, outputs: outs,
+    return { id: txId, txid: n.txid, node: n, graph: graph, coinbase: !!n.coinbase, time: n.time, inputs: ins, outputs: outs,
              complete: ins.length === n.nIn && outs.length === n.nOut };
   }
 
@@ -73,6 +73,32 @@
     var count = new Map(), best = 0, val = null;
     outs.forEach(function (o) { var c = (count.get(o.amount) || 0) + 1; count.set(o.amount, c); if (c > best) { best = c; val = o.amount; } });
     return { count: best, amount: val };
+  }
+
+  // ---- the habits of the wallet that made a transaction -----------------------------------------------
+  var COMMON_FP = /^v2\|(none|height-near)\|seq:(fffffffd|fffffffe)\|/;                 // what Bitcoin Core and many other wallets do by default
+
+  /**
+   * What a transaction gives away about the software that built it: its version, whether its locktime is the recent block
+   * height ("anti-fee-sniping"), the sequence numbers it uses (RBF or not) and whether it sorts its inputs and outputs (BIP 69).
+   * Returns { key, version, lock, seqs, bip69, common, text } or null when the transaction was loaded without those fields.
+   * Two transactions with the same key were probably made by the same kind of wallet; `common` says the key is a default
+   * shared by many wallets, so a match then means little.
+   */
+  function fingerprint(n) {
+    if (!n || n.type !== 'tx' || n.loaded !== true || n.version == null || n.locktime == null) return null;
+    var lock = n.locktime === 0 ? 'none' : n.locktime >= 500000000 ? 'time'
+             : (n.height != null && n.height - n.locktime >= 0 && n.height - n.locktime <= 100 ? 'height-near' : 'height-far');
+    var seqs = (n.seqs || []).map(function (s) { return s.toString(16); }).join(',');
+    var key = 'v' + n.version + '|' + lock + '|seq:' + seqs;
+    var seqText = (n.seqs || []).map(function (s) { return s === 0xffffffff ? 'final (ffffffff)' : s === 0xfffffffe ? 'locktime, no RBF (fffffffe)' : 'RBF signalled (' + s.toString(16) + ')'; }).join(', ');
+    var text = 'version ' + n.version + ' · locktime ' + (lock === 'none' ? 'none' : lock === 'height-near' ? 'a recent block height (anti-fee-sniping)' : lock === 'time' ? 'a date' : 'an old block height')
+             + (seqText ? ' · sequence ' + seqText : '') + (n.bip69 === true ? ' · inputs and outputs BIP 69 sorted' : n.bip69 === false ? ' · not BIP 69 sorted' : '');
+    return { key: key, version: n.version, lock: lock, seqs: seqs, bip69: n.bip69, common: COMMON_FP.test(key + '|'), text: text };
+  }
+  /** Same kind of wallet? The key must match, and the ordering habit too wherever both transactions are big enough to show one. */
+  function sameWallet(a, b) {
+    return !!a && !!b && a.key === b.key && (a.bip69 == null || b.bip69 == null || a.bip69 === b.bip69);
   }
 
   // ---- patterns ------------------------------------------------------------------------------------
@@ -117,6 +143,7 @@
    *    35  the other output pays a wallet you tagged or that is on the known list
    *    30  the other output is a round amount and this one is not
    *    20  it is smaller than every input (a wallet would not have added the extra inputs to pay it)
+   *    15/30  its spender has this transaction's wallet fingerprint and the other output's spender does not (15 when it is a common default)
    * The best output needs to lead the next by enough to be named, so close calls give null.
    * opts.known(address) -> true for a wallet that is labelled or tagged.
    */
@@ -141,6 +168,16 @@
     if (opts && typeof opts.known === 'function') {
       var knownIdx = []; outs.forEach(function (o, i) { if (o.address && opts.known(o.address)) knownIdx.push(i); });
       if (knownIdx.length === 1) outs.forEach(function (o, i) { if (i !== knownIdx[0]) vote(i, 35, 'the other output pays a known or tagged wallet'); });
+    }
+
+    if (v.graph) {                                                                      // the next spender of an output looks like it came from the same wallet software, the other does not
+      var fp = fingerprint(v.node), same = [], differ = [];
+      if (fp) outs.forEach(function (o, i) {
+        if (!o.spender) return;
+        var sp = v.graph.nodes.get(ID.tx(o.spender)), f2 = sp ? fingerprint(sp) : null;
+        if (f2) (sameWallet(fp, f2) ? same : differ).push(i);
+      });
+      if (same.length === 1 && differ.length >= 1) vote(same[0], fp.common ? 15 : 30, 'it was spent by a transaction that looks like it came from the same wallet software as this one (same version, locktime and sequence habits)' + (fp.common ? ', a weak sign because those are the defaults of many wallets' : '') + ', while the other output went to a different kind');
     }
 
     var zeros = outs.map(function (o) { return trailingZeros(o.amount); }), roundIdx = [];
@@ -334,7 +371,7 @@
   }
 
   return {
-    DEFAULTS: DEFAULTS, COLORS: COLORS, txView: txView, payOuts: payOuts, classify: classify, coinjoinLike: coinjoinLike, guessChange: guessChange,
+    DEFAULTS: DEFAULTS, COLORS: COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, coinjoinLike: coinjoinLike, guessChange: guessChange,
     peelStep: peelStep, peelChains: peelChains, clusters: clusters, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
   };
 }));

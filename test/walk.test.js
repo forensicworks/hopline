@@ -134,3 +134,17 @@ test('walk with the analysis rules: a peel chain is followed on its large output
   assert.deepEqual(r.levels.map((l) => l.length), [1, 1, 1, 1, 1]);
   assert.deepEqual(r.stops, []);
 });
+
+test('every transaction fetched notes where and when it came from', async () => {
+  const { g, ex } = setup(chainRoutes(4));
+  const before = Math.floor(Date.now() / 1000);
+  await ex.loadTx(tid(1));
+  await ex.walk([tid(1)], { dir: 'next', hops: 2, successors: follow(g, {}) });
+  const after = Math.floor(Date.now() / 1000);
+  [1, 2, 3].forEach((i) => {
+    const n = g.nodes.get(ID.tx(tid(i)));
+    assert.equal(n.source, 'https://x/api', 'the API it was fetched from');
+    assert.ok(n.fetchedAt >= before && n.fetchedAt <= after + 1, 'and when (unix seconds)');
+  });
+  assert.ok(!g.nodes.has(ID.tx(tid(4))) || g.nodes.get(ID.tx(tid(4))).source === undefined, 'a transaction that was never fetched has none');
+});

@@ -252,3 +252,41 @@ test('removeNode keeps a stub that is still connected to something else', () => 
   assert.ok(g.node(ID.tx(other.txid)), 'the loaded spender stays');
   assert.equal(g.node(ID.tx(other.txid)).loaded, true);
 });
+
+test('a transaction keeps the habits of its wallet: version, locktime, sequence numbers and whether it sorts (BIP 69)', () => {
+  const t = fx('tx_normal.json'), g = new Graph();
+  g.addTx(t);
+  const n = g.node(ID.tx(t.txid));
+  assert.equal(n.version, t.version); assert.equal(n.locktime, t.locktime);
+  assert.deepEqual(n.seqs, [...new Set(t.vin.map((v) => v.sequence))].sort((a, b) => a - b));
+  assert.equal(n.bip69, null, 'a 1-in 2-out transaction says nothing about ordering: half of all random orders are sorted');
+
+  const mk = (ins, outs, extra) => Object.assign({ txid: 'a'.repeat(64), version: 2, locktime: 800000, fee: 1, weight: 400, status: { confirmed: true, block_height: 800001, block_time: 1 },
+    vin: ins.map(([txid, vout, seq]) => ({ txid, vout, sequence: seq, is_coinbase: false, prevout: { scriptpubkey_address: 'x' + txid[0], scriptpubkey_type: 'v0_p2wpkh', value: 5000 } })),
+    vout: outs.map(([value, spk]) => ({ scriptpubkey: spk, scriptpubkey_address: 'y' + spk, scriptpubkey_type: 'v0_p2wpkh', value })) }, extra);
+  const sorted = mk([['1'.repeat(64), 0, 4294967293], ['1'.repeat(64), 1, 4294967293], ['2'.repeat(64), 0, 4294967293]], [[1000, '0014aa'], [2000, '0014bb']]);
+  const gs = new Graph(); gs.addTx(sorted);
+  assert.equal(gs.node(ID.tx(sorted.txid)).bip69, true);
+  assert.deepEqual(gs.node(ID.tx(sorted.txid)).seqs, [4294967293]);
+  const unsortedOut = mk([['1'.repeat(64), 0, 4294967293], ['2'.repeat(64), 0, 4294967294]], [[2000, '0014bb'], [1000, '0014aa'], [3000, '0014cc']], { txid: 'b'.repeat(64) });
+  const gu = new Graph(); gu.addTx(unsortedOut);
+  assert.equal(gu.node(ID.tx(unsortedOut.txid)).bip69, false, 'outputs not in ascending amount order');
+  assert.deepEqual(gu.node(ID.tx(unsortedOut.txid)).seqs, [4294967293, 4294967294]);
+  const unsortedIn = mk([['2'.repeat(64), 0, 1], ['1'.repeat(64), 0, 1], ['3'.repeat(64), 0, 1]], [[1000, '0014aa'], [2000, '0014bb']], { txid: 'c'.repeat(64) });
+  const gi = new Graph(); gi.addTx(unsortedIn);
+  assert.equal(gi.node(ID.tx(unsortedIn.txid)).bip69, false, 'inputs not in ascending txid order');
+  const noScripts = mk([['1'.repeat(64), 0, 1], ['2'.repeat(64), 0, 1]], [[1000, 'x'], [2000, 'y'], [3000, 'z']], { txid: 'd'.repeat(64) });
+  noScripts.vout.forEach((o) => { delete o.scriptpubkey; });
+  const gn = new Graph(); gn.addTx(noScripts);
+  assert.equal(gn.node(ID.tx(noScripts.txid)).bip69, null, 'without the scripts the output order cannot be judged');
+});
+
+test('a coinbase and a transaction without those fields are handled', () => {
+  const g = new Graph(), cb = fx('tx_coinbase.json');
+  g.addTx(cb);
+  assert.equal(g.node(ID.tx(cb.txid)).bip69, null);
+  const bare = { txid: 'e'.repeat(64), status: { confirmed: false }, vin: [{ txid: 'f'.repeat(64), vout: 0, is_coinbase: false, prevout: { scriptpubkey_address: 'q', scriptpubkey_type: 'p2pkh', value: 10 } }], vout: [{ scriptpubkey_address: 'r', scriptpubkey_type: 'p2pkh', value: 9 }] };
+  g.addTx(bare);
+  const n = g.node(ID.tx(bare.txid));
+  assert.equal(n.version, null); assert.equal(n.locktime, null); assert.deepEqual(n.seqs, []);
+});

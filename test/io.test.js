@@ -263,3 +263,23 @@ test('the exclusion from clustering is exported, imported, and nothing but true 
   doc.nodes.find((n) => n.id === ID.tx(t.txid)).noCluster = 'yes please';
   assert.equal(IO.fromJson(JSON.stringify(doc)).graph.node(ID.tx(t.txid)).noCluster, undefined);
 });
+
+test('provenance and wallet habits survive a round trip, appear in the CSV, and hostile values are dropped on import', () => {
+  const { g, t } = sample();
+  const id = ID.tx(t.txid), n = g.nodes.get(id);
+  n.source = 'https://my-node.example/api'; n.fetchedAt = 1700000000;
+  const nodes = parseCsv(IO.toCsv(g, 'nodes')), col = (name) => nodes[0].indexOf(name);
+  const row = nodes.find((r) => r[0] === id);
+  assert.equal(row[col('data_source')], 'https://my-node.example/api'); assert.equal(row[col('retrieved_unix')], '1700000000');
+  assert.equal(row[col('retrieved_utc')], '2023-11-14 22:13:20 UTC'); assert.equal(row[col('version')], String(t.version)); assert.equal(row[col('locktime')], String(t.locktime));
+  const back = IO.fromJson(IO.toJson(g)).graph.node(id);
+  assert.equal(back.source, 'https://my-node.example/api'); assert.equal(back.fetchedAt, 1700000000); assert.equal(back.version, t.version);
+  const doc = JSON.parse(IO.toJson(g)), bad = doc.nodes.find((x) => x.id === id);
+  Object.assign(bad, { source: 'javascript:alert(1)', fetchedAt: 'yesterday', version: 1.5, locktime: -3, seqs: [1, 'x', 99999999999, 2, 3, 4, 5, 6], bip69: 'yes' });
+  const clean = IO.fromJson(JSON.stringify(doc)).graph.node(id);
+  assert.equal(clean.source, undefined, 'only an http(s) address is kept'); assert.equal(clean.fetchedAt, undefined);
+  assert.equal(clean.version, undefined); assert.equal(clean.locktime, undefined); assert.equal(clean.bip69, undefined);
+  assert.deepEqual(clean.seqs, [1, 2, 3, 4], 'at most four numbers, and only real ones');
+  bad.source = 'https://ok.example/api"><img src=x>';
+  assert.equal(IO.fromJson(JSON.stringify(doc)).graph.node(id).source, undefined, 'no markup characters in an address');
+});

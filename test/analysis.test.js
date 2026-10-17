@@ -330,3 +330,54 @@ test('successors: backward follows the funding transactions, never a coinbase', 
   g.addTx({ txid: tid(9), status: { confirmed: true, block_height: 1, block_time: 1 }, vin: [{ is_coinbase: true, vout: 0 }], vout: [{ scriptpubkey_address: a('miner'), scriptpubkey_type: 'p2pkh', value: 5000000000 }] });
   assert.match(An.successors(g, ID.tx(tid(9)), 'prev', {}).stop, /coinbase/);
 });
+
+// ---- wallet habits (fingerprint) ----------------------------------------------------------------
+function fpTx(g, n, ins, outs, fp, time) {
+  const t = esplora(n, ins, outs, time);
+  t.version = fp.version; t.locktime = fp.locktime; t.vin.forEach((v) => { v.sequence = fp.sequence; });
+  g.addTx(t); return ID.tx(tid(n));
+}
+const CORE = { version: 2, locktime: 700000, sequence: 4294967293 };           // the defaults: version 2, a recent block height, RBF
+const OTHER = { version: 1, locktime: 0, sequence: 4294967295 };               // an older habit: version 1, no locktime, final sequence
+
+test('fingerprint: version, locktime kind, sequence numbers and ordering; defaults are marked common', () => {
+  const g = new Graph();
+  const x1 = fpTx(g, 1, [IN(90, 0, 'p', 10000)], [OUT('q', 9000)], CORE);
+  const x2 = fpTx(g, 2, [IN(91, 0, 'r', 10000)], [OUT('s', 9000)], OTHER);
+  const fa = An.fingerprint(g.nodes.get(x1)), fb = An.fingerprint(g.nodes.get(x2));
+  assert.equal(fa.version, 2); assert.equal(fa.lock, 'height-near'); assert.equal(fa.common, true); assert.match(fa.text, /anti-fee-sniping/); assert.match(fa.text, /RBF signalled/);
+  assert.equal(fb.lock, 'none'); assert.equal(fb.common, false); assert.match(fb.text, /final \(ffffffff\)/);
+  assert.notEqual(fa.key, fb.key);
+  const far = fpTx(g, 3, [IN(92, 0, 't', 10000)], [OUT('u', 9000)], { version: 2, locktime: 100, sequence: 4294967293 });
+  assert.equal(An.fingerprint(g.nodes.get(far)).lock, 'height-far', 'an old block height is not anti-fee-sniping');
+  const dated = fpTx(g, 4, [IN(93, 0, 'v', 10000)], [OUT('w', 9000)], { version: 2, locktime: 1700000000, sequence: 4294967294 });
+  assert.equal(An.fingerprint(g.nodes.get(dated)).lock, 'time');
+  assert.equal(An.fingerprint(g.nodes.get(ID.tx(tid(99)))), null, 'a transaction that is not loaded has none');
+  const plain = add(g, 5, [IN(94, 0, 'x', 10000)], [OUT('y', 9000)]);
+  assert.equal(An.fingerprint(g.nodes.get(plain)), null, 'nor one loaded without those fields (an old session)');
+});
+
+test('change: an output spent by a transaction with the same unusual wallet habits as this one is the likelier change', () => {
+  const g = new Graph();
+  const t = fpTx(g, 1, [IN(90, 0, 'me', 100000)], [OUT('pay', 51234), OUT('back', 48500)], OTHER);
+  g.addOutspends(tid(1), [{ spent: true, txid: tid(2), vin: 0 }, { spent: true, txid: tid(3), vin: 0 }]);
+  fpTx(g, 2, [IN(1, 0, 'pay', 51234)], [OUT('z1', 50000)], CORE);                              // the payee's wallet: other habits
+  fpTx(g, 3, [IN(1, 1, 'back', 48500)], [OUT('z2', 47000)], OTHER);                            // the sender's own wallet again
+  const ch = An.guessChange(An.txView(g, t));
+  assert.equal(ch.vout, 1); assert.equal(ch.confidence, 'low');
+  assert.match(ch.reasons.join(' '), /same wallet software/); assert.ok(!/weak sign/.test(ch.reasons.join(' ')));
+});
+
+test('change: with common defaults the evidence is weak and is not enough on its own; unloaded spenders count for nothing', () => {
+  const g = new Graph();
+  const t = fpTx(g, 1, [IN(90, 0, 'me', 100000)], [OUT('pay', 51234), OUT('back', 48500)], CORE);
+  g.addOutspends(tid(1), [{ spent: true, txid: tid(2), vin: 0 }, { spent: true, txid: tid(3), vin: 0 }]);
+  fpTx(g, 2, [IN(1, 0, 'pay', 51234)], [OUT('z1', 50000)], OTHER);
+  fpTx(g, 3, [IN(1, 1, 'back', 48500)], [OUT('z2', 47000)], CORE);
+  assert.equal(An.guessChange(An.txView(g, t)), null, '15 points are below the 20 needed to name anything');
+  const g2 = new Graph();
+  const t2 = fpTx(g2, 1, [IN(90, 0, 'me', 100000)], [OUT('pay', 51234), OUT('back', 48500)], OTHER);
+  g2.addOutspends(tid(1), [{ spent: true, txid: tid(2), vin: 0 }, { spent: true, txid: tid(3), vin: 0 }]);
+  fpTx(g2, 3, [IN(1, 1, 'back', 48500)], [OUT('z2', 47000)], OTHER);                           // only one spender is loaded: nothing to contrast it with
+  assert.equal(An.guessChange(An.txView(g2, t2)), null);
+});

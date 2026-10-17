@@ -134,6 +134,28 @@
     return true;
   };
 
+  /**
+   * BIP 69 (lexicographic ordering of inputs and outputs) is a habit of some wallets. true / false once there are enough
+   * inputs and outputs for an ordering to mean anything (a random order would be sorted by chance at most 1 time in 6:
+   * inputs! x outputs! >= 6), otherwise null (not known).
+   */
+  function factorial(n) { var f = 1; for (var i = 2; i <= n && i < 10; i++) f *= i; return f; }
+  function sortedBip69(t) {
+    if (!t.vin || !t.vout || factorial(t.vin.length) * factorial(t.vout.length) < 6) return null;
+    if (t.vin.some(function (v) { return v.is_coinbase; })) return null;
+    var inOk = true, outOk = true, i;
+    for (i = 1; i < t.vin.length; i++) {
+      var a = t.vin[i - 1], b = t.vin[i];
+      if (a.txid > b.txid || (a.txid === b.txid && a.vout > b.vout)) inOk = false;
+    }
+    for (i = 1; i < t.vout.length; i++) {
+      var p = t.vout[i - 1], q = t.vout[i];
+      if (typeof p.scriptpubkey !== 'string' || typeof q.scriptpubkey !== 'string') return null;
+      if (p.value > q.value || (p.value === q.value && p.scriptpubkey > q.scriptpubkey)) outOk = false;
+    }
+    return inOk && outOk;
+  }
+
   /** Ingest one Esplora transaction object. Safe to call repeatedly (idempotent). */
   Graph.prototype.addTx = function (t) {
     var txid = t.txid;
@@ -148,7 +170,11 @@
       height: confirmed ? t.status.block_height : null,
       fee: t.fee != null ? t.fee : null,
       vsize: t.weight ? Math.ceil(t.weight / 4) : (t.size || null),
-      nIn: t.vin.length, nOut: t.vout.length, valueIn: valueIn, valueOut: valueOut, coinbase: isCoinbase
+      nIn: t.vin.length, nOut: t.vout.length, valueIn: valueIn, valueOut: valueOut, coinbase: isCoinbase,
+      // the habits of the wallet that made it (see OrionAnalysis.fingerprint): version, locktime, the sequence numbers used, BIP 69 ordering
+      version: typeof t.version === 'number' ? t.version : null, locktime: typeof t.locktime === 'number' ? t.locktime : null,
+      seqs: t.vin.map(function (v) { return v.sequence; }).filter(function (s, i, a) { return typeof s === 'number' && a.indexOf(s) === i; }).sort(function (x, y) { return x - y; }).slice(0, 4),
+      bip69: sortedBip69(t)
     });
 
     var g = this;

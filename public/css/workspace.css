@@ -158,6 +158,13 @@ body.trace-on #stepbar { display: none !important; }
 .findings .lbl { margin-top: 6px; }
 .flagtag { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px; padding: 1px 6px; border-radius: 9px; border: 1px solid currentColor; margin-right: 4px; }
 .reasons { margin: 2px 0 0; padding-left: 16px; font-size: 12px; color: var(--dim); }
+.menu-group { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); margin-top: 4px; padding-top: 6px; }
+.menu-group input { font-size: 12px; padding: 3px 6px; }
+.packlist { display: flex; flex-direction: column; gap: 4px; }
+.packrow { display: flex; align-items: center; gap: 6px; font-size: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+.packrow .packname { flex: 1; overflow-wrap: anywhere; }
+.packrow .packname small { display: block; color: var(--dim); }
+.packrow button { padding: 1px 7px; }
 .reasons li { margin: 1px 0; }
 .menu { position: relative; }
 .menu summary { list-style: none; cursor: pointer; padding: 5px 12px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); }
