@@ -695,6 +695,8 @@
     });
     $('stepKind').textContent = KIND_NAME[n.type] || 'Vertex';
     $('stepName').textContent = focusLabel(id).replace(/^tx /, '');
+    var sc = $('stepCopy'), plain = n.type === 'tx' ? n.txid : n.type === 'addr' ? n.address : null, what = n.type === 'tx' ? 'transaction id' : 'address';
+    sc.hidden = !plain; sc.title = 'Copy ' + what; sc.setAttribute('aria-label', 'Copy ' + what); sc.onclick = plain ? function () { copy(plain, what); sc.classList.add('done'); setTimeout(function () { sc.classList.remove('done'); }, 1200); } : null;
     var amt = '';
     if (n.type === 'tx') amt = (n.time != null ? S.fmtTime(n.time, false) + ' · ' : n.confirmed === false ? 'unconfirmed · ' : '') + (n.loaded ? amountText(n.valueOut, n.time) : 'not loaded');
     else if (n.type === 'addr') amt = 'received ' + mixText(S.fmtBtc(n.received) + ' BTC', fiatSum(n, true)) + (n.txCount != null ? ' · ' + fmtInt(n.txCount) + ' txs on chain' : ' · history not loaded');
@@ -731,7 +733,10 @@
     menu.appendChild(el('div', { 'class': 'menuhead', text: dir === 'prev' ? 'Previous: where the money came from' : 'Next: where the money went' }));
     rows.forEach(function (r) {
       var t = stepRowText(r), kids = [el('span', { 'class': 'what' }, [t.what, t.sub ? el('small', { text: t.sub }) : null]), el('span', { 'class': 'amt', text: t.amt })];
-      if (r.navigable) menu.appendChild(el('button', { type: 'button', 'class': 'steprow', role: 'menuitem', title: r.id, onclick: function () { closeStepMenu(); stepTo(r); } }, kids));
+      if (r.navigable) {
+        var rowBtn = el('button', { type: 'button', 'class': 'steprow', role: 'menuitem', title: r.id, onclick: function () { closeStepMenu(); stepTo(r); } }, kids);
+        menu.appendChild(/^(tx|addr):/.test(r.id) ? el('div', { 'class': 'steprowwrap' }, [rowBtn, copyBtn(plainId(r.id), r.id.indexOf('tx:') === 0 ? 'transaction id' : 'address')]) : rowBtn);
+      }
       else menu.appendChild(el('div', { 'class': 'steprow info' }, kids));
     });
     $('toast').hidden = true;
@@ -900,7 +905,7 @@
     var list = el('div', { 'class': 'balrows' });
     rows.slice(0, 30).forEach(function (r) {
       var who = r.n.label || (KNOWN[r.n.address] && KNOWN[r.n.address].label) || S.shortId(r.n.address, 8), fx = fiatToday(r.b.confirmed);
-      list.appendChild(el('div', { 'class': 'balrow', title: r.n.address + (fx ? ' · ' + fx.text : '') }, [el('span', { text: who }), el('span', { 'class': 'amt', text: balanceText(r.b) })]));
+      list.appendChild(withCopy(el('div', { 'class': 'balrow', title: r.n.address + (fx ? ' · ' + fx.text : '') }, [el('span', { text: who }), el('span', { 'class': 'amt', text: balanceText(r.b) })]), r.n.address, 'address'));
     });
     if (rows.length > 30) list.appendChild(el('div', { 'class': 'hint', text: '… and ' + (rows.length - 30) + ' more' }));
     var kids = [el('span', { 'class': 'lbl', text: 'Balances (' + addrIds.length + ' wallet' + (addrIds.length === 1 ? '' : 's') + ')' })];
@@ -999,10 +1004,63 @@
     showInspector(); updateTraceUi(); updateAutoUi();
   }
 
-  function copy(text) {
-    var done = function () { toast('Copied.'); };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () { toast('Could not copy; select the text manually.', true); });
+  /** Put text on the clipboard. `what` names it in the message ("address", "3 transaction ids"). Falls back to the old way where the clipboard API is not offered. */
+  function copy(text, what) {
+    var done = function () { toast(what ? 'Copied ' + what + '.' : 'Copied.'); };
+    function legacy() {
+      try {
+        var ta = el('textarea', { readonly: 'readonly', 'aria-hidden': 'true', style: 'position:fixed;left:-9999px;top:0;opacity:0' });
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        var ok = document.execCommand('copy'); ta.remove(); return ok;
+      } catch (e) { return false; }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () { if (legacy()) done(); else toast('Could not copy; select the text manually.', true); });
+    else if (legacy()) done();
     else toast('Copy is not available in this browser.', true);
+  }
+  var NL = String.fromCharCode(10);
+  /** The address or transaction id inside a vertex id ("tx:abc" -> "abc"). */
+  function plainId(id) { return /^(tx|addr):/.test(id) ? id.slice(id.indexOf(':') + 1) : id; }
+  function copyIconSvg() {
+    var NS = 'http://www.w3.org/2000/svg', s = document.createElementNS(NS, 'svg');
+    ['viewBox', '0 0 16 16', 'width', '13', 'height', '13', 'fill', 'none', 'stroke', 'currentColor', 'stroke-width', '1.5', 'stroke-linecap', 'round', 'stroke-linejoin', 'round', 'aria-hidden', 'true'].forEach(function (v, i, a) { if (i % 2 === 0) s.setAttribute(v, a[i + 1]); });
+    var back = document.createElementNS(NS, 'path'); back.setAttribute('d', 'M10.5 5V3.5A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5H5');
+    var front = document.createElementNS(NS, 'rect'); ['x', '5', 'y', '5', 'width', '9', 'height', '9', 'rx', '1.5'].forEach(function (v, i, a) { if (i % 2 === 0) front.setAttribute(v, a[i + 1]); });
+    s.appendChild(back); s.appendChild(front);
+    return s;
+  }
+  /** A small copy icon: copies `text`, flashes green, and says what it copied. */
+  function copyBtn(text, what) {
+    var b = el('button', { type: 'button', 'class': 'copybtn', title: 'Copy ' + what, 'aria-label': 'Copy ' + what,
+                           onclick: function (e) { e.stopPropagation(); copy(text, what); b.classList.add('done'); setTimeout(function () { b.classList.remove('done'); }, 1200); } });
+    b.appendChild(copyIconSvg());
+    return b;
+  }
+  /** An element with a copy icon beside it (the element stays whatever it was: a row you can click keeps working). */
+  function withCopy(node, text, what) { return el('div', { 'class': 'rowcopy' }, [node, copyBtn(text, what)]); }
+  /** An id shown in full with its copy icon. */
+  function idRow(text, what) { return el('div', { 'class': 'idrow' }, [el('span', { 'class': 'mono', text: text }), copyBtn(text, what)]); }
+  /** What a set of vertices is made of for copying: the addresses and the transaction ids among them. */
+  function idLists(ids) {
+    var g = state.graph, addrs = [], txs = [];
+    ids.forEach(function (id) { var n = g.nodes.get(id); if (!n) return; if (n.type === 'addr') addrs.push(n.address); else if (n.type === 'tx') txs.push(n.txid); });
+    return { addrs: addrs, txs: txs };
+  }
+  function copyButtons(ids) {
+    var l = idLists(ids), out = [];
+    if (l.addrs.length) out.push(el('button', { type: 'button', text: 'Copy ' + plural(l.addrs.length, 'address', 'addresses'), title: 'One per line', onclick: function () { copy(l.addrs.join(NL), plural(l.addrs.length, 'address', 'addresses')); } }));
+    if (l.txs.length) out.push(el('button', { type: 'button', text: 'Copy ' + plural(l.txs.length, 'transaction id'), title: 'One per line', onclick: function () { copy(l.txs.join(NL), plural(l.txs.length, 'transaction id')); } }));
+    return out;
+  }
+  /** Ctrl+C on the graph: the selected addresses and transaction ids, one per line. False when there is nothing to copy (or text is selected, which keeps its normal copy). */
+  function copySelection() {
+    var sel = window.getSelection && window.getSelection().toString();
+    if (sel) return false;
+    var l = idLists(Array.from(state.selected));
+    var lines = l.addrs.concat(l.txs);
+    if (!lines.length) return false;
+    copy(lines.join(NL), lines.length === 1 ? (l.addrs.length ? 'the address' : 'the transaction id') : (l.addrs.length ? plural(l.addrs.length, 'address', 'addresses') : '') + (l.addrs.length && l.txs.length ? ' and ' : '') + (l.txs.length ? plural(l.txs.length, 'transaction id') : ''));
+    return true;
   }
   function kv(dl, k, v) { if (v === null || v === undefined || v === '') return; dl.appendChild(el('dt', { text: k })); dl.appendChild(el('dd', { text: String(v) })); }
   /** A row with a Bitcoin amount and, when conversion is on, its fiat value beside it. */
@@ -1349,6 +1407,9 @@
     if (ids.length > 1) {
       m.appendChild(el('div', { 'class': 'ctxhead', text: ids.length + ' selected' }));
       ctxItem(m, 'Tag as…', function () { buildTagMenu(ids, at); }, { keep: true, right: '▸' });
+      var lst = idLists(ids);
+      if (lst.addrs.length) ctxItem(m, 'Copy ' + plural(lst.addrs.length, 'address', 'addresses'), function () { copy(lst.addrs.join(NL), plural(lst.addrs.length, 'address', 'addresses')); });
+      if (lst.txs.length) ctxItem(m, 'Copy ' + plural(lst.txs.length, 'transaction id'), function () { copy(lst.txs.join(NL), plural(lst.txs.length, 'transaction id')); });
       if (traceOn()) {
         var sel = ids.filter(function (x) { return state.trace.shown.has(x); });
         ctxItem(m, 'Hide ' + sel.length + ' from the trace', function () { traceHideIds(sel); }, { danger: true, disabled: !sel.length || sel.length >= state.trace.shown.size });
@@ -1398,7 +1459,7 @@
     m.appendChild(el('div', { 'class': 'sep' }));
     ctxItem(m, n.tag ? 'Tag: ' + n.tag + ' — change…' : 'Tag as…', function () { buildTagMenu(ids, at); }, { keep: true, right: '▸' });
     var idText = n.type === 'tx' ? n.txid : n.type === 'addr' ? n.address : n.id;
-    ctxItem(m, n.type === 'tx' ? 'Copy txid' : n.type === 'addr' ? 'Copy address' : 'Copy id', function () { copy(idText); });
+    ctxItem(m, n.type === 'tx' ? 'Copy txid' : n.type === 'addr' ? 'Copy address' : 'Copy id', function () { copy(idText, n.type === 'tx' ? 'the transaction id' : n.type === 'addr' ? 'the address' : ''); });
     if (n.type === 'tx' || n.type === 'addr') {
       var link = el('a', { href: explorerOrigin() + (n.type === 'tx' ? '/tx/' + n.txid : '/address/' + n.address), target: '_blank', rel: 'noopener noreferrer', role: 'menuitem', onclick: function () { closeCtx(); } }, [el('span', { text: 'Open in explorer' }), el('span', { 'class': 'hint', text: '↗' })]);
       m.appendChild(link);
@@ -1489,8 +1550,9 @@
       if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time, false) }));
       if (r.amount != null) kids.push(el('span', { 'class': 'amt', text: (r.sign || '') + mixText(S.fmtBtc(r.amount) + ' BTC', r.amount != null ? fiatOf(r.amount, r.time) : null) }));
       var fx = r.amount != null ? fiatOf(r.amount, r.time) : null;
-      if (r.id && state.graph.nodes.has(r.id)) list.appendChild(el('button', { type: 'button', 'class': 'linkrow', title: r.id + (fx ? ' · ' + fx.text : ''), onclick: function () { navigate(r.id); } }, kids));
-      else list.appendChild(el('div', { 'class': 'linkrow plain' }, kids));
+      var line = r.id && state.graph.nodes.has(r.id) ? el('button', { type: 'button', 'class': 'linkrow', title: r.id + (fx ? ' · ' + fx.text : ''), onclick: function () { navigate(r.id); } }, kids)
+                                                        : el('div', { 'class': 'linkrow plain' }, kids);
+      list.appendChild(r.id && /^(tx|addr):/.test(r.id) ? withCopy(line, plainId(r.id), r.id.indexOf('tx:') === 0 ? 'transaction id' : 'address') : line);
     });
     if (rows.length > LIMIT) list.appendChild(el('div', { 'class': 'hint', text: '… and ' + (rows.length - LIMIT) + ' more' }));
     return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: title + ' (' + rows.length + ')' }), list]);
@@ -1551,6 +1613,7 @@
       var kinds = { addr: 0, tx: 0 }; ids.forEach(function (id) { var t = g.nodes.get(id).type; if (t in kinds) kinds[t]++; });
       if (kinds.addr) box.appendChild(balanceList(ids.filter(function (id) { return g.nodes.get(id).type === 'addr'; })));
       var total = traceOn() ? state.trace.shown.size : visibleIds().length;
+      var cps = copyButtons(ids); if (cps.length) box.appendChild(el('div', { 'class': 'insp-actions' }, cps));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [hideBtn(ids), removeBtn(ids),
         el('button', { type: 'button', text: 'Keep only these ' + ids.length, disabled: ids.length >= total ? 'disabled' : null, title: 'Hide everything else on screen', onclick: function () { keepOnly(ids); } })]));
       var narrow = [];
@@ -1565,7 +1628,7 @@
     box.appendChild(el('h3', {}, [el('span', { 'class': 'kind', text: kind }), n.label ? el('span', { text: n.label }) : null]));
 
     if (n.type === 'tx') {
-      box.appendChild(el('div', { 'class': 'mono', text: n.txid }));
+      box.appendChild(idRow(n.txid, 'transaction id'));
       kv(dl, 'Status', n.loaded === false ? 'not loaded yet' : n.confirmed ? 'confirmed' : n.confirmed === false ? 'unconfirmed' : 'unknown');
       kv(dl, 'Time', n.time != null ? S.fmtTimeFull(n.time) : null);
       kv(dl, 'Block', n.height);
@@ -1593,7 +1656,7 @@
       (txAnalysisSection(n) || []).forEach(function (s) { box.appendChild(s); });
       connectedTxSections(n).forEach(function (s) { box.appendChild(s); });
     } else if (n.type === 'addr') {
-      box.appendChild(el('div', { 'class': 'mono', text: n.address }));
+      box.appendChild(idRow(n.address, 'address'));
       var known = KNOWN[n.address];
       if (known) {
         var tags = el('div', {}, [el('span', { 'class': 'tag known', text: 'known: ' + known.label + (known.pack ? ' (' + known.pack + ')' : '') })]);
@@ -1672,6 +1735,8 @@
     box.appendChild(dl);
     var acts = [];
     if (txn) acts.push(el('button', { type: 'button', text: 'Select transaction', onclick: function () { selectOnly(txn.id); } }));
+    acts.push(el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(e.txid, 'the transaction id'); } }));
+    if (e.spentBy) acts.push(el('button', { type: 'button', text: 'Copy spender txid', onclick: function () { copy(e.spentBy.txid, 'the spender\'s transaction id'); } }));
     if (e.spentBy && g.nodes.has(ID.tx(e.spentBy.txid))) acts.push(el('button', { type: 'button', text: 'Select spender', onclick: function () { selectOnly(ID.tx(e.spentBy.txid)); } }));
     box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
   }
@@ -1864,7 +1929,7 @@
     state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded) loaded++; });
     an.tx.forEach(function (r, id) { r.flags.forEach(function (f) { (byKind[f.kind] = byKind[f.kind] || { f: f, ids: [] }).ids.push(id); }); });
     kinds = Object.keys(byKind);
-    function row(left, amt, title, fn) { return el('button', { type: 'button', 'class': 'linkrow', title: title, onclick: fn }, [left, el('span', { 'class': 'amt', text: amt })]); }
+    function row(left, amt, title, fn, copyText, copyWhat) { var b = el('button', { type: 'button', 'class': 'linkrow', title: title, onclick: fn }, [left, el('span', { 'class': 'amt', text: amt })]); return copyText ? withCopy(b, copyText, copyWhat) : b; }
     function more(list, shown) { if (list.length > shown) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (list.length - shown) + ' more' })); }
     if (kinds.length) {
       box.appendChild(el('span', { 'class': 'lbl', text: 'Patterns' }));
@@ -1876,7 +1941,7 @@
     if (an.chains.length) {
       box.appendChild(el('span', { 'class': 'lbl', text: 'Possible peel chains' }));
       an.chains.slice(0, 6).forEach(function (ch) {
-        box.appendChild(row(el('span', { text: ch.label + ' · ' + ch.ids.length + ' transactions' }), 'peeled ' + S.fmtBtc(ch.totalPeeled), 'Select the ' + ch.ids.length + ' transactions of this chain', function () { selectIds(ch.ids, 'transactions of ' + ch.label); }));
+        box.appendChild(row(el('span', { text: ch.label + ' · ' + ch.ids.length + ' transactions' }), 'peeled ' + S.fmtBtc(ch.totalPeeled), 'Select the ' + ch.ids.length + ' transactions of this chain', function () { selectIds(ch.ids, 'transactions of ' + ch.label); }, ch.ids.map(plainId).join(NL), plural(ch.ids.length, 'transaction id')));
       });
       more(an.chains, 6);
     }
@@ -1885,7 +1950,7 @@
       box.appendChild(el('span', { 'class': 'lbl', text: 'Address clusters' }));
       cl.slice(0, 6).forEach(function (c) {
         var sw = el('span', { 'class': 'sw' }); sw.style.color = clusterColorOf(c);
-        box.appendChild(row(el('span', { 'class': 'rowtext' }, [sw, ' ' + c.label + ' · ' + c.size + ' addresses']), c.txs.length + ' tx', 'Select the addresses of this cluster (they were spent together in ' + c.txs.length + ' transaction' + (c.txs.length === 1 ? '' : 's') + ')', function () { selectIds(c.addrs, 'addresses of ' + c.label); }));
+        box.appendChild(row(el('span', { 'class': 'rowtext' }, [sw, ' ' + c.label + ' · ' + c.size + ' addresses']), c.txs.length + ' tx', 'Select the addresses of this cluster (they were spent together in ' + c.txs.length + ' transaction' + (c.txs.length === 1 ? '' : 's') + ')', function () { selectIds(c.addrs, 'addresses of ' + c.label); }, c.addrs.map(plainId).join(NL), plural(c.addrs.length, 'address', 'addresses')));
       });
       more(cl, 6);
     }
@@ -1935,11 +2000,12 @@
     s.appendChild(el('p', { 'class': 'hint', text: cl.size + ' addresses were spent together in ' + cl.txs.length + ' transaction' + (cl.txs.length === 1 ? '' : 's') + ', which usually means one owner. It is a guess: a CoinJoin or a service sharing a wallet can break it.' }));
     s.appendChild(el('div', { 'class': 'insp-actions' }, [
       el('button', { type: 'button', text: 'Select the cluster', onclick: function () { selectIds(cl.addrs, 'addresses of ' + cl.label); } }),
+      el('button', { type: 'button', text: 'Copy ' + plural(cl.addrs.length, 'address', 'addresses'), title: 'One per line', onclick: function () { copy(cl.addrs.map(plainId).join(NL), plural(cl.addrs.length, 'address', 'addresses')); } }),
       el('button', { type: 'button', text: 'Tag the cluster…', title: 'Tag every address of the cluster at once', onclick: function () { openTagEditor(cl.addrs.filter(function (id) { return g.nodes.has(id); })); } })]));
     var list = el('div', { 'class': 'linkrows' });
     cl.addrs.slice(0, 8).forEach(function (id) {
       var a = g.nodes.get(id), who = a ? (a.label || (KNOWN[a.address] && KNOWN[a.address].label) || S.shortId(a.address, 8)) : id;
-      list.appendChild(el('button', { type: 'button', 'class': 'linkrow', title: id, onclick: function () { navigate(id, { light: true }); } }, [el('span', { text: (id === n.id ? '● ' : '') + who })]));
+      list.appendChild(withCopy(el('button', { type: 'button', 'class': 'linkrow', title: id, onclick: function () { navigate(id, { light: true }); } }, [el('span', { text: (id === n.id ? '● ' : '') + who })]), a ? a.address : plainId(id), 'address'));
     });
     if (cl.addrs.length > 8) list.appendChild(el('div', { 'class': 'hint', text: '… and ' + (cl.addrs.length - 8) + ' more' }));
     s.appendChild(list);
@@ -2640,6 +2706,7 @@
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets;
     setSideCollapsed(state.sideCollapsed); setInspCollapsed(state.inspCollapsed); setTbCollapsed(state.tbCollapsed);
     loadPacks(); renderPacks();
+    $('stepCopy').appendChild(copyIconSvg());
     $('reportBy').value = state.reportBy || ''; $('reportBy').addEventListener('change', savePrefs);
     $('packImport').addEventListener('click', function () { $('packFile').click(); });
     $('packFile').addEventListener('change', function () {
@@ -2809,7 +2876,9 @@
       var tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (!$('ctxMenu').hidden && e.key === 'Escape') { closeCtx(); return; }
+      var mod = e.ctrlKey || e.metaKey || e.altKey;
       if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); selectAllVisible(); return; }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) { if (copySelection()) e.preventDefault(); return; }
       if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selected.size) { e.preventDefault(); if (e.shiftKey && !traceOn()) removeIds(Array.from(state.selected)); else hideSelected(); } }
       else if (e.key === 'Escape') { if (!$('stepMenu').hidden) closeStepMenu(); else if (state.boxMode) setBoxMode(false); else { state.selected = new Set(); state.selectedEdge = null; syncSelection(); } }
       else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
@@ -2819,6 +2888,7 @@
       else if (e.key === '[') { e.preventDefault(); if (traceOn()) traceKey('prev'); else stepClick('prev'); }
       else if (e.key === ']') { e.preventDefault(); if (traceOn()) traceKey('next'); else stepClick('next'); }
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undoLast(); }
+      else if (mod) { /* a shortcut with Ctrl, Alt or Cmd held belongs to the browser */ }
       else if (e.key === 'b' || e.key === 'B') { setBoxMode(!state.boxMode); }
       else if (e.key === 'c' || e.key === 'C') { setSideCollapsed(!state.sideCollapsed); }
       else if (e.key === 'd' || e.key === 'D') { setInspCollapsed(!state.inspCollapsed); }
