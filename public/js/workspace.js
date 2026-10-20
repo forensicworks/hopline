@@ -47,7 +47,7 @@
     trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [] },
     undoLoads: [], analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], arrange: 'columns', boxMode: false,
-    stepMode: 'ask', stepSize: 5, walletView: { dir: 'all', sort: 'new', more: 40 },
+    stepMode: 'ask', stepSize: 5, chooseSort: 'big', walletView: { dir: 'all', sort: 'new', more: 40 },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -172,7 +172,7 @@
   function cleanAnalysis(a) { a = a && typeof a === 'object' ? a : {}; return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false }; }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, chooseSort: state.chooseSort, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -182,6 +182,7 @@
       state.fallback = p.fallback !== false;
       if (p.stepMode === 'ask' || p.stepMode === 'batch' || p.stepMode === 'all') state.stepMode = p.stepMode;
       state.stepSize = num(p.stepSize, 1, 50, 5);
+      if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old') state.chooseSort = p.chooseSort;
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
       state.capTx = num(p.capTx, 1, 500, 25); state.capReq = num(p.capReq, 1, 1000, 80); state.capPages = num(p.capPages, 1, 20, 2);
       state.showLabels = p.showLabels !== false;
@@ -454,7 +455,7 @@
       if (label === '?' && came && ((came.dir === 'next' && dir === 'prev') || (came.dir === 'prev' && dir === 'next'))) return null;
       var what = TRACE_WHAT[n.type][dir], N = state.stepSize;
       var click = !h.known || h.known <= N || state.stepMode === 'all' ? ' Shift-click to choose which.'
-                : state.stepMode === 'ask' ? ' Click to choose which: the largest ' + N + ' come ticked.' : ' Click shows the largest ' + N + '; click again for the next.';
+                : state.stepMode === 'ask' ? ' Click to choose which: the top ' + N + ' come ticked.' : ' Click shows the largest ' + N + '; click again for the next.';
       var tip = h.known ? 'Show ' + h.known + ' ' + what + (h.unknown ? ' (more may exist: ' + (n.type === 'addr' ? 'the wallet\'s history is not fully loaded' : 'this transaction is not loaded') + ')' : '') + '.' + click
                         : 'Look for ' + what + ' (loads data)';
       return { label: label, known: h.known, tip: tip };
@@ -581,7 +582,8 @@
     var m = $('ctxMenu'); m.textContent = ''; m.classList.add('choosing'); closeStepMenu(); $('tooltip').hidden = true;
     m.appendChild(el('div', { 'class': 'ctxhead', text: 'Choose what to show ' + (dir === 'next' ? '▶' : '◀') + ' · ' + rows.length + ' hidden' }));
     m.appendChild(el('div', { 'class': 'chooserinfo', text: summaryText(sm) }));
-    var sortSel = el('select', { 'aria-label': 'Order' }, [el('option', { value: 'big', text: 'Largest first' }), el('option', { value: 'new', text: 'Newest first' }), el('option', { value: 'old', text: 'Oldest first' })]);
+    var sortSel = el('select', { 'aria-label': 'Order' }, [el('option', { value: 'big', text: 'Largest first' }), el('option', { value: 'small', text: 'Smallest first' }), el('option', { value: 'new', text: 'Newest first' }), el('option', { value: 'old', text: 'Oldest first' })]);
+    sortSel.value = state.chooseSort;                                                  // the order you used last time
     var minIn = el('input', { type: 'text', inputmode: 'decimal', placeholder: '0', size: '6', 'aria-label': 'Smallest amount, in BTC' });
     var fromIn = el('input', { type: 'date', 'aria-label': 'From date' }), toIn = el('input', { type: 'date', 'aria-label': 'To date' });
     var info = el('span', { 'class': 'chooserinfo' });
@@ -607,6 +609,7 @@
       return items.slice().sort(function (x, y) {
         var byAmt = y.r.amount - x.r.amount || (x.r.id < y.r.id ? -1 : 1);
         if (k === 'big') return byAmt;
+        if (k === 'small') return x.r.amount - y.r.amount || (x.r.id < y.r.id ? -1 : 1);
         var tx = x.r.time, ty = y.r.time;
         if (tx == null || ty == null) return (tx == null ? 1 : 0) - (ty == null ? 1 : 0) || byAmt;                // unknown times last
         return (k === 'new' ? ty - tx : tx - ty) || byAmt;
@@ -625,7 +628,7 @@
       info.textContent = ok === items.length ? '' : ok + ' of ' + items.length + ' match';
       count();
     }
-    [sortSel, minIn, fromIn, toIn].forEach(function (c) { c.addEventListener(c === sortSel || c.type === 'date' ? 'change' : 'input', function () { render(); }); });
+    [sortSel, minIn, fromIn, toIn].forEach(function (c) { c.addEventListener(c === sortSel || c.type === 'date' ? 'change' : 'input', function () { if (c === sortSel) { state.chooseSort = sortSel.value; savePrefs(); } render(); }); });
     m.appendChild(list);
     list.addEventListener('keydown', function (e) {
       var boxes = visible().map(function (it) { return it.cb; }), i = boxes.indexOf(document.activeElement);
@@ -634,7 +637,7 @@
       else if (e.key === 'Enter' && !go.disabled) { e.preventDefault(); go.click(); }
     });
     m.appendChild(el('div', { 'class': 'chooserfoot' }, [go,
-      el('button', { type: 'button', text: 'Top ' + Math.min(N, items.length), title: 'Tick only the first ' + N + ' in this order', onclick: topN }),
+      el('button', { type: 'button', text: 'Top ' + Math.min(N, items.length), title: 'Tick only the first ' + N + ' in the order shown', onclick: topN }),
       el('button', { type: 'button', text: 'All', title: 'Tick everything listed', onclick: function () { visible().forEach(function (it) { it.cb.checked = true; }); count(); } }),
       el('button', { type: 'button', text: 'None', onclick: function () { items.forEach(function (it) { it.cb.checked = false; }); count(); } }),
       el('button', { type: 'button', text: 'Cancel', onclick: closeCtx })]));

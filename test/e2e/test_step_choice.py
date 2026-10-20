@@ -80,7 +80,7 @@ def test_hovering_an_arrow_gives_the_count_the_total_and_the_dates(fpage, mock):
     p = handle_xy(fpage, tx, "right")
     fpage.mouse.move(p["x"], p["y"])
     tip = fpage.evaluate("() => window.__orion.renderer.canvas.title")
-    assert "Click to choose which: the largest 5 come ticked" in tip, tip
+    assert "Click to choose which: the top 5 come ticked" in tip, tip
     assert "12 outputs" in tip and "BTC in total" in tip and "largest 0.00100000 BTC" in tip and "2022-04-" in tip, tip
     left = handle_xy(fpage, tx, "left")
     fpage.mouse.move(left["x"], left["y"])
@@ -226,3 +226,40 @@ def test_the_list_never_runs_markup_from_an_address_label(fpage, mock):
     click_handle(fpage, tx, "right"); idle(fpage)
     assert fpage.evaluate("() => window.__pwned") is None and fpage.locator("#ctxMenu img").count() == 0
     assert "<img src=x" in fpage.inner_text("#ctxMenu")
+
+
+def test_smallest_first_is_an_order_and_the_top_few_follow_it(fpage, mock):
+    tx = trace_of(fpage, mock, 12)
+    click_handle(fpage, tx, "right"); idle(fpage)
+    assert fpage.eval_on_selector_all("#ctxMenu .choosertools select option", "os => os.map(o => o.textContent)") == ["Largest first", "Smallest first", "Newest first", "Oldest first"]
+    fpage.select_option("#ctxMenu .choosertools select", "small")
+    first = fpage.eval_on_selector_all("#ctxMenu .chooserrow", "rows => rows.map(r => r.querySelector('.amt').textContent)")
+    amounts = [float(a.split()[0]) for a in first]
+    assert amounts == sorted(amounts), "the smallest at the top"
+    fpage.click("#ctxMenu .chooserfoot >> text=Top 5")
+    fpage.click("#ctxMenu .chooserfoot .primary"); idle(fpage); settle(fpage)
+    got = shown(fpage) - {tx}
+    assert got == {"addr:bc1qchoose%03d" % i for i in range(7, 12)}, "the five smallest were shown: " + str(sorted(got))
+
+
+def test_the_order_is_remembered_the_next_time_the_list_opens_and_after_a_reload(fpage, mock):
+    tx = trace_of(fpage, mock, 12)
+    click_handle(fpage, tx, "right"); idle(fpage)
+    assert fpage.input_value("#ctxMenu .choosertools select") == "big", "largest first to begin with"
+    fpage.select_option("#ctxMenu .choosertools select", "old")
+    fpage.keyboard.press("Escape")
+    click_handle(fpage, tx, "right"); idle(fpage)
+    assert fpage.input_value("#ctxMenu .choosertools select") == "old", "the order of last time"
+    fpage.select_option("#ctxMenu .choosertools select", "small")
+    fpage.keyboard.press("Escape")
+    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
+    assert fpage.evaluate("() => window.__orion.state.chooseSort") == "small"
+    if fpage.evaluate("() => window.__orion.state.layout") != "trace":                  # the saved session comes back with its graph; open the trace again if it is not showing
+        fpage.click("#layoutSeg [data-layout=trace]")
+    settle(fpage)
+    click_handle(fpage, tx, "right"); idle(fpage)
+    assert fpage.input_value("#ctxMenu .choosertools select") == "small"
+    assert fpage.evaluate("() => [...document.querySelectorAll('#ctxMenu .chooserrow')].slice(0, 5).every(r => r.querySelector('input').checked)"), "the ticked ones are the first five in that order"
+    amounts = [float(a.split()[0]) for a in fpage.eval_on_selector_all("#ctxMenu .chooserrow .amt", "els => els.map(e => e.textContent)")]
+    assert amounts == sorted(amounts)
+
