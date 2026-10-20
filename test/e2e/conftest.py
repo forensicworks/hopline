@@ -61,6 +61,7 @@ class Mock:
         self.routes = make_routes()
         self.requests = []
         self.fail = {}
+        self.fail_host = {}                      # host -> status: every request to that host fails (to test the backup server)
         self.delay_ms = 0
 
     def handle(self, route):
@@ -68,6 +69,8 @@ class Mock:
         host, path = m.group(1), m.group(2)
         self.requests.append((host, path))
         cors = {"access-control-allow-origin": "*"}
+        if host in self.fail_host:
+            return route.fulfill(status=self.fail_host[host], body="error", headers=cors)
         if path in self.fail:
             return route.fulfill(status=self.fail[path], body="error", headers=cors)
         body = self.routes.get(path)

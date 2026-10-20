@@ -72,6 +72,22 @@
     return sortRows(rows);
   }
 
+  /** The hidden vertices one step away in a direction, largest first: rows {id, type, amount, time}. */
+  function hiddenRows(graph, shown, id, dir) { return rowsFor(graph, shown, id, dir); }
+
+  /**
+   * What is hidden in a direction, in numbers, so a click can be weighed before it is made:
+   * { count, total (sats), largest (sats), first, last (earliest / latest time known, or null) }.
+   */
+  function summary(graph, shown, id, dir) {
+    var rows = rowsFor(graph, shown, id, dir), out = { count: rows.length, total: 0, largest: 0, first: null, last: null };
+    rows.forEach(function (r) {
+      out.total += r.amount; if (r.amount > out.largest) out.largest = r.amount;
+      if (r.time != null) { if (out.first == null || r.time < out.first) out.first = r.time; if (out.last == null || r.time > out.last) out.last = r.time; }
+    });
+    return out;
+  }
+
   /**
    * Decide what one click reveals.
    *   returns { primary: [rows], secondary: [{parent, rows}], needLoad: [txid], remaining, remainingInner }
@@ -166,5 +182,5 @@
     return out;
   }
 
-  return { neighbours: neighbours, hidden: hidden, handleLabel: handleLabel, plan: plan, place: place, descendants: descendants, revealed: revealed };
+  return { neighbours: neighbours, hidden: hidden, rows: hiddenRows, summary: summary, handleLabel: handleLabel, plan: plan, place: place, descendants: descendants, revealed: revealed };
 }));

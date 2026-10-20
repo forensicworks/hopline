@@ -71,6 +71,7 @@
     this.target = new Map();
     this.anim = null;
     this.hover = { node: null, edge: null };
+    this.highlight = null;                    // a vertex outlined from outside the canvas (a list row under the pointer), without selecting it
     this.axisPointer = null;                  // x of the pointer while it is over the time axis (top of the canvas): the axis then reads out the time there
     this.insets = { bottom: 0 };              // canvas rows covered by overlays (the step bar): fit() and centerOn() keep clear of them
     this.handleRects = [];                    // expand handles drawn this frame (trace layout): {id, dir, x, y, w, h, tip}
@@ -233,6 +234,9 @@
     return { node: null, edge: bestE };
   };
 
+  /** Outline a vertex (or none) without selecting it: used while the pointer is over its row in the details. */
+  Renderer.prototype.setHighlight = function (id) { id = id || null; if (this.highlight !== id) { this.highlight = id; this.dirty = true; } };
+
   Renderer.prototype._setHover = function (node, edge, evt) {
     if (this.hover.node !== node || this.hover.edge !== edge) { this.hover = { node: node, edge: edge }; this.dirty = true; }
     if (this.cb.onHover) this.cb.onHover(node, edge, evt ? { x: evt.clientX, y: evt.clientY } : null);
@@ -264,7 +268,7 @@
       if (onAxis !== (this.axisPointer != null) || (onAxis && this.axisPointer !== pt.x)) { this.axisPointer = onAxis ? pt.x : null; this.dirty = true; }
       if (onAxis) { this._setHover(null, null, null); this.canvas.style.cursor = 'crosshair'; this.canvas.title = ''; return; }
       var hnd = this._pickHandle(pt);
-      if (hnd) { this._setHover(null, null, null); this.canvas.style.cursor = 'pointer'; this.canvas.title = hnd.tip || ''; return; }
+      if (hnd) { this._setHover(null, null, null); this.canvas.style.cursor = 'pointer'; this.canvas.title = (hnd.tip || '') + (this.data && this.data.handleMore ? this.data.handleMore(hnd.id, hnd.dir) : ''); return; }
       this.canvas.title = '';
       var h = this._pick(pt); this._setHover(h.node, h.edge, e); this.canvas.style.cursor = h.node ? 'pointer' : (h.edge ? 'help' : (this.boxMode ? 'crosshair' : 'grab')); return;
     }
@@ -453,6 +457,7 @@
         ctx.strokeStyle = self.selected.has(id) ? th.select : (n.label ? th.accent : th.known);
         ctx.stroke();
       }
+      if (id === self.highlight) { shape(ctx, kindOf(n), P.x, P.y, r + 7); ctx.lineWidth = 3; ctx.strokeStyle = th.select; ctx.setLineDash([]); ctx.stroke(); }
       var ring = d.clusterColor && n.type === 'addr' ? d.clusterColor(id) : null;
       if (ring) {                                                           // a dashed ring in the cluster's colour: addresses spent together
         ctx.beginPath(); ctx.arc(P.x, P.y, r + 7.5, 0, Math.PI * 2); ctx.lineWidth = 2.5; ctx.strokeStyle = ring; ctx.setLineDash([5, 3]); ctx.stroke(); ctx.setLineDash([]);

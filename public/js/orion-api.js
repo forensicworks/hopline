@@ -31,8 +31,13 @@
   }
 
   /**
-   * opts: { base, concurrency, delayMs, timeoutMs, retries, maxRequests, fetch, onRequest }
+   * opts: { base, concurrency, delayMs, timeoutMs, retries, maxRequests, fetch, onRequest, backup, coolMs, onSwitch, onRestore }
    * maxRequests: hard cap of network requests for this client (cache hits are free). 0/undefined = none.
+   * backup: { base, concurrency, delayMs } of a second Esplora server for when this one keeps failing. A request that is throttled
+   *   (429) goes to it at once, one that fails in another transient way (5xx, timeout, network) after one retry; the failing server is then
+   *   not tried first for `coolMs` (default a minute), after which it gets the next request again. A "not found" is an answer and never
+   *   moves a request. onSwitch({ from, to, reason, status, seconds }) and onRestore({ base }) report it; sourceOf(result) says which
+   *   server answered, so each transaction can record where it came from.
    */
   function Client(opts) {
     opts = opts || {};
@@ -45,6 +50,14 @@
     this.backoffMs = opts.backoffMs == null ? 1000 : opts.backoffMs;
     this.fetchImpl = opts.fetch || (typeof fetch === 'function' ? fetch.bind(typeof self !== 'undefined' ? self : globalThis) : null);
     this.onRequest = opts.onRequest || null;
+    var bk = opts.backup && opts.backup.base ? opts.backup : null;
+    this.backup = bk ? { base: String(bk.base).replace(/\/+$/, ''), concurrency: Math.max(1, bk.concurrency || 3), delayMs: bk.delayMs == null ? 250 : bk.delayMs } : null;
+    if (this.backup && this.backup.base === this.base) this.backup = null;
+    this.coolMs = opts.coolMs == null ? 60000 : opts.coolMs;
+    this.cool = {};                                      // base -> ms until which it is not tried first
+    this.away = null;                                    // the base that was given up on and has not answered since
+    this.onSwitch = opts.onSwitch || null; this.onRestore = opts.onRestore || null;
+    this.served = new WeakMap();                         // response -> the base that sent it
     this.cache = new Map();                              // key -> { p: Promise, at: ms }
     this.ttlMs = opts.ttlMs == null ? 300000 : opts.ttlMs;
     this.now = opts.now || Date.now;
@@ -53,8 +66,8 @@
     this.lastStart = 0;
     this.aborted = false;
     this.controllers = new Set();
-    this.count = { network: 0, cached: 0, failed: 0, retried: 0 };
-    this.total = { network: 0, failed: 0, retried: 0 };          // since the client was made: resetCount() does not touch these
+    this.count = { network: 0, cached: 0, failed: 0, retried: 0, backup: 0 };
+    this.total = { network: 0, failed: 0, retried: 0, backup: 0 };          // since the client was made: resetCount() does not touch these
   }
 
   Client.prototype.abort = function () {
@@ -65,15 +78,32 @@
   };
   /** Allow requests again after abort() (a new action starts). */
   Client.prototype.resume = function () { this.aborted = false; };
-  Client.prototype.resetCount = function () { this.count = { network: 0, cached: 0, failed: 0, retried: 0 }; };
+  Client.prototype.resetCount = function () { this.count = { network: 0, cached: 0, failed: 0, retried: 0, backup: 0 }; };
+
+  /** Which server a new request goes to first: this one, unless it was just given up on and the backup was not. */
+  Client.prototype._firstBase = function () {
+    if (!this.backup) return this.base;
+    var t = this.now();
+    return (this.cool[this.base] || 0) > t && !((this.cool[this.backup.base] || 0) > t) ? this.backup.base : this.base;
+  };
+  /** The pacing that goes with a server (the backup is a different service with its own manners). */
+  Client.prototype._pace = function (base) { return this.backup && base === this.backup.base ? this.backup : this; };
+  /** Which server answered `result` (a response from get()); this client's own base when unknown. */
+  Client.prototype.sourceOf = function (result) { return (result && typeof result === 'object' && this.served.get(result)) || this.base; };
+  Client.prototype._cooldown = function (base, to, e) {
+    var t = this.now(), was = (this.cool[base] || 0) > t;
+    this.cool[base] = t + this.coolMs;
+    if (!was) { this.away = base; if (this.onSwitch) this.onSwitch({ from: base, to: to, reason: e.kind, status: e.status, seconds: Math.round(this.coolMs / 1000) }); }
+  };
 
   Client.prototype._pump = function () {
     var self = this;
-    while (this.active < this.concurrency && this.queue.length) {
+    var pace = this._pace(this._firstBase());
+    while (this.active < pace.concurrency && this.queue.length) {
       var job = this.queue.shift();
       this.active++;
       (function (j) {
-        var wait = Math.max(0, self.lastStart + self.delayMs - Date.now());
+        var wait = Math.max(0, self.lastStart + pace.delayMs - Date.now());
         self.lastStart = Date.now() + wait;               // reserve the slot so parallel starts are spaced too
         sleep(wait).then(function () { return self._run(j); }).then(j.resolve, j.reject).then(function () {
           self.active--; self._pump();
@@ -82,12 +112,12 @@
     }
   };
 
-  Client.prototype._attempt = function (path, text) {
+  Client.prototype._attempt = function (base, path, text) {
     var self = this;
     var ctl = typeof AbortController === 'function' ? new AbortController() : null;
     var timer = null, timedOut = false;
     if (ctl) { this.controllers.add(ctl); timer = setTimeout(function () { timedOut = true; ctl.abort(); }, this.timeoutMs); }
-    var p = this.fetchImpl(this.base + path, ctl ? { signal: ctl.signal, headers: { 'Accept': 'application/json, text/plain' } } : {})
+    var p = this.fetchImpl(base + path, ctl ? { signal: ctl.signal, headers: { 'Accept': 'application/json, text/plain' } } : {})
       .then(function (res) {
         if (!res.ok) {
           var err = ApiError('HTTP ' + res.status + ' for ' + path, res.status === 429 ? 'rate' : (res.status >= 500 ? 'server' : 'http'), res.status);
@@ -112,14 +142,23 @@
   };
 
   Client.prototype._run = function (job) {
-    var self = this, tries = 0;
+    var self = this, tries = 0, base = this._firstBase(), other = !this.backup ? null : base === this.base ? this.backup.base : this.base, moved = false;
     function go() {
       if (self.aborted) return Promise.reject(ApiError('aborted', 'aborted'));
       if (self.maxRequests && self.count.network >= self.maxRequests) return Promise.reject(ApiError('request cap of ' + self.maxRequests + ' reached', 'cap'));
       self.count.network++; self.total.network++;
+      if (self.backup && base === self.backup.base) { self.count.backup++; self.total.backup++; }
       if (self.onRequest) self.onRequest(job.path, self.count);
-      return self._attempt(job.path, job.text).catch(function (e) {
+      return self._attempt(base, job.path, job.text).then(function (v) {
+        if (v && typeof v === 'object') self.served.set(v, base);
+        if (self.away === base) { self.away = null; if (self.onRestore) self.onRestore({ base: base }); }
+        return v;
+      }, function (e) {
         var retryable = e.kind === 'rate' || e.kind === 'server' || e.kind === 'timeout' || e.kind === 'network';
+        if (retryable && other && !moved && (e.kind === 'rate' || tries >= 1)) {            // this server keeps failing: the other one takes this request, and the next ones for a while
+          self._cooldown(base, other, e); base = other; moved = true; tries = 0;
+          return go();
+        }
         if (!retryable || tries >= self.retries) { self.count.failed++; self.total.failed++; throw e; }
         tries++; self.count.retried++; self.total.retried++;
         var delay = Math.max(e.retryAfter ? e.retryAfter * 1000 : 0, self.backoffMs * Math.pow(2, tries - 1));
@@ -198,11 +237,13 @@
    * Put a fetched transaction into the graph and note where and when it came from (`source` = the API base, `fetchedAt` =
    * unix seconds): what an investigator needs to say "I saw this at that time, from that server".
    */
-  Explorer.prototype._ingest = function (t) {
+  Explorer.prototype._ingest = function (t, from) {
     var id = this.graph.addTx(t), n = this.graph.nodes.get(id);
-    if (n) { n.source = this.client.base; n.fetchedAt = Math.floor(Date.now() / 1000); }
+    if (n) { n.source = srcOf(this, from || t); n.fetchedAt = Math.floor(Date.now() / 1000); }
     return id;
   };
+  /** The server that answered `result`: with a backup configured that is not always the client's own base. */
+  function srcOf(ex, result) { return ex.client.sourceOf ? ex.client.sourceOf(result) : ex.client.base; }
 
   /** Put an outspends answer into the graph and note when it was read: "unspent" is only true as of that time. */
   Explorer.prototype._spends = function (txid, o) {
@@ -366,7 +407,7 @@
       return ex.client.addressTxs(addr, last).then(function (txs) {
         for (var i = 0; i < txs.length; i++) {
           if (cap > 0 && added >= cap) { truncated = true; return; }
-          ex._ingest(txs[i]); added++;
+          ex._ingest(txs[i], txs); added++;
           last = txs[i].txid;
         }
         if (txs.length < 25) { last = null; return; }
@@ -376,7 +417,7 @@
     }
     var stats = opts.after ? Promise.resolve(true) : ex.client.address(addr).then(function (a) {
       total = (a.chain_stats ? a.chain_stats.tx_count : 0) + (a.mempool_stats ? a.mempool_stats.tx_count : 0);
-      ex.graph.addAddressStats(addr, a, { at: Math.floor(Date.now() / 1000), source: ex.client.base });
+      ex.graph.addAddressStats(addr, a, { at: Math.floor(Date.now() / 1000), source: srcOf(ex, a) });
       return true;
     }, function (e) {
       if (e && (e.status === 400 || e.kind === 'notfound')) errors.push('"' + addr + '" is not a valid Bitcoin address (the server rejected it)');
@@ -404,7 +445,7 @@
       todo.push(a);
     });
     return Promise.all(todo.map(function (a) {
-      return ex.client.address(a).then(function (s) { ex.graph.addAddressStats(a, s, { at: Math.floor(Date.now() / 1000), source: ex.client.base }); }, function (e) { note(errors, e); });
+      return ex.client.address(a).then(function (s) { ex.graph.addAddressStats(a, s, { at: Math.floor(Date.now() / 1000), source: srcOf(ex, s) }); }, function (e) { note(errors, e); });
     })).then(function () { return summarise(ex, before, errors, left > 0); });
   };
 

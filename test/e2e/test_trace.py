@@ -182,7 +182,7 @@ def test_a_long_list_is_shown_in_batches_with_a_counter(fpage, mock):
                                   "vin": [{"txid": "cd" * 32, "vout": 0, "is_coinbase": False, "prevout": {"scriptpubkey_address": "bc1qsource", "scriptpubkey_type": "v0_p2wpkh", "value": 100000}}], "vout": outs}
     mock.routes["/tx/" + txid + "/outspends"] = [{"spent": False} for _ in outs]
     open_query(fpage, txid)
-    fpage.evaluate("() => { window.__orion.state.capTx = 10; }")
+    fpage.evaluate("() => { window.__orion.state.capTx = 10; window.__orion.state.stepMode = 'all'; }")       # the old behaviour: everything up to the limit per click
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     assert handle(fpage, "tx:" + txid, "right")["label"] == "40"
     click_handle(fpage, "tx:" + txid, "right"); idle(fpage)
@@ -210,6 +210,7 @@ def test_starting_from_a_wallet_shows_counts_taken_from_its_history(fpage):
 
 def test_nothing_further_is_explained_not_ignored(fpage, mock):
     open_query(fpage, COINBASE["txid"])
+    fpage.evaluate("() => { window.__orion.state.stepMode = 'all'; }")                  # this is about what is said when there is nothing to show, not about asking
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     cb = "cb:" + COINBASE["txid"]
     click_handle(fpage, "tx:" + COINBASE["txid"], "left"); idle(fpage)
@@ -465,12 +466,12 @@ def test_shift_click_on_a_handle_lets_you_choose_which_to_show(fpage, mock):
     assert fpage.is_visible("#ctxMenu .chooser")
     boxes = fpage.locator("#ctxMenu .chooser input[type=checkbox]")
     assert boxes.count() == 40 and "40 hidden" in fpage.inner_text("#ctxMenu").lower()
-    assert sum(1 for i in range(40) if boxes.nth(i).is_checked()) == 10, "the ten largest are ticked to start with"
+    assert sum(1 for i in range(40) if boxes.nth(i).is_checked()) == 5, "the five largest are ticked to start with (the step size)"
     fpage.click("#ctxMenu >> text=None")
-    assert fpage.is_disabled("#ctxMenu >> text=Show 0 selected")
+    assert fpage.is_disabled("#ctxMenu >> text=Show 0 ticked")
     for i in (3, 17):
         boxes.nth(i).check()
-    fpage.click("#ctxMenu >> text=Show 2 selected"); idle(fpage); settle(fpage)
+    fpage.click("#ctxMenu >> text=Show 2 ticked"); idle(fpage); settle(fpage)
     got = shown(fpage) - {tx}
     assert got == {"addr:bc1qchoose003", "addr:bc1qchoose017"}, got
     assert handle(fpage, tx, "right")["known"] == 38, "the other 38 are still counted on the handle"
@@ -488,7 +489,7 @@ def test_the_chooser_works_from_the_menu_and_can_be_cancelled(fpage, mock):
     assert fpage.is_hidden("#ctxMenu") and shown(fpage) == {tx}
     p = xy(fpage, tx); fpage.mouse.click(p["x"], p["y"], button="right")
     fpage.click("#ctxMenu >> text=Choose what to show ▶…")
-    fpage.click("#ctxMenu >> text=All"); fpage.click("#ctxMenu >> text=Show 12 selected"); idle(fpage)
+    fpage.click("#ctxMenu .chooserfoot >> text=All"); fpage.click("#ctxMenu >> text=Show 12 ticked"); idle(fpage)
     assert len(shown(fpage)) == 13
 
 

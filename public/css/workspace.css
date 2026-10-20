@@ -145,10 +145,46 @@ body.trace-on #stepbar { display: none !important; }
 .fiat.approx { color: #f2c94c; }
 #fiatRefRow { margin-left: 22px; }
 #fiatRefRow[hidden] { display: none; }
+#fallbackRow[hidden] { display: none; }
 .linkrows { display: flex; flex-direction: column; gap: 3px; }
 .linkrow { display: flex; justify-content: space-between; gap: 8px; text-align: left; padding: 4px 8px; font-size: 12px; }
 .linkrow .amt { color: var(--accent); font-variant-numeric: tabular-nums; flex: none; }
 .linkrow .when { color: var(--dim); flex: none; }
+.linkrow .who { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.linkrow .who small { display: block; color: var(--dim); font-size: 11px; }
+.walletsec .linkrow { flex-wrap: wrap; align-items: center; row-gap: 3px; }                  /* line 1: tag, date, amount; line 2: who is on the other side and the transaction */
+.walletsec .linkrow .dirtag { order: 1; align-self: center; }
+.walletsec .linkrow .when { order: 2; margin-right: auto; }
+.walletsec .linkrow .amt { order: 3; }
+.walletsec .linkrow .who { order: 4; flex: 1 1 100%; }
+.walletsec .linkrow .who small { display: inline; margin-left: 8px; }
+.linkrow.self .amt { color: var(--dim); }
+.linkrow.in .amt { color: #6be675; }
+.linkrow.out .amt { color: #ff9f43; }
+.dirtag { flex: none; align-self: flex-start; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
+.dirtag.in { color: #6be675; background: rgba(107, 230, 117, 0.14); }
+.dirtag.out { color: #ff9f43; background: rgba(255, 159, 67, 0.14); }
+.dirtag.self { color: var(--dim); background: rgba(255, 255, 255, 0.07); }
+.walletsum { font-size: 12px; color: var(--dim); margin: 2px 0 6px; }
+.walletsum .strong { color: var(--text); font-weight: 700; }
+.walletbar { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.walletbar .seg { flex: 1; }
+.walletbar .seg button { padding: 4px 2px; font-size: 12px; }
+.walletbar select { width: auto; flex: none; padding: 4px 6px; font-size: 12px; }
+.showbtn { flex: none; padding: 2px 7px; font-size: 11px; border-radius: 5px; white-space: nowrap; }
+.rowcopy.off .linkrow { opacity: 0.72; }
+.moreRows { align-self: flex-start; font-size: 12px; padding: 4px 10px; }
+#ctxMenu.choosing { width: 400px; max-width: 94vw; }
+.choosertools { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 2px 6px 6px; font-size: 12px; color: var(--dim); }
+.choosertools select, .choosertools input { width: auto; padding: 3px 5px; font-size: 12px; }
+.choosertools label { display: flex; align-items: center; gap: 4px; }
+.chooserinfo { padding: 0 9px 4px; font-size: 12px; color: var(--dim); }
+.choosertools .chooserinfo { padding: 0; }
+.choosertools .toolrow { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; width: 100%; }
+#ctxMenu .chooserfoot .primary { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+#ctxMenu .chooserfoot .primary:disabled { background: transparent; color: var(--dim); }
+.chooserrow[hidden], #ctxMenu .chooser label[hidden] { display: none; }
+.chooserfoot { flex-wrap: wrap; }
 .linkrow.plain { border-style: dashed; cursor: default; color: var(--dim); }
 .linkrow.plain:hover { border-color: var(--line); }
 .findings { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }

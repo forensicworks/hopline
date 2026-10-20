@@ -390,7 +390,7 @@ test('cumulative totals count retries and failures', async () => {
   await c.get('/flaky');
   await assert.rejects(c.get('/dead'));
   c.resetCount();
-  assert.deepEqual(c.total, { network: 4, failed: 1, retried: 2 });
+  assert.deepEqual(c.total, { network: 4, failed: 1, retried: 2, backup: 0 });
 });
 
 test('Explorer.loadBalances reads the totals of each wallet, nothing else, caps the list, and reports failures', async () => {

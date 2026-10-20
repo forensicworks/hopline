@@ -335,6 +335,7 @@ def test_unknown_transaction_is_reported_and_leaves_the_graph_empty(page):
 
 
 def test_server_errors_are_retried_then_reported(page, mock):
+    page.uncheck("#fallbackOn")                                                       # one server only: the backup has its own tests (test_backup.py)
     mock.fail["/tx/" + NORMAL["txid"]] = 503
     page.evaluate("() => { window.__orion.state.client.backoffMs = 5; }")
     open_query(page, NORMAL["txid"])

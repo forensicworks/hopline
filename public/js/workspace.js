@@ -40,13 +40,14 @@
   var state = {
     graph: new M.Graph(), layout: 'flow', colorBy: 'type', sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
     keep: new Set(), pinned: new Map(), selected: new Set(), selectedEdge: null,
-    source: 'clearnet', customBase: '', capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: true,
+    source: 'clearnet', fallback: true, customBase: '', capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: true,
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
     trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [] },
     undoLoads: [], analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], arrange: 'columns', boxMode: false,
+    stepMode: 'ask', stepSize: 5, walletView: { dir: 'all', sort: 'new', more: 40 },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -101,11 +102,22 @@
     $('reqStats').textContent = 'Requests this session: ' + data + ' data' + (price ? ', ' + price + ' price' : '') + (retried ? ' · ' + retried + ' retried' : '') + (failed ? ' · ' + failed + ' failed' : '') + '.';
   }
 
+  /** The other public server, when the backup option is on and this one has such a partner (never for Tor or your own server: those must not leave). */
+  function backupPreset() {
+    if (!state.fallback) return null;
+    return state.source === 'clearnet' ? A.PRESETS.blockstream : state.source === 'blockstream' ? A.PRESETS.clearnet : null;
+  }
+  function hostOf(base) { return String(base).replace(/^https?:[/][/]/i, '').split('/')[0]; }
+  var SWITCH_WHY = { rate: 'is throttling (HTTP 429)', server: 'returned a server error', timeout: 'did not answer in time', network: 'could not be reached' };
+
   function makeClient() {
     retire(state.client, 'data');
-    var p = A.PRESETS[state.source] || A.PRESETS.custom;
+    var p = A.PRESETS[state.source] || A.PRESETS.custom, bk = backupPreset();
     state.client = new A.Client({
       base: sourceBase(), concurrency: p.concurrency, delayMs: p.delayMs, timeoutMs: p.timeoutMs, retries: p.retries,
+      backup: bk ? { base: bk.base, concurrency: bk.concurrency, delayMs: bk.delayMs } : null,
+      onSwitch: function (i) { toast(hostOf(i.from) + ' ' + (SWITCH_WHY[i.reason] || 'failed') + ': using ' + hostOf(i.to) + ' for about ' + i.seconds + ' seconds.'); },
+      onRestore: function (i) { log(hostOf(i.base) + ' is answering again.'); },
       onRequest: function (path, c) { if (state.busy) $('progressText').textContent = $('progressText').dataset.title + ' — ' + c.network + ' request' + (c.network === 1 ? '' : 's'); }
     });
     state.explorer = new A.Explorer(state.client, state.graph);
@@ -129,9 +141,12 @@
   };
   function applySourceUi() {
     $('source').value = state.source;
+    var partner = state.source === 'clearnet' ? A.PRESETS.blockstream : state.source === 'blockstream' ? A.PRESETS.clearnet : null;
+    $('fallbackRow').hidden = !partner; $('fallbackOn').checked = state.fallback;
+    if (partner) $('fallbackName').textContent = hostOf(partner.base);
     $('customBase').hidden = state.source !== 'custom'; $('customPricesRow').hidden = state.source !== 'custom'; $('customPrices').value = state.customPrices;
     $('customBase').value = state.customBase;
-    $('sourceHint').textContent = SOURCE_HINT[state.source];
+    $('sourceHint').textContent = SOURCE_HINT[state.source] + (backupPreset() ? ' If it keeps failing, ' + hostOf(backupPreset().base) + ' answers instead for about a minute (it then sees those look-ups too).' : '');
     $('testResult').textContent = ''; $('testResult').className = '';
   }
   function cleanFiat(f) {
@@ -157,13 +172,16 @@
   function cleanAnalysis(a) { a = a && typeof a === 'object' ? a : {}; return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false }; }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ source: state.source, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
     try {
       var p = JSON.parse(raw);
       if (A.PRESETS[p.source]) state.source = p.source;
+      state.fallback = p.fallback !== false;
+      if (p.stepMode === 'ask' || p.stepMode === 'batch' || p.stepMode === 'all') state.stepMode = p.stepMode;
+      state.stepSize = num(p.stepSize, 1, 50, 5);
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
       state.capTx = num(p.capTx, 1, 500, 25); state.capReq = num(p.capReq, 1, 1000, 80); state.capPages = num(p.capPages, 1, 20, 2);
       state.showLabels = p.showLabels !== false;
@@ -207,6 +225,7 @@
       }
       var capHit = (r.errors || []).some(function (e) { return /request cap/.test(e); });
       var msg = title + ': ' + (r.added ? '+' + r.added + ' vertices' : 'nothing new') + ', ' + r.requests + ' request' + (r.requests === 1 ? '' : 's') + '.';
+      if (c.count.backup && c.backup) msg += ' ' + c.count.backup + ' of them went to ' + hostOf(c.backup.base) + '.';
       if (r.truncated) msg += ' Stopped at the per-expand limit; raise it under Expansion limits.';
       if (capHit) msg += ' Stopped at the request limit.';
       var errs = (r.errors || []).filter(function (e) { return !/request cap/.test(e); });
@@ -433,12 +452,26 @@
       if (!label) return null;
       var came = state.trace.prov.get(id);                                       // a bare "?" on the side the trace came from is noise: it stays one key press or menu item away
       if (label === '?' && came && ((came.dir === 'next' && dir === 'prev') || (came.dir === 'prev' && dir === 'next'))) return null;
-      var what = TRACE_WHAT[n.type][dir];
-      var tip = h.known ? 'Show ' + h.known + ' ' + what + (h.unknown ? ' (more may exist: ' + (n.type === 'addr' ? 'the wallet\'s history is not fully loaded' : 'this transaction is not loaded') + ')' : '') + '. Shift-click to choose which.'
+      var what = TRACE_WHAT[n.type][dir], N = state.stepSize;
+      var click = !h.known || h.known <= N || state.stepMode === 'all' ? ' Shift-click to choose which.'
+                : state.stepMode === 'ask' ? ' Click to choose which: the largest ' + N + ' come ticked.' : ' Click shows the largest ' + N + '; click again for the next.';
+      var tip = h.known ? 'Show ' + h.known + ' ' + what + (h.unknown ? ' (more may exist: ' + (n.type === 'addr' ? 'the wallet\'s history is not fully loaded' : 'this transaction is not loaded') + ')' : '') + '.' + click
                         : 'Look for ' + what + ' (loads data)';
       return { label: label, known: h.known, tip: tip };
     }
     return { left: one('prev'), right: one('next') };
+  }
+
+  /** What is hidden in numbers, for the tip over an arrow: "83 transactions · 12.4 BTC in total · largest 3.2 BTC · 2021-03-02 to 2022-06-10". */
+  function summaryText(s) {
+    return S.fmtBtc(s.total) + ' BTC in total · largest ' + S.fmtBtc(s.largest) + ' BTC' + (s.first != null ? ' · ' + S.fmtTime(s.first, false) + (s.last !== s.first ? ' to ' + S.fmtTime(s.last, false) : '') : '');
+  }
+  /** The extra line under an arrow's tip (on hover only: computing it for every vertex on every frame would be wasteful). */
+  function handleSummary(id, side) {
+    var n = state.graph.nodes.get(id), dir = side === 'left' ? 'prev' : 'next', s = TR.summary(state.graph, state.trace.shown, id, dir);
+    if (!n || !s.count) return '';
+    var noun = n.type === 'addr' ? plural(s.count, 'transaction') : dir === 'next' ? plural(s.count, 'output') : plural(s.count, 'input');
+    return '\n' + noun + ' · ' + summaryText(s);
   }
 
   function traceNote(n) {
@@ -487,7 +520,8 @@
     var g = state.graph, T = state.trace, n = g.nodes.get(id);
     if (!traceOn() || !n) return Promise.resolve(false);
     if (n.type !== 'tx' && n.type !== 'addr') { toast('Nothing lies beyond ' + (n.type === 'coinbase' ? 'a coinbase' : n.type === 'data' ? 'an OP_RETURN output' : 'this output') + '.'); return Promise.resolve(false); }
-    var opts = { limit: o.only ? 100000 : state.capTx, inner: 8, only: o.only || null }, combined = null, revealedIds = [];
+    var mode = o.mode || state.stepMode, N = state.stepSize, nodes0 = g.nodes.size, asked = false;
+    var opts = { limit: o.only ? 100000 : mode === 'batch' ? Math.min(N, state.capTx) : state.capTx, inner: 8, only: o.only || null }, combined = null, revealedIds = [];
     function add(r) {
       if (!r) return;
       combined = combined || { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] };
@@ -507,11 +541,13 @@
         }
       });
       chain = chain.then(function () {
+        if (!o.only && mode === 'ask' && TR.hidden(g, T.shown, id, dir).known > N) { asked = true; return; }   // too many to show unasked: the list opens instead, and nothing more is loaded for it
         var p = TR.plan(g, T.shown, id, dir, opts);
         if (p.needLoad.length) return ex.loadMany(p.needLoad, opts.limit, dir === 'next').then(add);       // the transactions between wallets, to see the wallets beyond
       });
       return chain.then(function () {
         g.refreshDerived();
+        if (asked) { combined = combined || { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] }; combined.added = Math.max(0, g.nodes.size - nodes0); return combined; }
         var p = TR.plan(g, T.shown, id, dir, opts), rev = TR.revealed(p, id, dir);
         if (rev.length) {
           TR.place(T.pos, id, dir, p).forEach(function (v, k) { T.pos.set(k, v); });
@@ -524,39 +560,87 @@
       });
     }).then(function (r) {
       if (!r) return false;
+      if (asked) { traceChoose(id, dir, o.at); return false; }
       if (!revealedIds.length) { if (!r.failed) toast(ST.emptyReason(g, id, dir, { viaWallets: true })); return false; }
       traceChanged(revealedIds, false);
       return true;
     });
   }
 
-  /** Shift-click on a handle: a list of what is hidden in that direction, to tick the ones to show. */
+  /**
+   * The list behind an arrow: what is hidden in that direction, to tick the ones to show. It opens by itself when a click would
+   * show more than the step size (so nothing floods the screen), and on Shift-click. The largest few come ticked; the list can be
+   * sorted, narrowed by amount and by date, and each row says who is on the other side.
+   */
   function traceChoose(id, dir, at) {
     var g = state.graph, T = state.trace, n = g.nodes.get(id);
     if (!n || !walletOrTx(id)) return;
     var h = TR.hidden(g, T.shown, id, dir);
-    if (!h.known) { traceExpand(id, dir); return; }                                  // nothing to choose from yet: this loads it
-    var rows = TR.plan(g, T.shown, id, dir, { limit: 100000 }).primary;
-    var m = $('ctxMenu'); m.textContent = ''; closeStepMenu(); $('tooltip').hidden = true;
+    if (!h.known) { traceExpand(id, dir, { at: at }); return; }                      // nothing to choose from yet: this loads it
+    var N = state.stepSize, rows = TR.rows(g, T.shown, id, dir), sm = TR.summary(g, T.shown, id, dir);
+    var m = $('ctxMenu'); m.textContent = ''; m.classList.add('choosing'); closeStepMenu(); $('tooltip').hidden = true;
     m.appendChild(el('div', { 'class': 'ctxhead', text: 'Choose what to show ' + (dir === 'next' ? '▶' : '◀') + ' · ' + rows.length + ' hidden' }));
-    var boxes = [], list = el('div', { 'class': 'chooser' });
-    rows.forEach(function (r, i) {
-      var t = stepRowText(r), cb = el('input', { type: 'checkbox', 'aria-label': t.what });
-      cb.checked = i < Math.min(10, state.capTx); cb.addEventListener('change', count);
-      boxes.push({ cb: cb, id: r.id });
-      list.appendChild(el('label', { 'class': 'chooserrow' }, [cb, el('span', { 'class': 'what' }, [t.what, t.sub ? el('small', { text: t.sub }) : null]), el('span', { 'class': 'amt', text: t.amt })]));
+    m.appendChild(el('div', { 'class': 'chooserinfo', text: summaryText(sm) }));
+    var sortSel = el('select', { 'aria-label': 'Order' }, [el('option', { value: 'big', text: 'Largest first' }), el('option', { value: 'new', text: 'Newest first' }), el('option', { value: 'old', text: 'Oldest first' })]);
+    var minIn = el('input', { type: 'text', inputmode: 'decimal', placeholder: '0', size: '6', 'aria-label': 'Smallest amount, in BTC' });
+    var fromIn = el('input', { type: 'date', 'aria-label': 'From date' }), toIn = el('input', { type: 'date', 'aria-label': 'To date' });
+    var info = el('span', { 'class': 'chooserinfo' });
+    m.appendChild(el('div', { 'class': 'choosertools' }, [el('div', { 'class': 'toolrow' }, [sortSel, el('label', {}, ['at least ', minIn, ' BTC'])]), el('div', { 'class': 'toolrow' }, [el('label', {}, ['from ', fromIn]), el('label', {}, ['to ', toIn]), info])]));
+    var list = el('div', { 'class': 'chooser' });
+    var items = rows.map(function (r) {
+      var t = stepRowText(r), parties = n.type === 'addr' && r.type === 'tx' ? partiesOf(r.id, dir === 'next' ? 'out' : 'in', id) : null;
+      var who = parties ? (dir === 'next' ? 'to ' : 'from ') + partiesText(parties, 'itself') : '';
+      var sub = [who, t.sub].filter(Boolean).join(' · ');
+      var cb = el('input', { type: 'checkbox', 'aria-label': t.what });
+      cb.addEventListener('change', count);
+      return { r: r, cb: cb, row: el('label', { 'class': 'chooserrow' }, [cb, el('span', { 'class': 'what' }, [t.what, sub ? el('small', { text: sub }) : null]), el('span', { 'class': 'amt', text: t.amt })]) };
     });
-    m.appendChild(list);
+    function matches(r) {
+      var min = parseFloat(String(minIn.value).replace(',', '.')), from = fromIn.value ? Date.parse(fromIn.value + 'T00:00:00Z') / 1000 : null, to = toIn.value ? Date.parse(toIn.value + 'T23:59:59Z') / 1000 : null;
+      if (isFinite(min) && min > 0 && r.amount < Math.round(min * 1e8)) return false;
+      if (from != null && isFinite(from) && (r.time == null || r.time < from)) return false;
+      if (to != null && isFinite(to) && (r.time == null || r.time > to)) return false;
+      return true;
+    }
+    function ordered() {
+      var k = sortSel.value;
+      return items.slice().sort(function (x, y) {
+        var byAmt = y.r.amount - x.r.amount || (x.r.id < y.r.id ? -1 : 1);
+        if (k === 'big') return byAmt;
+        var tx = x.r.time, ty = y.r.time;
+        if (tx == null || ty == null) return (tx == null ? 1 : 0) - (ty == null ? 1 : 0) || byAmt;                // unknown times last
+        return (k === 'new' ? ty - tx : tx - ty) || byAmt;
+      });
+    }
     var go = el('button', { type: 'button', 'class': 'primary', onclick: function () {
-      var only = new Set(boxes.filter(function (b) { return b.cb.checked; }).map(function (b) { return b.id; }));
+      var only = new Set(items.filter(function (it) { return it.cb.checked; }).map(function (it) { return it.r.id; }));
       closeCtx(); if (only.size) traceExpand(id, dir, { only: only });
     } });
-    function count() { var k = boxes.filter(function (b) { return b.cb.checked; }).length; go.textContent = 'Show ' + k + ' selected'; go.disabled = !k; }
-    function setAll(v) { boxes.forEach(function (b) { b.cb.checked = v; }); count(); }
-    m.appendChild(el('div', { 'class': 'chooserfoot' }, [go, el('button', { type: 'button', text: 'All', onclick: function () { setAll(true); } }), el('button', { type: 'button', text: 'None', onclick: function () { setAll(false); } }),
-                                                         el('button', { type: 'button', text: 'Cancel', onclick: closeCtx })]));
-    count(); placeCtx(at || { x: 400, y: 200 });
-    var first = m.querySelector('input'); if (first) first.focus();
+    function count() { var k = items.filter(function (it) { return it.cb.checked; }).length; go.textContent = 'Show ' + k + ' ticked'; go.disabled = !k; }
+    function visible() { return ordered().filter(function (it) { return !it.row.hidden; }); }
+    function topN() { visible().forEach(function (it, i) { it.cb.checked = i < N; }); count(); }
+    function render() {
+      var ok = 0;
+      ordered().forEach(function (it) { list.appendChild(it.row); var yes = matches(it.r); it.row.hidden = !yes; if (!yes) it.cb.checked = false; else ok++; });
+      info.textContent = ok === items.length ? '' : ok + ' of ' + items.length + ' match';
+      count();
+    }
+    [sortSel, minIn, fromIn, toIn].forEach(function (c) { c.addEventListener(c === sortSel || c.type === 'date' ? 'change' : 'input', function () { render(); }); });
+    m.appendChild(list);
+    list.addEventListener('keydown', function (e) {
+      var boxes = visible().map(function (it) { return it.cb; }), i = boxes.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown' && i >= 0) { boxes[Math.min(boxes.length - 1, i + 1)].focus(); e.preventDefault(); }
+      else if (e.key === 'ArrowUp' && i >= 0) { boxes[Math.max(0, i - 1)].focus(); e.preventDefault(); }
+      else if (e.key === 'Enter' && !go.disabled) { e.preventDefault(); go.click(); }
+    });
+    m.appendChild(el('div', { 'class': 'chooserfoot' }, [go,
+      el('button', { type: 'button', text: 'Top ' + Math.min(N, items.length), title: 'Tick only the first ' + N + ' in this order', onclick: topN }),
+      el('button', { type: 'button', text: 'All', title: 'Tick everything listed', onclick: function () { visible().forEach(function (it) { it.cb.checked = true; }); count(); } }),
+      el('button', { type: 'button', text: 'None', onclick: function () { items.forEach(function (it) { it.cb.checked = false; }); count(); } }),
+      el('button', { type: 'button', text: 'Cancel', onclick: closeCtx })]));
+    render(); topN();
+    placeCtx(at || clientPosOf(id));
+    var first = m.querySelector('.chooser input'); if (first) first.focus();
   }
 
   // ---- taking things off the screen (always undoable) -------------------------------------------
@@ -1371,7 +1455,7 @@
   }
 
   // ---- right-click menu -----------------------------------------------------------------------
-  function closeCtx() { var m = $('ctxMenu'); if (!m.hidden) { m.hidden = true; m.textContent = ''; } }
+  function closeCtx() { var m = $('ctxMenu'); m.classList.remove('choosing'); if (!m.hidden) { m.hidden = true; m.textContent = ''; } }
 
   function placeCtx(at) {
     var m = $('ctxMenu'); m.hidden = false;
@@ -1396,7 +1480,7 @@
   }
 
   function buildCtx(ids, at) {
-    var m = $('ctxMenu'), g = state.graph; m.textContent = '';
+    var m = $('ctxMenu'), g = state.graph; m.textContent = ''; m.classList.remove('choosing');
     if (!ids) {
       m.appendChild(el('div', { 'class': 'ctxhead', text: 'Graph' }));
       ctxItem(m, 'Select all', function () { selectAllVisible(); }, { right: 'Ctrl+A' });
@@ -1426,8 +1510,8 @@
     if (traceOn() && (n.type === 'tx' || n.type === 'addr')) {
       function lab(dir) { return TR.handleLabel(TR.hidden(state.graph, state.trace.shown, n.id, dir)); }
       var T0 = state.trace, isSeed = T0.seeds.indexOf(n.id) >= 0, inTrace = T0.shown.has(n.id), branch = inTrace ? traceBranch(n.id) : [];
-      ctxItem(m, 'Show forward ▶', function () { traceExpand(n.id, 'next'); }, { right: lab('next') });
-      ctxItem(m, '◀ Show backward', function () { traceExpand(n.id, 'prev'); }, { right: lab('prev') });
+      ctxItem(m, 'Show forward ▶', function () { traceExpand(n.id, 'next', { at: at }); }, { right: lab('next') });
+      ctxItem(m, '◀ Show backward', function () { traceExpand(n.id, 'prev', { at: at }); }, { right: lab('prev') });
       ctxItem(m, 'Choose what to show ▶…', function () { traceChoose(n.id, 'next', at); }, { keep: true, disabled: !TR.hidden(state.graph, T0.shown, n.id, 'next').known });
       ctxItem(m, '◀ Choose what to show…', function () { traceChoose(n.id, 'prev', at); }, { keep: true, disabled: !TR.hidden(state.graph, T0.shown, n.id, 'prev').known });
       m.appendChild(el('div', { 'class': 'sep' }));
@@ -1500,6 +1584,10 @@
 
   function ctxKeys(e) {
     var m = $('ctxMenu'); if (m.hidden) return false;
+    if (m.classList.contains('choosing')) {                                              // the list of things to show: Tab and the arrow keys belong to its fields
+      if (e.key === 'Escape') { closeCtx(); $('cv').focus(); e.preventDefault(); return true; }
+      return false;
+    }
     var items = Array.prototype.slice.call(m.querySelectorAll('button:not(:disabled), a')), i = items.indexOf(document.activeElement);
     if (e.key === 'ArrowDown') { items[(i + 1) % items.length].focus(); }
     else if (e.key === 'ArrowUp') { items[(i - 1 + items.length) % items.length].focus(); }
@@ -1558,6 +1646,103 @@
     return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: title + ' (' + rows.length + ')' }), list]);
   }
 
+  // ---- a wallet's transactions, told apart: in and out ----------------------------------------------
+  /** The other side of a transaction, without `selfId`: its output wallets (side 'out') or its input wallets (side 'in'). null when the transaction is not loaded. */
+  function partiesOf(txId, side, selfId) {
+    var g = state.graph, t = g.nodes.get(txId);
+    if (!t || t.type !== 'tx' || t.loaded === false) return null;
+    var seen = new Set(), names = [];
+    g.edgesOf(txId).forEach(function (e) {
+      var other = side === 'out' ? (e.kind === 'out' && e.source === txId ? e.target : null) : (e.kind === 'in' && e.target === txId ? e.source : null);
+      if (!other || other === selfId || seen.has(other) || !g.nodes.has(other)) return;
+      seen.add(other); names.push(focusLabel(other));
+    });
+    return { names: names };
+  }
+  /** "Robinhood Hot Wallet, bc1qdg…  +2", or `itself` when nobody else is on that side. */
+  function partiesText(p, itself) {
+    if (!p) return '';
+    if (!p.names.length) return itself;
+    return p.names.slice(0, 2).join(', ') + (p.names.length > 2 ? '  +' + (p.names.length - 2) : '');
+  }
+
+  /**
+   * One row per transaction that touches a wallet, with what it did to the wallet: money 'in', money 'out', or 'self'.
+   * Change that came back to the same wallet is netted off, so a payment with change reads as one 'out' for what really left.
+   * Row: { id, txid, time, recv, sent, dir, mixed, amount }.
+   */
+  function walletRows(n) {
+    var g = state.graph, byTx = new Map(), rows = [];
+    g.edgesOf(n.id).forEach(function (e) {
+      var received = e.kind === 'out' && e.target === n.id, spent = e.kind === 'in' && e.source === n.id;
+      if (!received && !spent) return;
+      var r = byTx.get(e.txid) || { recv: 0, sent: 0 };
+      if (received) r.recv += e.amount; else r.sent += e.amount;
+      byTx.set(e.txid, r);
+    });
+    byTx.forEach(function (r, txid) {
+      var id = ID.tx(txid), t = g.nodes.get(id), net = r.recv - r.sent, mixed = r.recv > 0 && r.sent > 0;
+      var dir = !r.sent ? 'in' : !r.recv ? 'out' : net > 0 ? 'in' : net < 0 ? 'out' : 'self';
+      if (mixed && dir === 'out') { var po = partiesOf(id, 'out', n.id); if (po && !po.names.length) dir = 'self'; }          // every output came back to the wallet: it only moved money to itself
+      rows.push({ id: id, txid: txid, time: t ? t.time : null, pending: !!t && t.confirmed === false, unloaded: !!t && t.loaded === false, recv: r.recv, sent: r.sent, dir: dir, mixed: mixed, amount: dir === 'self' ? r.sent : mixed ? Math.abs(net) : (dir === 'in' ? r.recv : r.sent) });
+    });
+    return rows;
+  }
+
+  var DIR_TAG = { 'in': '↓ in', out: '↑ out', self: '↔ self' };
+
+  /** The Transactions list of a selected wallet: In / Out told apart, who is on the other side, sortable, with a button to put one on the trace. */
+  function walletTxSection(n) {
+    var rows = walletRows(n); if (!rows.length) return null;
+    var V = state.walletView, box = el('div', { 'class': 'insp-section walletsec' });
+    var inRows = rows.filter(function (r) { return r.dir === 'in'; }), outRows = rows.filter(function (r) { return r.dir === 'out'; });
+    function total(list) { return list.reduce(function (t, r) { return t + r.amount; }, 0); }
+    function when(r) { return r.pending ? Infinity : r.time == null ? -Infinity : r.time; }                       // unconfirmed is the newest; a transaction not loaded yet has no date: last
+    function byTime(a, b) { var ta = when(a), tb = when(b); return ta === tb ? (b.amount - a.amount) : (tb > ta ? 1 : -1); }
+    function draw() {
+      if (renderer) renderer.setHighlight(null);
+      box.textContent = '';
+      var want = rows.filter(function (r) { return V.dir === 'all' || r.dir === V.dir; });
+      want.sort(V.sort === 'big' ? function (a, b) { return b.amount - a.amount || (a.id < b.id ? -1 : 1); } : byTime);
+      box.appendChild(el('span', { 'class': 'lbl', text: 'Transactions (' + rows.length + ')' }));
+      box.appendChild(el('div', { 'class': 'walletsum', title: 'Per transaction: what the wallet received minus what it spent in it, so change that came back is netted off' },
+        ['↓ in ', el('span', { 'class': 'strong', text: S.fmtBtc(total(inRows)) + ' BTC' }), ' (' + inRows.length + ')  ·  ↑ out ', el('span', { 'class': 'strong', text: S.fmtBtc(total(outRows)) + ' BTC' }), ' (' + outRows.length + ')']));
+      var seg = el('div', { 'class': 'seg walletseg', role: 'radiogroup', 'aria-label': 'Which transactions' }, [['all', 'All ' + rows.length], ['in', '↓ In ' + inRows.length], ['out', '↑ Out ' + outRows.length]].map(function (x) {
+        return el('button', { type: 'button', role: 'radio', 'data-dir': x[0], 'aria-checked': String(V.dir === x[0]), text: x[1], onclick: function () { V.dir = x[0]; V.more = 40; draw(); } });
+      }));
+      var sortSel = el('select', { 'aria-label': 'Order', title: 'Order' }, [el('option', { value: 'new', text: 'Newest first' }), el('option', { value: 'big', text: 'Largest first' })]);
+      sortSel.value = V.sort; sortSel.addEventListener('change', function () { V.sort = sortSel.value; draw(); });
+      box.appendChild(el('div', { 'class': 'walletbar' }, [seg, sortSel]));
+      var list = el('div', { 'class': 'linkrows' }), T = state.trace;
+      want.slice(0, V.more).forEach(function (r) {
+        var t = state.graph.nodes.get(r.id), fx = fiatOf(r.amount, r.time);
+        var parties = r.dir === 'self' ? { names: [] } : partiesOf(r.id, r.dir === 'in' ? 'in' : 'out', n.id);
+        var who = partiesText(parties, 'itself');
+        var tag = el('span', { 'class': 'dirtag ' + r.dir, text: DIR_TAG[r.dir],
+                               title: r.dir === 'in' ? 'Money came in' + (r.mixed ? ' (the wallet also spent in this transaction; net shown)' : '') : r.dir === 'out' ? 'Money went out' + (r.mixed ? ' (some came back to the wallet as change; net shown)' : '') : 'Moved within the wallet' });
+        var kids = [tag, el('span', { 'class': 'who' }, [who ? (r.dir === 'in' ? 'from ' : r.dir === 'out' ? 'to ' : '') + who : S.shortId(r.txid, 6), who ? el('small', { text: S.shortId(r.txid, 6) }) : r.unloaded ? el('small', { text: 'no details yet' }) : null])];
+        if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time, false) }));
+        kids.push(el('span', { 'class': 'amt', text: (r.dir === 'in' ? '+' : r.dir === 'out' ? '−' : '') + mixText(S.fmtBtc(r.amount) + ' BTC', fx) }));
+        var line = el('button', { type: 'button', 'class': 'linkrow ' + r.dir, title: r.id + (fx ? ' · ' + fx.text : ''), onclick: function () { navigate(r.id); } }, kids);
+        var onTrace = !traceOn() || T.shown.has(r.id), parts = [line];
+        if (!onTrace && T.shown.has(n.id)) {
+          parts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ show', title: 'Put this transaction on the trace',
+                                    onclick: function (ev) { ev.stopPropagation(); traceExpand(n.id, r.sent > 0 ? 'next' : 'prev', { only: new Set([r.id]) }); } }));
+        }
+        parts.push(copyBtn(r.txid, 'transaction id'));
+        var wrap = el('div', { 'class': 'rowcopy' + (onTrace ? '' : ' off') }, parts);
+        wrap.addEventListener('mouseenter', function () { if (renderer) renderer.setHighlight(r.id); });
+        wrap.addEventListener('mouseleave', function () { if (renderer) renderer.setHighlight(null); });
+        list.appendChild(wrap);
+      });
+      if (want.length > V.more) list.appendChild(el('button', { type: 'button', 'class': 'moreRows', text: 'Show ' + Math.min(40, want.length - V.more) + ' more (' + (want.length - V.more) + ' not listed)', onclick: function () { V.more += 40; draw(); } }));
+      if (!want.length) list.appendChild(el('div', { 'class': 'hint', text: 'None of these.' }));
+      box.appendChild(list);
+    }
+    draw();
+    return box;
+  }
+
   function connectedTxSections(n) {
     var g = state.graph, out = [];
     function txTime(txid) { var t = g.nodes.get(ID.tx(txid)); return t ? t.time : null; }
@@ -1574,20 +1759,7 @@
       if (spent.length) out.push(linkRows('Spent by', spent));
       if (!funded.length && !spent.length && n.loaded && !n.outspendsLoaded) out.push(el('p', { 'class': 'hint', text: 'Focus here to load what spent its outputs.' }));
     } else if (n.type === 'addr') {
-      var byTx = new Map(), rows = [];                                   // one row per transaction: its net effect on this address
-      g.edgesOf(n.id).forEach(function (e) {
-        var received = e.kind === 'out' && e.target === n.id, spent = e.kind === 'in' && e.source === n.id;
-        if (!received && !spent) return;
-        var r = byTx.get(e.txid) || { recv: 0, sent: 0 };
-        if (received) r.recv += e.amount; else r.sent += e.amount;
-        byTx.set(e.txid, r);
-      });
-      byTx.forEach(function (r, txid) {
-        var net = r.recv - r.sent;
-        rows.push({ id: ID.tx(txid), label: S.shortId(txid, 6), amount: Math.abs(net), sign: net >= 0 ? '+' : '−', time: txTime(txid) });
-      });
-      rows.sort(function (a, b) { return (b.time == null ? Infinity : b.time) - (a.time == null ? Infinity : a.time); });
-      if (rows.length) out.push(linkRows('Transactions', rows));
+      var sec = walletTxSection(n); if (sec) out.push(sec);
     }
     return out;
   }
@@ -2217,7 +2389,7 @@
     renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, axis: timeScaleOn() && state.layoutRes ? state.layoutRes.axis : marksOn() ? { mode: 'marks' } : null,
                        range: { from: f.timeFrom, to: f.timeTo }, showLabels: state.showLabels, focusId: focusOpt() ? state.focus : null,
                        edgeLabel: state.edgeLabels ? edgeLabelFor : null,
-                       handles: traceOn() ? handlesFor : null, seedIds: traceOn() ? new Set(state.trace.seeds) : null, noDim: traceOn(), labelAll: traceOn(), nodeNote: traceOn() ? traceNote : null,
+                       handles: traceOn() ? handlesFor : null, handleMore: traceOn() ? handleSummary : null, seedIds: traceOn() ? new Set(state.trace.seeds) : null, noDim: traceOn(), labelAll: traceOn(), nodeNote: traceOn() ? traceNote : null,
                        nodeFlags: state.analysis.flags ? nodeFlags : null, clusterColor: state.analysis.clusters ? clusterColor : null, edgeMark: state.analysis.change ? changeEdgeMark : null });
     document.body.classList.toggle('axis-on', usesAxis());
     if (o.fit) renderer.fit();
@@ -2694,13 +2866,14 @@
       onSelectEdge: function (id) { state.selected = new Set(); state.selectedEdge = id; syncSelection(); },
       onHover: onHover,
       onMove: function (id, p) { state.pinned.set(id, { x: p.x, y: p.y }); if (traceOn() && state.arrange === 'columns' && state.trace.shown.has(id)) { state.trace.pos.set(id, { x: p.x, y: p.y }); scheduleSave(); } },
-      onHandle: function (id, dir, shift, at) { if (shift) traceChoose(id, dir === 'left' ? 'prev' : 'next', at); else traceExpand(id, dir === 'left' ? 'prev' : 'next'); },
+      onHandle: function (id, dir, shift, at) { if (shift) traceChoose(id, dir === 'left' ? 'prev' : 'next', at); else traceExpand(id, dir === 'left' ? 'prev' : 'next', { at: at }); },
       onContext: openCtx,
       onBox: function (ids, additive) { setSel(additive ? Array.from(state.selected).concat(ids) : ids); },
       onExpand: function (id) { if (traceOn()) traceExpand(id, 'next'); else if (state.focusOn) navigate(id); else expandNode(id, 'both'); }
     });
     loadPrefs();
     makeClient();
+    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets;
@@ -2826,6 +2999,7 @@
 
     // source
     $('source').addEventListener('change', function () { state.source = this.value; applySourceUi(); makeClient(); savePrefs(); });
+    $('fallbackOn').addEventListener('change', function () { state.fallback = this.checked; applySourceUi(); makeClient(); savePrefs(); });
     $('customBase').addEventListener('change', function () { state.customBase = this.value.trim(); makeClient(); savePrefs(); });
     $('customPrices').addEventListener('change', function () { state.customPrices = this.value; state.books = {}; state.today = null; makePriceClient(); savePrefs(); if (fiatOn()) ensurePrices(); else syncFiatUi(); });
     $('testSource').addEventListener('click', function () {
@@ -2854,6 +3028,8 @@
     [['showData', 'showData'], ['showNonstd', 'showNonstd'], ['incPending', 'includePending'], ['incUnknown', 'includeUnknownTime']].forEach(function (p) {
       $(p[0]).addEventListener('change', function () { state.filter[p[1]] = this.checked; refresh({ relayout: p[1] === 'showData' || p[1] === 'showNonstd' }); scheduleSave(); });
     });
+    $('stepMode').addEventListener('change', function () { state.stepMode = this.value; savePrefs(); renderer.dirty = true; });
+    $('stepSize').addEventListener('change', function () { state.stepSize = num(this.value, 1, 50, 5); this.value = state.stepSize; savePrefs(); renderer.dirty = true; });
     ['capTx', 'capReq', 'capPages'].forEach(function (id) {
       $(id).addEventListener('change', function () {
         state.capTx = num($('capTx').value, 1, 500, 25); state.capReq = num($('capReq').value, 1, 1000, 80); state.capPages = num($('capPages').value, 1, 20, 2);

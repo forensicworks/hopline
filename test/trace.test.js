@@ -193,3 +193,28 @@ test('a whole forward trace from a real transaction behaves', () => {
   assert.deepEqual(small.needLoad, [], 'the spenders are already loaded in this fixture set');
   assert.ok(small.secondary.length === 1 && small.secondary[0].rows.length >= 1);
 });
+
+test('rows lists what is hidden in a direction, largest first, and never what is already shown', () => {
+  const g = chain();
+  assert.deepEqual(ids(TR.rows(g, new Set([ID.tx('t1')]), ID.tx('t1'), 'next')), [ID.addr('B'), ID.addr('C'), ID.addr('D')]);
+  assert.deepEqual(ids(TR.rows(g, new Set([ID.tx('t1'), ID.addr('B')]), ID.tx('t1'), 'next')), [ID.addr('C'), ID.addr('D')]);
+  assert.deepEqual(TR.rows(g, new Set(), 'nope', 'next'), []);
+});
+
+test('summary puts numbers on what is hidden: how many, the total, the largest and the dates', () => {
+  const g = chain();
+  const s = TR.summary(g, new Set([ID.tx('t1')]), ID.tx('t1'), 'next');
+  assert.deepEqual(s, { count: 3, total: 990, largest: 600, first: 1000, last: 1000 }, 'the wallets a transaction paid carry that transaction\'s time');
+  const w = TR.summary(g, new Set([ID.addr('B')]), ID.addr('B'), 'prev');
+  assert.deepEqual(w, { count: 1, total: 600, largest: 600, first: 1000, last: 1000 });
+  assert.deepEqual(TR.summary(g, new Set([ID.addr('C')]), ID.addr('C'), 'next'), { count: 0, total: 0, largest: 0, first: null, last: null }, 'unspent: nothing behind the arrow');
+});
+
+test('summary spans the dates of several transactions and skips unknown times', () => {
+  const g = new Graph();
+  const mk = (txid, time) => ({ txid, fee: 1, weight: 400, status: time ? { confirmed: true, block_height: 1, block_time: time } : { confirmed: false },
+    vin: [{ txid: 'p' + txid, vout: 0, prevout: { scriptpubkey_address: 'W', scriptpubkey_type: 'p2pkh', value: 5000 } }], vout: [{ scriptpubkey_address: 'X' + txid, scriptpubkey_type: 'p2pkh', value: 4000 }] });
+  g.addTx(mk('a', 5000)); g.addTx(mk('b', 9000)); g.addTx(mk('c', 0)); g.refreshDerived();
+  const s = TR.summary(g, new Set([ID.addr('W')]), ID.addr('W'), 'next');
+  assert.equal(s.count, 3); assert.equal(s.total, 15000); assert.equal(s.largest, 5000); assert.equal(s.first, 5000); assert.equal(s.last, 9000);
+});
