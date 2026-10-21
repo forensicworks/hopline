@@ -159,6 +159,16 @@ body.trace-on #stepbar { display: none !important; }
 .walletsec .linkrow .who { order: 4; flex: 1 1 100%; }
 .walletsec .linkrow .who small { display: inline; margin-left: 8px; }
 .linkrow.self .amt { color: var(--dim); }
+.walletgroup { margin: 0 0 6px; font-size: 12px; color: var(--dim); }
+.groupwrap { display: flex; flex-direction: column; gap: 3px; }
+.groupwrap.open { border-left: 2px solid var(--accent); padding-left: 4px; }
+.groupbtn { border-style: dashed; }
+.groupacts { display: flex; align-items: center; gap: 6px; padding-left: 4px; }
+.groupmembers { display: flex; flex-direction: column; gap: 3px; margin-left: 10px; }
+.choosergroup .groupmembers { margin-left: 18px; border-left: 2px solid var(--line); padding-left: 4px; }
+.choosergroup[hidden], .groupmembers[hidden] { display: none; }
+.grouphead { background: var(--panel-2); }
+#ctxMenu .groupfold { flex: none; padding: 0 6px; font-size: 13px; }
 .linkrow.in .amt { color: #6be675; }
 .linkrow.out .amt { color: #ff9f43; }
 .dirtag { flex: none; align-self: flex-start; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }

@@ -1,0 +1,93 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert');
+const G = require('../public/js/orion-group.js');
+
+let n = 0;
+const row = (dir, amount, parties, time) => ({ id: 'tx:' + (++n), dir, amount, time: time === undefined ? 1650000000 + n * 60 : time, parties: parties || [] });
+
+test('stats: count, total, smallest, largest and the dates (unknown times ignored)', () => {
+  const s = G.stats([row('in', 500, [], 1000), row('in', 100, [], null), row('in', 900, [], 3000)]);
+  assert.deepEqual(s, { count: 3, total: 1500, min: 100, max: 900, first: 1000, last: 3000 });
+  assert.deepEqual(G.stats([]), { count: 0, total: 0, min: 0, max: 0, first: null, last: null });
+});
+
+test('make: rows that share a wallet on the other side become one group, from three rows up', () => {
+  const rows = [row('out', 50000, ['addr:X']), row('out', 60000, ['addr:X', 'addr:chg1']), row('out', 70000, ['addr:X', 'addr:chg2']), row('out', 80000, ['addr:Y']), row('out', 90000, ['addr:Z'])];
+  const g = G.make(rows, { dustSats: 0 });
+  assert.equal(g.length, 1);
+  assert.equal(g[0].kind, 'party'); assert.equal(g[0].party, 'addr:X'); assert.equal(g[0].dir, 'out'); assert.equal(g[0].members.length, 3);
+  assert.equal(g[0].key, 'party|out|addr:X');
+  assert.equal(G.make(rows.slice(0, 2), { dustSats: 0 }).length, 0, 'two alike are not a group');
+});
+
+test('make: direction matters, so the same wallet paying and being paid makes two groups', () => {
+  const rows = [row('in', 20000, ['addr:X']), row('in', 21000, ['addr:X']), row('in', 22000, ['addr:X']), row('out', 20000, ['addr:X']), row('out', 21000, ['addr:X']), row('out', 22000, ['addr:X'])];
+  const g = G.make(rows, { dustSats: 0 });
+  assert.deepEqual(g.map((x) => x.key).sort(), ['party|in|addr:X', 'party|out|addr:X']);
+});
+
+test('make: a row lands in at most one group; the wallet shared by the most rows goes first', () => {
+  const a = row('out', 30000, ['addr:A', 'addr:B']), b = row('out', 30000, ['addr:A', 'addr:B']), c = row('out', 30000, ['addr:A', 'addr:B']), d = row('out', 30000, ['addr:B']), e = row('out', 30000, ['addr:B']);
+  const g = G.make([a, b, c, d, e], { dustSats: 0 });
+  assert.equal(g.length, 1, 'B is shared by five rows, A only by three, and the three are taken by B');
+  assert.equal(g[0].party, 'addr:B'); assert.equal(g[0].members.length, 5);
+});
+
+test('make: after the wallet groups, small rows of one direction are gathered, but only from three up', () => {
+  const rows = [row('in', 500, []), row('in', 900, []), row('in', 9999, []), row('in', 10000, []), row('out', 100, []), row('out', 200, [])];
+  const g = G.make(rows, { dustSats: 10000 });
+  assert.equal(g.length, 1);
+  assert.equal(g[0].kind, 'small'); assert.equal(g[0].dir, 'in'); assert.equal(g[0].members.length, 3, '10000 is not under 10000');
+  assert.equal(G.make(rows, { dustSats: 0 }).length, 0, 'zero switches the small-amount groups off');
+});
+
+test('make: a wallet group takes its small rows with it, and the small group only gets what is left', () => {
+  const rows = [row('out', 500, ['addr:X']), row('out', 600, ['addr:X']), row('out', 700, ['addr:X']), row('out', 800, []), row('out', 900, []), row('out', 950, [])];
+  const g = G.make(rows, { dustSats: 10000 });
+  assert.deepEqual(g.map((x) => x.kind + ':' + x.members.length), ['party:3', 'small:3']);
+});
+
+test('make: rows without a wallet on the other side never form a wallet group, and duplicates in one row count once', () => {
+  assert.equal(G.make([row('in', 50000, []), row('in', 50000, []), row('in', 50000, [])], { dustSats: 0 }).length, 0);
+  const g = G.make([row('in', 50000, ['addr:X', 'addr:X']), row('in', 50000, ['addr:X']), row('in', 50000, ['addr:X'])], { dustSats: 0 });
+  assert.equal(g.length, 1); assert.equal(g[0].members.length, 3);
+});
+
+test('make is deterministic and does not change its input', () => {
+  const rows = [row('out', 50000, ['addr:Y']), row('out', 60000, ['addr:Y']), row('out', 70000, ['addr:Y']), row('out', 1, ['addr:X']), row('out', 2, ['addr:X']), row('out', 3, ['addr:X'])];
+  const copy = rows.slice();
+  const a = G.make(rows, { dustSats: 0 }), b = G.make(rows.slice().reverse(), { dustSats: 0 });
+  assert.deepEqual(rows, copy);
+  assert.deepEqual(a.map((x) => x.key), b.map((x) => x.key), 'a tie is broken by the total, then by name, not by the order of the rows');
+  assert.equal(a[0].party, 'addr:Y', 'the larger total first');
+});
+
+test('layout: a group sits where its first member is, the others disappear into it, numbers are attached', () => {
+  const r1 = row('out', 100, ['addr:X'], 10), r2 = row('out', 50000, ['addr:Q'], 20), r3 = row('out', 200, ['addr:X'], 30), r4 = row('out', 300, ['addr:X'], 40), r5 = row('out', 60000, ['addr:R'], 50);
+  const sorted = [r2, r1, r5, r3, r4];                                          // the order being shown
+  const groups = G.make(sorted, { dustSats: 0 });
+  const items = G.layout(sorted, groups);
+  assert.deepEqual(items.map((i) => i.type), ['row', 'group', 'row']);
+  assert.equal(items[0].row, r2); assert.equal(items[2].row, r5);
+  const g = items[1].group;
+  assert.deepEqual(g.members, [r1, r3, r4], 'members in the order shown');
+  assert.equal(g.stats.count, 3); assert.equal(g.stats.total, 600); assert.equal(g.stats.first, 10); assert.equal(g.stats.last, 40);
+});
+
+test('layout: every row is accounted for exactly once', () => {
+  const rows = [];
+  for (let i = 0; i < 40; i++) rows.push(row(i % 2 ? 'in' : 'out', 100 + i * 1000, i % 5 === 0 ? ['addr:big'] : ['addr:p' + i]));
+  const groups = G.make(rows, { dustSats: 5000 });
+  const items = G.layout(rows, groups);
+  const seen = [];
+  items.forEach((it) => { if (it.type === 'row') seen.push(it.row); else it.group.members.forEach((m) => seen.push(m)); });
+  assert.equal(seen.length, 40); assert.equal(new Set(seen).size, 40);
+});
+
+test('layout drops members that are not in the list being shown (a filter) and keeps the rest', () => {
+  const a = row('in', 50000, ['addr:X']), b = row('in', 50000, ['addr:X']), c = row('in', 50000, ['addr:X']);
+  const groups = G.make([a, b, c], { dustSats: 0 });
+  const items = G.layout([a, c], groups);
+  assert.equal(items.length, 1); assert.deepEqual(items[0].group.members, [a, c]); assert.equal(items[0].group.stats.count, 2);
+});

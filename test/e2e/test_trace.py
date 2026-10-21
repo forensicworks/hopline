@@ -436,7 +436,7 @@ def test_start_over_from_here_replaces_the_trace(fpage):
     fpage.click("#ctxMenu >> text=Start over from here"); idle(fpage); settle(fpage)
     assert shown(fpage) == {BIG_ADDR}
     assert fpage.evaluate("() => window.__orion.state.trace.seeds") == [BIG_ADDR]
-    assert fpage.is_disabled("#traceUndo"), "a fresh start has nothing to undo"
+    assert fpage.is_enabled("#traceUndo"), "starting over is itself a step: it can be taken back (see the reset tests)"
 
 
 def test_add_an_already_shown_vertex_as_another_starting_point(fpage):
@@ -508,3 +508,71 @@ def test_starting_points_hidden_vertices_and_positions_survive_a_reload(fpage):
     assert shown(fpage) == set(want) and {i: pos(fpage, i) for i in shown(fpage)} == want
     assert sorted(fpage.evaluate("() => window.__orion.state.trace.seeds")) == seeds
     assert drawn_texts(fpage).count("START") == 2
+
+
+def test_reset_to_start_can_be_undone_and_brings_back_the_trace_with_its_own_steps(fpage):
+    start_trace(fpage)
+    click_handle(fpage, NORMAL_ID, "right"); idle(fpage)
+    click_handle(fpage, SMALL_ADDR, "right"); idle(fpage)
+    before = shown(fpage)
+    places = {i: pos(fpage, i) for i in before}
+    assert len(before) == 5 and fpage.is_enabled("#traceUndo")
+    fpage.click("#traceReset"); settle(fpage)
+    assert shown(fpage) == {NORMAL_ID}
+    assert fpage.is_enabled("#traceUndo"), "the reset itself is a step that can be taken back"
+    assert fpage.locator("#toast button:has-text('Undo')").count() == 1
+    fpage.click("#traceUndo"); idle(fpage); settle(fpage)
+    assert shown(fpage) == before
+    assert all(abs(pos(fpage, i)[0] - places[i][0]) <= 1 and abs(pos(fpage, i)[1] - places[i][1]) <= 1 for i in before), "every vertex is where it was"
+    assert fpage.is_enabled("#traceUndo"), "and the steps from before the reset are still there"
+    fpage.click("#traceUndo"); idle(fpage)
+    assert shown(fpage) == {NORMAL_ID, BIG_ADDR, SMALL_ADDR}
+    fpage.keyboard.press("Control+z"); settle(fpage)
+    assert shown(fpage) == {NORMAL_ID} and fpage.is_disabled("#traceUndo")
+
+
+def test_ctrl_z_and_the_toast_button_also_undo_a_reset(fpage):
+    start_trace(fpage)
+    click_handle(fpage, NORMAL_ID, "right"); idle(fpage)
+    before = shown(fpage)
+    fpage.click("#traceReset"); settle(fpage)
+    fpage.locator("#cv").focus(); fpage.keyboard.press("Control+z"); settle(fpage)
+    assert shown(fpage) == before
+    fpage.click("#traceReset"); settle(fpage)
+    fpage.click("#toast button:has-text('Undo')"); settle(fpage)
+    assert shown(fpage) == before
+
+
+def test_resetting_a_trace_that_is_already_one_vertex_changes_nothing_and_adds_no_step(fpage):
+    start_trace(fpage)
+    fpage.click("#traceReset"); settle(fpage)
+    assert shown(fpage) == {NORMAL_ID} and fpage.is_disabled("#traceUndo")
+
+
+def test_start_over_from_here_can_be_undone_and_so_can_a_reset_after_several_starting_points(fpage):
+    start_trace(fpage)
+    click_handle(fpage, NORMAL_ID, "right"); idle(fpage)
+    open_query(fpage, COINBASE["txid"]); settle(fpage)                              # a second starting point
+    before = shown(fpage)
+    seeds = sorted(fpage.evaluate("() => window.__orion.state.trace.seeds"))
+    assert len(seeds) == 2
+    p = xy(fpage, SMALL_ADDR); fpage.mouse.click(p["x"], p["y"], button="right")
+    fpage.click("#ctxMenu >> text=Start over from here"); idle(fpage); settle(fpage)
+    assert shown(fpage) == {SMALL_ADDR}
+    fpage.click("#traceUndo"); idle(fpage); settle(fpage)
+    assert shown(fpage) == before and sorted(fpage.evaluate("() => window.__orion.state.trace.seeds")) == seeds
+    fpage.click("#traceReset"); settle(fpage)
+    assert len(shown(fpage)) == 1
+    fpage.click("#traceUndo"); idle(fpage); settle(fpage)
+    assert shown(fpage) == before and sorted(fpage.evaluate("() => window.__orion.state.trace.seeds")) == seeds, "both starting points come back"
+
+
+def test_a_reset_survives_in_the_undo_of_a_later_load(fpage):
+    start_trace(fpage)
+    click_handle(fpage, NORMAL_ID, "right"); idle(fpage)
+    fpage.click("#traceReset"); settle(fpage)
+    fpage.click("#btnClear"); fpage.click("#btnClear"); settle(fpage)
+    fpage.click("#btnUndoLoad"); idle(fpage); settle(fpage)                         # Clear is taken back: the trace comes back as it was after the reset, with the reset still undoable
+    assert shown(fpage) == {NORMAL_ID} and fpage.is_enabled("#traceUndo")
+    fpage.click("#traceUndo"); idle(fpage); settle(fpage)
+    assert len(shown(fpage)) == 3

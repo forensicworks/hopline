@@ -133,7 +133,8 @@ def test_newest_first_by_default_and_largest_first_on_request(fpage, mock):
 
 
 def test_a_long_list_is_paged_not_dropped(fpage, mock):
-    # 45 transactions paying one wallet, added straight to the graph (no history paging involved)
+    # 45 transactions paying one wallet, added straight to the graph (no history paging involved); small amounts would fold into a group, so grouping is off here
+    fpage.evaluate("() => { window.__orion.state.groupRows = false; }")
     fpage.evaluate("""() => {
       const g = window.__orion.state.graph, w = 'bc1qbig' + 'x'.repeat(13);
       for (let i = 0; i < 45; i++) {

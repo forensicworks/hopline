@@ -256,6 +256,9 @@
         </select>
         <label for="stepSize">&ldquo;Many&rdquo; means more than</label>
         <input id="stepSize" type="number" min="1" max="50" value="5">
+        <label class="check" title="In a wallet's Transactions and in the list behind an arrow"><input type="checkbox" id="groupRows" checked> Group similar rows in the lists</label>
+        <label for="dustSats">Small means under (sats)</label>
+        <input id="dustSats" type="number" min="0" max="1000000000" value="10000" title="0 switches the small-amount groups off">
         <label for="capTx">Most transactions to load per expand</label>
         <input id="capTx" type="number" min="1" max="500" value="25">
         <label for="capReq">Most network requests per action</label>
@@ -290,6 +293,7 @@
         <p><b>Time line:</b> the scale shows the span of what is on screen; each dot is one transaction at its exact time (hover for the timestamp, click to select it; click a bar to select the transactions in it). Drag the two handles to show only a time window; <kbd>T</kbd> or the arrow folds the bar away.</p>
         <p><b>Backup server</b>: with <i>mempool.space</i> or <i>Blockstream.info</i> chosen, <i>If it keeps failing, use … instead</i> (on by default) lets the other one answer when the first throttles you (HTTP 429), fails or does not answer: a throttled request moves at once, other failures after one retry, and the failing server is left alone for about a minute. The message says when it switches, and each transaction keeps the server that actually sent it (the report lists both). The backup sees those look-ups too: turn the option off to keep everything on the one server. It is never used with Tor or your own server.</p>
         <p><b>A wallet's transactions</b> in the details are told apart: <i>↓ in</i> (green), <i>↑ out</i> (orange) and <i>↔ self</i>, each with who is on the other side, the date and the amount. <i>All / In / Out</i> filter them, the order can be newest or largest first, hovering a row outlines it on the graph, and in the Trace layout <i>+ show</i> puts just that transaction on the trace. Change that came back to the wallet is netted off.</p>
+        <p><b>Grouping</b>: three or more rows with the same wallet on the other side, or three or more small ones (under the limit in <i>Expansion limits</i>), fold into one line in a wallet's <i>Transactions</i> and in the list behind an arrow: "12 transactions to bc1q… · 2022-03 → 2022-06 · 0.0001 to 0.002 BTC each". Click it to list them, copy their ids, or (in a trace) put the largest few or all of them on it; in the arrow list its box ticks them all. Nothing is hidden: every row stays one click away, and <i>Group similar rows</i> switches it off.</p>
         <p><b>Copy</b>: every address and transaction id has a small copy icon beside it (in the details, the lists under it, the balances, the clusters, the Previous/Next list and the bar under the graph); the right-click menu has <i>Copy txid</i> / <i>Copy address</i>, and <kbd>Ctrl+C</kbd> on the graph copies the selected addresses and transaction ids, one per line (when no text is selected). With several selected, the details offer <i>Copy n addresses</i> and <i>Copy n transaction ids</i>.</p>
         <p><b>Undo load</b> (top bar) takes back the last thing that changed what is loaded: opening or expanding something, an auto-expand, an import, a removal or Clear, with the graph, the focus and the trace as they were. Use it when a very large wallet or transaction was loaded by mistake (a toast offers it too after a big load); press Cancel first if it is still loading. It keeps the last 10 changes in memory only, and a change too large to copy cannot be undone.</p>
         <p><b>Balance:</b> a wallet's details show what the server says it holds now, with when it was read. <i>Load balance</i> reads just that (one request); select several wallets for a list of balances and their total, and <i>Load n balances</i> for the ones not read yet. <i>Received here</i> and <i>Sent from here</i> count only what is loaded in the graph.</p>
@@ -389,6 +393,7 @@
 <script src="js/orion-render.js"></script>
 <script src="js/orion-steps.js"></script>
 <script src="js/orion-trace.js"></script>
+<script src="js/orion-group.js"></script>
 <script src="js/orion-analysis.js"></script>
 <script src="js/orion-labels.js"></script>
 <script src="js/orion-report.js"></script>

@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var M = OrionModel, S = OrionStyle, F = OrionFilter, L = OrionLayout, A = OrionApi, IO = OrionIO, R = OrionRender, NV = OrionNav, AD = OrionAddress, PR = OrionPrice, ST = OrionSteps, TG = OrionTags, XT = OrionExternal, TR = OrionTrace, AN = OrionAnalysis, LB = OrionLabels, RP = OrionReport, balanceOf = M.balanceOf;
+  var M = OrionModel, S = OrionStyle, F = OrionFilter, L = OrionLayout, A = OrionApi, IO = OrionIO, R = OrionRender, NV = OrionNav, AD = OrionAddress, PR = OrionPrice, ST = OrionSteps, TG = OrionTags, XT = OrionExternal, TR = OrionTrace, GR = OrionGroup, AN = OrionAnalysis, LB = OrionLabels, RP = OrionReport, balanceOf = M.balanceOf;
   var ID = M.ID;
   var KNOWN_BASE = window.ORION_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
@@ -47,7 +47,7 @@
     trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [] },
     undoLoads: [], analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], arrange: 'columns', boxMode: false,
-    stepMode: 'ask', stepSize: 5, chooseSort: 'big', walletView: { dir: 'all', sort: 'new', more: 40 },
+    stepMode: 'ask', stepSize: 5, chooseSort: 'big', groupRows: true, dustSats: 10000, walletView: { dir: 'all', sort: 'new', more: 40, open: new Set(), groupMore: {} },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -172,7 +172,7 @@
   function cleanAnalysis(a) { a = a && typeof a === 'object' ? a : {}; return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false }; }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, chooseSort: state.chooseSort, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, chooseSort: state.chooseSort, groupRows: state.groupRows, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -182,6 +182,7 @@
       state.fallback = p.fallback !== false;
       if (p.stepMode === 'ask' || p.stepMode === 'batch' || p.stepMode === 'all') state.stepMode = p.stepMode;
       state.stepSize = num(p.stepSize, 1, 50, 5);
+      state.groupRows = p.groupRows !== false; state.dustSats = num(p.dustSats, 0, 1000000000, 10000);
       if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old') state.chooseSort = p.chooseSort;
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
       state.capTx = num(p.capTx, 1, 500, 25); state.capReq = num(p.capReq, 1, 1000, 80); state.capPages = num(p.capPages, 1, 20, 2);
@@ -367,7 +368,7 @@
     function commit() {
       stopPlay(); $('tooltip').hidden = true;
       state.focus = id; state.keep.add(id);
-      if (traceOn()) { if (o.replaceTrace || !state.trace.shown.size) traceStart(id); else traceAddSeed(id, false); }       // a new vertex is ADDED to the trace; only "Start over" replaces it
+      if (traceOn()) { if (!state.trace.shown.size) traceStart(id); else if (o.replaceTrace) traceRestart(id); else traceAddSeed(id, false); }       // a new vertex is ADDED to the trace; only "Start over" replaces it
       state.filter.timeFrom = null; state.filter.timeTo = null;       // a window chosen for the old neighbourhood may hide the whole new one
       state.pinned.clear();
       if (!o.fromHistory) visitNav(id);
@@ -406,6 +407,20 @@
     var T = state.trace;
     T.seed = id; T.seeds = [id]; T.shown = new Set([id]); T.pos = new Map([[id, { x: 0, y: 0 }]]); T.prov = new Map(); T.undo = [];
     state.keep.add(id);
+  }
+
+  /**
+   * Begin again from one vertex, in a way that can be taken back: the trace as it was (every vertex, place, starting point and its own
+   * undo steps) is kept as one step, so Undo / Ctrl+Z puts it all back. Used by "Reset to start" and "Start over from here".
+   */
+  function traceRestart(id) {
+    var T = state.trace, snap = null;
+    if (T.seed && !(T.shown.size <= 1 && T.seeds.length <= 1 && !T.undo.length && T.seed === id)) snap = { data: traceData(), undo: clone(T.undo) };      // nothing to put back when it was already just this vertex
+    traceStart(id);
+    if (snap && snap.data) {
+      state.trace.undo.push({ type: 'restart', snap: snap });
+      toast('Started over from one vertex.', false, { text: 'Undo', fn: traceUndo });
+    }
   }
 
   /** The area the trace covers, to put a new starting point clear of it. */
@@ -463,9 +478,15 @@
     return { left: one('prev'), right: one('next') };
   }
 
+  /** "2022-03-02 to 2022-06-10", or just one date when both ends fall on the same day; '' when no time is known. */
+  function dateRange(a, b, sep) {
+    if (a == null) return '';
+    var x = S.fmtTime(a, false), y = S.fmtTime(b == null ? a : b, false);
+    return x === y ? x : x + (sep || ' to ') + y;
+  }
   /** What is hidden in numbers, for the tip over an arrow: "83 transactions · 12.4 BTC in total · largest 3.2 BTC · 2021-03-02 to 2022-06-10". */
   function summaryText(s) {
-    return S.fmtBtc(s.total) + ' BTC in total · largest ' + S.fmtBtc(s.largest) + ' BTC' + (s.first != null ? ' · ' + S.fmtTime(s.first, false) + (s.last !== s.first ? ' to ' + S.fmtTime(s.last, false) : '') : '');
+    return S.fmtBtc(s.total) + ' BTC in total · largest ' + S.fmtBtc(s.largest) + ' BTC' + (s.first != null ? ' · ' + dateRange(s.first, s.last) : '');
   }
   /** The extra line under an arrow's tip (on hover only: computing it for every vertex on every frame would be wasteful). */
   function handleSummary(id, side) {
@@ -570,15 +591,17 @@
 
   /**
    * The list behind an arrow: what is hidden in that direction, to tick the ones to show. It opens by itself when a click would
-   * show more than the step size (so nothing floods the screen), and on Shift-click. The largest few come ticked; the list can be
-   * sorted, narrowed by amount and by date, and each row says who is on the other side.
+   * show more than the step size (so nothing floods the screen), and on Shift-click. The top few (in the order shown) come ticked;
+   * the list can be sorted, narrowed by amount and by date, and each row says who is on the other side. Rows that look alike fold
+   * into one line with a box that ticks them all; its arrow opens them.
    */
   function traceChoose(id, dir, at) {
     var g = state.graph, T = state.trace, n = g.nodes.get(id);
     if (!n || !walletOrTx(id)) return;
     var h = TR.hidden(g, T.shown, id, dir);
     if (!h.known) { traceExpand(id, dir, { at: at }); return; }                      // nothing to choose from yet: this loads it
-    var N = state.stepSize, rows = TR.rows(g, T.shown, id, dir), sm = TR.summary(g, T.shown, id, dir);
+    var N = state.stepSize, rows = TR.rows(g, T.shown, id, dir), sm = TR.summary(g, T.shown, id, dir), gdir = dir === 'next' ? 'out' : 'in';
+    var noun = n.type === 'addr' ? 'transaction' : dir === 'next' ? 'output' : 'input';
     var m = $('ctxMenu'); m.textContent = ''; m.classList.add('choosing'); closeStepMenu(); $('tooltip').hidden = true;
     m.appendChild(el('div', { 'class': 'ctxhead', text: 'Choose what to show ' + (dir === 'next' ? '▶' : '◀') + ' · ' + rows.length + ' hidden' }));
     m.appendChild(el('div', { 'class': 'chooserinfo', text: summaryText(sm) }));
@@ -587,15 +610,20 @@
     var minIn = el('input', { type: 'text', inputmode: 'decimal', placeholder: '0', size: '6', 'aria-label': 'Smallest amount, in BTC' });
     var fromIn = el('input', { type: 'date', 'aria-label': 'From date' }), toIn = el('input', { type: 'date', 'aria-label': 'To date' });
     var info = el('span', { 'class': 'chooserinfo' });
-    m.appendChild(el('div', { 'class': 'choosertools' }, [el('div', { 'class': 'toolrow' }, [sortSel, el('label', {}, ['at least ', minIn, ' BTC'])]), el('div', { 'class': 'toolrow' }, [el('label', {}, ['from ', fromIn]), el('label', {}, ['to ', toIn]), info])]));
-    var list = el('div', { 'class': 'chooser' });
+    var groupChk = el('input', { type: 'checkbox', 'aria-label': 'Group similar rows' });
+    groupChk.checked = state.groupRows;
+    m.appendChild(el('div', { 'class': 'choosertools' }, [el('div', { 'class': 'toolrow' }, [sortSel, el('label', {}, ['at least ', minIn, ' BTC'])]), el('div', { 'class': 'toolrow' }, [el('label', {}, ['from ', fromIn]), el('label', {}, ['to ', toIn]), info]),
+      el('div', { 'class': 'toolrow' }, [el('label', { title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts' }, [groupChk, ' Group similar rows'])])]));
+    var list = el('div', { 'class': 'chooser' }), openG = new Set(), heads = [];
     var items = rows.map(function (r) {
       var t = stepRowText(r), parties = n.type === 'addr' && r.type === 'tx' ? partiesOf(r.id, dir === 'next' ? 'out' : 'in', id) : null;
       var who = parties ? (dir === 'next' ? 'to ' : 'from ') + partiesText(parties, 'itself') : '';
       var sub = [who, t.sub].filter(Boolean).join(' · ');
       var cb = el('input', { type: 'checkbox', 'aria-label': t.what });
-      cb.addEventListener('change', count);
-      return { r: r, cb: cb, row: el('label', { 'class': 'chooserrow' }, [cb, el('span', { 'class': 'what' }, [t.what, sub ? el('small', { text: sub }) : null]), el('span', { 'class': 'amt', text: t.amt })]) };
+      var it = { r: r, cb: cb, ok: true, row: el('label', { 'class': 'chooserrow' }, [cb, el('span', { 'class': 'what' }, [t.what, sub ? el('small', { text: sub }) : null]), el('span', { 'class': 'amt', text: t.amt })]) };
+      it.g = { id: r.id, dir: gdir, amount: r.amount, time: r.time, parties: parties ? parties.ids : [], item: it };      // what the grouping sees
+      cb.addEventListener('change', ticks);
+      return it;
     });
     function matches(r) {
       var min = parseFloat(String(minIn.value).replace(',', '.')), from = fromIn.value ? Date.parse(fromIn.value + 'T00:00:00Z') / 1000 : null, to = toIn.value ? Date.parse(toIn.value + 'T23:59:59Z') / 1000 : null;
@@ -620,26 +648,61 @@
       closeCtx(); if (only.size) traceExpand(id, dir, { only: only });
     } });
     function count() { var k = items.filter(function (it) { return it.cb.checked; }).length; go.textContent = 'Show ' + k + ' ticked'; go.disabled = !k; }
-    function visible() { return ordered().filter(function (it) { return !it.row.hidden; }); }
-    function topN() { visible().forEach(function (it, i) { it.cb.checked = i < N; }); count(); }
+    function syncHeads() {                                                                 // a group's box: ticked when all its listed rows are, half-ticked when some are
+      heads.forEach(function (hd) {
+        var vis = hd.g.members.filter(function (x) { return x.item.ok; }), on = vis.filter(function (x) { return x.item.cb.checked; }).length;
+        hd.cb.checked = on > 0 && on === vis.length; hd.cb.indeterminate = on > 0 && on < vis.length;
+      });
+    }
+    function ticks() { count(); syncHeads(); }
+    function visible() { return ordered().filter(function (it) { return it.ok; }); }
+    function topN() { visible().forEach(function (it, i) { it.cb.checked = i < N; }); ticks(); }
+    function groupBlock(grp) {
+      var st = grp.stats, open = openG.has(grp.key), vis = grp.members.filter(function (x) { return x.item.ok; });
+      var wrap = el('div', { 'class': 'choosergroup' });
+      grp.members.forEach(function (x) { x.item.row.hidden = !x.item.ok; });
+      var what = grp.kind === 'party' ? plural(st.count, noun) + (grp.dir === 'in' ? ' from ' : ' to ') + focusLabel(grp.party) : plural(st.count, 'small ' + noun) + ' (each under ' + S.fmtBtc(state.dustSats) + ' BTC)';
+      var range = dateRange(st.first, st.last, ' → ');
+      var sub = [range, S.fmtBtc(st.min) + ' to ' + S.fmtBtc(st.max) + ' BTC each', vis.length < st.count ? vis.length + ' of ' + st.count + ' match' : ''].filter(Boolean).join(' · ');
+      var hcb = el('input', { type: 'checkbox', 'aria-label': 'Tick all: ' + what });
+      heads.push({ g: grp, cb: hcb });
+      hcb.addEventListener('change', function () { vis.forEach(function (x) { x.item.cb.checked = hcb.checked; }); ticks(); });
+      var fold = el('button', { type: 'button', 'class': 'groupfold', 'aria-expanded': String(open), text: open ? '▾' : '▸', title: open ? 'Fold them' : 'List them one by one',
+                                onclick: function () { if (openG.has(grp.key)) openG.delete(grp.key); else openG.add(grp.key); render(); } });
+      wrap.appendChild(el('div', { 'class': 'chooserrow grouphead' }, [hcb, el('span', { 'class': 'what' }, [what, el('small', { text: sub })]),
+        el('span', { 'class': 'amt', text: S.fmtBtc(vis.reduce(function (t, x) { return t + x.amount; }, 0)) + ' BTC' }), fold]));
+      var body = el('div', { 'class': 'groupmembers' });
+      grp.members.forEach(function (x) { body.appendChild(x.item.row); });
+      body.hidden = !open; wrap.appendChild(body);
+      wrap.hidden = !vis.length;
+      return wrap;
+    }
     function render() {
-      var ok = 0;
-      ordered().forEach(function (it) { list.appendChild(it.row); var yes = matches(it.r); it.row.hidden = !yes; if (!yes) it.cb.checked = false; else ok++; });
+      var order = ordered(), ok = 0;
+      order.forEach(function (it) { it.ok = matches(it.r); if (!it.ok) it.cb.checked = false; else ok++; });
+      list.textContent = ''; heads = [];
+      var flat = order.map(function (it) { return it.g; });
+      var lay = state.groupRows ? GR.layout(flat, GR.make(flat, { minSize: 3, dustSats: state.dustSats })) : flat.map(function (x) { return { type: 'row', row: x }; });
+      lay.forEach(function (x) {
+        if (x.type === 'row') { x.row.item.row.hidden = !x.row.item.ok; list.appendChild(x.row.item.row); }
+        else list.appendChild(groupBlock(x.group));
+      });
       info.textContent = ok === items.length ? '' : ok + ' of ' + items.length + ' match';
-      count();
+      ticks(); clampCtx();
     }
     [sortSel, minIn, fromIn, toIn].forEach(function (c) { c.addEventListener(c === sortSel || c.type === 'date' ? 'change' : 'input', function () { if (c === sortSel) { state.chooseSort = sortSel.value; savePrefs(); } render(); }); });
+    groupChk.addEventListener('change', function () { state.groupRows = groupChk.checked; $('groupRows').checked = groupChk.checked; savePrefs(); render(); });
     m.appendChild(list);
     list.addEventListener('keydown', function (e) {
-      var boxes = visible().map(function (it) { return it.cb; }), i = boxes.indexOf(document.activeElement);
+      var boxes = Array.prototype.slice.call(list.querySelectorAll('input[type=checkbox]')).filter(function (b) { return b.offsetParent !== null; }), i = boxes.indexOf(document.activeElement);
       if (e.key === 'ArrowDown' && i >= 0) { boxes[Math.min(boxes.length - 1, i + 1)].focus(); e.preventDefault(); }
       else if (e.key === 'ArrowUp' && i >= 0) { boxes[Math.max(0, i - 1)].focus(); e.preventDefault(); }
       else if (e.key === 'Enter' && !go.disabled) { e.preventDefault(); go.click(); }
     });
     m.appendChild(el('div', { 'class': 'chooserfoot' }, [go,
       el('button', { type: 'button', text: 'Top ' + Math.min(N, items.length), title: 'Tick only the first ' + N + ' in the order shown', onclick: topN }),
-      el('button', { type: 'button', text: 'All', title: 'Tick everything listed', onclick: function () { visible().forEach(function (it) { it.cb.checked = true; }); count(); } }),
-      el('button', { type: 'button', text: 'None', onclick: function () { items.forEach(function (it) { it.cb.checked = false; }); count(); } }),
+      el('button', { type: 'button', text: 'All', title: 'Tick everything listed', onclick: function () { visible().forEach(function (it) { it.cb.checked = true; }); ticks(); } }),
+      el('button', { type: 'button', text: 'None', onclick: function () { items.forEach(function (it) { it.cb.checked = false; }); ticks(); } }),
       el('button', { type: 'button', text: 'Cancel', onclick: closeCtx })]));
     render(); topN();
     placeCtx(at || clientPosOf(id));
@@ -686,8 +749,12 @@
   function traceUndo() {
     var T = state.trace, last = T.undo.pop();
     if (!last) return;
-    var back = [];
-    if (last.type === 'hide') {
+    var back = [], fit = false;
+    if (last.type === 'restart') {                                                 // the trace as it was before "Reset to start" / "Start over", with its own steps
+      var keepUndo = last.snap.undo;
+      if (loadTraceData(last.snap.data)) { state.trace.undo = keepUndo; T = state.trace; traceSanitize(); T = state.trace; back = Array.from(T.shown); fit = true; }
+      else T.undo.push(last);
+    } else if (last.type === 'hide') {
       last.items.forEach(function (it) {
         T.shown.add(it.id); back.push(it.id);
         if (it.pos) T.pos.set(it.id, it.pos);
@@ -699,11 +766,12 @@
       if (last.added) traceDrop(last.id);
     } else last.ids.forEach(traceDrop);
     if (!T.seeds.length && T.shown.size) T.seeds = [Array.from(T.shown)[0]];
-    syncSeed(); syncSelection(); traceChanged(back, false);
+    syncSeed(); syncSelection(); traceChanged(back, fit);
   }
   function traceReset() {
     var T = state.trace; if (!T.seed) return;
-    traceStart(T.seed); state.selected = new Set([T.seed]); syncSelection(); traceChanged(null, true);
+    var seed = T.seed;
+    traceRestart(seed); state.selected = new Set([seed]); syncSelection(); traceChanged(null, true);
   }
   /** [ and ] in a trace: expand the selected wallet or transaction, or the start. */
   function traceKey(dir) {
@@ -1460,6 +1528,14 @@
   // ---- right-click menu -----------------------------------------------------------------------
   function closeCtx() { var m = $('ctxMenu'); m.classList.remove('choosing'); if (!m.hidden) { m.hidden = true; m.textContent = ''; } }
 
+  /** Keep the menu on the screen after its content grew (a group was opened in the list behind an arrow). */
+  function clampCtx() {
+    var m = $('ctxMenu'); if (m.hidden) return;
+    var r = m.getBoundingClientRect();
+    if (r.bottom > window.innerHeight - 8) m.style.top = Math.max(4, window.innerHeight - r.height - 8) + 'px';
+    if (r.right > window.innerWidth - 8) m.style.left = Math.max(4, window.innerWidth - r.width - 8) + 'px';
+  }
+
   function placeCtx(at) {
     var m = $('ctxMenu'); m.hidden = false;
     var w = m.offsetWidth, h = m.offsetHeight;
@@ -1654,13 +1730,14 @@
   function partiesOf(txId, side, selfId) {
     var g = state.graph, t = g.nodes.get(txId);
     if (!t || t.type !== 'tx' || t.loaded === false) return null;
-    var seen = new Set(), names = [];
+    var seen = new Set(), names = [], ids = [];
     g.edgesOf(txId).forEach(function (e) {
       var other = side === 'out' ? (e.kind === 'out' && e.source === txId ? e.target : null) : (e.kind === 'in' && e.target === txId ? e.source : null);
       if (!other || other === selfId || seen.has(other) || !g.nodes.has(other)) return;
       seen.add(other); names.push(focusLabel(other));
+      if (g.nodes.get(other).type === 'addr') ids.push(other);                       // the wallets (not a coinbase or a data output): what rows can be grouped by
     });
-    return { names: names };
+    return { names: names, ids: ids };
   }
   /** "Robinhood Hot Wallet, bc1qdg…  +2", or `itself` when nobody else is on that side. */
   function partiesText(p, itself) {
@@ -1686,15 +1763,20 @@
     byTx.forEach(function (r, txid) {
       var id = ID.tx(txid), t = g.nodes.get(id), net = r.recv - r.sent, mixed = r.recv > 0 && r.sent > 0;
       var dir = !r.sent ? 'in' : !r.recv ? 'out' : net > 0 ? 'in' : net < 0 ? 'out' : 'self';
-      if (mixed && dir === 'out') { var po = partiesOf(id, 'out', n.id); if (po && !po.names.length) dir = 'self'; }          // every output came back to the wallet: it only moved money to itself
-      rows.push({ id: id, txid: txid, time: t ? t.time : null, pending: !!t && t.confirmed === false, unloaded: !!t && t.loaded === false, recv: r.recv, sent: r.sent, dir: dir, mixed: mixed, amount: dir === 'self' ? r.sent : mixed ? Math.abs(net) : (dir === 'in' ? r.recv : r.sent) });
+      var party = partiesOf(id, dir === 'in' ? 'in' : 'out', n.id);                                          // who is on the other side; null while the transaction is not loaded
+      if (mixed && dir === 'out' && party && !party.names.length) dir = 'self';                              // every output came back to the wallet: it only moved money to itself
+      rows.push({ id: id, txid: txid, party: party, parties: party ? party.ids : [], time: t ? t.time : null, pending: !!t && t.confirmed === false, unloaded: !!t && t.loaded === false, recv: r.recv, sent: r.sent, dir: dir, mixed: mixed, amount: dir === 'self' ? r.sent : mixed ? Math.abs(net) : (dir === 'in' ? r.recv : r.sent) });
     });
     return rows;
   }
 
   var DIR_TAG = { 'in': '↓ in', out: '↑ out', self: '↔ self' };
 
-  /** The Transactions list of a selected wallet: In / Out told apart, who is on the other side, sortable, with a button to put one on the trace. */
+  /**
+   * The Transactions list of a selected wallet: In / Out told apart, who is on the other side, sortable, with a button to put one on the
+   * trace. Rows that look alike (the same wallet on the other side three times or more, or small amounts) fold into one line that can be
+   * opened, copied, or put on the trace as the largest few or all of them.
+   */
   function walletTxSection(n) {
     var rows = walletRows(n); if (!rows.length) return null;
     var V = state.walletView, box = el('div', { 'class': 'insp-section walletsec' });
@@ -1702,6 +1784,60 @@
     function total(list) { return list.reduce(function (t, r) { return t + r.amount; }, 0); }
     function when(r) { return r.pending ? Infinity : r.time == null ? -Infinity : r.time; }                       // unconfirmed is the newest; a transaction not loaded yet has no date: last
     function byTime(a, b) { var ta = when(a), tb = when(b); return ta === tb ? (b.amount - a.amount) : (tb > ta ? 1 : -1); }
+    function onTrace(r) { return !traceOn() || state.trace.shown.has(r.id); }
+    function canPut(r) { return traceOn() && state.trace.shown.has(n.id) && !state.trace.shown.has(r.id); }
+    /** Put these transactions on the trace: the ones the wallet spent in come forward, the ones that paid it come from behind. */
+    function putOnTrace(list) {
+      var chain = Promise.resolve();
+      ['next', 'prev'].forEach(function (d) {
+        var ids = list.filter(function (r) { return canPut(r) && (r.sent > 0 ? 'next' : 'prev') === d; }).map(function (r) { return r.id; });
+        if (ids.length) chain = chain.then(function () { return traceExpand(n.id, d, { only: new Set(ids) }); });
+      });
+      return chain;
+    }
+    function rowEl(r) {
+      var fx = fiatOf(r.amount, r.time), parties = r.dir === 'self' ? { names: [] } : r.party;
+      var who = partiesText(parties, 'itself');
+      var tag = el('span', { 'class': 'dirtag ' + r.dir, text: DIR_TAG[r.dir],
+                             title: r.dir === 'in' ? 'Money came in' + (r.mixed ? ' (the wallet also spent in this transaction; net shown)' : '') : r.dir === 'out' ? 'Money went out' + (r.mixed ? ' (some came back to the wallet as change; net shown)' : '') : 'Moved within the wallet' });
+      var kids = [tag, el('span', { 'class': 'who' }, [who ? (r.dir === 'in' ? 'from ' : r.dir === 'out' ? 'to ' : '') + who : S.shortId(r.txid, 6), who ? el('small', { text: S.shortId(r.txid, 6) }) : r.unloaded ? el('small', { text: 'no details yet' }) : null])];
+      if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time, false) }));
+      kids.push(el('span', { 'class': 'amt', text: (r.dir === 'in' ? '+' : r.dir === 'out' ? '−' : '') + mixText(S.fmtBtc(r.amount) + ' BTC', fx) }));
+      var line = el('button', { type: 'button', 'class': 'linkrow ' + r.dir, title: r.id + (fx ? ' · ' + fx.text : ''), onclick: function () { navigate(r.id); } }, kids);
+      var parts = [line];
+      if (canPut(r)) parts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ show', title: 'Put this transaction on the trace', onclick: function (ev) { ev.stopPropagation(); putOnTrace([r]); } }));
+      parts.push(copyBtn(r.txid, 'transaction id'));
+      var wrap = el('div', { 'class': 'rowcopy' + (onTrace(r) ? '' : ' off') }, parts);
+      wrap.addEventListener('mouseenter', function () { if (renderer) renderer.setHighlight(r.id); });
+      wrap.addEventListener('mouseleave', function () { if (renderer) renderer.setHighlight(null); });
+      return wrap;
+    }
+    function groupEl(g) {
+      var st = g.stats, open = V.open.has(g.key), sign = g.dir === 'in' ? '+' : g.dir === 'out' ? '−' : '';
+      var what = g.kind === 'party' ? plural(st.count, 'transaction') + (g.dir === 'in' ? ' from ' : ' to ') + focusLabel(g.party)
+                                    : plural(st.count, 'small transaction') + ' (each under ' + S.fmtBtc(state.dustSats) + ' BTC)';
+      var range = dateRange(st.first, st.last, ' → ');
+      var each = S.fmtBtc(st.min) + ' to ' + S.fmtBtc(st.max) + ' BTC each';
+      var head = el('button', { type: 'button', 'class': 'linkrow groupbtn ' + g.dir, 'aria-expanded': String(open), title: each + '. Click to ' + (open ? 'fold them' : 'list them'),
+                                onclick: function () { if (V.open.has(g.key)) V.open.delete(g.key); else V.open.add(g.key); draw(); } },
+        [el('span', { 'class': 'dirtag ' + g.dir, text: DIR_TAG[g.dir] }), el('span', { 'class': 'who' }, [(open ? '▾ ' : '▸ ') + what, el('small', { text: each })]),
+         el('span', { 'class': 'when', text: range }), el('span', { 'class': 'amt', text: sign + S.fmtBtc(st.total) + ' BTC' })]);
+      var wrap = el('div', { 'class': 'groupwrap' + (open ? ' open' : '') }, [el('div', { 'class': 'rowcopy' }, [head, copyBtn(g.members.map(function (r) { return r.txid; }).join(NL), plural(st.count, 'transaction id'))])]);
+      var off = g.members.filter(canPut);
+      if (off.length) {                                                                // in a trace: the biggest few, or all of them, without opening the group
+        var largest = off.slice().sort(function (a, b) { return b.amount - a.amount; }).slice(0, state.stepSize), acts = [el('span', { 'class': 'hint', text: 'On the trace:' })];
+        if (off.length > largest.length) acts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ largest ' + largest.length, title: 'Put the largest ' + largest.length + ' of them on the trace', onclick: function () { putOnTrace(largest); } }));
+        acts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ all ' + off.length, title: 'Put all of them on the trace', onclick: function () { putOnTrace(off); } }));
+        wrap.appendChild(el('div', { 'class': 'groupacts' }, acts));
+      }
+      if (open) {
+        var cap = V.groupMore[g.key] || 40, list = el('div', { 'class': 'groupmembers' });
+        g.members.slice(0, cap).forEach(function (r) { list.appendChild(rowEl(r)); });
+        if (g.members.length > cap) list.appendChild(el('button', { type: 'button', 'class': 'moreRows', text: 'Show ' + Math.min(40, g.members.length - cap) + ' more', onclick: function () { V.groupMore[g.key] = cap + 40; draw(); } }));
+        wrap.appendChild(list);
+      }
+      return wrap;
+    }
     function draw() {
       if (renderer) renderer.setHighlight(null);
       box.textContent = '';
@@ -1716,30 +1852,15 @@
       var sortSel = el('select', { 'aria-label': 'Order', title: 'Order' }, [el('option', { value: 'new', text: 'Newest first' }), el('option', { value: 'big', text: 'Largest first' })]);
       sortSel.value = V.sort; sortSel.addEventListener('change', function () { V.sort = sortSel.value; draw(); });
       box.appendChild(el('div', { 'class': 'walletbar' }, [seg, sortSel]));
-      var list = el('div', { 'class': 'linkrows' }), T = state.trace;
-      want.slice(0, V.more).forEach(function (r) {
-        var t = state.graph.nodes.get(r.id), fx = fiatOf(r.amount, r.time);
-        var parties = r.dir === 'self' ? { names: [] } : partiesOf(r.id, r.dir === 'in' ? 'in' : 'out', n.id);
-        var who = partiesText(parties, 'itself');
-        var tag = el('span', { 'class': 'dirtag ' + r.dir, text: DIR_TAG[r.dir],
-                               title: r.dir === 'in' ? 'Money came in' + (r.mixed ? ' (the wallet also spent in this transaction; net shown)' : '') : r.dir === 'out' ? 'Money went out' + (r.mixed ? ' (some came back to the wallet as change; net shown)' : '') : 'Moved within the wallet' });
-        var kids = [tag, el('span', { 'class': 'who' }, [who ? (r.dir === 'in' ? 'from ' : r.dir === 'out' ? 'to ' : '') + who : S.shortId(r.txid, 6), who ? el('small', { text: S.shortId(r.txid, 6) }) : r.unloaded ? el('small', { text: 'no details yet' }) : null])];
-        if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time, false) }));
-        kids.push(el('span', { 'class': 'amt', text: (r.dir === 'in' ? '+' : r.dir === 'out' ? '−' : '') + mixText(S.fmtBtc(r.amount) + ' BTC', fx) }));
-        var line = el('button', { type: 'button', 'class': 'linkrow ' + r.dir, title: r.id + (fx ? ' · ' + fx.text : ''), onclick: function () { navigate(r.id); } }, kids);
-        var onTrace = !traceOn() || T.shown.has(r.id), parts = [line];
-        if (!onTrace && T.shown.has(n.id)) {
-          parts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ show', title: 'Put this transaction on the trace',
-                                    onclick: function (ev) { ev.stopPropagation(); traceExpand(n.id, r.sent > 0 ? 'next' : 'prev', { only: new Set([r.id]) }); } }));
-        }
-        parts.push(copyBtn(r.txid, 'transaction id'));
-        var wrap = el('div', { 'class': 'rowcopy' + (onTrace ? '' : ' off') }, parts);
-        wrap.addEventListener('mouseenter', function () { if (renderer) renderer.setHighlight(r.id); });
-        wrap.addEventListener('mouseleave', function () { if (renderer) renderer.setHighlight(null); });
-        list.appendChild(wrap);
-      });
-      if (want.length > V.more) list.appendChild(el('button', { type: 'button', 'class': 'moreRows', text: 'Show ' + Math.min(40, want.length - V.more) + ' more (' + (want.length - V.more) + ' not listed)', onclick: function () { V.more += 40; draw(); } }));
-      if (!want.length) list.appendChild(el('div', { 'class': 'hint', text: 'None of these.' }));
+      var chk = el('input', { type: 'checkbox', 'aria-label': 'Group similar rows' });
+      chk.checked = state.groupRows;
+      chk.addEventListener('change', function () { state.groupRows = chk.checked; $('groupRows').checked = chk.checked; savePrefs(); draw(); });
+      box.appendChild(el('label', { 'class': 'check walletgroup', title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts (the limit is under Expansion limits)' }, [chk, ' Group similar rows']));
+      var items = state.groupRows ? GR.layout(want, GR.make(want, { minSize: 3, dustSats: state.dustSats })) : want.map(function (r) { return { type: 'row', row: r }; });
+      var list = el('div', { 'class': 'linkrows' });
+      items.slice(0, V.more).forEach(function (it) { list.appendChild(it.type === 'row' ? rowEl(it.row) : groupEl(it.group)); });
+      if (items.length > V.more) list.appendChild(el('button', { type: 'button', 'class': 'moreRows', text: 'Show ' + Math.min(40, items.length - V.more) + ' more (' + (items.length - V.more) + ' not listed)', onclick: function () { V.more += 40; draw(); } }));
+      if (!items.length) list.appendChild(el('div', { 'class': 'hint', text: 'None of these.' }));
       box.appendChild(list);
     }
     draw();
@@ -2876,7 +2997,7 @@
     });
     loadPrefs();
     makeClient();
-    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize;
+    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('dustSats').value = state.dustSats;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets;
@@ -3031,6 +3152,8 @@
     [['showData', 'showData'], ['showNonstd', 'showNonstd'], ['incPending', 'includePending'], ['incUnknown', 'includeUnknownTime']].forEach(function (p) {
       $(p[0]).addEventListener('change', function () { state.filter[p[1]] = this.checked; refresh({ relayout: p[1] === 'showData' || p[1] === 'showNonstd' }); scheduleSave(); });
     });
+    $('groupRows').addEventListener('change', function () { state.groupRows = this.checked; savePrefs(); showInspector(true); });
+    $('dustSats').addEventListener('change', function () { state.dustSats = num(this.value, 0, 1000000000, 10000); this.value = state.dustSats; savePrefs(); showInspector(true); });
     $('stepMode').addEventListener('change', function () { state.stepMode = this.value; savePrefs(); renderer.dirty = true; });
     $('stepSize').addEventListener('change', function () { state.stepSize = num(this.value, 1, 50, 5); this.value = state.stepSize; savePrefs(); renderer.dirty = true; });
     ['capTx', 'capReq', 'capPages'].forEach(function (id) {
