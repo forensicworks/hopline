@@ -87,5 +87,5 @@ Maintenance:
 
 Orion began as a fork of Orion by Kyle Honeycutt ("coinables", 2023 to 2024), a small transaction viewer released into the public domain under the Unlicense. Its viewer pages and the sigma.js library they used have since been removed; what remains of it is the starting list of exchange and service wallets in `public/data/known-addresses.js`, the logo, the idea behind the wallet overview, and the early history in this repository. The QR code library in `public/lib` is qrcode.js by davidshimjs (MIT).
 
-The code added since then is private development and is **not yet released under a licence**: until one is chosen and added, all rights in it are reserved. The plan is to publish part of it and keep part for a hosted service; which part is still to be decided.
+The code added since then is private development and is **not yet released under a licence**: until one is chosen and added, all rights in it are reserved. Which parts are published, and under which licence, is still to be decided.
 
