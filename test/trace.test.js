@@ -218,3 +218,38 @@ test('summary spans the dates of several transactions and skips unknown times', 
   const s = TR.summary(g, new Set([ID.addr('W')]), ID.addr('W'), 'next');
   assert.equal(s.count, 3); assert.equal(s.total, 15000); assert.equal(s.largest, 5000); assert.equal(s.first, 5000); assert.equal(s.last, 9000);
 });
+
+test('rows say whether the output between the two is still unspent (only where that makes sense)', () => {
+  const g = chain();
+  const one = (id, dir, other) => TR.rows(g, new Set([id]), id, dir).find((r) => r.id === other);
+  assert.equal(one(ID.addr('C'), 'prev', ID.tx('t1')).unspent, true, 'C was paid by t1 and has not spent it');
+  assert.equal(one(ID.addr('B'), 'prev', ID.tx('t1')).unspent, false, 'B spent what t1 paid it, in t2');
+  assert.equal(one(ID.tx('t1'), 'next', ID.addr('C')).unspent, true, 'the same fact seen from the transaction');
+  assert.equal(one(ID.tx('t1'), 'next', ID.addr('B')).unspent, false);
+  assert.equal(one(ID.addr('B'), 'next', ID.tx('t2')).unspent, null, 'a transaction that spent from the wallet: not about an unspent output');
+  assert.equal(one(ID.tx('t1'), 'prev', ID.addr('A')).unspent, null, 'an input');
+});
+
+function wallet3() {
+  const g = new Graph();
+  const mk = (txid, time) => ({ txid, fee: 1, weight: 400, status: time ? { confirmed: true, block_height: 1, block_time: time } : { confirmed: false },
+    vin: [{ txid: 'p' + txid, vout: 0, prevout: { scriptpubkey_address: 'W', scriptpubkey_type: 'p2pkh', value: 5000 } }], vout: [{ scriptpubkey_address: 'X' + txid, scriptpubkey_type: 'p2pkh', value: 4000 }] });
+  g.addTx(mk('a', 5000)); g.addTx(mk('b', 9000)); g.addTx(mk('c', 0)); g.refreshDerived();
+  return g;
+}
+
+test('a time window leaves out what falls outside it, keeps what has no time, and says how many it left out', () => {
+  const g = wallet3(), W = ID.addr('W'), shown = new Set([W]);
+  assert.deepEqual(TR.rows(g, shown, W, 'next').length, 3, 'no window: everything');
+  const r = TR.rows(g, shown, W, 'next', { from: 6000, to: null }).map((x) => x.id).sort();
+  assert.deepEqual(r, [ID.tx('b'), ID.tx('c')].sort(), 'a was before the window; c is unconfirmed (time unknown) and cannot be ruled out');
+  const h = TR.hidden(g, shown, W, 'next', { from: 6000, to: null });
+  assert.equal(h.known, 2); assert.equal(h.outside, 1);
+  assert.equal(TR.hidden(g, shown, W, 'next', { from: null, to: 5000 }).known, 2, 'to is inclusive: a (5000) and the unknown one');
+  assert.equal(TR.hidden(g, shown, W, 'next', { from: 5001, to: 8999 }).known, 1, 'only the unknown one is left');
+  const s = TR.summary(g, shown, W, 'next', { from: 6000, to: null });
+  assert.equal(s.count, 2); assert.equal(s.total, 10000);
+  const p = TR.plan(g, shown, W, 'next', { range: { from: 6000, to: null }, limit: 10 });
+  assert.deepEqual(p.primary.map((x) => x.id).sort(), [ID.tx('b'), ID.tx('c')].sort());
+  assert.equal(TR.inRange({ time: 5 }, null), true); assert.equal(TR.inRange({ time: null }, { from: 1, to: 2 }), true);
+});

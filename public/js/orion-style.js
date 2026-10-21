@@ -12,7 +12,7 @@
     v1_p2tr: '#f06292', p2pk: '#c9b458', multisig: '#d98cc0', op_return: '#9aa3ad',
     nonstandard: '#7c8794', unknown: '#7c8794'
   };
-  var TYPE_COLORS = { tx: '#5b8def', addr: '#e0a458', coinbase: '#f2c94c', data: '#9aa3ad', nonstd: '#7c8794' };
+  var TYPE_COLORS = { tx: '#5b8def', addr: '#e0a458', coinbase: '#f2c94c', data: '#9aa3ad', nonstd: '#7c8794', group: '#b48ee0' };
   var UNKNOWN = '#6b7280';
 
   // old -> new: violet -> blue -> teal -> green -> yellow. Every stop is bright enough to read on the dark canvas.

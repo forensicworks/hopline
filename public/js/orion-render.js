@@ -340,7 +340,7 @@
   }
 
   // the shape a vertex is drawn with: its own choice (a tag), otherwise by what it is
-  var DEFAULT_SHAPE = { tx: 'square', coinbase: 'diamond', data: 'hexagon' };
+  var DEFAULT_SHAPE = { tx: 'square', coinbase: 'diamond', data: 'hexagon', group: 'stack' };
   function kindOf(n) { return n.shape || DEFAULT_SHAPE[n.type] || 'circle'; }
 
   function shape(ctx, kind, x, y, r) {
@@ -354,6 +354,15 @@
       ctx.lineTo(x - q, y - q + c); ctx.quadraticCurveTo(x - q, y - q, x - q + c, y - q);
     } else if (kind === 'diamond') {
       ctx.moveTo(x, y - r * 1.15); ctx.lineTo(x + r * 1.15, y); ctx.lineTo(x, y + r * 1.15); ctx.lineTo(x - r * 1.15, y);
+    } else if (kind === 'stack') {                                      // three cards, one behind the other: several vertices drawn as one
+      var sq = r * 0.78, k = r * 0.26, off = r * 0.34;
+      [[-off, off], [0, 0], [off, -off]].forEach(function (o) {
+        var cx = x + o[0], cy = y + o[1];
+        ctx.moveTo(cx - sq + k, cy - sq); ctx.lineTo(cx + sq - k, cy - sq); ctx.quadraticCurveTo(cx + sq, cy - sq, cx + sq, cy - sq + k);
+        ctx.lineTo(cx + sq, cy + sq - k); ctx.quadraticCurveTo(cx + sq, cy + sq, cx + sq - k, cy + sq);
+        ctx.lineTo(cx - sq + k, cy + sq); ctx.quadraticCurveTo(cx - sq, cy + sq, cx - sq, cy + sq - k);
+        ctx.lineTo(cx - sq, cy - sq + k); ctx.quadraticCurveTo(cx - sq, cy - sq, cx - sq + k, cy - sq);
+      });
     } else if (kind === 'hexagon') {
       for (i = 0; i < 6; i++) { a = Math.PI / 3 * i + Math.PI / 6; ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); }
     } else if (kind === 'triangle') {
@@ -479,7 +488,8 @@
         }
       }
       var text = null;
-      if (n.label) text = n.label;
+      if (n.type === 'group') text = n.groupText;                         // "6 transactions to bc1q…"
+      else if (n.label) text = n.label;
       else if (known) text = known.label;
       else if (self.selected.has(id) || id === self.hover.node || d.labelAll || (d.showLabels && v.k >= 0.9)) {
         text = n.type === 'tx' ? Style.shortId(n.txid, 5) : n.type === 'addr' ? Style.shortId(n.address, 6) : n.type === 'coinbase' ? 'coinbase' : n.type === 'data' ? (n.dataText ? '“' + n.dataText.slice(0, 18) + '”' : 'OP_RETURN') : 'non-standard';

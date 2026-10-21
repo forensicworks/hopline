@@ -90,5 +90,28 @@
     return out;
   }
 
-  return { make: make, layout: layout, stats: stats, DEFAULTS: DEFAULTS };
+  /**
+   * A group shown as ONE vertex on the trace: the vertex and the edge that join it to the vertex it hangs from. They are drawn but never
+   * written into the graph (so exports, the report's evidence and the analysis see only what is on the chain).
+   *   spec       { id, anchor, dir ('next' | 'prev'), kind, party, members: [ids] }
+   *   anchorType 'tx' | 'addr': what the anchor is. The group plays the other part, so the edge has the shape the rest of the page expects:
+   *              a group of transactions behind a wallet acts as the transaction, a group of wallets behind a transaction as the wallets.
+   *   rows       the members as { id, amount, time } (amounts in sats)
+   * Returns { node, edge }; amounts add up, the earliest time is the vertex's time.
+   */
+  function vertex(spec, anchorType, rows) {
+    var st = stats(rows), next = spec.dir === 'next';
+    var node = { id: spec.id, type: 'group', virtual: true, anchor: spec.anchor, dir: spec.dir, kind: spec.kind, party: spec.party || null,
+                 count: st.count, min: st.min, max: st.max, received: st.total, sent: 0, firstSeen: st.first, lastSeen: st.last,
+                 time: st.first, confirmed: true, members: spec.members.slice() };
+    var isOut = (anchorType === 'addr') === !next;                                           // an 'out' edge runs from a transaction to a wallet
+    var edge = { id: 'grpe:' + spec.id, kind: isOut ? 'out' : 'in', source: next ? spec.anchor : spec.id, target: next ? spec.id : spec.anchor,
+                 amount: st.total, txid: spec.id, time: st.first, virtual: true, group: spec.id };
+    return { node: node, edge: edge };
+  }
+
+  /** Is this the id of a group vertex? */
+  function isGroupId(id) { return typeof id === 'string' && /^grp:[0-9]{1,9}$/.test(id); }
+
+  return { make: make, layout: layout, stats: stats, vertex: vertex, isGroupId: isGroupId, DEFAULTS: DEFAULTS };
 }));

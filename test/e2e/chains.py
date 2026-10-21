@@ -63,3 +63,35 @@ def unclear_change(mock, n=60):
     tx(mock, 61, [IN(n, 0, "p60", 51234)], [OUT("r61", 50000)])
     tx(mock, 62, [IN(n, 1, "q60", 48500)], [OUT("r62", 47000)])
     return ids
+
+
+# ---- valid addresses: the page verifies the checksum of anything it is asked to open or to label
+_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+
+def _polymod(values):
+    gen = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+    chk = 1
+    for v in values:
+        top = chk >> 25
+        chk = (chk & 0x1ffffff) << 5 ^ v
+        for i in range(5):
+            chk ^= gen[i] if ((top >> i) & 1) else 0
+    return chk
+
+
+def real_addr(n):
+    """A valid bech32 (P2WPKH) address made from the number n: the same n always gives the same address."""
+    import hashlib
+    prog = hashlib.sha256(("orion-test-%d" % n).encode()).digest()[:20]
+    acc, bits, data = 0, 0, [0]                                            # witness version 0
+    for b in prog:
+        acc = (acc << 8) | b; bits += 8
+        while bits >= 5:
+            bits -= 5; data.append((acc >> bits) & 31)
+    if bits:
+        data.append((acc << (5 - bits)) & 31)
+    hrp = [ord(c) >> 5 for c in "bc"] + [0] + [ord(c) & 31 for c in "bc"]
+    poly = _polymod(hrp + data + [0] * 6) ^ 1
+    check = [(poly >> 5 * (5 - i)) & 31 for i in range(6)]
+    return "bc1" + "".join(_CHARSET[d] for d in data + check)

@@ -184,6 +184,17 @@
       h.push('</table>');
     }
 
+    if (model.groups && model.groups.length) {                                 // vertices on the screen that stood for several others: say what, and list every one of them
+      h.push('<h2>Groups shown as one vertex</h2><p class="hint">On the screen each of these was a single vertex standing for several transactions or outputs that were not drawn one by one. They are listed here in full: none was left out.</p>');
+      model.groups.forEach(function (g) {
+        h.push('<h3>' + esc(g.text) + '</h3><p class="hint">' + plural(g.count, 'member') + ' · ' + esc(Style.fmtBtc(g.total)) + ' BTC in total (each ' + esc(Style.fmtBtc(g.min)) + ' to ' + esc(Style.fmtBtc(g.max)) + ') · '
+          + (g.first == null ? 'times unknown' : esc(t(g.first)) + (g.last !== g.first ? ' to ' + esc(t(g.last)) : '')) + ' · ' + (g.dir === 'next' ? 'forward from' : 'behind') + ' <code>' + esc(String(g.anchor).replace(/^(tx|addr):/, '')) + '</code></p>'
+          + '<table><tr><th>Member</th><th>Amount</th><th>Time</th></tr>');
+        g.members.slice(0, MAX_TX).forEach(function (m) { h.push('<tr><td><code>' + esc(String(m.id).replace(/^(tx|addr):/, '')) + '</code></td><td class="num">' + amountCell(model, m.amount, m.time) + '</td><td>' + esc(t(m.time)) + '</td></tr>'); });
+        h.push('</table>' + (g.members.length > MAX_TX ? '<p class="hint">The first ' + MAX_TX + ' of ' + g.members.length + ' are listed; the embedded data has them all.</p>' : ''));
+      });
+    }
+
     if (model.image) h.push('<h2>The graph</h2><p class="hint">The view as it was on screen.</p><img class="graph" alt="The transaction graph as it was on screen" src="' + esc(model.image) + '">');
 
     h.push('<h2>Transactions in time order</h2><p class="hint">Inputs are the wallets whose coins were spent, outputs the wallets that received them.' + (txs.length > MAX_TX ? ' Only the first ' + MAX_TX + ' of ' + txs.length + ' are listed here; the embedded data has them all.' : '') + '</p>');

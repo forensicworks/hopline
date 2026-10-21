@@ -44,10 +44,10 @@
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
-    trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [] },
+    trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [], groups: new Map(), seq: 0 },
     undoLoads: [], analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], arrange: 'columns', boxMode: false,
-    stepMode: 'ask', stepSize: 5, chooseSort: 'big', groupRows: true, dustSats: 10000, walletView: { dir: 'all', sort: 'new', more: 40, open: new Set(), groupMore: {} },
+    stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, dustSats: 10000, walletView: { dir: 'all', sort: 'new', more: 40, open: new Set(), groupMore: {} },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -172,7 +172,7 @@
   function cleanAnalysis(a) { a = a && typeof a === 'object' ? a : {}; return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false }; }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, chooseSort: state.chooseSort, groupRows: state.groupRows, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -181,9 +181,9 @@
       if (A.PRESETS[p.source]) state.source = p.source;
       state.fallback = p.fallback !== false;
       if (p.stepMode === 'ask' || p.stepMode === 'batch' || p.stepMode === 'all') state.stepMode = p.stepMode;
-      state.stepSize = num(p.stepSize, 1, 50, 5);
+      state.stepSize = num(p.stepSize, 1, 50, 5); state.arrowsInRange = p.arrowsInRange !== false;
       state.groupRows = p.groupRows !== false; state.dustSats = num(p.dustSats, 0, 1000000000, 10000);
-      if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old') state.chooseSort = p.chooseSort;
+      if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old' || p.chooseSort === 'known') state.chooseSort = p.chooseSort;
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
       state.capTx = num(p.capTx, 1, 500, 25); state.capReq = num(p.capReq, 1, 1000, 80); state.capPages = num(p.capPages, 1, 20, 2);
       state.showLabels = p.showLabels !== false;
@@ -302,7 +302,7 @@
 
   /** What the graph shows before the time range is applied: every other filter, limited to the focus neighbourhood. */
   function scope(extra) {
-    return F.computeVisible(state.graph, Object.assign({}, state.filter, { timeFrom: null, timeTo: null }, extra || {}), state.keep, focusOpt(), traceOnly(), hiddenOpt());
+    return F.computeVisible(viewGraph(), Object.assign({}, state.filter, { timeFrom: null, timeTo: null }, extra || {}), state.keep, focusOpt(), traceOnly(), hiddenOpt());
   }
 
   function needsLoad(id) {
@@ -396,16 +396,23 @@
   // ---- Trace: build the chain by hand ---------------------------------------------------------
   // Nothing here ever removes a vertex on its own: a click only adds. What goes is what you hide, and every hide can be undone.
   function traceOn() { return state.layout === 'trace'; }
-  function traceOnly() { return traceOn() ? state.trace.shown : null; }
+  /** What the trace shows: the vertices that were revealed, and the group vertices that stand for several still-hidden ones. */
+  function traceOnly() {
+    if (!traceOn()) return null;
+    var T = state.trace;
+    if (!T.groups.size) return T.shown;
+    var s = new Set(T.shown); T.groups.forEach(function (g) { s.add(g.id); });
+    return s;
+  }
   function walletOrTx(id) { return /^(tx|addr):/.test(id) && state.graph.nodes.has(id); }
-  function emptyTrace() { return { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [] }; }
+  function emptyTrace() { return { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [], groups: new Map(), seq: 0 }; }
   function syncSeed() { var T = state.trace; T.seeds = T.seeds.filter(function (s) { return T.shown.has(s); }); T.seed = T.seeds.length ? T.seeds[0] : null; }
   function traceDrop(id) { var T = state.trace; T.shown.delete(id); T.pos.delete(id); T.prov.delete(id); state.selected.delete(id); }
 
   /** Begin again from one vertex: only it is shown. */
   function traceStart(id) {
     var T = state.trace;
-    T.seed = id; T.seeds = [id]; T.shown = new Set([id]); T.pos = new Map([[id, { x: 0, y: 0 }]]); T.prov = new Map(); T.undo = [];
+    T.seed = id; T.seeds = [id]; T.shown = new Set([id]); T.pos = new Map([[id, { x: 0, y: 0 }]]); T.prov = new Map(); T.undo = []; T.groups = new Map(); T.seq = 0;
     state.keep.add(id);
   }
 
@@ -442,7 +449,7 @@
       return false;
     }
     var b = traceBox();
-    T.shown.add(id); T.pos.set(id, { x: b.cx, y: b.bottom + 150 }); T.seeds.push(id);
+    traceUnfold(id); T.shown.add(id); T.pos.set(id, { x: b.cx, y: b.bottom + 150 }); T.seeds.push(id);
     T.undo.push({ type: 'seed', id: id, added: true }); syncSeed();
     return true;
   }
@@ -459,12 +466,29 @@
 
   var TRACE_WHAT = { tx: { next: 'wallets this transaction paid', prev: 'wallets that paid into it' }, addr: { next: 'transactions that spent from this wallet', prev: 'transactions that paid this wallet' } };
 
+  /** The time bar's window as { from, to } while the arrows are to stay inside it and it is narrowed; null otherwise. */
+  function traceRange() {
+    if (!state.arrowsInRange) return null;
+    var f = state.filter;
+    return f.timeFrom == null && f.timeTo == null ? null : { from: f.timeFrom, to: f.timeTo };
+  }
+  /** What counts as already shown when asking about one arrow of one vertex: the shown vertices, and what is folded into a group that hangs from this arrow. */
+  function trShown(id, dir) {
+    var T = state.trace, s = null;
+    T.groups.forEach(function (g) { if (g.anchor === id && g.dir === dir) { s = s || new Set(T.shown); g.members.forEach(function (m) { s.add(m); }); } });
+    return s || T.shown;
+  }
+  function trHidden(id, dir) { return TR.hidden(state.graph, trShown(id, dir), id, dir, traceRange()); }
+  function trSummary(id, dir) { return TR.summary(state.graph, trShown(id, dir), id, dir, traceRange()); }
+  function trRows(id, dir) { return TR.rows(state.graph, trShown(id, dir), id, dir, traceRange()); }
+
   /** The two expand handles of a vertex: { left, right } each { label, known, tip } or null. */
   function handlesFor(id) {
     var n = state.graph.nodes.get(id);
     if (!n || (n.type !== 'tx' && n.type !== 'addr')) return null;
     function one(dir) {
-      var h = TR.hidden(state.graph, state.trace.shown, id, dir), label = TR.handleLabel(h);
+      var h = trHidden(id, dir), label = TR.handleLabel(h);
+      if (!label && h.outside) label = '0';                                          // something is there, but outside the time bar's range
       if (!label) return null;
       var came = state.trace.prov.get(id);                                       // a bare "?" on the side the trace came from is noise: it stays one key press or menu item away
       if (label === '?' && came && ((came.dir === 'next' && dir === 'prev') || (came.dir === 'prev' && dir === 'next'))) return null;
@@ -472,7 +496,8 @@
       var click = !h.known || h.known <= N || state.stepMode === 'all' ? ' Shift-click to choose which.'
                 : state.stepMode === 'ask' ? ' Click to choose which: the top ' + N + ' come ticked.' : ' Click shows the largest ' + N + '; click again for the next.';
       var tip = h.known ? 'Show ' + h.known + ' ' + what + (h.unknown ? ' (more may exist: ' + (n.type === 'addr' ? 'the wallet\'s history is not fully loaded' : 'this transaction is not loaded') + ')' : '') + '.' + click
-                        : 'Look for ' + what + ' (loads data)';
+                        : h.outside && !h.unknown ? 'Nothing inside the time bar\'s range.' : 'Look for ' + what + ' (loads data)';
+      if (h.outside) tip += ' ' + h.outside + ' more fall outside the time bar\'s range.';
       return { label: label, known: h.known, tip: tip };
     }
     return { left: one('prev'), right: one('next') };
@@ -484,25 +509,34 @@
     var x = S.fmtTime(a, false), y = S.fmtTime(b == null ? a : b, false);
     return x === y ? x : x + (sep || ' to ') + y;
   }
+  /** How well known a wallet is: 2 = you labelled or tagged it, 1 = it is on the built-in list or a label list you loaded, 0 = neither (or not a wallet). */
+  function knownLevel(id) {
+    var n = state.graph.nodes.get(id);
+    if (!n || n.type !== 'addr') return 0;
+    if (n.label || n.tag) return 2;
+    return KNOWN[n.address] ? 1 : 0;
+  }
+
   /** What is hidden in numbers, for the tip over an arrow: "83 transactions · 12.4 BTC in total · largest 3.2 BTC · 2021-03-02 to 2022-06-10". */
   function summaryText(s) {
     return S.fmtBtc(s.total) + ' BTC in total · largest ' + S.fmtBtc(s.largest) + ' BTC' + (s.first != null ? ' · ' + dateRange(s.first, s.last) : '');
   }
   /** The extra line under an arrow's tip (on hover only: computing it for every vertex on every frame would be wasteful). */
   function handleSummary(id, side) {
-    var n = state.graph.nodes.get(id), dir = side === 'left' ? 'prev' : 'next', s = TR.summary(state.graph, state.trace.shown, id, dir);
+    var n = state.graph.nodes.get(id), dir = side === 'left' ? 'prev' : 'next', s = trSummary(id, dir);
     if (!n || !s.count) return '';
     var noun = n.type === 'addr' ? plural(s.count, 'transaction') : dir === 'next' ? plural(s.count, 'output') : plural(s.count, 'input');
     return '\n' + noun + ' · ' + summaryText(s);
   }
 
   function traceNote(n) {
+    if (n.type === 'group') return S.fmtBtc(n.received) + ' BTC';
     if (n.type === 'tx') return n.time != null ? S.fmtTime(n.time, false) : (n.confirmed === false ? 'unconfirmed' : (n.loaded === false ? 'not loaded' : ''));
     if (n.type === 'addr') return n.txCount != null ? fmtInt(n.txCount) + ' txs' : '';
     return '';
   }
 
-  function traceSelected() { return Array.from(state.selected).filter(function (id) { return state.trace.shown.has(id); }); }
+  function traceSelected() { return Array.from(state.selected).filter(function (id) { return state.trace.shown.has(id) || state.trace.groups.has(id); }); }
 
   function updateTraceUi() {
     var on = traceOn(), T = state.trace, has = state.graph.nodes.size > 0, hid = hiddenCount();
@@ -543,7 +577,7 @@
     if (!traceOn() || !n) return Promise.resolve(false);
     if (n.type !== 'tx' && n.type !== 'addr') { toast('Nothing lies beyond ' + (n.type === 'coinbase' ? 'a coinbase' : n.type === 'data' ? 'an OP_RETURN output' : 'this output') + '.'); return Promise.resolve(false); }
     var mode = o.mode || state.stepMode, N = state.stepSize, nodes0 = g.nodes.size, asked = false;
-    var opts = { limit: o.only ? 100000 : mode === 'batch' ? Math.min(N, state.capTx) : state.capTx, inner: 8, only: o.only || null }, combined = null, revealedIds = [];
+    var opts = { limit: o.only ? 100000 : mode === 'batch' ? Math.min(N, state.capTx) : state.capTx, inner: 8, only: o.only || null, range: o.only ? null : traceRange() }, combined = null, revealedIds = [];
     function add(r) {
       if (!r) return;
       combined = combined || { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] };
@@ -555,7 +589,7 @@
       var ex = state.explorer, chain = Promise.resolve();
       if (n.type === 'tx' && (n.loaded === false || (dir === 'next' && !n.outspendsLoaded))) chain = chain.then(function () { return ex.loadTx(n.txid).then(add); });
       chain = chain.then(function () {
-        var h = TR.hidden(g, T.shown, id, dir), nd = g.nodes.get(id);
+        var h = TR.hidden(g, trShown(id, dir), id, dir), nd = g.nodes.get(id);                  // not narrowed by the time window: this asks whether anything is known at all
         if (nd.type === 'addr' && h.known === 0 && h.unknown) {                    // nothing known yet: ask for the wallet's history
           return ex.expandAddress(nd.address, { pages: state.capPages, cap: state.capPages * 25, after: nd.histNext || undefined }).then(function (r) {
             nd.histNext = r.last || null; nd.histDone = !r.last && !r.truncated && !(r.errors && r.errors.length); add(r);
@@ -563,17 +597,17 @@
         }
       });
       chain = chain.then(function () {
-        if (!o.only && mode === 'ask' && TR.hidden(g, T.shown, id, dir).known > N) { asked = true; return; }   // too many to show unasked: the list opens instead, and nothing more is loaded for it
-        var p = TR.plan(g, T.shown, id, dir, opts);
+        if (!o.only && mode === 'ask' && trHidden(id, dir).known > N) { asked = true; return; }   // too many to show unasked: the list opens instead, and nothing more is loaded for it
+        var p = TR.plan(g, trShown(id, dir), id, dir, opts);
         if (p.needLoad.length) return ex.loadMany(p.needLoad, opts.limit, dir === 'next').then(add);       // the transactions between wallets, to see the wallets beyond
       });
       return chain.then(function () {
         g.refreshDerived();
         if (asked) { combined = combined || { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] }; combined.added = Math.max(0, g.nodes.size - nodes0); return combined; }
-        var p = TR.plan(g, T.shown, id, dir, opts), rev = TR.revealed(p, id, dir);
+        var p = TR.plan(g, trShown(id, dir), id, dir, opts), rev = TR.revealed(p, id, dir);
         if (rev.length) {
           TR.place(T.pos, id, dir, p).forEach(function (v, k) { T.pos.set(k, v); });
-          rev.forEach(function (x) { T.shown.add(x.id); T.prov.set(x.id, { via: x.via, dir: x.dir }); revealedIds.push(x.id); });
+          rev.forEach(function (x) { traceUnfold(x.id); T.shown.add(x.id); T.prov.set(x.id, { via: x.via, dir: x.dir }); revealedIds.push(x.id); });
           T.undo.push({ type: 'reveal', ids: revealedIds.slice() });
         }
         combined = combined || { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] };
@@ -583,7 +617,11 @@
     }).then(function (r) {
       if (!r) return false;
       if (asked) { traceChoose(id, dir, o.at); return false; }
-      if (!revealedIds.length) { if (!r.failed) toast(ST.emptyReason(g, id, dir, { viaWallets: true })); return false; }
+      if (!revealedIds.length) {
+        var hh = trHidden(id, dir);
+        if (!r.failed) toast(!hh.known && hh.outside ? 'Nothing inside the time bar\'s range: ' + hh.outside + ' more fall outside it (widen the range, or switch off "Arrows stay within the time bar" under Expansion limits).' : ST.emptyReason(g, id, dir, { viaWallets: true }));
+        return false;
+      }
       traceChanged(revealedIds, false);
       return true;
     });
@@ -595,37 +633,49 @@
    * the list can be sorted, narrowed by amount and by date, and each row says who is on the other side. Rows that look alike fold
    * into one line with a box that ticks them all; its arrow opens them.
    */
-  function traceChoose(id, dir, at) {
-    var g = state.graph, T = state.trace, n = g.nodes.get(id);
+  function traceChoose(id, dir, at, opts) {
+    opts = opts || {};
+    var g = state.graph, T = state.trace, n = g.nodes.get(id), grp = opts.group ? T.groups.get(opts.group) : null;       // grp: choose from what is folded in this group
     if (!n || !walletOrTx(id)) return;
-    var h = TR.hidden(g, T.shown, id, dir);
+    var h = grp ? { known: grp.members.length, outside: 0 } : trHidden(id, dir);
     if (!h.known) { traceExpand(id, dir, { at: at }); return; }                      // nothing to choose from yet: this loads it
-    var N = state.stepSize, rows = TR.rows(g, T.shown, id, dir), sm = TR.summary(g, T.shown, id, dir), gdir = dir === 'next' ? 'out' : 'in';
+    var N = state.stepSize, rows = grp ? groupRows(grp) : trRows(id, dir), gdir = dir === 'next' ? 'out' : 'in';
+    var sm = grp ? (function (s) { return { total: s.total, largest: s.max, first: s.first, last: s.last }; }(GR.stats(rows))) : trSummary(id, dir);
     var noun = n.type === 'addr' ? 'transaction' : dir === 'next' ? 'output' : 'input';
     var m = $('ctxMenu'); m.textContent = ''; m.classList.add('choosing'); closeStepMenu(); $('tooltip').hidden = true;
-    m.appendChild(el('div', { 'class': 'ctxhead', text: 'Choose what to show ' + (dir === 'next' ? '▶' : '◀') + ' · ' + rows.length + ' hidden' }));
-    m.appendChild(el('div', { 'class': 'chooserinfo', text: summaryText(sm) }));
-    var sortSel = el('select', { 'aria-label': 'Order' }, [el('option', { value: 'big', text: 'Largest first' }), el('option', { value: 'small', text: 'Smallest first' }), el('option', { value: 'new', text: 'Newest first' }), el('option', { value: 'old', text: 'Oldest first' })]);
+    m.appendChild(el('div', { 'class': 'ctxhead', text: (grp ? 'Choose from the group · ' : 'Choose what to show ' + (dir === 'next' ? '▶' : '◀') + ' · ') + rows.length + ' hidden' }));
+    m.appendChild(el('div', { 'class': 'chooserinfo', text: summaryText(sm) + (h.outside ? ' · ' + h.outside + ' more fall outside the time bar\'s range and are not listed' : '') }));
+    var sortSel = el('select', { 'aria-label': 'Order' }, [el('option', { value: 'big', text: 'Largest first' }), el('option', { value: 'small', text: 'Smallest first' }), el('option', { value: 'new', text: 'Newest first' }), el('option', { value: 'old', text: 'Oldest first' }), el('option', { value: 'known', text: 'Known or labelled first' })]);
     sortSel.value = state.chooseSort;                                                  // the order you used last time
     var minIn = el('input', { type: 'text', inputmode: 'decimal', placeholder: '0', size: '6', 'aria-label': 'Smallest amount, in BTC' });
     var fromIn = el('input', { type: 'date', 'aria-label': 'From date' }), toIn = el('input', { type: 'date', 'aria-label': 'To date' });
     var info = el('span', { 'class': 'chooserinfo' });
     var groupChk = el('input', { type: 'checkbox', 'aria-label': 'Group similar rows' });
     groupChk.checked = state.groupRows;
+    var knownSel = el('select', { 'aria-label': 'Which wallets', title: 'Known = on the built-in list or a label list you loaded (exchanges, services); labelled = a label or tag you gave it' }, [el('option', { value: 'any', text: 'any wallet' }), el('option', { value: 'skip', text: 'skip known services' }), el('option', { value: 'only', text: 'only known or labelled' })]);
+    var unspentChk = el('input', { type: 'checkbox', 'aria-label': 'Unspent only' });
     m.appendChild(el('div', { 'class': 'choosertools' }, [el('div', { 'class': 'toolrow' }, [sortSel, el('label', {}, ['at least ', minIn, ' BTC'])]), el('div', { 'class': 'toolrow' }, [el('label', {}, ['from ', fromIn]), el('label', {}, ['to ', toIn]), info]),
-      el('div', { 'class': 'toolrow' }, [el('label', { title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts' }, [groupChk, ' Group similar rows'])])]));
-    var list = el('div', { 'class': 'chooser' }), openG = new Set(), heads = [];
+      el('div', { 'class': 'toolrow' }, [el('label', {}, ['show ', knownSel]), el('label', { 'class': 'unspentopt', title: 'Only where the output between the two is still unspent' }, [unspentChk, ' unspent only'])]),
+      grp ? null : el('div', { 'class': 'toolrow' }, [el('label', { title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts' }, [groupChk, ' Group similar rows'])])]));
+    var list = el('div', { 'class': 'chooser' }), openG = new Set(), heads = [], grp0 = grp;                         // grp0: inside a group's own list nothing is folded again
     var items = rows.map(function (r) {
       var t = stepRowText(r), parties = n.type === 'addr' && r.type === 'tx' ? partiesOf(r.id, dir === 'next' ? 'out' : 'in', id) : null;
       var who = parties ? (dir === 'next' ? 'to ' : 'from ') + partiesText(parties, 'itself') : '';
       var sub = [who, t.sub].filter(Boolean).join(' · ');
       var cb = el('input', { type: 'checkbox', 'aria-label': t.what });
-      var it = { r: r, cb: cb, ok: true, row: el('label', { 'class': 'chooserrow' }, [cb, el('span', { 'class': 'what' }, [t.what, sub ? el('small', { text: sub }) : null]), el('span', { 'class': 'amt', text: t.amt })]) };
+      var pids = parties ? parties.ids : (r.type === 'addr' ? [r.id] : []), levels = pids.map(knownLevel);                // how well known the wallets on the other side are
+      var it = { r: r, cb: cb, ok: true, level: levels.reduce(function (a, b) { return Math.max(a, b); }, 0), service: levels.indexOf(1) >= 0, row: el('label', { 'class': 'chooserrow' }, [cb, el('span', { 'class': 'what' }, [t.what, sub ? el('small', { text: sub }) : null]), el('span', { 'class': 'amt', text: t.amt })]) };
       it.g = { id: r.id, dir: gdir, amount: r.amount, time: r.time, parties: parties ? parties.ids : [], item: it };      // what the grouping sees
       cb.addEventListener('change', ticks);
       return it;
     });
-    function matches(r) {
+    var canUnspent = items.some(function (it) { return it.r.unspent !== null && it.r.unspent !== undefined; });
+    unspentChk.parentNode.hidden = !canUnspent;
+    function matches(it) {
+      var r = it.r;
+      if (knownSel.value === 'skip' && it.service) return false;
+      if (knownSel.value === 'only' && it.level < 1) return false;
+      if (canUnspent && unspentChk.checked && r.unspent !== true) return false;
       var min = parseFloat(String(minIn.value).replace(',', '.')), from = fromIn.value ? Date.parse(fromIn.value + 'T00:00:00Z') / 1000 : null, to = toIn.value ? Date.parse(toIn.value + 'T23:59:59Z') / 1000 : null;
       if (isFinite(min) && min > 0 && r.amount < Math.round(min * 1e8)) return false;
       if (from != null && isFinite(from) && (r.time == null || r.time < from)) return false;
@@ -638,6 +688,7 @@
         var byAmt = y.r.amount - x.r.amount || (x.r.id < y.r.id ? -1 : 1);
         if (k === 'big') return byAmt;
         if (k === 'small') return x.r.amount - y.r.amount || (x.r.id < y.r.id ? -1 : 1);
+        if (k === 'known') return (y.level - x.level) || byAmt;                                                   // labelled by you, then known, then the rest, each largest first
         var tx = x.r.time, ty = y.r.time;
         if (tx == null || ty == null) return (tx == null ? 1 : 0) - (ty == null ? 1 : 0) || byAmt;                // unknown times last
         return (k === 'new' ? ty - tx : tx - ty) || byAmt;
@@ -645,9 +696,10 @@
     }
     var go = el('button', { type: 'button', 'class': 'primary', onclick: function () {
       var only = new Set(items.filter(function (it) { return it.cb.checked; }).map(function (it) { return it.r.id; }));
-      closeCtx(); if (only.size) traceExpand(id, dir, { only: only });
+      closeCtx(); if (!only.size) return;
+      if (grp) traceExpandGroup(grp.id, { ids: Array.from(only), at: at }); else traceExpand(id, dir, { only: only });
     } });
-    function count() { var k = items.filter(function (it) { return it.cb.checked; }).length; go.textContent = 'Show ' + k + ' ticked'; go.disabled = !k; }
+    var count = function () { var k = items.filter(function (it) { return it.cb.checked; }).length; go.textContent = 'Show ' + k + ' ticked'; go.disabled = !k; };
     function syncHeads() {                                                                 // a group's box: ticked when all its listed rows are, half-ticked when some are
       heads.forEach(function (hd) {
         var vis = hd.g.members.filter(function (x) { return x.item.ok; }), on = vis.filter(function (x) { return x.item.cb.checked; }).length;
@@ -667,10 +719,12 @@
       var hcb = el('input', { type: 'checkbox', 'aria-label': 'Tick all: ' + what });
       heads.push({ g: grp, cb: hcb });
       hcb.addEventListener('change', function () { vis.forEach(function (x) { x.item.cb.checked = hcb.checked; }); ticks(); });
+      var asOne = grp0 ? null : el('button', { type: 'button', 'class': 'groupone', text: '◼ as one', title: 'Show these ' + vis.length + ' as ONE vertex on the trace (one click shows them one by one later)',
+                                               onclick: function () { var ids = vis.map(function (x) { return x.item.r.id; }); closeCtx(); traceMakeGroup(id, dir, ids, { kind: grp.kind, party: grp.party }); } });
       var fold = el('button', { type: 'button', 'class': 'groupfold', 'aria-expanded': String(open), text: open ? '▾' : '▸', title: open ? 'Fold them' : 'List them one by one',
                                 onclick: function () { if (openG.has(grp.key)) openG.delete(grp.key); else openG.add(grp.key); render(); } });
       wrap.appendChild(el('div', { 'class': 'chooserrow grouphead' }, [hcb, el('span', { 'class': 'what' }, [what, el('small', { text: sub })]),
-        el('span', { 'class': 'amt', text: S.fmtBtc(vis.reduce(function (t, x) { return t + x.amount; }, 0)) + ' BTC' }), fold]));
+        el('span', { 'class': 'amt', text: S.fmtBtc(vis.reduce(function (t, x) { return t + x.amount; }, 0)) + ' BTC' }), asOne, fold]));
       var body = el('div', { 'class': 'groupmembers' });
       grp.members.forEach(function (x) { body.appendChild(x.item.row); });
       body.hidden = !open; wrap.appendChild(body);
@@ -679,10 +733,10 @@
     }
     function render() {
       var order = ordered(), ok = 0;
-      order.forEach(function (it) { it.ok = matches(it.r); if (!it.ok) it.cb.checked = false; else ok++; });
+      order.forEach(function (it) { it.ok = matches(it); if (!it.ok) it.cb.checked = false; else ok++; });
       list.textContent = ''; heads = [];
       var flat = order.map(function (it) { return it.g; });
-      var lay = state.groupRows ? GR.layout(flat, GR.make(flat, { minSize: 3, dustSats: state.dustSats })) : flat.map(function (x) { return { type: 'row', row: x }; });
+      var lay = state.groupRows && !grp ? GR.layout(flat, GR.make(flat, { minSize: 3, dustSats: state.dustSats })) : flat.map(function (x) { return { type: 'row', row: x }; });          // inside a group's own list nothing is folded again
       lay.forEach(function (x) {
         if (x.type === 'row') { x.row.item.row.hidden = !x.row.item.ok; list.appendChild(x.row.item.row); }
         else list.appendChild(groupBlock(x.group));
@@ -690,6 +744,7 @@
       info.textContent = ok === items.length ? '' : ok + ' of ' + items.length + ' match';
       ticks(); clampCtx();
     }
+    [knownSel, unspentChk].forEach(function (c) { c.addEventListener('change', render); });
     [sortSel, minIn, fromIn, toIn].forEach(function (c) { c.addEventListener(c === sortSel || c.type === 'date' ? 'change' : 'input', function () { if (c === sortSel) { state.chooseSort = sortSel.value; savePrefs(); } render(); }); });
     groupChk.addEventListener('change', function () { state.groupRows = groupChk.checked; $('groupRows').checked = groupChk.checked; savePrefs(); render(); });
     m.appendChild(list);
@@ -699,7 +754,11 @@
       else if (e.key === 'ArrowUp' && i >= 0) { boxes[Math.max(0, i - 1)].focus(); e.preventDefault(); }
       else if (e.key === 'Enter' && !go.disabled) { e.preventDefault(); go.click(); }
     });
-    m.appendChild(el('div', { 'class': 'chooserfoot' }, [go,
+    var oneBtn = grp ? null : el('button', { type: 'button', 'class': 'oneticked', text: 'Ticked as one', disabled: 'disabled', title: 'Show the ticked rows as ONE vertex on the trace',
+                                             onclick: function () { var ids = items.filter(function (it) { return it.cb.checked; }).map(function (it) { return it.r.id; }); closeCtx(); traceMakeGroup(id, dir, ids, { kind: 'picked' }); } });
+    var tickCount = count;
+    count = function () { tickCount(); if (oneBtn) oneBtn.disabled = items.filter(function (it) { return it.cb.checked; }).length < 2; };
+    m.appendChild(el('div', { 'class': 'chooserfoot' }, [go, oneBtn,
       el('button', { type: 'button', text: 'Top ' + Math.min(N, items.length), title: 'Tick only the first ' + N + ' in the order shown', onclick: topN }),
       el('button', { type: 'button', text: 'All', title: 'Tick everything listed', onclick: function () { visible().forEach(function (it) { it.cb.checked = true; }); ticks(); } }),
       el('button', { type: 'button', text: 'None', onclick: function () { items.forEach(function (it) { it.cb.checked = false; }); ticks(); } }),
@@ -709,21 +768,138 @@
     var first = m.querySelector('.chooser input'); if (first) first.focus();
   }
 
+  // ---- groups: several hidden neighbours shown as ONE vertex on the trace -----------------------------
+  // A group is a view device: it lives in the trace (and the saved session), is drawn on the canvas, and is never written into the graph,
+  // so the exports, the analysis and the report's evidence see only what is on the chain. Its members stay hidden until you show them.
+  function groupSpecClone(g) { return { id: g.id, anchor: g.anchor, dir: g.dir, kind: g.kind, party: g.party || null, members: g.members.slice() }; }
+
+  /** The members of a group as rows { id, type, amount, time, unspent }, largest first (members that are no longer neighbours of the anchor are left out). */
+  function groupRows(grp) {
+    var nb = TR.neighbours(state.graph, grp.anchor, grp.dir), rows = [];
+    grp.members.forEach(function (id) { var r = nb.get(id); if (r) rows.push(r); });
+    return rows.sort(function (a, b) { return b.amount - a.amount || (a.id < b.id ? -1 : 1); });
+  }
+  /** The text on the canvas: "6 transactions to bc1q…", "12 outputs (small)". */
+  function groupText(grp, anchorType, count) {
+    var noun = anchorType === 'addr' ? plural(count, 'transaction') : grp.dir === 'next' ? plural(count, 'output') : plural(count, 'input');
+    if (grp.kind === 'party' && grp.party) return noun + (grp.dir === 'prev' ? ' from ' : ' to ') + focusLabel(grp.party);
+    return noun + (grp.kind === 'small' ? ' (small)' : '');
+  }
+  /** The vertex and the edge that stand for a group on the canvas; null when its anchor is gone or none of its members is left. */
+  function groupVertex(grp) {
+    var a = state.graph.nodes.get(grp.anchor); if (!a) return null;
+    var rows = groupRows(grp); if (!rows.length) return null;
+    var v = GR.vertex(grp, a.type, rows);
+    v.node.groupText = groupText(grp, a.type, rows.length);
+    return v;
+  }
+  /** The graph as the canvas draws it: the real one, plus a vertex and an edge for each group in the trace. The real graph is not touched. */
+  function viewGraph() {
+    var g = state.graph, T = state.trace;
+    if (!traceOn() || !T.groups.size) return g;
+    var v = Object.create(Object.getPrototypeOf(g));
+    v.nodes = new Map(g.nodes); v.edges = new Map(g.edges); v.adj = new Map(g.adj);
+    T.groups.forEach(function (grp) {
+      var gv = groupVertex(grp); if (!gv) return;
+      v.nodes.set(gv.node.id, gv.node); v.edges.set(gv.edge.id, gv.edge); v.adj.set(gv.node.id, new Set([gv.edge.id]));
+      var adj = new Set(v.adj.get(grp.anchor) || []); adj.add(gv.edge.id); v.adj.set(grp.anchor, adj);        // a copy: the real graph's set stays as it is
+    });
+    return v;
+  }
+  /** The vertex of a group by id, or undefined (for the tooltip, the details and the menu). */
+  function groupNodeOf(id) { var grp = state.trace.groups.get(id), gv = grp && groupVertex(grp); return gv ? gv.node : undefined; }
+
+  function traceDropGroup(id) { var T = state.trace; T.groups.delete(id); T.pos.delete(id); T.prov.delete(id); state.selected.delete(id); }
+  /** Forget groups whose anchor is gone, and members that are no longer neighbours or are shown; a group of fewer than two is no group. */
+  function traceCleanGroups() {
+    var T = state.trace, g = state.graph;
+    Array.from(T.groups.keys()).forEach(function (gid) {
+      var grp = T.groups.get(gid);
+      if (!T.shown.has(grp.anchor) || !g.nodes.has(grp.anchor)) { traceDropGroup(gid); return; }
+      var nb = TR.neighbours(g, grp.anchor, grp.dir);
+      grp.members = grp.members.filter(function (m) { return nb.has(m) && !T.shown.has(m); });
+      if (grp.members.length < 2) traceDropGroup(gid);
+    });
+  }
+  /** A vertex that is about to be shown for real leaves any group it was folded into. */
+  function traceUnfold(id) {
+    var T = state.trace;
+    Array.from(T.groups.keys()).forEach(function (gid) {
+      var grp = T.groups.get(gid), i = grp.members.indexOf(id);
+      if (i < 0) return;
+      grp.members.splice(i, 1);
+      if (grp.members.length < 2) traceDropGroup(gid);
+    });
+  }
+
+  /**
+   * Fold hidden neighbours of `anchor` (the vertices behind its arrow in direction `dir`) into one group vertex beside it. `ids` are the members;
+   * spec = { kind: 'party' | 'small' | 'picked', party }. Returns the group's id, or null (fewer than two usable members).
+   */
+  function traceMakeGroup(anchor, dir, ids, spec) {
+    var T = state.trace, g = state.graph; spec = spec || {};
+    if (!traceOn() || !T.shown.has(anchor) || !g.nodes.has(anchor)) return null;
+    var taken = new Set(); T.groups.forEach(function (x) { if (x.anchor === anchor && x.dir === dir) x.members.forEach(function (m) { taken.add(m); }); });
+    var nb = TR.neighbours(g, anchor, dir), members = [];
+    ids.forEach(function (id) { if (nb.has(id) && !T.shown.has(id) && !taken.has(id) && members.indexOf(id) < 0) members.push(id); });
+    if (members.length < 2) { toast('A group needs at least two vertices that are not shown yet.'); return null; }
+    var id = 'grp:' + (++T.seq);
+    T.groups.set(id, { id: id, anchor: anchor, dir: dir, kind: spec.kind === 'party' || spec.kind === 'small' ? spec.kind : 'picked', party: spec.party || null, members: members });
+    TR.place(T.pos, anchor, dir, { primary: [{ id: id }], secondary: [] }).forEach(function (v, k) { T.pos.set(k, v); });
+    T.prov.set(id, { via: anchor, dir: dir });
+    T.undo.push({ type: 'group', id: id });
+    state.selected = new Set([id]); state.selectedEdge = null; syncSelection();
+    traceChanged([id], false);
+    return id;
+  }
+
+  /**
+   * Show members of a group as ordinary vertices: o.limit = the largest few, o.ids = these, neither = all of them. What is left stays folded
+   * (a group of fewer than two is dissolved). One undo step takes the shown vertices back and restores the group as it was.
+   */
+  function traceExpandGroup(gid, o) {
+    o = o || {};
+    var T = state.trace, grp = T.groups.get(gid);
+    if (!grp) return Promise.resolve(false);
+    var rows = groupRows(grp), pick = o.ids ? rows.filter(function (r) { return o.ids.indexOf(r.id) >= 0; }) : o.limit ? rows.slice(0, o.limit) : rows;
+    if (!pick.length) return Promise.resolve(false);
+    var before = groupSpecClone(grp), p0 = T.pos.get(gid), pos = p0 ? { x: p0.x, y: p0.y } : null, prov = T.prov.get(gid) || null, n0 = T.undo.length;
+    var chosen = new Set(pick.map(function (r) { return r.id; }));
+    grp.members = grp.members.filter(function (m) { return !chosen.has(m); });
+    if (grp.members.length < 2) traceDropGroup(gid);                                // one left is just that one
+    syncSelection();
+    return traceExpand(before.anchor, before.dir, { only: chosen, at: o.at }).then(function (ok) {
+      if (!ok) {                                                                    // nothing was shown (an error, or busy): the group stays as it was
+        T.groups.set(gid, groupSpecClone(before));
+        if (pos) T.pos.set(gid, pos);
+        if (prov) T.prov.set(gid, prov);
+        traceChanged(null, false);
+        return false;
+      }
+      var revealed = []; T.undo.splice(n0).forEach(function (u) { if (u.type === 'reveal') revealed = revealed.concat(u.ids); });
+      T.undo.push({ type: 'regroup', before: before, pos: pos, prov: prov, ids: revealed });
+      return true;
+    });
+  }
+
   // ---- taking things off the screen (always undoable) -------------------------------------------
   /** Hide vertices. They stay loaded and their neighbours' handles count them again, so they can be shown again. */
   function traceHideIds(ids) {
-    var T = state.trace; ids = ids.filter(function (id) { return T.shown.has(id); });
-    if (!ids.length) return 0;
-    if (ids.length >= T.shown.size) { toast('Keep at least one vertex on screen: use "Reset to start" or open something else.', true); return 0; }
+    var T = state.trace, gids = ids.filter(function (id) { return T.groups.has(id); });
+    ids = ids.filter(function (id) { return T.shown.has(id); });
+    if (!ids.length && !gids.length) return 0;
+    if (ids.length && ids.length >= T.shown.size) { toast('Keep at least one vertex on screen: use "Reset to start" or open something else.', true); return 0; }
+    T.groups.forEach(function (g, gid) { if (ids.indexOf(g.anchor) >= 0 && gids.indexOf(gid) < 0) gids.push(gid); });         // a group hangs from its anchor: it goes with it
     var items = ids.map(function (id) { var p = T.pos.get(id); return { id: id, pos: p ? { x: p.x, y: p.y } : null, prov: T.prov.get(id) || null, seed: T.seeds.indexOf(id) >= 0 }; });
-    ids.forEach(traceDrop);
+    gids.forEach(function (gid) { var p = T.pos.get(gid); items.push({ id: gid, pos: p ? { x: p.x, y: p.y } : null, prov: T.prov.get(gid) || null, group: groupSpecClone(T.groups.get(gid)) }); });
+    ids.forEach(traceDrop); gids.forEach(traceDropGroup);
     var hadSeed = T.seeds.length; syncSeed();
-    if (!T.seeds.length) {                                                         // every starting point was hidden: the oldest remaining vertex becomes the start
+    if (!T.seeds.length && T.shown.size) {                                         // every starting point was hidden: the oldest remaining vertex becomes the start
       var first = Array.from(T.shown)[0]; T.seeds = [first]; T.seed = first;
     }
     T.undo.push({ type: 'hide', items: items });
     syncSelection(); traceChanged(null, false);
-    return ids.length;
+    return ids.length + gids.length;
   }
   function traceHideSelected() {
     var ids = traceSelected();
@@ -731,20 +907,20 @@
     var k = traceHideIds(ids); if (k) toast('Hid ' + k + (k === 1 ? ' vertex' : ' vertices') + ' (they stay loaded; Ctrl+Z brings them back).');
   }
   function traceKeepOnly(ids) {
-    var T = state.trace; ids = ids.filter(function (id) { return T.shown.has(id); });
+    var T = state.trace; ids = ids.filter(function (id) { return T.shown.has(id) || T.groups.has(id); });
     if (!ids.length) { toast('Select the vertices to keep first.'); return; }
-    var keep = new Set(ids), rest = Array.from(T.shown).filter(function (id) { return !keep.has(id); });
+    var keep = new Set(ids), rest = Array.from(T.shown).filter(function (id) { return !keep.has(id); }).concat(Array.from(T.groups.keys()).filter(function (id) { return !keep.has(id); }));
     if (!rest.length) { toast('Everything shown is selected: nothing to hide.'); return; }
     var k = traceHideIds(rest); if (k) toast('Kept ' + ids.length + ', hid ' + k + ' (Ctrl+Z brings them back).');
   }
   /** A vertex and everything that was revealed because of it. */
-  function traceBranch(id) { return [id].concat(TR.descendants(state.trace.prov, id)).filter(function (x) { return state.trace.shown.has(x); }); }
+  function traceBranch(id) { return [id].concat(TR.descendants(state.trace.prov, id)).filter(function (x) { return state.trace.shown.has(x) || state.trace.groups.has(x); }); }
   function traceHideBranch(id) {
     var ids = traceBranch(id), k = traceHideIds(ids);
     if (k) toast('Hid ' + k + (k === 1 ? ' vertex' : ' vertices') + ' (Ctrl+Z brings them back).');
   }
   function traceSelectBranch(id) { state.selected = new Set(traceBranch(id)); state.selectedEdge = null; syncSelection(); }
-  function traceSelectAll() { state.selected = new Set(Array.from(state.trace.shown).filter(function (id) { return state.graph.nodes.has(id); })); state.selectedEdge = null; syncSelection(); }
+  function traceSelectAll() { state.selected = new Set(Array.from(state.trace.shown).filter(function (id) { return state.graph.nodes.has(id); }).concat(Array.from(state.trace.groups.keys()))); state.selectedEdge = null; syncSelection(); }
 
   function traceUndo() {
     var T = state.trace, last = T.undo.pop();
@@ -754,8 +930,22 @@
       var keepUndo = last.snap.undo;
       if (loadTraceData(last.snap.data)) { state.trace.undo = keepUndo; T = state.trace; traceSanitize(); T = state.trace; back = Array.from(T.shown); fit = true; }
       else T.undo.push(last);
+    } else if (last.type === 'group') {                                            // a group was made: take it apart (its members were never shown)
+      traceDropGroup(last.id);
+    } else if (last.type === 'regroup') {                                          // some of a group were shown: hide those again and put the group back as it was
+      last.ids.forEach(traceDrop);
+      T.groups.set(last.before.id, groupSpecClone(last.before));
+      if (last.pos) T.pos.set(last.before.id, last.pos);
+      if (last.prov) T.prov.set(last.before.id, last.prov);
+      back.push(last.before.id);
     } else if (last.type === 'hide') {
       last.items.forEach(function (it) {
+        if (it.group) {                                                            // a hidden group comes back as a group
+          T.groups.set(it.id, groupSpecClone(it.group)); back.push(it.id);
+          if (it.pos) T.pos.set(it.id, it.pos);
+          if (it.prov) T.prov.set(it.id, it.prov);
+          return;
+        }
         T.shown.add(it.id); back.push(it.id);
         if (it.pos) T.pos.set(it.id, it.pos);
         if (it.prov) T.prov.set(it.id, it.prov);
@@ -781,8 +971,8 @@
   /** Re-run the automatic left-to-right layout over what is shown (positions are otherwise yours). */
   function traceTidy() {
     if (state.arrange !== 'columns') { state.pinned.clear(); refresh({ relayout: true, fit: true }); return; }
-    var T = state.trace, vis = F.computeVisible(state.graph, state.filter, state.keep, null, traceOnly());
-    L.layoutFlow(state.graph, vis, {}).pos.forEach(function (p, id) { T.pos.set(id, { x: p.x, y: p.y }); });
+    var T = state.trace, vg = viewGraph(), vis = F.computeVisible(vg, state.filter, state.keep, null, traceOnly());
+    L.layoutFlow(vg, vis, {}).pos.forEach(function (p, id) { T.pos.set(id, { x: p.x, y: p.y }); });
     traceChanged(null, true);
   }
 
@@ -792,7 +982,12 @@
     var pos = {}, prov = {};
     T.pos.forEach(function (p, id) { if (T.shown.has(id)) pos[id] = [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10]; });
     T.prov.forEach(function (p, id) { if (T.shown.has(id)) prov[id] = [p.via, p.dir]; });
-    return { seed: T.seed, seeds: T.seeds.slice(), shown: Array.from(T.shown), pos: pos, prov: prov };
+    var out = { seed: T.seed, seeds: T.seeds.slice(), shown: Array.from(T.shown), pos: pos, prov: prov };
+    if (T.groups.size) {                                                           // groups are saved by what they stand for; their vertex and edge are rebuilt from the graph
+      out.groups = Array.from(T.groups.values()).map(function (g) { var p = T.pos.get(g.id); return { id: g.id, anchor: g.anchor, dir: g.dir, kind: g.kind, party: g.party, members: g.members.slice(), pos: p ? [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] : null }; });
+      out.seq = T.seq;
+    }
+    return out;
   }
   function loadTraceData(d) {
     if (!d || typeof d !== 'object' || typeof d.seed !== 'string' || !NV.isId(d.seed)) return false;
@@ -809,7 +1004,21 @@
     });
     var i = 0;
     shown.forEach(function (id) { if (!pos.has(id)) { pos.set(id, id === seed ? { x: 0, y: 0 } : { x: (i % 8) * 200, y: Math.floor(i / 8) * 60 + 120 }); i++; } });
-    T.seed = seeds[0]; T.seeds = seeds; T.shown = shown; T.pos = pos; T.prov = prov; T.undo = [];
+    T.seed = seeds[0]; T.seeds = seeds; T.shown = shown; T.pos = pos; T.prov = prov; T.undo = []; T.groups = new Map(); T.seq = 0;
+    if (Array.isArray(d.groups)) d.groups.slice(0, 200).forEach(function (x) {      // groups: only well-formed ones whose anchor is on the trace
+      if (!x || typeof x !== 'object' || !GR.isGroupId(x.id) || T.groups.has(x.id)) return;
+      var anchor = typeof x.anchor === 'string' && NV.isId(x.anchor) ? canonicalId(x.anchor) : null;
+      if (!anchor || !shown.has(anchor) || (x.dir !== 'next' && x.dir !== 'prev') || !Array.isArray(x.members)) return;
+      var members = x.members.slice(0, 5000).filter(function (m) { return typeof m === 'string' && NV.isId(m); }).map(canonicalId);
+      if (members.length < 2) return;
+      T.groups.set(x.id, { id: x.id, anchor: anchor, dir: x.dir, kind: x.kind === 'party' || x.kind === 'small' ? x.kind : 'picked',
+                           party: typeof x.party === 'string' && NV.isId(x.party) ? canonicalId(x.party) : null, members: members });
+      var gp = Array.isArray(x.pos) && x.pos.length === 2 && isFinite(x.pos[0]) && isFinite(x.pos[1]) && Math.abs(x.pos[0]) < 1e6 && Math.abs(x.pos[1]) < 1e6 ? { x: x.pos[0], y: x.pos[1] } : null, ap = pos.get(anchor) || { x: 0, y: 0 };
+      T.pos.set(x.id, gp || { x: ap.x + (x.dir === 'next' ? 200 : -200), y: ap.y });
+      T.prov.set(x.id, { via: anchor, dir: x.dir });
+      T.seq = Math.max(T.seq, parseInt(x.id.slice(4), 10) || 0);
+    });
+    if (typeof d.seq === 'number' && isFinite(d.seq)) T.seq = Math.max(T.seq, Math.min(1000000000, Math.floor(d.seq)));
     return true;
   }
   /** After a graph was merged in: forget trace vertices that are not in it. */
@@ -818,7 +1027,7 @@
     Array.from(T.shown).forEach(function (id) { if (!g.nodes.has(id)) { T.shown.delete(id); T.pos.delete(id); T.prov.delete(id); } });
     syncSeed();
     if (!T.seeds.length && T.shown.size) { T.seeds = [Array.from(T.shown)[0]]; T.seed = T.seeds[0]; }
-    if (!T.shown.size) state.trace = emptyTrace();
+    if (!T.shown.size) state.trace = emptyTrace(); else traceCleanGroups();
   }
   /** A vertex was deleted from the workspace altogether. */
   function traceForget(ids) {
@@ -826,7 +1035,7 @@
     ids.forEach(function (id) { T.shown.delete(id); T.pos.delete(id); T.prov.delete(id); });
     syncSeed();
     if (!T.seeds.length && T.shown.size) { T.seeds = [Array.from(T.shown)[0]]; T.seed = T.seeds[0]; }
-    if (!T.shown.size) state.trace = emptyTrace();
+    if (!T.shown.size) state.trace = emptyTrace(); else traceCleanGroups();
   }
 
   // ---- Previous / Next: follow the money ------------------------------------------------------
@@ -1238,7 +1447,7 @@
   /** The short text drawn along an edge. Cached until the data or the display choice changes. */
   function edgeLabelFor(e) {
     var hit = edgeLabelCache.get(e.id); if (hit !== undefined) return hit;
-    var fx = fiatOn() ? fiatOfEdge(e) : null, mode = fx ? state.fiat.show : 'btc', btc = S.fmtBtcShort(e.amount);
+    var fx = fiatOn() && !e.virtual ? fiatOfEdge(e) : null, mode = fx ? state.fiat.show : 'btc', btc = S.fmtBtcShort(e.amount);      // a group's total spans many moments: no single price fits, so it is shown in BTC only
     var t = mode === 'fiat' ? fx.text : mode === 'both' ? btc + ' · ' + fx.text : btc;
     var cm = state.analysis.change && state.an ? state.an.changeEdges.get(e.id) : null;
     if (cm) t += ' · ' + (cm.confidence === 'high' ? 'likely change' : 'change?');
@@ -1558,6 +1767,22 @@
     buildCtx(nodeId ? Array.from(state.selected) : null, at);
   }
 
+  /** The right-click menu of a group vertex. */
+  function groupCtx(gid, m, at) {
+    var grp = state.trace.groups.get(gid), gn = groupNodeOf(gid); if (!grp || !gn) return;
+    var rows = groupRows(grp), N = state.stepSize;
+    m.appendChild(el('div', { 'class': 'ctxhead', text: 'Group · ' + gn.groupText }));
+    if (rows.length > N) ctxItem(m, 'Show the largest ' + N, function () { traceExpandGroup(gid, { limit: N }); }, { title: 'The rest stay in the group' });
+    ctxItem(m, 'Show all ' + rows.length, function () { traceExpandGroup(gid, {}); });
+    if (rows.length > 2) ctxItem(m, 'Choose which…', function () { traceChoose(grp.anchor, grp.dir, at, { group: gid }); }, { keep: true });
+    m.appendChild(el('div', { 'class': 'sep' }));
+    var anchorIsAddr = state.graph.nodes.get(grp.anchor).type === 'addr', what = plural(rows.length, anchorIsAddr ? 'transaction id' : 'address', anchorIsAddr ? undefined : 'addresses');
+    ctxItem(m, 'Copy ' + what, function () { copy(rows.map(function (r) { return plainId(r.id); }).join(NL), what); });
+    m.appendChild(el('div', { 'class': 'sep' }));
+    ctxItem(m, 'Hide group', function () { traceHideIds([gid]); }, { danger: true, title: 'What is in it stays hidden (Ctrl+Z brings it back)' });
+    placeCtx(at);
+  }
+
   function buildCtx(ids, at) {
     var m = $('ctxMenu'), g = state.graph; m.textContent = ''; m.classList.remove('choosing');
     if (!ids) {
@@ -1584,15 +1809,16 @@
       }
       placeCtx(at); return;
     }
+    if (ids.length === 1 && traceOn() && state.trace.groups.has(ids[0])) { groupCtx(ids[0], m, at); return; }
     var n = g.nodes.get(ids[0]); if (!n) return;
     m.appendChild(el('div', { 'class': 'ctxhead', text: (KIND_NAME[n.type] || 'Vertex') + ' · ' + focusLabel(n.id).replace(/^tx /, '') }));
     if (traceOn() && (n.type === 'tx' || n.type === 'addr')) {
-      function lab(dir) { return TR.handleLabel(TR.hidden(state.graph, state.trace.shown, n.id, dir)); }
+      function lab(dir) { return TR.handleLabel(trHidden(n.id, dir)); }
       var T0 = state.trace, isSeed = T0.seeds.indexOf(n.id) >= 0, inTrace = T0.shown.has(n.id), branch = inTrace ? traceBranch(n.id) : [];
       ctxItem(m, 'Show forward ▶', function () { traceExpand(n.id, 'next', { at: at }); }, { right: lab('next') });
       ctxItem(m, '◀ Show backward', function () { traceExpand(n.id, 'prev', { at: at }); }, { right: lab('prev') });
-      ctxItem(m, 'Choose what to show ▶…', function () { traceChoose(n.id, 'next', at); }, { keep: true, disabled: !TR.hidden(state.graph, T0.shown, n.id, 'next').known });
-      ctxItem(m, '◀ Choose what to show…', function () { traceChoose(n.id, 'prev', at); }, { keep: true, disabled: !TR.hidden(state.graph, T0.shown, n.id, 'prev').known });
+      ctxItem(m, 'Choose what to show ▶…', function () { traceChoose(n.id, 'next', at); }, { keep: true, disabled: !trHidden(n.id, 'next').known });
+      ctxItem(m, '◀ Choose what to show…', function () { traceChoose(n.id, 'prev', at); }, { keep: true, disabled: !trHidden(n.id, 'prev').known });
       m.appendChild(el('div', { 'class': 'sep' }));
       ctxItem(m, 'Hide this vertex', function () { traceHideIds([n.id]); }, { disabled: T0.shown.size <= 1, title: 'Take only this vertex off the screen; what it revealed stays' });
       ctxItem(m, 'Hide this branch', function () { traceHideBranch(n.id); }, { disabled: branch.length >= T0.shown.size, right: branch.length > 1 ? String(branch.length) : '', title: 'Hide this vertex and everything that was revealed because of it' });
@@ -1687,7 +1913,7 @@
   function traceActions(n) {
     if (!traceOn() || !state.trace.shown.has(n.id)) return null;
     var T = state.trace, branch = traceBranch(n.id);
-    function lbl(dir) { return TR.handleLabel(TR.hidden(state.graph, T.shown, n.id, dir)); }
+    function lbl(dir) { return TR.handleLabel(trHidden(n.id, dir)); }
     return el('div', { 'class': 'insp-section' }, [
       el('div', { 'class': 'insp-actions' }, [
         el('button', { type: 'button', text: '◀ Show backward ' + lbl('prev'), title: 'Show what came before ([). Shift-click a handle on the graph to choose which.', onclick: function () { traceExpand(n.id, 'prev'); } }),
@@ -1795,6 +2021,14 @@
       });
       return chain;
     }
+    /** Put these on the trace as one group vertex per direction (the ones the wallet spent in hang forward, the ones that paid it hang behind). */
+    function putAsGroup(g, list) {
+      ['next', 'prev'].forEach(function (d) {
+        var m = list.filter(function (r) { return canPut(r) && (r.sent > 0 ? 'next' : 'prev') === d; });
+        if (m.length >= 2) traceMakeGroup(n.id, d, m.map(function (r) { return r.id; }), { kind: g.kind, party: g.party });
+        else if (m.length === 1) putOnTrace(m);
+      });
+    }
     function rowEl(r) {
       var fx = fiatOf(r.amount, r.time), parties = r.dir === 'self' ? { names: [] } : r.party;
       var who = partiesText(parties, 'itself');
@@ -1828,6 +2062,7 @@
         var largest = off.slice().sort(function (a, b) { return b.amount - a.amount; }).slice(0, state.stepSize), acts = [el('span', { 'class': 'hint', text: 'On the trace:' })];
         if (off.length > largest.length) acts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ largest ' + largest.length, title: 'Put the largest ' + largest.length + ' of them on the trace', onclick: function () { putOnTrace(largest); } }));
         acts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ all ' + off.length, title: 'Put all of them on the trace', onclick: function () { putOnTrace(off); } }));
+        if (off.length > 1) acts.push(el('button', { type: 'button', 'class': 'showbtn', text: '◼ as one', title: 'Put them on the trace as ONE vertex (it can be opened later)', onclick: function () { putAsGroup(g, off); } }));
         wrap.appendChild(el('div', { 'class': 'groupacts' }, acts));
       }
       if (open) {
@@ -1894,10 +2129,49 @@
     return el('button', { type: 'button', 'class': 'danger', text: ids.length > 1 ? 'Remove ' + ids.length + ' from view' : 'Remove from view', onclick: function () { removeIds(ids); } });
   }
 
+  /** The details of a selected group vertex: what it stands for, and how to show some or all of it. */
+  function showGroup(gid, box) {
+    var T = state.trace, grp = T.groups.get(gid), gn = groupNodeOf(gid), g = state.graph;
+    if (!grp || !gn) { $('inspector').hidden = true; return; }
+    var anchor = g.nodes.get(grp.anchor), rows = groupRows(grp), st = GR.stats(rows), N = state.stepSize;
+    var noun = anchor.type === 'addr' ? 'transaction' : grp.dir === 'next' ? 'output' : 'input';
+    box.appendChild(el('h3', {}, [el('span', { 'class': 'kind', text: 'Group' }), el('span', { text: gn.groupText })]));
+    var dl = el('dl', { 'class': 'kv' });
+    kv(dl, 'Stands for', plural(st.count, noun) + ', not shown yet');
+    kv(dl, 'Total', S.fmtBtc(st.total) + ' BTC');
+    kv(dl, 'Each', S.fmtBtc(st.min) + ' to ' + S.fmtBtc(st.max) + ' BTC');
+    kv(dl, 'Dates', dateRange(st.first, st.last));
+    kv(dl, grp.dir === 'next' ? (anchor.type === 'addr' ? 'Spent from' : 'Outputs of') : (anchor.type === 'addr' ? 'Paid' : 'Inputs of'), focusLabel(grp.anchor));
+    if (grp.kind === 'party' && grp.party) kv(dl, grp.dir === 'prev' ? 'Paid by' : 'Paid to', focusLabel(grp.party));
+    box.appendChild(dl);
+    var acts = [];
+    if (rows.length > N) acts.push(el('button', { type: 'button', text: 'Show the largest ' + N, title: 'Put the largest ' + N + ' on the trace; the rest stay in the group', onclick: function () { traceExpandGroup(gid, { limit: N }); } }));
+    acts.push(el('button', { type: 'button', text: 'Show all ' + rows.length, title: 'Put every one of them on the trace', onclick: function () { traceExpandGroup(gid, {}); } }));
+    if (rows.length > 2) acts.push(el('button', { type: 'button', text: 'Choose which…', onclick: function (ev) { var r = ev.currentTarget.getBoundingClientRect(); traceChoose(grp.anchor, grp.dir, { x: r.left, y: r.bottom + 4 }, { group: gid }); } }));
+    box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
+    box.appendChild(el('div', { 'class': 'insp-actions' }, [
+      el('button', { type: 'button', text: 'Copy ' + plural(rows.length, anchor.type === 'addr' ? 'transaction id' : 'address', anchor.type === 'addr' ? undefined : 'addresses'), title: 'One per line', onclick: function () { copy(rows.map(function (r) { return plainId(r.id); }).join(NL), plural(rows.length, anchor.type === 'addr' ? 'transaction id' : 'address', anchor.type === 'addr' ? undefined : 'addresses')); } }),
+      el('button', { type: 'button', text: 'Hide group', title: 'Take the group off the screen; what is in it stays hidden (Ctrl+Z brings it back)', onclick: function () { traceHideIds([gid]); } })]));
+    var cap = (state.groupCap && state.groupCap[gid]) || 40, list = el('div', { 'class': 'linkrows' });
+    rows.slice(0, cap).forEach(function (r) {
+      var kids = [el('span', { 'class': 'who' }, [focusLabel(r.id)])];
+      if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time, false) }));
+      kids.push(el('span', { 'class': 'amt', text: S.fmtBtc(r.amount) + ' BTC' }));
+      list.appendChild(el('div', { 'class': 'rowcopy' }, [el('div', { 'class': 'linkrow plain', title: r.id }, kids),
+        el('button', { type: 'button', 'class': 'showbtn', text: '+ show', title: 'Put just this one on the trace', onclick: function () { traceExpandGroup(gid, { ids: [r.id] }); } }),
+        copyBtn(plainId(r.id), r.type === 'tx' ? 'transaction id' : 'address')]));
+    });
+    if (rows.length > cap) list.appendChild(el('button', { type: 'button', 'class': 'moreRows', text: 'Show ' + Math.min(40, rows.length - cap) + ' more (' + (rows.length - cap) + ' not listed)',
+      onclick: function () { state.groupCap = state.groupCap || {}; state.groupCap[gid] = cap + 40; showInspector(); } }));
+    box.appendChild(el('div', { 'class': 'insp-section walletsec groupmembers' }, [el('span', { 'class': 'lbl', text: 'In this group (' + rows.length + ')' }), list]));
+  }
+
   function renderInspector(soft) {
     var box = $('inspBody'), insp = $('inspector'), g = state.graph;
     if (soft && box.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && state.selected.size === 1) return;   // user is typing
     box.textContent = '';
+    var gsel = traceOn() ? Array.from(state.selected).filter(function (id) { return state.trace.groups.has(id); }) : [];
+    if (gsel.length === 1 && state.selected.size === 1) { insp.hidden = false; return showGroup(gsel[0], box); }
     var ids = Array.from(state.selected).filter(function (id) { return g.nodes.has(id); });
     if (!ids.length && state.selectedEdge && g.edges.has(state.selectedEdge)) { insp.hidden = false; return showEdge(g.edges.get(state.selectedEdge)); }
     if (!ids.length) { insp.hidden = true; return; }
@@ -2055,7 +2329,7 @@
     function line(k, v) { if (v === null || v === undefined || v === '') return; tip.appendChild(el('div', {}, [el('b', { text: k + ' ' }), String(v)])); }
     function fline() { /* amounts follow the display choice through mixText now */ }
     if (nodeId) {
-      var n = g.nodes.get(nodeId); if (!n) { tip.hidden = true; return; }
+      var n = g.nodes.get(nodeId) || groupNodeOf(nodeId); if (!n) { tip.hidden = true; return; }
       if (n.type === 'tx') {
         line('Transaction', S.shortId(n.txid, 10)); line('Time', n.time != null ? S.fmtTimeFull(n.time) : (n.confirmed === false ? 'unconfirmed' : 'unknown'));
         if (n.loaded) { line('Value', mixText(S.fmtBtc(n.valueOut) + ' BTC', fiatOf(n.valueOut, n.time)) + ' · ' + n.nIn + ' in / ' + n.nOut + ' out'); } else line('', 'Not loaded: double-click to load');
@@ -2068,6 +2342,10 @@
         var cl = analysis().clusters.byAddr.get(n.id); if (cl) line('Cluster', cl.label + ' · ' + cl.size + ' addresses spent together');
       } else if (n.type === 'data') { line('OP_RETURN', n.dataText || (n.dataHex ? n.dataHex.slice(0, 48) + (n.dataHex.length > 48 ? '…' : '') : 'empty')); }
       else if (n.type === 'coinbase') line('Coinbase', 'newly created coins');
+      else if (n.type === 'group') {
+        line('Group', n.groupText); line('Total', S.fmtBtc(n.received) + ' BTC'); line('Each', S.fmtBtc(n.min) + ' to ' + S.fmtBtc(n.max) + ' BTC'); line('Dates', dateRange(n.firstSeen, n.lastSeen));
+        line('', 'Double-click: show the largest ' + state.stepSize + '. Click for the details.');
+      }
       else line('Non-standard output', n.scriptType);
       if (n.label) line('Label', n.label);
       if (n.note) line('Note', n.note.length > 140 ? n.note.slice(0, 140) + '…' : n.note);
@@ -2370,7 +2648,7 @@
       var fresh = []; ids.forEach(function (id) { if (g.nodes.has(id) && !T.shown.has(id) && fresh.indexOf(id) < 0) fresh.push(id); });
       if (!fresh.length) return;
       TR.place(T.pos, parentId, dir, { primary: fresh.map(function (id) { return { id: id }; }), secondary: [] }).forEach(function (p, id) { T.pos.set(id, p); });
-      fresh.forEach(function (id) { T.shown.add(id); T.prov.set(id, { via: parentId, dir: dir }); revealed.push(id); });
+      fresh.forEach(function (id) { traceUnfold(id); T.shown.add(id); T.prov.set(id, { via: parentId, dir: dir }); revealed.push(id); });
     }
     if (g.nodes.get(startId).type === 'addr') put(startId, (w.levels[0] || []).map(ID.tx));
     steps.forEach(function (st) {
@@ -2475,7 +2753,7 @@
   /** o: { relayout, fit, instant } */
   function refresh(o) {
     o = o || {};
-    var g = state.graph, f = state.filter;
+    var rg = state.graph, g = viewGraph(), f = state.filter;                  // g: the real graph plus the group vertices of a trace; rg: only what is on the chain
     edgeLabelCache.clear();
     renderer.fitPad = traceOn() ? 120 : 60;                                  // a trace needs room for the expand handles beside the outer vertices
     renderer.insets.bottom = state.focus && g.nodes.has(state.focus) && !traceOn() ? Math.max(84, $('stepbar').offsetHeight + 22) : 0;       // keep the graph clear of the step bar
@@ -2494,6 +2772,7 @@
     } else if (traceOn()) {
       var T = state.trace, tpos = new Map();
       T.shown.forEach(function (id) { if (g.nodes.has(id) && T.pos.has(id)) tpos.set(id, { x: T.pos.get(id).x, y: T.pos.get(id).y }); });
+      T.groups.forEach(function (grp, gid) { if (g.nodes.has(gid) && T.pos.has(gid)) tpos.set(gid, { x: T.pos.get(gid).x, y: T.pos.get(gid).y }); });
       if (o.relayout || o.traceChanged || !state.layoutRes || !state.layoutRes.trace) {
         tpos.forEach(function (p, id) {                                    // new vertices grow out of the one that revealed them
           if (renderer.cur.has(id)) return;
@@ -2518,9 +2797,9 @@
     document.body.classList.toggle('axis-on', usesAxis());
     if (o.fit) renderer.fit();
     var fo = focusOpt();
-    if (traceOn() && state.trace.seed) $('counts').textContent = 'Trace from ' + focusLabel(state.trace.seed) + ' · ' + visible.nodes.size + ' shown · ' + Math.max(0, g.nodes.size - visible.nodes.size) + ' more loaded';
-    else $('counts').textContent = g.nodes.size ? (fo ? 'Focus: ' + focusLabel(fo.id) + ' · depth ' + fo.hops + ' · ' : '') + visible.nodes.size + ' of ' + g.nodes.size + ' vertices · ' + visible.edges.size + ' of ' + g.edges.size + ' edges' : '';
-    $('empty').hidden = g.nodes.size > 0;
+    if (traceOn() && state.trace.seed) $('counts').textContent = 'Trace from ' + focusLabel(state.trace.seed) + ' · ' + visible.nodes.size + ' shown · ' + Math.max(0, rg.nodes.size - (visible.nodes.size - state.trace.groups.size)) + ' more loaded';
+    else $('counts').textContent = rg.nodes.size ? (fo ? 'Focus: ' + focusLabel(fo.id) + ' · depth ' + fo.hops + ' · ' : '') + visible.nodes.size + ' of ' + rg.nodes.size + ' vertices · ' + visible.edges.size + ' of ' + rg.edges.size + ' edges' : '';
+    $('empty').hidden = rg.nodes.size > 0;
     updateLegend(); updateFindings(); updateAutoUi(); updateTraceUi();
   }
 
@@ -2837,6 +3116,14 @@
       + ', from the mempool.space price history, interpolated between its points (a value marked ≈ was interpolated across more than two days and is rough).';
   }
 
+  /** A group of the trace as plain data for the report: what it stands for and every member (none is left out). */
+  function reportGroup(grp) {
+    var gn = groupNodeOf(grp.id), rows = groupRows(grp); if (!gn || !rows.length) return null;
+    var st = GR.stats(rows);
+    return { id: grp.id, text: gn.groupText, anchor: grp.anchor, dir: grp.dir, kind: grp.kind, party: grp.party, count: st.count, total: st.total, min: st.min, max: st.max, first: st.first, last: st.last,
+             members: rows.slice(0, 5000).map(function (r) { return { id: r.id, amount: r.amount, time: r.time }; }) };
+  }
+
   /** The investigation report: what is on screen, as one file with its evidence embedded. */
   function doReport() {
     var g = state.graph; g.refreshDerived();
@@ -2857,12 +3144,15 @@
       return { label: c.label, size: c.size, addrs: c.addrs.filter(function (id) { return vis.nodes.has(id); }), txs: c.txs.filter(function (txid) { return vis.nodes.has(ID.tx(txid)); }) };
     });
     var loadedTx = base.nodes.filter(function (n) { return n.type === 'tx' && n.loaded; }).length;
+    var groups = traceOn() ? Array.from(state.trace.groups.values()).map(reportGroup).filter(Boolean) : [];
+    if (base.view && base.view.trace) { delete base.view.trace.groups; delete base.view.trace.seq; }              // the members of a group are not among this file's vertices: they are listed under groups instead
     base.evidence = { generatedBy: 'Orion workspace', title: title, preparedBy: by, generated: new Date().toISOString(), source: sourceBase(), fiat: state.fiat,
                       counts: { nodes: base.nodes.length, edges: base.edges.length, transactionsLoaded: loadedTx },
                       analysis: { transactions: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped, thresholds: AN.DEFAULTS } };
+    if (groups.length) base.evidence.groups = groups;
     var image = null; try { image = renderer.toDataUrl(); } catch (e) { /* a tainted or empty canvas: the report simply has no picture */ }
     var model = { title: title, preparedBy: by, generated: Date.now(), evidence: base, nodes: base.nodes, edges: base.edges,
-                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped },
+                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups,
                   known: function (a) { return KNOWN[a] || null; }, fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {
@@ -2987,17 +3277,21 @@
         else { state.selected = new Set([id]); state.selectedEdge = null; }
         syncSelection();
       },
-      onSelectEdge: function (id) { state.selected = new Set(); state.selectedEdge = id; syncSelection(); },
+      onSelectEdge: function (id) {
+        if (/^grpe:/.test(id)) { state.selected = new Set([id.slice(5)]); state.selectedEdge = null; }                    // the line to a group stands for the group
+        else { state.selected = new Set(); state.selectedEdge = id; }
+        syncSelection();
+      },
       onHover: onHover,
-      onMove: function (id, p) { state.pinned.set(id, { x: p.x, y: p.y }); if (traceOn() && state.arrange === 'columns' && state.trace.shown.has(id)) { state.trace.pos.set(id, { x: p.x, y: p.y }); scheduleSave(); } },
+      onMove: function (id, p) { state.pinned.set(id, { x: p.x, y: p.y }); if (traceOn() && state.arrange === 'columns' && (state.trace.shown.has(id) || state.trace.groups.has(id))) { state.trace.pos.set(id, { x: p.x, y: p.y }); scheduleSave(); } },
       onHandle: function (id, dir, shift, at) { if (shift) traceChoose(id, dir === 'left' ? 'prev' : 'next', at); else traceExpand(id, dir === 'left' ? 'prev' : 'next', { at: at }); },
       onContext: openCtx,
       onBox: function (ids, additive) { setSel(additive ? Array.from(state.selected).concat(ids) : ids); },
-      onExpand: function (id) { if (traceOn()) traceExpand(id, 'next'); else if (state.focusOn) navigate(id); else expandNode(id, 'both'); }
+      onExpand: function (id) { if (traceOn() && state.trace.groups.has(id)) traceExpandGroup(id, { limit: state.stepSize }); else if (traceOn()) traceExpand(id, 'next'); else if (state.focusOn) navigate(id); else expandNode(id, 'both'); }
     });
     loadPrefs();
     makeClient();
-    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('dustSats').value = state.dustSats;
+    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets;
@@ -3152,6 +3446,7 @@
     [['showData', 'showData'], ['showNonstd', 'showNonstd'], ['incPending', 'includePending'], ['incUnknown', 'includeUnknownTime']].forEach(function (p) {
       $(p[0]).addEventListener('change', function () { state.filter[p[1]] = this.checked; refresh({ relayout: p[1] === 'showData' || p[1] === 'showNonstd' }); scheduleSave(); });
     });
+    $('arrowsInRange').addEventListener('change', function () { state.arrowsInRange = this.checked; savePrefs(); renderer.dirty = true; showInspector(true); });
     $('groupRows').addEventListener('change', function () { state.groupRows = this.checked; savePrefs(); showInspector(true); });
     $('dustSats').addEventListener('change', function () { state.dustSats = num(this.value, 0, 1000000000, 10000); this.value = state.dustSats; savePrefs(); showInspector(true); });
     $('stepMode').addEventListener('change', function () { state.stepMode = this.value; savePrefs(); renderer.dirty = true; });
@@ -3219,6 +3514,6 @@
     if (fiatOn()) ensurePrices();
   }
 
-  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, importPack: importPack, undoLoad: undoLoad, traceExpand: traceExpand, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
+  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, importPack: importPack, undoLoad: undoLoad, traceExpand: traceExpand, traceMakeGroup: traceMakeGroup, traceExpandGroup: traceExpandGroup, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

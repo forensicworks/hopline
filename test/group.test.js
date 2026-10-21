@@ -91,3 +91,30 @@ test('layout drops members that are not in the list being shown (a filter) and k
   const items = G.layout([a, c], groups);
   assert.equal(items.length, 1); assert.deepEqual(items[0].group.members, [a, c]); assert.equal(items[0].group.stats.count, 2);
 });
+
+test('vertex: a group behind a wallet acts as the transaction, so the edge has the shape the rest of the page expects', () => {
+  const rows = [{ id: 'tx:a', amount: 500, time: 100 }, { id: 'tx:b', amount: 700, time: 300 }, { id: 'tx:c', amount: 200, time: 200 }];
+  const spec = { id: 'grp:1', anchor: 'addr:W', dir: 'next', kind: 'party', party: 'addr:X', members: ['tx:a', 'tx:b', 'tx:c'] };
+  const v = G.vertex(spec, 'addr', rows);
+  assert.equal(v.node.type, 'group'); assert.equal(v.node.virtual, true); assert.equal(v.node.count, 3);
+  assert.equal(v.node.received, 1400, 'the total is the size the vertex is drawn at'); assert.equal(v.node.time, 100); assert.equal(v.node.lastSeen, 300);
+  assert.equal(v.node.min, 200); assert.equal(v.node.max, 700); assert.deepEqual(v.node.members, ['tx:a', 'tx:b', 'tx:c']);
+  assert.deepEqual([v.edge.kind, v.edge.source, v.edge.target, v.edge.amount], ['in', 'addr:W', 'grp:1', 1400], 'money flows wallet -> group; an input edge belongs to the transaction at its target');
+  assert.equal(v.edge.virtual, true); assert.equal(v.edge.id, 'grpe:grp:1');
+  const back = G.vertex(Object.assign({}, spec, { dir: 'prev' }), 'addr', rows);
+  assert.deepEqual([back.edge.kind, back.edge.source, back.edge.target], ['out', 'grp:1', 'addr:W'], 'transactions that paid the wallet: an output edge of the group');
+});
+
+test('vertex: a group behind a transaction acts as the wallets', () => {
+  const rows = [{ id: 'addr:a', amount: 10, time: 5 }, { id: 'addr:b', amount: 20, time: 5 }];
+  const fwd = G.vertex({ id: 'grp:2', anchor: 'tx:T', dir: 'next', kind: 'small', party: null, members: ['addr:a', 'addr:b'] }, 'tx', rows);
+  assert.deepEqual([fwd.edge.kind, fwd.edge.source, fwd.edge.target], ['out', 'tx:T', 'grp:2']);
+  const bwd = G.vertex({ id: 'grp:2', anchor: 'tx:T', dir: 'prev', kind: 'small', party: null, members: ['addr:a', 'addr:b'] }, 'tx', rows);
+  assert.deepEqual([bwd.edge.kind, bwd.edge.source, bwd.edge.target], ['in', 'grp:2', 'tx:T']);
+  assert.equal(fwd.node.party, null);
+});
+
+test('isGroupId only accepts the ids groups are given', () => {
+  assert.equal(G.isGroupId('grp:1'), true); assert.equal(G.isGroupId('grp:123456789'), true);
+  ['grp:', 'grp:x', 'tx:abc', 'grp:1234567890', 'grpe:grp:1', '', null, undefined, 5].forEach((x) => assert.equal(G.isGroupId(x), false, String(x)));
+});

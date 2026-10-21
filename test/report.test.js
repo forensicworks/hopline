@@ -123,3 +123,24 @@ test('the wallets table has a balance column: what the server reported, with the
   assert.match(r.html, /<span class="hint">not read<\/span>/);
   assert.match(r.html, /its <i>Balance<\/i> is what the server reported for the whole address/);
 });
+
+test('a group shown as one vertex is listed in full, with its numbers, and everything in it is escaped', async () => {
+  const members = [];
+  for (let i = 0; i < 4; i++) members.push({ id: ID.tx(tid(10 + i)), amount: 1000 * (i + 1), time: 1650000000 + i * 60 });
+  const m = modelOf(sample(), { groups: [{ id: 'grp:1', text: '4 transactions to <img src=x onerror=alert(1)>', anchor: ID.addr('me'), dir: 'next', kind: 'party', party: ID.addr('x'), count: 4, total: 10000, min: 1000, max: 4000, first: 1650000000, last: 1650000180, members }] });
+  const r = await RP.build(m);
+  assert.match(r.html, /<h2>Groups shown as one vertex<\/h2>/);
+  assert.match(r.html, /4 members · 0\.00010000 BTC in total \(each 0\.00001000 to 0\.00004000\)/);
+  members.forEach((x) => assert.ok(r.html.includes(x.id.slice(3)), 'every member is listed'));
+  assert.ok(!r.html.includes('<img src=x'), 'the text of a group is escaped');
+  assert.match(r.html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.match(r.html, /forward from <code>me<\/code>/);
+});
+
+test('with no group the report has no groups section, and a very large group is cut with a note', async () => {
+  assert.ok(!(await RP.build(modelOf(sample()))).html.includes('Groups shown as one vertex'));
+  const big = []; for (let i = 0; i < 600; i++) big.push({ id: ID.tx(tid(i % 200).slice(0, 63) + String(i % 10)), amount: 1000, time: null });
+  const r = await RP.build(modelOf(sample(), { groups: [{ id: 'grp:2', text: '600 transactions', anchor: ID.addr('me'), dir: 'prev', kind: 'small', party: null, count: 600, total: 600000, min: 1000, max: 1000, first: null, last: null, members: big }] }));
+  assert.match(r.html, /times unknown · behind <code>me<\/code>/);
+  assert.match(r.html, /The first 500 of 600 are listed; the embedded data has them all\./);
+});

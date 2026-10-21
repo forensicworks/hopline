@@ -231,7 +231,7 @@ def test_the_list_never_runs_markup_from_an_address_label(fpage, mock):
 def test_smallest_first_is_an_order_and_the_top_few_follow_it(fpage, mock):
     tx = trace_of(fpage, mock, 12)
     click_handle(fpage, tx, "right"); idle(fpage)
-    assert fpage.eval_on_selector_all("#ctxMenu .choosertools select option", "os => os.map(o => o.textContent)") == ["Largest first", "Smallest first", "Newest first", "Oldest first"]
+    assert fpage.eval_on_selector_all("#ctxMenu .choosertools select >> nth=0 >> option", "os => os.map(o => o.textContent)") == ["Largest first", "Smallest first", "Newest first", "Oldest first", "Known or labelled first"]
     fpage.select_option("#ctxMenu .choosertools select", "small")
     first = fpage.eval_on_selector_all("#ctxMenu .chooserrow", "rows => rows.map(r => r.querySelector('.amt').textContent)")
     amounts = [float(a.split()[0]) for a in first]

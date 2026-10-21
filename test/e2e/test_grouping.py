@@ -151,7 +151,7 @@ def test_in_a_trace_a_group_puts_its_largest_few_or_all_of_them_on_the_trace(fpa
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
     wrap = fpage.locator("#inspBody .walletsec .groupwrap").filter(has_text="6 transactions to")
-    assert wrap.locator(".groupacts .showbtn").all_inner_texts() == ["+ largest 5", "+ all 6"]
+    assert wrap.locator(".groupacts .showbtn").all_inner_texts() == ["+ largest 5", "+ all 6", "◼ as one"]
     wrap.locator(".groupacts .showbtn >> text=+ largest 5").click(); idle(fpage); settle(fpage)
     got = {i for i in shown(fpage) if i.startswith("tx:")}
     assert got == {"tx:" + tid(n) for n in range(101, 106)}, "the five largest of the six: " + str(sorted(got))
