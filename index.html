@@ -1,46 +1,56 @@
 <!DOCTYPE html>
-<html>
-  <head>
-<title>Orion.Ninja</title>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orion</title>
+<link rel="stylesheet" href="public/css/wallet.css">
 <style>
-html,body{
-  font-family: "Calibri", "Arial", "sans-serif";
-  background-color: #2e1f2e;
-  margin: 0px;
-  padding: 0px;
-  color: #f2f2f2;
-}
+  body { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; }
+  main { width: 100%; max-width: 760px; }
+  h1 { font-size: 34px; margin: 0 0 4px; display: block; }
+  h1 span { color: var(--accent); font-weight: 400; }
+  .lead { color: var(--dim); margin: 0 0 22px; font-size: 16px; }
+  #go { display: flex; gap: 8px; }
+  #go input { flex: 1; min-width: 0; padding: 10px 12px; font-size: 15px; }
+  #go button { padding: 10px 18px; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 26px; }
+  @media (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
+  .card { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--text); text-decoration: none; }
+  .card:hover, .card:focus-visible { border-color: var(--accent); }
+  .card h2 { margin: 0 0 6px; font-size: 18px; color: var(--accent); }
+  .card p { margin: 0; color: var(--dim); font-size: 13.5px; line-height: 1.45; }
+  #err { color: var(--danger); min-height: 20px; margin: 8px 0 0; }
 </style>
 </head>
 <body>
-<center>
-<h1>Bitcoin Transaction Visualizer</h1>
-<br><br><br><br>
-<img src="public/logo.png"><br><br>
-<input type="text" id="txQuery" placeholder="ADDRESS/TRANSACTION ID" style="padding: 3px; font-size: 11px; width: 550px;"> <button onclick="explore();" style="padding: 4px; font-weight: bold; font-size: 9px; background-color: #0e0f0e; color: #AEE7F8; border: 1px solid #2e2f2e; cursor: pointer;">VIEW</button><br><br>
-<a href="orion/public/orion.html">
-<button style="padding: 12px; border: 2px solid #000; border-radius: 7px;">Random Transaction</button></a>
-<br>
-<a href="orion/public/link.html">
-<button style="padding: 12px; border: 2px solid #000; border-radius: 7px;">Compare/Link Transactions</button></a>
-<br>
-<a href="public/workspace.html">
-<button style="padding: 12px; border: 2px solid #000; border-radius: 7px;">Workspace (timeline, filters, export)</button></a>
-</center>
+<main>
+  <h1>Orion <span>— Bitcoin investigation tools</span></h1>
+  <p class="lead">Follow money through the chain in your browser. Nothing is installed and nothing is stored on a server: the pages ask a public block explorer API (or your own) and keep your work on your machine.</p>
+  <form id="go" autocomplete="off">
+    <label class="sr" for="q">Bitcoin address or transaction ID</label>
+    <input id="q" type="text" placeholder="Bitcoin address or transaction ID" spellcheck="false" autofocus>
+    <button type="submit" class="primary">Open</button>
+  </form>
+  <p id="err" role="alert"></p>
+  <div class="cards">
+    <a class="card" href="public/workspace.html"><h2>Workspace</h2><p>A graph of transactions and wallets: trace the money step by step, group and filter, find patterns, label wallets, and write a report you can hand over.</p></a>
+    <a class="card" href="public/wallet.html"><h2>Wallet overview</h2><p>One address as a ledger: balance, totals, every transaction with its inputs and outputs, the labelled wallets it dealt with, and a CSV download.</p></a>
+  </div>
+  <p class="hint">A transaction ID opens in the workspace, an address as a wallet overview. Working name; it will change.</p>
+</main>
 <script>
-function explore(){
-	var txInput = document.getElementById("txQuery").value;
-	
-	if(txInput.length==64){
-		//txid
-		var url = "public/orion.html?q="+txInput;
-	} else {
-		//address
-		var url = "public/address.html?q="+txInput;
-	}
-	
-	window.location.replace(url);
-}
+(function () {
+  var form = document.getElementById('go'), q = document.getElementById('q'), err = document.getElementById('err');
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = q.value.trim().replace(/^bitcoin:/i, '').split(/[?#]/)[0].trim(), m = /\/(?:address|tx)\/([A-Za-z0-9]+)\/?$/.exec(v);
+    if (m) v = m[1];
+    if (!v) { err.textContent = 'Enter a Bitcoin address or a transaction ID.'; return; }
+    err.textContent = '';
+    window.location.href = /^[0-9a-fA-F]{64}$/.test(v) ? 'public/workspace.html?q=' + encodeURIComponent(v.toLowerCase()) : 'public/wallet.html?q=' + encodeURIComponent(v);
+  });
+}());
 </script>
 </body>
 </html>

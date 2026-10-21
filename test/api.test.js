@@ -416,3 +416,19 @@ test('expanding an address records its totals as well as its history', async () 
   assert.equal(n.fundedSum, ADDR.chain_stats.funded_txo_sum); assert.equal(n.spentSum, ADDR.chain_stats.spent_txo_sum);
   assert.equal(n.txCount, ADDR.chain_stats.tx_count + ADDR.mempool_stats.tx_count);
 });
+
+test('buildClient: the pacing and the backup that go with a saved source choice, and never a backup for Tor or your own server', () => {
+  const m = require('../public/js/orion-api.js');
+  const a = m.buildClient({ source: 'clearnet', fallback: true });
+  assert.equal(a.base, PRESETS.clearnet.base); assert.equal(a.backup.base, PRESETS.blockstream.base); assert.equal(a.concurrency, PRESETS.clearnet.concurrency);
+  assert.equal(m.buildClient({ source: 'blockstream' }).backup.base, PRESETS.clearnet.base, 'the other way round');
+  assert.equal(m.buildClient({ source: 'clearnet', fallback: false }).backup, null);
+  assert.equal(m.buildClient({ source: 'tor', fallback: true }).backup, null, 'a backup would leave Tor');
+  const own = m.buildClient({ source: 'custom', customBase: ' http://localhost:8080/api/ ', fallback: true });
+  assert.equal(own.base, 'http://localhost:8080/api'); assert.equal(own.backup, null);
+  assert.equal(m.buildClient({}).base, PRESETS.clearnet.base, 'nothing chosen: the default');
+  assert.equal(m.buildClient({ source: 'nonsense' }).base, PRESETS.clearnet.base);
+  assert.equal(m.hostOf('https://blockstream.info/api'), 'blockstream.info');
+  let sw = null; const c = m.buildClient({ source: 'clearnet' }, { onSwitch: (i) => { sw = i; }, maxRequests: 7 });
+  assert.equal(c.maxRequests, 7); assert.equal(c.onSwitch !== null, true); assert.equal(sw, null);
+});

@@ -331,3 +331,10 @@ dl.kv dt { color: var(--dim); } dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 #ctxMenu .groupone { flex: none; padding: 0 6px; font-size: 11px; white-space: nowrap; }
 #ctxMenu .oneticked { white-space: nowrap; }
 .groupmembers .linkrow.plain { border-style: solid; border-color: var(--line); color: inherit; cursor: default; }
+.rowcopy.tickable > :first-child { flex: none; }
+.rowcopy.tickable > :nth-child(2) { flex: 1; min-width: 0; }
+.rowtick { flex: none; margin: 0 2px 0 0; }
+.walletpick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 6px; font-size: 12px; color: var(--dim); }
+.walletpick label { display: flex; align-items: center; gap: 4px; margin: 0; text-transform: none; letter-spacing: 0; }
+.pickacts { display: flex; flex-wrap: wrap; gap: 6px; }
+.pickacts button { padding: 3px 8px; font-size: 12px; }

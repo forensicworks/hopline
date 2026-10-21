@@ -24,6 +24,33 @@
     custom:     { label: 'My own Esplora URL',                 base: '',                              concurrency: 4, delayMs: 150, timeoutMs: 30000, retries: 3, prices: null }
   };
 
+  function hostOf(base) { return String(base).replace(/^https?:[/][/]/i, '').split('/')[0]; }
+
+  /** The API base of a saved choice { source: 'clearnet' | 'tor' | 'blockstream' | 'custom', customBase }. */
+  function sourceBase(p) {
+    p = p || {};
+    return p.source === 'custom' ? String(p.customBase || '').trim() : (PRESETS[p.source] || PRESETS.clearnet).base;
+  }
+  /** The other public server to fall back to, when the choice allows it: never for Tor (that would leave Tor) or your own server. */
+  function backupFor(p) {
+    p = p || {};
+    if (p.fallback === false) return null;
+    return p.source === 'clearnet' ? PRESETS.blockstream : p.source === 'blockstream' ? PRESETS.clearnet : null;
+  }
+  /**
+   * A Client for a saved choice { source, customBase, fallback } with the pacing, timeout, retries and backup that go with it.
+   * extra: { onRequest, onSwitch, onRestore, maxRequests } are passed on.
+   */
+  function buildClient(p, extra) {
+    p = p || {}; extra = extra || {};
+    var preset = PRESETS[p.source] || (p.source === 'custom' ? PRESETS.custom : PRESETS.clearnet), bk = backupFor(p);
+    return new Client({
+      base: sourceBase(p), concurrency: preset.concurrency, delayMs: preset.delayMs, timeoutMs: preset.timeoutMs, retries: preset.retries,
+      backup: bk ? { base: bk.base, concurrency: bk.concurrency, delayMs: bk.delayMs } : null,
+      onRequest: extra.onRequest, onSwitch: extra.onSwitch, onRestore: extra.onRestore, maxRequests: extra.maxRequests
+    });
+  }
+
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
   function ApiError(message, kind, status) {
@@ -456,5 +483,5 @@
     return this.expandAddress(q.value, opts).then(function (r) { r.kind = 'addr'; r.id = ID.addr(q.value); return r; });
   };
 
-  return { Client: Client, Explorer: Explorer, PRESETS: PRESETS, ONION: ONION, isTxid: isTxid, normaliseQuery: normaliseQuery, checkQuery: checkQuery, ApiError: ApiError };
+  return { Client: Client, Explorer: Explorer, PRESETS: PRESETS, ONION: ONION, buildClient: buildClient, sourceBase: sourceBase, backupFor: backupFor, hostOf: hostOf, isTxid: isTxid, normaliseQuery: normaliseQuery, checkQuery: checkQuery, ApiError: ApiError };
 }));

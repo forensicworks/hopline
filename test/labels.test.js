@@ -77,3 +77,23 @@ test('your own labels, tags and notes on wallets become a pack; other vertices a
   const out = Labels.fromGraph(g);
   assert.deepEqual(out.map((e) => [e.address, e.label, e.category]).sort(), [[BECH, 'Suspect A', 'THREAT'], [LEGACY, 'EXCH', 'EXCH']].sort());
 });
+
+test('parseStored reads the packs kept in the browser, caps them and survives damage; buildKnown merges them under the built-in names', () => {
+  const stored = JSON.stringify([
+    { id: 'p1', name: 'Case list', source: 'https://example.org/x', enabled: true, entries: [['bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h', 'Pack name', 'EXCH', 'https://example.org/ref', 'a note'], ['bad'], 5] },
+    { id: 'p2', name: 'Off', enabled: false, entries: [['1BoatSLRHtKNngkdXEeobR76b53LETtpyT', 'Hidden']] },
+    null, { name: '<b>x</b>' }
+  ]);
+  const packs = Labels.parseStored(stored);
+  assert.equal(packs.length, 4); assert.equal(packs[0].entries.length, 1, 'the damaged entries are dropped');
+  assert.equal(packs[0].entries[0].label, 'Pack name'); assert.equal(packs[0].stored, true); assert.equal(packs[1].enabled, false);
+  assert.deepEqual(Labels.parseStored(''), []); assert.deepEqual(Labels.parseStored('{not json'), []); assert.deepEqual(Labels.parseStored('{"a":1}'), []);
+  const base = { 'bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h': { label: 'Built-in name' } };
+  const known = Labels.buildKnown(base, packs);
+  assert.equal(known['bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h'].label, 'Built-in name', 'the built-in name wins');
+  assert.deepEqual(known['bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h'].alt, ['Pack name (Case list)'], 'and the pack is shown as another claim');
+  assert.equal(known['1BoatSLRHtKNngkdXEeobR76b53LETtpyT'], undefined, 'a pack that is switched off adds nothing');
+  assert.equal(base['bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h'].alt, undefined, 'the base list is not changed');
+  const fresh = Labels.buildKnown({}, [{ name: 'P', enabled: true, entries: [{ address: 'x', label: 'L', category: 'C', url: '', note: '' }] }]);
+  assert.deepEqual(fresh.x, { label: 'L', pack: 'P', category: 'C', url: undefined, note: undefined });
+});

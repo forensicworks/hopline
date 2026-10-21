@@ -47,7 +47,7 @@
     trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [], groups: new Map(), seq: 0 },
     undoLoads: [], analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], arrange: 'columns', boxMode: false,
-    stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, dustSats: 10000, walletView: { dir: 'all', sort: 'new', more: 40, open: new Set(), groupMore: {} },
+    stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, dustSats: 10000, walletView: { dir: 'all', sort: 'new', more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -72,7 +72,7 @@
   }
 
   // ---- data source ----------------------------------------------------------------------------
-  function sourceBase() { return state.source === 'custom' ? state.customBase.trim() : A.PRESETS[state.source].base; }
+  function sourceBase() { return A.sourceBase(state); }
 
   function retire(c, key) {
     if (!c) return;
@@ -103,19 +103,13 @@
   }
 
   /** The other public server, when the backup option is on and this one has such a partner (never for Tor or your own server: those must not leave). */
-  function backupPreset() {
-    if (!state.fallback) return null;
-    return state.source === 'clearnet' ? A.PRESETS.blockstream : state.source === 'blockstream' ? A.PRESETS.clearnet : null;
-  }
-  function hostOf(base) { return String(base).replace(/^https?:[/][/]/i, '').split('/')[0]; }
+  function backupPreset() { return A.backupFor(state); }
+  var hostOf = A.hostOf;
   var SWITCH_WHY = { rate: 'is throttling (HTTP 429)', server: 'returned a server error', timeout: 'did not answer in time', network: 'could not be reached' };
 
   function makeClient() {
     retire(state.client, 'data');
-    var p = A.PRESETS[state.source] || A.PRESETS.custom, bk = backupPreset();
-    state.client = new A.Client({
-      base: sourceBase(), concurrency: p.concurrency, delayMs: p.delayMs, timeoutMs: p.timeoutMs, retries: p.retries,
-      backup: bk ? { base: bk.base, concurrency: bk.concurrency, delayMs: bk.delayMs } : null,
+    state.client = A.buildClient(state, {
       onSwitch: function (i) { toast(hostOf(i.from) + ' ' + (SWITCH_WHY[i.reason] || 'failed') + ': using ' + hostOf(i.to) + ' for about ' + i.seconds + ' seconds.'); },
       onRestore: function (i) { log(hostOf(i.base) + ' is answering again.'); },
       onRequest: function (path, c) { if (state.busy) $('progressText').textContent = $('progressText').dataset.title + ' — ' + c.network + ' request' + (c.network === 1 ? '' : 's'); }
@@ -2006,6 +2000,8 @@
   function walletTxSection(n) {
     var rows = walletRows(n); if (!rows.length) return null;
     var V = state.walletView, box = el('div', { 'class': 'insp-section walletsec' });
+    if (V.tickFor !== n.id) { V.tickFor = n.id; V.ticked = new Set(); }                                      // the ticks belong to the wallet they were made on
+    var tickers = [], wantSet = new Set(), bar = null, pickInfo = null, pickActs = null;
     var inRows = rows.filter(function (r) { return r.dir === 'in'; }), outRows = rows.filter(function (r) { return r.dir === 'out'; });
     function total(list) { return list.reduce(function (t, r) { return t + r.amount; }, 0); }
     function when(r) { return r.pending ? Infinity : r.time == null ? -Infinity : r.time; }                       // unconfirmed is the newest; a transaction not loaded yet has no date: last
@@ -2029,6 +2025,39 @@
         else if (m.length === 1) putOnTrace(m);
       });
     }
+    /** A tick box for these transactions (one row, or every member of a group): ticked when all are, half-ticked when some are. */
+    function tickBox(ids, label) {
+      var cb = el('input', { type: 'checkbox', 'class': 'rowtick', 'aria-label': label });
+      cb.addEventListener('change', function () { ids.forEach(function (id) { if (cb.checked) V.ticked.add(id); else V.ticked.delete(id); }); syncTicks(); });
+      tickers.push({ cb: cb, ids: ids });
+      return cb;
+    }
+    /** The ticked rows that are in the list right now (a tick on a row the filter hides does not count until it is listed again). */
+    function picked() { return rows.filter(function (r) { return V.ticked.has(r.id) && wantSet.has(r.id); }); }
+    function clearTicks(list) { list.forEach(function (r) { V.ticked.delete(r.id); }); }
+    function syncTicks() {
+      tickers.forEach(function (t) {
+        var on = t.ids.filter(function (id) { return V.ticked.has(id); }).length;
+        t.cb.checked = on > 0 && on === t.ids.length; t.cb.indeterminate = on > 0 && on < t.ids.length;
+      });
+      if (!bar) return;
+      var list = picked(), k = list.length;
+      pickInfo.textContent = k ? k + ' ticked' : 'Tick rows to act on several at once';
+      pickActs.textContent = '';
+      if (!k) return;
+      function btn(text, title, fn, off) { return el('button', { type: 'button', text: text, title: title, disabled: off ? 'disabled' : null, onclick: fn }); }
+      if (traceOn() && state.trace.shown.has(n.id)) {
+        var fresh = list.filter(canPut);
+        pickActs.appendChild(btn('Show on graph (' + fresh.length + ')', fresh.length ? 'Put these transactions on the trace' : 'They are all on the trace already',
+          function () { clearTicks(fresh); putOnTrace(fresh); }, !fresh.length));
+        pickActs.appendChild(btn('As one vertex', fresh.length > 1 ? 'Put these on the trace as ONE vertex (it can be opened later)' : 'Needs at least two that are not on the trace yet',
+          function () { clearTicks(fresh); putAsGroup({ kind: 'picked', party: null }, fresh); }, fresh.length < 2));
+      } else if (!traceOn()) {
+        pickActs.appendChild(btn('Select on graph', 'Select these transactions on the graph (the ones that are on screen)', function () { selectIds(list.map(function (r) { return r.id; }), 'the ticked transactions'); }, false));
+      }
+      pickActs.appendChild(btn('Copy ids', 'One transaction id per line', function () { copy(list.map(function (r) { return r.txid; }).join(NL), plural(k, 'transaction id')); }, false));
+      pickActs.appendChild(btn('Clear', 'Untick everything', function () { clearTicks(list); syncTicks(); }, false));
+    }
     function rowEl(r) {
       var fx = fiatOf(r.amount, r.time), parties = r.dir === 'self' ? { names: [] } : r.party;
       var who = partiesText(parties, 'itself');
@@ -2038,10 +2067,10 @@
       if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time, false) }));
       kids.push(el('span', { 'class': 'amt', text: (r.dir === 'in' ? '+' : r.dir === 'out' ? '−' : '') + mixText(S.fmtBtc(r.amount) + ' BTC', fx) }));
       var line = el('button', { type: 'button', 'class': 'linkrow ' + r.dir, title: r.id + (fx ? ' · ' + fx.text : ''), onclick: function () { navigate(r.id); } }, kids);
-      var parts = [line];
+      var parts = [tickBox([r.id], 'Tick this transaction'), line];
       if (canPut(r)) parts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ show', title: 'Put this transaction on the trace', onclick: function (ev) { ev.stopPropagation(); putOnTrace([r]); } }));
       parts.push(copyBtn(r.txid, 'transaction id'));
-      var wrap = el('div', { 'class': 'rowcopy' + (onTrace(r) ? '' : ' off') }, parts);
+      var wrap = el('div', { 'class': 'rowcopy tickable' + (onTrace(r) ? '' : ' off') }, parts);
       wrap.addEventListener('mouseenter', function () { if (renderer) renderer.setHighlight(r.id); });
       wrap.addEventListener('mouseleave', function () { if (renderer) renderer.setHighlight(null); });
       return wrap;
@@ -2056,7 +2085,7 @@
                                 onclick: function () { if (V.open.has(g.key)) V.open.delete(g.key); else V.open.add(g.key); draw(); } },
         [el('span', { 'class': 'dirtag ' + g.dir, text: DIR_TAG[g.dir] }), el('span', { 'class': 'who' }, [(open ? '▾ ' : '▸ ') + what, el('small', { text: each })]),
          el('span', { 'class': 'when', text: range }), el('span', { 'class': 'amt', text: sign + S.fmtBtc(st.total) + ' BTC' })]);
-      var wrap = el('div', { 'class': 'groupwrap' + (open ? ' open' : '') }, [el('div', { 'class': 'rowcopy' }, [head, copyBtn(g.members.map(function (r) { return r.txid; }).join(NL), plural(st.count, 'transaction id'))])]);
+      var wrap = el('div', { 'class': 'groupwrap' + (open ? ' open' : '') }, [el('div', { 'class': 'rowcopy tickable' }, [tickBox(g.members.map(function (r) { return r.id; }), 'Tick all ' + st.count + ' in this group'), head, copyBtn(g.members.map(function (r) { return r.txid; }).join(NL), plural(st.count, 'transaction id'))])]);
       var off = g.members.filter(canPut);
       if (off.length) {                                                                // in a trace: the biggest few, or all of them, without opening the group
         var largest = off.slice().sort(function (a, b) { return b.amount - a.amount; }).slice(0, state.stepSize), acts = [el('span', { 'class': 'hint', text: 'On the trace:' })];
@@ -2075,9 +2104,10 @@
     }
     function draw() {
       if (renderer) renderer.setHighlight(null);
-      box.textContent = '';
+      box.textContent = ''; tickers = [];
       var want = rows.filter(function (r) { return V.dir === 'all' || r.dir === V.dir; });
       want.sort(V.sort === 'big' ? function (a, b) { return b.amount - a.amount || (a.id < b.id ? -1 : 1); } : byTime);
+      wantSet = new Set(want.map(function (r) { return r.id; }));
       box.appendChild(el('span', { 'class': 'lbl', text: 'Transactions (' + rows.length + ')' }));
       box.appendChild(el('div', { 'class': 'walletsum', title: 'Per transaction: what the wallet received minus what it spent in it, so change that came back is netted off' },
         ['↓ in ', el('span', { 'class': 'strong', text: S.fmtBtc(total(inRows)) + ' BTC' }), ' (' + inRows.length + ')  ·  ↑ out ', el('span', { 'class': 'strong', text: S.fmtBtc(total(outRows)) + ' BTC' }), ' (' + outRows.length + ')']));
@@ -2091,12 +2121,17 @@
       chk.checked = state.groupRows;
       chk.addEventListener('change', function () { state.groupRows = chk.checked; $('groupRows').checked = chk.checked; savePrefs(); draw(); });
       box.appendChild(el('label', { 'class': 'check walletgroup', title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts (the limit is under Expansion limits)' }, [chk, ' Group similar rows']));
+      var master = tickBox(want.map(function (r) { return r.id; }), 'Tick every listed transaction (' + want.length + ')');
+      pickInfo = el('span', { 'class': 'pickcount' }); pickActs = el('span', { 'class': 'pickacts' });
+      bar = el('div', { 'class': 'walletpick' }, [el('label', { title: 'Tick or untick every listed transaction, including the ones inside a group' }, [master, ' all listed']), pickInfo, pickActs]);
+      box.appendChild(bar);
       var items = state.groupRows ? GR.layout(want, GR.make(want, { minSize: 3, dustSats: state.dustSats })) : want.map(function (r) { return { type: 'row', row: r }; });
       var list = el('div', { 'class': 'linkrows' });
       items.slice(0, V.more).forEach(function (it) { list.appendChild(it.type === 'row' ? rowEl(it.row) : groupEl(it.group)); });
       if (items.length > V.more) list.appendChild(el('button', { type: 'button', 'class': 'moreRows', text: 'Show ' + Math.min(40, items.length - V.more) + ' more (' + (items.length - V.more) + ' not listed)', onclick: function () { V.more += 40; draw(); } }));
       if (!items.length) list.appendChild(el('div', { 'class': 'hint', text: 'None of these.' }));
       box.appendChild(list);
+      syncTicks();
     }
     draw();
     return box;
@@ -2247,7 +2282,8 @@
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), balButton]));
       var ta2 = traceActions(n); if (ta2) box.appendChild(ta2);
       var acts = [el('button', { type: 'button', text: n.histNext ? 'Load more history' : 'Load history', disabled: n.histDone ? 'disabled' : null, onclick: function () { expandNode(n.id); } }),
-                  el('button', { type: 'button', text: 'Copy address', onclick: function () { copy(n.address); } }), extLink('/address/' + n.address, 'Open in explorer ↗'), hideBtn([n.id]), removeBtn([n.id])];
+                  el('button', { type: 'button', text: 'Copy address', onclick: function () { copy(n.address); } }), extLink('/address/' + n.address, 'Open in explorer ↗'),
+                  el('a', { href: 'wallet.html?q=' + encodeURIComponent(n.address), target: '_blank', rel: 'noopener', title: 'This wallet as a ledger: every transaction with its inputs and outputs', text: 'Wallet overview ↗' }), hideBtn([n.id]), removeBtn([n.id])];
       box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
       box.appendChild(autoButtons(n));
       var cs = addrClusterSection(n); if (cs) box.appendChild(cs);
@@ -2364,15 +2400,7 @@
   var PACK_STORE_LIMIT = 2500000;                                          // characters kept in this browser; a bigger pack works until the page is closed
   function rebuildKnown() {
     Object.keys(KNOWN).forEach(function (k) { delete KNOWN[k]; });
-    Object.keys(KNOWN_BASE).forEach(function (k) { KNOWN[k] = KNOWN_BASE[k]; });
-    state.packs.forEach(function (p) {
-      if (!p.enabled) return;
-      p.entries.forEach(function (e) {
-        var cur = KNOWN[e.address];
-        if (!cur) KNOWN[e.address] = { label: e.label, pack: p.name, category: e.category || undefined, url: e.url || undefined, note: e.note || undefined };
-        else { cur = Object.assign({}, cur); cur.alt = (cur.alt || []).concat([e.label + ' (' + p.name + ')']).slice(0, 5); KNOWN[e.address] = cur; }
-      });
-    });
+    Object.assign(KNOWN, LB.buildKnown(KNOWN_BASE, state.packs));
     state.knownVersion++;
   }
   function savePacks() {
@@ -2385,15 +2413,7 @@
   }
   function loadPacks() {
     var raw = store.get(PACKS_KEY); if (!raw) return;
-    try {
-      var list = JSON.parse(raw);
-      if (!Array.isArray(list)) return;
-      state.packs = list.slice(0, 20).map(function (p, i) {
-        var entries = (Array.isArray(p.entries) ? p.entries : []).filter(function (e) { return Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string'; })
-          .map(function (e) { return { address: e[0], label: LB.cleanText(e[1], 120), category: LB.cleanText(e[2], 40), url: LB.cleanUrl(e[3]), note: LB.cleanText(e[4], 500) }; });
-        return { id: String(p.id || 'p' + i).slice(0, 40), name: LB.cleanText(p.name, 80) || 'Labels', source: LB.cleanText(p.source, 200), enabled: p.enabled !== false, entries: entries, stored: true };
-      });
-    } catch (e) { /* ignore corrupt data */ }
+    state.packs = LB.parseStored(raw);
     rebuildKnown();
   }
   function packMatches(p) {
@@ -3512,6 +3532,7 @@
     if (!offerRestore(openTarget) && openTarget) openTarget();
     updateNavUi();
     if (fiatOn()) ensurePrices();
+    window.__booted = true;                                                    // the page started: the start-up error banner stays out of the way from here
   }
 
   window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, importPack: importPack, undoLoad: undoLoad, traceExpand: traceExpand, traceMakeGroup: traceMakeGroup, traceExpandGroup: traceExpandGroup, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests

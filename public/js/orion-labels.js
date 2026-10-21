@@ -145,5 +145,37 @@
     return lines.join('\r\n') + '\r\n';
   }
 
-  return { FORMAT: FORMAT, MAX_ENTRIES: MAX_ENTRIES, parse: parse, fromGraph: fromGraph, toJson: toJson, toCsv: toCsv, cleanText: cleanText, cleanUrl: cleanUrl, clampEntry: clampEntry };
+  /** The packs saved in this browser (the stored text): checked and capped; [] when there is nothing or it is damaged. */
+  function parseStored(raw) {
+    if (!raw) return [];
+    try {
+      var list = JSON.parse(raw);
+      if (!Array.isArray(list)) return [];
+      return list.slice(0, 20).map(function (p, i) {
+        p = p && typeof p === 'object' ? p : {};
+        var entries = (Array.isArray(p.entries) ? p.entries : []).filter(function (e) { return Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string'; })
+          .map(function (e) { return { address: e[0], label: cleanText(e[1], MAX_LABEL), category: cleanText(e[2], MAX_CATEGORY), url: cleanUrl(e[3]), note: cleanText(e[4], MAX_NOTE) }; });
+        return { id: String(p.id || 'p' + i).slice(0, 40), name: cleanText(p.name, 80) || 'Labels', source: cleanText(p.source, 200), enabled: p.enabled !== false, entries: entries, stored: true };
+      });
+    } catch (e) { return []; }
+  }
+
+  /**
+   * The built-in list plus the enabled packs as one lookup { address: { label, pack?, category?, url?, note?, alt? } }.
+   * The built-in name wins; a pack that names the same wallet differently is shown as "also listed as".
+   */
+  function buildKnown(base, packs) {
+    var out = Object.assign({}, base || {});
+    (packs || []).forEach(function (p) {
+      if (!p.enabled) return;
+      p.entries.forEach(function (e) {
+        var cur = out[e.address];
+        if (!cur) out[e.address] = { label: e.label, pack: p.name, category: e.category || undefined, url: e.url || undefined, note: e.note || undefined };
+        else { cur = Object.assign({}, cur); cur.alt = (cur.alt || []).concat([e.label + ' (' + p.name + ')']).slice(0, 5); out[e.address] = cur; }
+      });
+    });
+    return out;
+  }
+
+  return { FORMAT: FORMAT, MAX_ENTRIES: MAX_ENTRIES, parseStored: parseStored, buildKnown: buildKnown, parse: parse, fromGraph: fromGraph, toJson: toJson, toCsv: toCsv, cleanText: cleanText, cleanUrl: cleanUrl, clampEntry: clampEntry };
 }));
