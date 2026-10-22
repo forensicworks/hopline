@@ -398,13 +398,13 @@ def test_the_right_click_menu_hides_one_or_several(fpage):
     fpage.uncheck("#focusOn"); settle(fpage)
     p = xy(fpage, BIG_ADDR); fpage.mouse.click(p["x"], p["y"], button="right")
     menu = fpage.inner_text("#ctxMenu")
-    assert "Hide this vertex" in menu and "Remove from view" in menu
+    assert "Hide this vertex" in menu and "Delete from workspace" in menu
     fpage.click("#ctxMenu >> text=Hide this vertex"); settle(fpage)
     assert hidden(fpage) == {BIG_ADDR}
     fpage.evaluate("(ids) => window.__hopline.setSel(ids)", [SMALL_ADDR, INPUT_ADDR]); settle(fpage)
     p = xy(fpage, SMALL_ADDR); fpage.mouse.click(p["x"], p["y"], button="right")
     menu = fpage.inner_text("#ctxMenu")
-    assert "Hide 2" in menu and "Keep only these 2" in menu and "Remove 2 from view" in menu
+    assert "Hide 2" in menu and "Keep only these 2" in menu and "Delete 2 from workspace" in menu
     fpage.click("#ctxMenu >> text=Keep only these 2"); settle(fpage)
     assert shown(fpage) == {SMALL_ADDR, INPUT_ADDR}
 

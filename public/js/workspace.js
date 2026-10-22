@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, OF = HoplineOfac, RP = HoplineReport, balanceOf = M.balanceOf;
+  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, OF = HoplineOfac, FD = HoplineFind, DT = HoplineDetections, RP = HoplineReport, balanceOf = M.balanceOf;
   var ID = M.ID;
   var KNOWN_BASE = window.HOPLINE_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
@@ -52,7 +52,7 @@
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
     trace: emptyTrace(),
-    undoLoads: [], analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
+    undoLoads: [], analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: 'columns', boxMode: false,
     stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, dustSats: 10000, walletView: { dir: 'all', sort: 'new', more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
@@ -170,7 +170,11 @@
     d.stopLabel = a.stopLabel !== false; d.stopMix = a.stopMix !== false;
     return d;
   }
-  function cleanAnalysis(a) { a = a && typeof a === 'object' ? a : {}; return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false }; }
+  function cleanAnalysis(a) {
+    a = a && typeof a === 'object' ? a : {};
+    var k = a.kinds && typeof a.kinds === 'object' ? a.kinds : {};
+    return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false, kinds: { peel: k.peel !== false, consolidation: k.consolidation !== false, batch: k.batch !== false, coinjoin: k.coinjoin !== false } };
+  }
 
   function savePrefs() {
     store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
@@ -1496,11 +1500,110 @@
     state.pinned.clear(); state.layoutRes = null; refresh({ relayout: true, fit: true }); scheduleSave();
   }
 
+  // ---- Find: which of the loaded vertices match what was typed -----------------------------------------------
+  var find = { open: false, results: [], total: 0, index: 0, timer: null, pending: false, query: '' };
+  var FIND_FIELDS = { id: 'id', label: 'label', tag: 'tag', note: 'note', known: 'known as', cluster: 'cluster', block: 'block' };
+
+  function findTagName(tag) { var p = TG.PRESETS.filter(function (x) { return x.id === tag; })[0]; return p ? p.name : ''; }
+  function findIsShown(id) { return !!(renderer && renderer.data && renderer.data.visible.nodes.has(id)); }
+  function findStatus(id) { return findIsShown(id) ? 'on screen' : state.hidden.has(id) ? 'hidden by you' : 'not shown'; }
+  function findLoaded() { var n = 0; state.graph.nodes.forEach(function (v) { if (v.type === 'tx' || v.type === 'addr') n++; }); return n; }
+  function findMarked(text, at, len, max) { var s = FD.snippet(text, at, len, max); return [s.before, el('mark', { text: s.hit }), s.after]; }
+
+  function findRun() {
+    clearTimeout(find.timer); find.pending = false;
+    var q = $('findQ').value; find.query = q;
+    var r = FD.search(state.graph, q, {
+      known: function (a) { return KNOWN[a] || null; },
+      clusterOf: function (id) { var cl = analysis().clusters.byAddr.get(id); return cl ? { label: cl.label } : null; },
+      tagName: findTagName, limit: FD.LIMIT
+    });
+    find.results = r.results; find.total = r.total; find.index = 0;
+    findRender();
+  }
+  function findRender() {
+    var list = $('findList'), foot = $('findFoot'), q = find.query.trim();
+    list.textContent = '';
+    $('findQ').setAttribute('aria-expanded', String(find.results.length > 0));
+    $('findQ').removeAttribute('aria-activedescendant');
+    if (!q) { foot.textContent = 'Type part of an id or address, a label, a note, a tag, a name (for example Binance) or a cluster (C3). Several words must all match. ' + plural(findLoaded(), 'transaction or wallet is', 'transactions and wallets are') + ' loaded.'; return; }
+    if (q.length < 2) { foot.textContent = 'Keep typing: at least two characters.'; return; }
+    if (!find.results.length) {
+      foot.textContent = '';
+      var chk = A.checkQuery(q), kids = [el('span', { text: 'Nothing among the ' + plural(findLoaded(), 'loaded transaction or wallet', 'loaded transactions and wallets') + '.' })];
+      if (chk.ok) { kids.push(el('span', { text: 'That looks like an id that is not in the workspace yet.' })); kids.push(el('button', { type: 'button', 'class': 'primary', text: 'Add ' + S.shortId(chk.value, 8), onclick: function () { findReset(); findClose(false); openQuery(q); } })); }
+      list.appendChild(el('div', { 'class': 'findnone' }, kids));
+      return;
+    }
+    find.results.forEach(function (r, i) {
+      var st = findStatus(r.id), why = r.why, titleKids, subs = [], idShown = false;
+      var lab = why.filter(function (w) { return w.field === 'label' && w.text === r.label; })[0];
+      titleKids = r.label ? (lab ? findMarked(r.label, lab.at, lab.len, 80) : [r.label]) : [S.shortId(r.value, 14)];
+      why.forEach(function (w) {
+        if (w === lab) return;
+        if (w.field === 'id') idShown = true;
+        subs.push(el('div', { 'class': 'findsub' }, [el('b', { text: FIND_FIELDS[w.field] + ': ' })].concat(findMarked(w.text, w.at, w.len, 64))));
+      });
+      if (r.label && !idShown) subs.push(el('div', { 'class': 'findsub', text: S.shortId(r.value, 16) }));
+      list.appendChild(el('div', { 'class': 'findrow' + (i === find.index ? ' on' : ''), role: 'option', id: 'findOpt' + i, 'aria-selected': i === find.index ? 'true' : 'false',
+        title: r.value, onclick: function () { findPick(i); }, onmouseenter: function () { findSet(i, false); } }, [
+        el('span', { 'class': 'tag', text: r.type === 'tx' ? 'TX' : 'WALLET' }),
+        el('div', { 'class': 'findmain' }, [el('div', null, titleKids)].concat(subs)),
+        el('span', { 'class': 'findstat' + (st === 'on screen' ? ' on' : ''), text: st })]));
+    });
+    foot.textContent = (find.total > find.results.length ? 'The best ' + find.results.length + ' of ' + find.total + ': type more to narrow it down.' : plural(find.total, 'match', 'matches')) + ' · ↑ ↓ choose · Enter goes to it · Esc closes';
+    $('findQ').setAttribute('aria-activedescendant', 'findOpt' + find.index);
+  }
+  function findSet(i, scroll) {
+    find.index = i;
+    Array.prototype.forEach.call($('findList').querySelectorAll('.findrow'), function (row, k) {
+      var on = k === i; row.classList.toggle('on', on); row.setAttribute('aria-selected', on ? 'true' : 'false');
+      if (on && scroll && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' });
+    });
+    $('findQ').setAttribute('aria-activedescendant', 'findOpt' + i);
+  }
+  function findMove(d) { if (!find.results.length) return; findSet((find.index + d + find.results.length) % find.results.length, true); }
+  /** Drop the matches down from the field in the top bar (the field has the keyboard, or was clicked). */
+  function findShow() {
+    var box = $('findBox');
+    box.style.top = Math.round($('top').getBoundingClientRect().bottom + 6) + 'px';
+    box.hidden = false; find.open = true; findRun();
+  }
+  function findOpen() { var inp = $('findQ'); inp.focus(); inp.select(); if (!find.open) findShow(); }
+  function findClose(refocus) {
+    $('findBox').hidden = true; find.open = false; clearTimeout(find.timer); find.pending = false;
+    $('findQ').setAttribute('aria-expanded', 'false');
+    if (refocus !== false) $('cv').focus();
+  }
+  function findReset() { $('findQ').value = ''; find.query = ''; find.results = []; find.total = 0; }
+  function findPick(i) {
+    var r = find.results[i]; if (!r) return;
+    findReset(); findClose(); findGo(r.id);
+  }
+  /** Select the vertex and bring it into view. One that is loaded but not on screen is brought in: in a trace it is added as another starting point (Undo takes it back), elsewhere it is un-hidden or the focus moves to it. */
+  function findGo(id) {
+    if (!state.graph.nodes.has(id)) return;
+    function show() { setSel([id]); renderer.centerOn(id); }
+    if (findIsShown(id)) { show(); return; }
+    if (!traceOn() && state.hidden.has(id)) { showIds([id]); if (findIsShown(id)) { show(); return; } }
+    navigate(id).then(function (ok) {
+      if (ok === false) return;
+      if (findIsShown(id)) { show(); if (traceOn()) toast('Added to the trace as another starting point (Ctrl+Z takes it back).'); }
+      else toast('It is loaded but not on screen: a filter or the time bar hides it (see Filters and the time range).', true);
+    });
+  }
+  function findEnter() {
+    if (find.pending) findRun();
+    if (find.results.length) { findPick(find.index); return; }
+    var chk = A.checkQuery(find.query);
+    if (chk.ok) { var again = find.query; findReset(); findClose(false); openQuery(again); }
+  }
+
   // ---- selection and inspector ----------------------------------------------------------------
   function selectOnly(id) { state.selected = id ? new Set([id]) : new Set(); state.selectedEdge = null; syncSelection(); }
   function syncSelection() {
     renderer.setSelection(Array.from(state.selected)); renderer.selectedEdge = state.selectedEdge;
-    showInspector(); updateTraceUi(); updateAutoUi();
+    showInspector(); updateTraceUi(); updateAutoUi(); detMarkSel();
   }
 
   /** Put text on the clipboard. `what` names it in the message ("address", "3 transaction ids"). Falls back to the old way where the clipboard API is not offered. */
@@ -1937,10 +2040,11 @@
         var sel = ids.filter(function (x) { return state.trace.shown.has(x); });
         ctxItem(m, 'Hide ' + sel.length + ' from the trace', function () { traceHideIds(sel); }, { danger: true, disabled: !sel.length || sel.length >= state.trace.shown.size });
         ctxItem(m, 'Keep only these ' + sel.length, function () { traceKeepOnly(sel); }, { disabled: !sel.length || sel.length >= state.trace.shown.size });
+        ctxItem(m, 'Delete ' + ids.length + ' from workspace', function () { deleteIds(ids); }, { danger: true, title: 'Deletes them from the workspace (Hide only takes them off the screen); Undo load in the top bar brings them back' });
       } else {
         ctxItem(m, 'Hide ' + ids.length, function () { var k = hideIds(ids); if (k) toast('Hid ' + plural(k, 'vertex', 'vertices') + ' (Ctrl+Z brings them back).'); });
         ctxItem(m, 'Keep only these ' + ids.length, function () { keepOnly(ids); });
-        ctxItem(m, 'Remove ' + ids.length + ' from view', function () { removeIds(ids); }, { danger: true, title: 'Delete them from the workspace (Hide keeps them loaded)' });
+        ctxItem(m, 'Delete ' + ids.length + ' from workspace', function () { deleteIds(ids); }, { danger: true, title: 'Deletes them from the workspace (Hide only takes them off the screen); Undo load in the top bar brings them back' });
       }
       placeCtx(at); return;
     }
@@ -1989,10 +2093,12 @@
       m.appendChild(link);
     }
     m.appendChild(el('div', { 'class': 'sep' }));
-    if (traceOn()) ctxItem(m, 'Hide from the trace', function () { traceHideIds(ids); }, { danger: true, disabled: state.trace.shown.size <= 1 });
-    else {
+    if (traceOn()) {
+      ctxItem(m, 'Hide from the trace', function () { traceHideIds(ids); }, { danger: true, disabled: state.trace.shown.size <= 1 });
+      ctxItem(m, 'Delete from workspace', function () { deleteIds(ids); }, { danger: true, title: 'Deletes it from the workspace (Hide only takes it off the screen); Undo load in the top bar brings it back' });
+    } else {
       ctxItem(m, 'Hide this vertex', function () { var k = hideIds(ids); if (k) toast('Hid it (Ctrl+Z brings it back).'); }, { title: 'Take it off the screen; it stays loaded' });
-      ctxItem(m, 'Remove from view', function () { removeIds(ids); }, { danger: true, title: 'Delete it from the workspace (Hide keeps it loaded)' });
+      ctxItem(m, 'Delete from workspace', function () { deleteIds(ids); }, { danger: true, title: 'Deletes it from the workspace (Hide only takes it off the screen); Undo load in the top bar brings it back' });
     }
     placeCtx(at);
   }
@@ -2302,7 +2408,14 @@
   function removeBtn(ids) {
     if (traceOn()) return el('button', { type: 'button', 'class': 'danger', text: ids.length > 1 ? 'Hide ' + ids.length + ' from the trace' : 'Hide from the trace', disabled: state.trace.shown.size <= ids.length ? 'disabled' : null,
                                         title: 'They stay loaded; Ctrl+Z brings them back', onclick: function () { traceHideIds(ids); } });
-    return el('button', { type: 'button', 'class': 'danger', text: ids.length > 1 ? 'Remove ' + ids.length + ' from view' : 'Remove from view', onclick: function () { removeIds(ids); } });
+    return el('button', { type: 'button', 'class': 'danger', text: ids.length > 1 ? 'Delete ' + ids.length + ' from workspace' : 'Delete from workspace',
+                          title: ids.length > 1 ? 'Deletes them from the workspace (Hide only takes them off the screen); Undo load in the top bar brings them back' : 'Deletes it from the workspace (Hide only takes it off the screen); Undo load in the top bar brings it back', onclick: function () { deleteIds(ids); } });
+  }
+  /** In a trace the button above only hides; this one deletes (in the other layouts removeBtn already does). */
+  function deleteBtn(ids) {
+    if (!traceOn()) return null;
+    return el('button', { type: 'button', 'class': 'danger', text: ids.length > 1 ? 'Delete ' + ids.length + ' from workspace' : 'Delete from workspace',
+                          title: ids.length > 1 ? 'Deletes them from the workspace (Hide only takes them off the screen); Undo load in the top bar brings them back' : 'Deletes it from the workspace (Hide only takes it off the screen); Undo load in the top bar brings it back', onclick: function () { deleteIds(ids); } });
   }
 
   /** The details of a selected group vertex: what it stands for, and how to show some or all of it. */
@@ -2360,7 +2473,7 @@
       if (kinds.addr) box.appendChild(balanceList(ids.filter(function (id) { return g.nodes.get(id).type === 'addr'; })));
       var total = traceOn() ? state.trace.shown.size : visibleIds().length;
       var cps = copyButtons(ids); if (cps.length) box.appendChild(el('div', { 'class': 'insp-actions' }, cps));
-      box.appendChild(el('div', { 'class': 'insp-actions' }, [hideBtn(ids), removeBtn(ids),
+      box.appendChild(el('div', { 'class': 'insp-actions' }, [hideBtn(ids), removeBtn(ids), deleteBtn(ids),
         el('button', { type: 'button', text: 'Keep only these ' + ids.length, disabled: ids.length >= total ? 'disabled' : null, title: 'Hide everything else on screen', onclick: function () { keepOnly(ids); } })]));
       var narrow = [];
       if (kinds.addr && kinds.addr < ids.length) narrow.push(el('button', { type: 'button', text: 'Wallets only (' + kinds.addr + ')', title: 'Narrow the selection to its wallets', onclick: function () { narrowSelection('addr'); } }));
@@ -2396,7 +2509,7 @@
         el('button', { type: 'button', text: '↔ Both', onclick: function () { expandNode(n.id, 'both'); } })
       ]));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
-        el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), hideBtn([n.id]), removeBtn([n.id])
+        el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])
       ]));
       box.appendChild(autoButtons(n));
       (txAnalysisSection(n) || []).forEach(function (s) { box.appendChild(s); });
@@ -2424,7 +2537,7 @@
       var ta2 = traceActions(n); if (ta2) box.appendChild(ta2);
       var acts = [el('button', { type: 'button', text: n.histNext ? 'Load more history' : 'Load history', disabled: n.histDone ? 'disabled' : null, onclick: function () { expandNode(n.id); } }),
                   el('button', { type: 'button', text: 'Copy address', onclick: function () { copy(n.address); } }), extLink('/address/' + n.address, 'Open in explorer ↗'),
-                  el('a', { href: 'wallet.html?q=' + encodeURIComponent(n.address), target: '_blank', rel: 'noopener', title: 'This wallet as a ledger: every transaction with its inputs and outputs', text: 'Wallet overview ↗' }), hideBtn([n.id]), removeBtn([n.id])];
+                  el('a', { href: 'wallet.html?q=' + encodeURIComponent(n.address), target: '_blank', rel: 'noopener', title: 'This wallet as a ledger: every transaction with its inputs and outputs', text: 'Wallet overview ↗' }), hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])];
       box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
       box.appendChild(autoButtons(n));
       var cs = addrClusterSection(n); if (cs) box.appendChild(cs);
@@ -2438,7 +2551,7 @@
         kv(dl, 'Output', S.shortId(n.txid, 8) + ':' + n.vout); kv(dl, 'Script type', n.scriptType);
       } else kv(dl, 'Note', 'Newly created coins paid to the miner of the block');
       box.appendChild(dl);
-      box.appendChild(el('div', { 'class': 'insp-actions' }, [hideBtn([n.id]), removeBtn([n.id])]));
+      box.appendChild(el('div', { 'class': 'insp-actions' }, [hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])]));
     }
     box.appendChild(annotateBox(n));
   }
@@ -2488,6 +2601,13 @@
     box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
   }
 
+  /** Delete vertices from the workspace (Hide only takes them off the screen). One step in Undo load, offered in the message. */
+  function deleteIds(ids) {
+    var real = ids.filter(function (id) { return state.graph.nodes.has(id); });
+    if (!real.length) { toast('Select a wallet or a transaction to delete.', true); return; }
+    removeIds(real);
+    toast('Deleted ' + plural(real.length, 'vertex', 'vertices') + ' from the workspace.', false, { text: 'Undo', fn: undoLoad });
+  }
   function removeIds(ids) {
     pushUndoLoad(snapshotGraph('Remove ' + plural(ids.length, 'vertex', 'vertices')), 'removed ' + ids.length);
     ids.forEach(function (id) {
@@ -2642,7 +2762,10 @@
   // the three hooks the canvas calls for every vertex it draws: they only read what refresh() computed
   function nodeFlags(n) {
     var r = n.type === 'tx' && state.an ? state.an.tx.get(n.id) : null;
-    return r && r.flags.length ? r.flags.map(function (f) { return { text: f.short, color: f.color }; }) : null;
+    if (!r || !r.flags.length) return null;
+    var out = [];
+    r.flags.forEach(function (f) { if (state.analysis.kinds[f.kind] !== false) out.push({ text: f.short, color: f.color, kind: f.kind, chain: f.kind === 'peel' && r.chain ? r.chain.label : '' }); });
+    return out.length ? out : null;
   }
   function clusterColorOf(cl) { return CLUSTER_COLORS[(parseInt(cl.label.slice(1), 10) - 1) % CLUSTER_COLORS.length]; }
   function clusterColor(id) { var cl = state.an ? state.an.clusters.byAddr.get(id) : null; return cl ? clusterColorOf(cl) : null; }
@@ -2662,14 +2785,153 @@
     showInspector(); refresh(); scheduleSave();
   }
 
+  // ---- detections: every pattern found, oldest first ------------------------------------------------
+  var DET_ROWS = 400;                                                                   // rows drawn at once; Select these and Copy list still take all of them
+  var DET_KINDS = [['all', 'All'], ['peel', 'PEEL'], ['consolidation', 'CONSOL'], ['batch', 'BATCH'], ['coinjoin', 'COINJOIN?']];
+  var det = { kind: 'all', chain: '', data: null, an: null, graph: null, rows: [] };
+  function detOpenNow() { return $('detSection').open; }
+  /** The detections of the current analysis; built again only when the analysis was. */
+  function detData() {
+    var an = analysis();
+    if (det.an !== an || det.graph !== state.graph) { det.data = DT.build(state.graph, an, { fmt: function (s) { return S.fmtBtc(s) + ' BTC'; } }); det.an = an; det.graph = state.graph; }
+    return det.data;
+  }
+  function detRefresh() {
+    var d = state.graph.nodes.size ? detData() : { rows: [], chains: [], counts: { total: 0 } };
+    $('detCount').textContent = d.counts.total ? '(' + d.counts.total + ')' : '';
+    if (detOpenNow()) detRender(d);
+  }
+  function detRender(d) {
+    d = d || (state.graph.nodes.size ? detData() : { rows: [], chains: [], counts: { total: 0 } });
+    if (det.kind !== 'all' && !d.counts[det.kind]) det.kind = 'all';
+    if (det.chain && !d.chains.some(function (c) { return c.label === det.chain; })) det.chain = '';
+    var kinds = $('detKinds'), sel = $('detChain'), list = $('detList');
+    kinds.textContent = '';
+    DET_KINDS.forEach(function (k) {
+      var n = k[0] === 'all' ? d.counts.total : d.counts[k[0]] || 0;
+      if (k[0] !== 'all' && !n) return;
+      kinds.appendChild(el('button', { type: 'button', 'aria-pressed': det.kind === k[0] ? 'true' : 'false', text: k[1] + ' ' + n, title: k[0] === 'all' ? 'Every pattern' : 'Only ' + k[1],
+                                       onclick: function () { det.kind = k[0]; if (k[0] !== 'all' && k[0] !== 'peel') det.chain = ''; detRender(); } }));
+    });
+    sel.textContent = '';
+    sel.appendChild(el('option', { value: '', text: d.chains.length ? 'All peel chains (' + d.chains.length + ')' : 'No peel chains' }));
+    d.chains.forEach(function (c) { sel.appendChild(el('option', { value: c.label, text: c.label + ' · ' + plural(c.n, 'transaction') + ' · from ' + S.fmtTime(c.firstTime, false) })); });
+    sel.value = det.chain; sel.disabled = !d.chains.length;
+    var rows = DT.pick(d.rows, { kind: det.kind, chain: det.chain }), ids = [];
+    det.rows = rows; rows.forEach(function (r) { if (ids.indexOf(r.id) < 0) ids.push(r.id); });
+    list.textContent = '';
+    rows.slice(0, DET_ROWS).forEach(function (r) {
+      var tag = el('span', { 'class': 'flagtag', text: r.short + (r.chain ? ' · ' + r.chain : '') }); tag.style.color = r.color;
+      var b = el('button', { type: 'button', 'class': 'detrow' + (state.selected.has(r.id) ? ' on' : ''), 'data-id': r.id, title: 'Select it and bring it into view', onclick: function () { findGo(r.id); } }, [
+        el('span', { 'class': 'dethead' }, [el('span', { 'class': 'dettime', text: S.fmtTime(r.time) }), el('span', { 'class': 'dettx mono', text: S.shortId(r.txid, 5) })]),
+        el('span', { 'class': 'detwhy' }, [tag, r.reason])
+      ]);
+      list.appendChild(withCopy(b, r.txid, 'transaction id'));
+    });
+    $('detSelectAll').textContent = 'Select these' + (ids.length ? ' ' + ids.length : ''); $('detSelectAll').disabled = !ids.length;
+    $('detCopy').disabled = !rows.length; syncChainButtons();
+    $('detFoot').textContent = !d.counts.total ? (state.graph.nodes.size ? 'Nothing notable in what is loaded.' : 'Load transactions to look for patterns.')
+      : rows.length > DET_ROWS ? 'The first ' + DET_ROWS + ' of ' + rows.length + ' are listed: narrow the list with the buttons above, or copy it to get them all.'
+      : plural(rows.length, 'detection') + '. These are shapes ordinary wallets also produce; none of them proves anything.';
+  }
+  /** Mark the rows of the vertices that are selected. */
+  function detMarkSel() {
+    if (!detOpenNow()) return;
+    Array.prototype.forEach.call($('detList').querySelectorAll('.detrow'), function (b) { b.classList.toggle('on', state.selected.has(b.getAttribute('data-id'))); });
+  }
+  /** Open the list (optionally already narrowed to one kind) and bring it into view. */
+  function detShow(kind) {
+    if (kind) { det.kind = kind; if (kind !== 'peel') det.chain = ''; }
+    $('detSection').open = true; detRender();
+    $('detSection').scrollIntoView({ block: 'nearest' });
+  }
+  function wireDetections() {
+    $('detSection').addEventListener('toggle', function () { if (this.open) detRender(); });
+    $('detShowChain').addEventListener('click', function () { if (det.chain) toggleChain(det.chain); });
+    $('detTraceChain').addEventListener('click', function () { if (det.chain) traceChain(det.chain); });
+    $('chainChipClear').addEventListener('click', clearChain);
+    $('detChain').addEventListener('change', function () { det.chain = this.value; if (det.chain) det.kind = 'peel'; detRender(); });
+    $('detSelectAll').addEventListener('click', function () { var ids = []; det.rows.forEach(function (r) { if (ids.indexOf(r.id) < 0) ids.push(r.id); }); selectIds(ids, 'detections'); });
+    $('detCopy').addEventListener('click', function () { copy(DT.toText(det.rows, function (t) { return t == null ? '' : S.fmtTime(t); }), 'the list of ' + plural(det.rows.length, 'detection')); });
+    $('detList').addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      var rows = Array.prototype.slice.call(this.querySelectorAll('.detrow')), i = rows.indexOf(document.activeElement);
+      if (i < 0) return; e.preventDefault();
+      var t = rows[i + (e.key === 'ArrowDown' ? 1 : -1)]; if (t) t.focus();
+    });
+  }
+
+  // ---- a peel chain on the canvas ----------------------------------------------------------------
+  function chainByLabel(label) {
+    var cs = analysis().chains;
+    for (var i = 0; i < cs.length; i++) if (cs[i].label === label) return cs[i];
+    return null;
+  }
+  function chainView(ch) {
+    var index = new Map(); ch.ids.forEach(function (id, i) { index.set(id, i + 1); });
+    return { label: ch.label, color: ch.color, ids: ch.ids.slice(), index: index, path: new Set(ch.path), pay: new Set(ch.pay) };
+  }
+  /** Give the canvas the chain that is lit (or none). A chain that is gone (deleted, another workspace) clears itself. */
+  function applyChain() {
+    var ch = state.chainFocus ? chainByLabel(state.chainFocus) : null;
+    if (state.chainFocus && !ch) state.chainFocus = null;
+    renderer.setChain(ch ? chainView(ch) : null);
+    var chip = $('chainChip'); chip.hidden = !ch;
+    if (ch) {
+      $('chainChipName').textContent = ch.label; $('chainChipName').style.color = ch.color;
+      $('chainChipText').textContent = plural(ch.ids.length, 'transaction') + ' · peeled ' + S.fmtBtc(ch.totalPeeled) + ' BTC';
+    }
+    syncChainButtons();
+  }
+  function syncChainButtons() {
+    var acts = $('detChainActs'), on = !!state.chainFocus && det.chain === state.chainFocus;
+    acts.hidden = !det.chain;
+    $('detShowChain').setAttribute('aria-pressed', on ? 'true' : 'false'); $('detShowChain').textContent = on ? 'Clear the highlight' : 'Show on graph';
+  }
+  function showChain(label) {
+    var ch = chainByLabel(label); if (!ch) return;
+    state.chainFocus = label; applyChain();
+    var vis = renderer.data ? renderer.data.visible.nodes : null, on = vis ? ch.ids.filter(function (id) { return vis.has(id); }) : ch.ids;
+    if (on.length) renderer.frame(on);
+    if (on.length < ch.ids.length) toast((on.length ? 'Only ' + on.length + ' of the ' + ch.ids.length + ' steps are on screen' : 'None of its ' + ch.ids.length + ' steps is on screen')
+      + (traceOn() ? ': Trace this chain shows them all.' : ': the Focus view, a filter or the time bar hides the others.'), !on.length);
+  }
+  function clearChain() { state.chainFocus = null; applyChain(); }
+  function toggleChain(label) { if (state.chainFocus === label) clearChain(); else showChain(label); }
+  /** The Trace layout with just this chain: its first step is the starting point and the other steps are revealed in order (Undo takes it back in two steps: the reveal, then the restart). */
+  function traceChain(label) {
+    var ch = chainByLabel(label); if (!ch) return Promise.resolve(false);
+    var first = ch.ids[0];
+    if (state.trace.seed) traceRestart(first); else traceStart(first);
+    if (!traceOn()) setLayout('trace');
+    state.chainFocus = label; state.selected = new Set([first]); syncSelection(); traceChanged(null, true);
+    return autoExpand(first, { dir: 'next', follow: 'peel', hops: ch.ids.length }).then(function (ok) {            // one more than the steps after the first: the last step's own outputs show too
+      applyChain(); var vis = renderer.data ? renderer.data.visible.nodes : null;
+      renderer.frame(vis ? ch.ids.filter(function (id) { return vis.has(id); }) : ch.ids);
+      return ok;
+    });
+  }
+  /** In the details of a step: the steps either side, the chain on the graph, the chain as a trace, and carrying on. */
+  function chainActions(id, c) {
+    var ch = chainByLabel(c.label); if (!ch) return null;
+    var on = state.chainFocus === c.label, row = [];
+    if (c.step > 1) row.push(el('button', { type: 'button', text: '◀ Step ' + (c.step - 1), title: 'Go to the previous step of ' + c.label, onclick: function () { findGo(ch.ids[c.step - 2]); } }));
+    if (c.step < c.of) row.push(el('button', { type: 'button', text: 'Step ' + (c.step + 1) + ' ▶', title: 'Go to the next step of ' + c.label, onclick: function () { findGo(ch.ids[c.step]); } }));
+    row.push(el('button', { type: 'button', text: on ? 'Clear the highlight' : 'Show the chain', title: 'Light up ' + c.label + ' on the graph, number its steps and fade the rest',
+                            onclick: function () { toggleChain(c.label); showInspector(); } }));
+    row.push(el('button', { type: 'button', text: 'Trace this chain', title: 'Show only this chain in the Trace layout, step by step', onclick: function () { traceChain(c.label); } }));
+    row.push(el('button', { type: 'button', text: 'Follow ▶▶', title: 'Auto-expand forward from this step along the large output only (the peel rule)', onclick: function () { autoExpand(id, { dir: 'next', follow: 'peel' }); } }));
+    return el('div', { 'class': 'insp-actions' }, row);
+  }
+
   /** The Analysis panel: what was found, as lists that select the vertices involved. */
   var findingsFor = null;
   function updateFindings() {
     var box = $('anFindings');
-    if (!state.graph.nodes.size) { box.textContent = ''; findingsFor = null; return; }
+    if (!state.graph.nodes.size) { box.textContent = ''; findingsFor = null; detRefresh(); return; }
     var an = analysis(), byKind = {}, kinds, loaded = 0;
     if (findingsFor === an && box.firstChild) return;                       // nothing it shows has changed: leave the buttons alone (a replay refreshes many times a second)
-    findingsFor = an; box.textContent = '';
+    findingsFor = an; box.textContent = ''; detRefresh();
     state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded) loaded++; });
     an.tx.forEach(function (r, id) { r.flags.forEach(function (f) { (byKind[f.kind] = byKind[f.kind] || { f: f, ids: [] }).ids.push(id); }); });
     kinds = Object.keys(byKind);
@@ -2687,7 +2949,8 @@
       an.chains.slice(0, 6).forEach(function (ch) {
         box.appendChild(row(el('span', { text: ch.label + ' · ' + ch.ids.length + ' transactions' }), 'peeled ' + S.fmtBtc(ch.totalPeeled), 'Select the ' + ch.ids.length + ' transactions of this chain', function () { selectIds(ch.ids, 'transactions of ' + ch.label); }, ch.ids.map(plainId).join(NL), plural(ch.ids.length, 'transaction id')));
       });
-      more(an.chains, 6);
+      if (an.chains.length > 6) box.appendChild(el('button', { type: 'button', 'class': 'linkrow', title: 'List every chain, oldest first, with the reason for each step',
+                                                              onclick: function () { detShow('peel'); } }, [el('span', { text: 'All ' + an.chains.length + ' chains in the Detections list ▾' })]));
     }
     var cl = an.clusters.list;
     if (cl.length) {
@@ -2710,6 +2973,7 @@
     if (r && r.flags.length) {
       var s = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Patterns' })]);
       r.flags.forEach(function (f) { var t = el('span', { 'class': 'flagtag', text: f.short }); t.style.color = f.color; s.appendChild(el('p', { 'class': 'hint' }, [t, f.title])); });
+      if (r.chain) s.appendChild(chainActions(n.id, r.chain));
       parts.push(s);
     }
     if (ch) {
@@ -2781,6 +3045,7 @@
     $('autoHops').value = a.hops; $('autoFollow').value = a.follow; $('autoMaxTx').value = a.maxTx; $('autoMaxReq').value = a.maxReq; $('autoPerTx').value = a.perTx; $('autoMin').value = a.minSats;
     $('autoStopLabel').checked = a.stopLabel; $('autoStopMix').checked = a.stopMix;
     $('anFlags').checked = state.analysis.flags; $('anChange').checked = state.analysis.change; $('anClusters').checked = state.analysis.clusters;
+    $('anKPeel').checked = state.analysis.kinds.peel; $('anKConsol').checked = state.analysis.kinds.consolidation; $('anKBatch').checked = state.analysis.kinds.batch; $('anKCoinjoin').checked = state.analysis.kinds.coinjoin;
     updateAutoUi();
   }
   function updateAutoUi() {
@@ -2928,6 +3193,7 @@
     renderer.fitPad = traceOn() ? 120 : 60;                                  // a trace needs room for the expand handles beside the outer vertices
     renderer.insets.bottom = state.focus && g.nodes.has(state.focus) && !traceOn() ? Math.max(84, $('stepbar').offsetHeight + 22) : 0;       // keep the graph clear of the step bar
     analysis();                                                              // the canvas hooks below read the cached result
+    applyChain();
     var structural = scope();
     var style = S.makeStyle(g, structural, { colorBy: state.colorBy, sizeBy: effectiveSizeBy() });
     function radiusOf(id) { var nd = g.nodes.get(id); return nd ? style.nodeRadius(nd) : 0; }       // how big a shape is drawn: the force layout leaves room for it
@@ -3494,6 +3760,10 @@
     Array.prototype.forEach.call($('autoDirSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { state.auto.dir = b.getAttribute('data-dir'); syncAutoUi(); savePrefs(); }); });
     ['autoHops', 'autoFollow', 'autoMaxTx', 'autoMaxReq', 'autoPerTx', 'autoMin', 'autoStopLabel', 'autoStopMix'].forEach(function (id) { $(id).addEventListener('change', readAuto); });
     $('autoGo').addEventListener('click', function () { var id = autoTarget(); if (id) autoExpand(id); });
+    wireDetections();
+    [['anKPeel', 'peel'], ['anKConsol', 'consolidation'], ['anKBatch', 'batch'], ['anKCoinjoin', 'coinjoin']].forEach(function (p) {
+      $(p[0]).addEventListener('change', function () { state.analysis.kinds[p[1]] = this.checked; savePrefs(); refresh(); });
+    });
     [['anFlags', 'flags'], ['anChange', 'change'], ['anClusters', 'clusters']].forEach(function (p) {
       $(p[0]).addEventListener('change', function () { state.analysis[p[1]] = this.checked; savePrefs(); edgeLabelCache.clear(); refresh(); });
     });
@@ -3571,6 +3841,17 @@
     $('btnRelayout').addEventListener('click', function () { if (traceOn()) { traceTidy(); return; } relayoutAll(); });
     $('traceUndo').addEventListener('click', undoLast);
     $('traceRedo').addEventListener('click', redoLast);
+    $('findQ').addEventListener('focus', function () { if (!find.open) findShow(); });
+    $('findQ').addEventListener('click', function () { if (!find.open) findShow(); });
+    $('findQ').addEventListener('input', function () { clearTimeout(find.timer); find.pending = true; find.timer = setTimeout(findRun, 60); });
+    $('findQ').addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); findMove(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); findMove(-1); }
+      else if (e.key === 'Enter') { e.preventDefault(); findEnter(); }
+      else if (e.key === 'Escape') { e.preventDefault(); findClose(); }
+      else if (e.key === 'Tab') findClose(false);
+    });
+    document.addEventListener('mousedown', function (e) { if (find.open && !$('findQ').parentNode.contains(e.target)) findClose(false); });
     $('traceHide').addEventListener('click', hideSelected);
     $('traceKeep').addEventListener('click', function () { keepOnly(traceOn() ? traceSelected() : Array.from(state.selected)); });
     $('selMenu').addEventListener('click', openSelectMenu);
@@ -3662,7 +3943,7 @@
       var mod = e.ctrlKey || e.metaKey || e.altKey;
       if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); selectAllVisible(); return; }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) { if (copySelection()) e.preventDefault(); return; }
-      if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selected.size) { e.preventDefault(); if (e.shiftKey && !traceOn()) removeIds(Array.from(state.selected)); else hideSelected(); } }
+      if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selected.size) { e.preventDefault(); if (e.shiftKey) deleteIds(Array.from(state.selected)); else hideSelected(); } }
       else if (e.key === 'Escape') { if (!$('stepMenu').hidden) closeStepMenu(); else if (state.boxMode) setBoxMode(false); else { state.selected = new Set(); state.selectedEdge = null; syncSelection(); } }
       else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
         var id = state.selected.size ? Array.from(state.selected)[0] : state.focus;
@@ -3672,6 +3953,7 @@
       else if (e.key === ']') { e.preventDefault(); if (traceOn()) traceKey('next'); else stepClick('next'); }
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (e.shiftKey) redoLast(); else undoLast(); }
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redoLast(); }
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && e.target === $('cv')) { e.preventDefault(); findOpen(); }
       else if (mod) { /* a shortcut with Ctrl, Alt or Cmd held belongs to the browser */ }
       else if (e.key === 'b' || e.key === 'B') { setBoxMode(!state.boxMode); }
       else if (e.key === 'c' || e.key === 'C') { setSideCollapsed(!state.sideCollapsed); }

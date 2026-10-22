@@ -25,7 +25,6 @@ Ideas and known gaps for Hopline, in no particular order inside each section. No
 
 ## Workspace
 
-- [ ] **Find in the workspace.** A Find field (Ctrl+F while the canvas is focused) that matches the vertices already loaded by transaction id, address, your label, tag or note, a name from a label pack (for example "Binance") or a cluster id; clicking a result selects it and centres the view, and a vertex that is loaded but not shown can be added with one click. **M**
 - [ ] **Redo for Undo load.** Undo and Redo cover the trace, hide and Re-layout steps; the top bar's *Undo load* (opening, expanding, importing, removing) has no Redo because it would have to keep a copy of the whole graph for each step. **S to M**
 - [ ] **Wallet Transactions list: the same controls as the arrow list.** It has newest and largest first only; the arrow list also has oldest, smallest and "known or labelled first", the *skip known services / only known* choice and *unspent only*. **S**
 - [ ] **A "3+" arrow loads more history.** Clicking an arrow that says "3+" shows the 3 known and stops; loading more of the wallet's history is the separate *Load history* button. The list could offer "load more history" itself. **S**

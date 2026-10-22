@@ -218,10 +218,10 @@ def test_a_run_of_single_coin_payments_is_a_possible_peel_chain(fpage, mock):
     a = an(fpage)
     assert a["chains"] == [["tx:" + tid(10 + i) for i in range(6)]]
     assert a["flags"]["tx:" + tid(12)] == ["PEEL 3/6"]
-    assert "p1 · 6 transactions" in low(fpage, "#anFindings") and "peel" in low(fpage, "#anFindings")
+    assert "p-%s · 6 transactions" % tid(10)[:4] in low(fpage, "#anFindings") and "peel" in low(fpage, "#anFindings")
     assert "possible peel chains" in low(fpage, "#anFindings")
     fpage.evaluate("(id) => window.__hopline.navigate(id)", "tx:" + tid(12)); idle(fpage); settle(fpage)
-    assert "step 3 of 6 in a possible peel chain (p1)" in low(fpage, "#inspBody")
+    assert "step 3 of 6 in a possible peel chain (p-%s)" % tid(10)[:4] in low(fpage, "#inspBody")
 
 
 # ---------------------------------------------------------------- auto-expand

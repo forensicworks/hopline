@@ -159,7 +159,7 @@ def test_right_click_a_wallet_opens_its_menu_and_selects_it(fpage):
     assert fpage.evaluate("() => [...window.__hopline.state.selected]") == [BIG_ADDR]
     items = fpage.locator("#ctxMenu [role=menuitem]").all_inner_texts()
     joined = " | ".join(items)
-    for want in ("Focus here", "Load history", "Look up in Arkham", "Tag as", "Copy address", "Open in explorer", "Remove from view"):
+    for want in ("Focus here", "Load history", "Look up in Arkham", "Tag as", "Copy address", "Open in explorer", "Delete from workspace"):
         assert want in joined, (want, joined)
     shot(fpage, "context_menu.png")
 
@@ -192,7 +192,7 @@ def test_menu_for_a_transaction_and_for_several_vertices_and_for_the_background(
     assert len(fpage.evaluate("() => [...window.__hopline.state.selected]")) == 2
     rclick(fpage, SMALL_ADDR)
     t = fpage.inner_text("#ctxMenu")
-    assert "2 selected" in t.lower() and "Remove 2 from view" in t and "Look up" not in t and "Load history" not in t, "no look-up for a group"
+    assert "2 selected" in t.lower() and "Delete 2 from workspace" in t and "Look up" not in t and "Load history" not in t, "no look-up for a group"
     fpage.keyboard.press("Escape")
     settle(fpage)
     b = fpage.locator("#cv").bounding_box()
@@ -226,7 +226,7 @@ def test_removing_from_the_menu(fpage):
     open_query(fpage, NORMAL["txid"])
     before = counts(fpage)["nodes"]
     rclick(fpage, SMALL_ADDR)
-    fpage.click("#ctxMenu >> text=Remove from view")
+    fpage.click("#ctxMenu >> text=Delete from workspace")
     assert counts(fpage)["nodes"] < before
 
 

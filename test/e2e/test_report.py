@@ -125,7 +125,7 @@ def test_a_peel_chain_is_listed_with_its_totals(fpage, mock, tmp_path):
     open_query(fpage, tid(10))
     fpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: 5, follow: 'largest' })", "tx:" + tid(10)); idle(fpage); settle(fpage)
     html = make_report(fpage, tmp_path).read_text(encoding="utf-8")
-    assert "Possible peel chains (1)" in html and "PEEL 3/6" in html and "Step 3 of 6 in a possible peel chain (P1)" in html
+    assert "Possible peel chains (1)" in html and "PEEL 3/6" in html and "Step 3 of 6 in a possible peel chain (P-%s)" % tid(10)[:4] in html
     order = re.findall(r'<section class="tx" id="tx-([0-9a-f]{64})"', html)
     assert order == [tid(10 + i) for i in range(6)], "in time order"
 

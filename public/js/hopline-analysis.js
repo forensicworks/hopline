@@ -27,6 +27,9 @@
 
   var COLORS = { consolidation: '#b58cff', batch: '#6be675', coinjoin: '#ff7aa2', peel: '#ffb347', change: '#ff9f43' };
   var CONFIDENCE = { low: 1, medium: 2, high: 3 };
+  // one colour per peel chain, picked from the chain's own start so it stays the same whatever else is loaded
+  var CHAIN_COLORS = ['#ffb347', '#4dd0e1', '#f48fb1', '#c5e1a5', '#ce93d8', '#fff176', '#90caf9', '#ff8a65'];
+  function hash(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
 
   function byKey(k) { return function (a, b) { return a[k] - b[k]; }; }
   function fmtSat(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
@@ -212,7 +215,7 @@
 
   /**
    * Runs of transactions that each peel a smaller output off one coin and pass the rest on to the next, in what is loaded.
-   * [{ txids, peeled: [{txid, vout, id, amount}], start, end, totalPeeled, continues: 'spent'|'unspent'|'unknown' }]
+   * [{ txids, peeled: [{txid, vout, id, amount}], passed: [amount each step passed on], path: [edge ids the money travelled], pay: [edge ids of the peeled payments], start, end, totalPeeled, continues: 'spent'|'unspent'|'unknown' }]
    * The same shape is what ordinary wallets produce when they pay out of a single coin, so a chain is a pattern to look at, not a finding.
    */
   function peelChains(graph, opts) {
@@ -236,13 +239,25 @@
       chains.push({
         txids: ids.map(function (x) { return x.slice(3); }), ids: ids,
         peeled: ids.map(function (x) { var s = steps.get(x), o = s.s.small; return { txid: s.v.txid, vout: o.vout, id: o.id, amount: o.amount }; }),
+        passed: ids.map(function (x) { return steps.get(x).s.large.amount; }),
+        // the edges the money travelled along (into the first step, out by the large output, into the next step ...) and the edges of the payments peeled off
+        path: ids.reduce(function (acc, x, i) {
+          var st = steps.get(x); if (i === 0) acc.push(st.v.inputs[0].edgeId);
+          acc.push(st.s.large.edgeId); if (i + 1 < ids.length) acc.push(steps.get(ids[i + 1]).v.inputs[0].edgeId);
+          return acc;
+        }, []).filter(Boolean),
+        pay: ids.map(function (x) { return steps.get(x).s.small.edgeId; }).filter(Boolean),
         start: steps.get(id).v.inputs[0].amount, end: last.amount,
         totalPeeled: ids.reduce(function (sum, x) { return sum + steps.get(x).s.small.amount; }, 0),
         continues: last.spent === true ? 'spent' : last.spent === false ? 'unspent' : 'unknown'
       });
     });
     chains.sort(function (a, b) { return b.ids.length - a.ids.length || (a.ids[0] < b.ids[0] ? -1 : 1); });
-    chains.forEach(function (ch, i) { ch.label = 'P' + (i + 1); });
+    // A chain is named after the transaction it starts at (P-65a1), not by its rank, so the name does not change when other chains
+    // are loaded or left out of a report. The shortest start that tells every chain here apart is used, four characters at least.
+    var len = 4;
+    while (len < 12 && new Set(chains.map(function (c) { return c.txids[0].slice(0, len); })).size < chains.length) len++;
+    chains.forEach(function (ch) { ch.label = 'P-' + ch.txids[0].slice(0, len); ch.color = CHAIN_COLORS[hash(ch.txids[0]) % CHAIN_COLORS.length]; });
     return chains;
   }
 
@@ -305,7 +320,7 @@
       ch.ids.forEach(function (id, i) {
         var rec = res.tx.get(id); if (!rec) return;
         rec.chain = { label: ch.label, step: i + 1, of: ch.ids.length };
-        rec.flags.push({ kind: 'peel', short: 'PEEL ' + (i + 1) + '/' + ch.ids.length, color: COLORS.peel,
+        rec.flags.push({ kind: 'peel', short: 'PEEL ' + (i + 1) + '/' + ch.ids.length, color: ch.color || COLORS.peel, chain: ch.label,
                          title: 'Step ' + (i + 1) + ' of ' + ch.ids.length + ' in a possible peel chain (' + ch.label + '): each transaction pays a smaller amount out of a single coin and passes the rest on. Ordinary wallets paying from one coin look the same.' });
       });
     });
@@ -371,7 +386,7 @@
   }
 
   return {
-    DEFAULTS: DEFAULTS, COLORS: COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, coinjoinLike: coinjoinLike, guessChange: guessChange,
+    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, coinjoinLike: coinjoinLike, guessChange: guessChange,
     peelStep: peelStep, peelChains: peelChains, clusters: clusters, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
   };
 }));

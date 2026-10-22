@@ -72,6 +72,7 @@
     this.anim = null;
     this.hover = { node: null, edge: null };
     this.highlight = null;                    // a vertex outlined from outside the canvas (a list row under the pointer), without selecting it
+    this.chain = null;                        // a peel chain picked out from outside: { ids, index: Map(id -> step), path: Set(edge id), pay: Set(edge id), color }
     this.axisPointer = null;                  // x of the pointer while it is over the time axis (top of the canvas): the axis then reads out the time there
     this.insets = { bottom: 0 };              // canvas rows covered by overlays (the step bar): fit() and centerOn() keep clear of them
     this.handleRects = [];                    // expand handles drawn this frame (trace layout): {id, dir, x, y, w, h, tip}
@@ -235,6 +236,22 @@
   };
 
   /** Outline a vertex (or none) without selecting it: used while the pointer is over its row in the details. */
+  /** Light up one peel chain: its path glows in its colour, its steps are numbered, everything that does not touch it fades. null clears. */
+  Renderer.prototype.setChain = function (c) { this.chain = c || null; this.dirty = true; };
+  /** Zoom and pan so these vertices fill the view (never closer than 2.2x). */
+  Renderer.prototype.frame = function (ids, pad) {
+    var self = this, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false;
+    ids.forEach(function (id) {
+      var p = self.target.get(id) || self.cur.get(id); if (!p) return; any = true;
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    });
+    if (!any) return;
+    pad = pad == null ? (this.fitPad || 60) + 30 : pad;
+    var bw = Math.max(maxX - minX, 1), bh = Math.max(maxY - minY, 1), availH = Math.max(80, this.h - (this.insets.bottom || 0));
+    var k = Math.max(0.05, Math.min((this.w - 2 * pad) / bw, (availH - 2 * pad) / bh, 2.2));
+    this.view = { k: k, x: this.w / 2 - (minX + bw / 2) * k, y: availH / 2 - (minY + bh / 2) * k };
+    this.autoFit = false; this.dirty = true;
+  };
   Renderer.prototype.setHighlight = function (id) { id = id || null; if (this.highlight !== id) { this.highlight = id; this.dirty = true; } };
 
   Renderer.prototype._setHover = function (node, edge, evt) {
@@ -393,6 +410,8 @@
     var focusIds = new Set(this.selected); if (this.hover.node) focusIds.add(this.hover.node);
     if (d.noDim) focusIds.clear();                                                           // a trace stays readable whatever is selected
     if (d.focusId && focusIds.size === 1 && focusIds.has(d.focusId)) focusIds.clear();      // the focus view is already narrowed to this vertex: do not fade the next steps
+    var chain = this.chain && this.chain.ids.some(function (id) { return d.visible.nodes.has(id); }) ? this.chain : null;     // a chain with nothing on screen fades nothing
+    if (chain) chain.ids.forEach(function (id) { if (d.visible.nodes.has(id)) focusIds.add(id); });                          // it and what touches it stay, the rest fades
     var near = focusIds.size ? neighbourhood(g, focusIds) : null;
     var hotEdge = this.hover.edge;
 
@@ -406,15 +425,20 @@
       var inFocus = !near || ((focusIds.has(e.source) || focusIds.has(e.target)));
       var w = Math.max(1, st.edgeWidth(e) * s * 0.8);
       var mark = d.edgeMark ? d.edgeMark(e) : null;                         // e.g. the output that most likely returns to the sender
-      var colour = mark || st.edgeColor(e) || th.edge;
-      ctx.globalAlpha = id === hotEdge || (self.selectedEdge === id) ? 1 : (inFocus ? (near ? 0.95 : 0.55) : 0.08);
+      var onPath = !!chain && chain.path.has(id), onPay = !!chain && chain.pay.has(id);
+      var colour = onPath || onPay ? chain.color : mark || st.edgeColor(e) || th.edge;
+      ctx.globalAlpha = id === hotEdge || (self.selectedEdge === id) || onPath ? 1 : (inFocus ? (near ? 0.95 : 0.55) : 0.08);
       if (mark && inFocus && ctx.globalAlpha < 0.9) ctx.globalAlpha = 0.9;
       ctx.strokeStyle = id === hotEdge ? th.select : colour;
-      ctx.lineWidth = w;
+      ctx.lineWidth = onPath ? w + 1.5 : w;
       ctx.setLineDash(e.kind === 'out' && e.spent === false ? [6, 4] : []);
       var ra = st.nodeRadius(g.nodes.get(e.source)) * s, rb = st.nodeRadius(g.nodes.get(e.target)) * s + 2;
       var dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
       var x1 = A.x + ux * ra * 0.6, y1 = A.y + uy * ra * 0.6, x2 = B.x - ux * rb, y2 = B.y - uy * rb;
+      if (onPath) {                                                         // the way the money went: a wide soft glow under the line
+        ctx.save(); ctx.globalAlpha = 0.28; ctx.lineWidth = w + 8; ctx.strokeStyle = chain.color; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.restore();
+      }
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
       ctx.setLineDash([]);
       if (len > ra + rb + 14) {                                             // arrowhead
@@ -457,7 +481,7 @@
     }
 
     // nodes
-    var labels = [], badges = [], pills = [];
+    var labels = [], badges = [], pills = [], flagItems = [], stepNums = [];
     this.handleRects = [];
     d.visible.nodes.forEach(function (id) {
       var n = g.nodes.get(id), p = self.cur.get(id); if (!p) return;
@@ -486,6 +510,11 @@
       if (ring) {                                                           // a dashed ring in the cluster's colour: addresses spent together
         ctx.beginPath(); ctx.arc(P.x, P.y, r + 7.5, 0, Math.PI * 2); ctx.lineWidth = 2.5; ctx.strokeStyle = ring; ctx.setLineDash([5, 3]); ctx.stroke(); ctx.setLineDash([]);
       }
+      var step = chain ? chain.index.get(id) : 0;
+      if (step) {                                                          // a step of the lit chain: a ring in its colour and its number
+        shape(ctx, kindOf(n), P.x, P.y, r + 5.5); ctx.lineWidth = 3; ctx.strokeStyle = chain.color; ctx.setLineDash([]); ctx.stroke();
+        stepNums.push({ x: P.x + r * 0.9 + 6, y: P.y - r * 0.9 - 6, n: step });
+      }
       if (n.ext) {                                                         // a small blue dot: something was looked up about this wallet
         ctx.beginPath(); ctx.arc(P.x + r * 0.85, P.y - r * 0.85, 3.4, 0, Math.PI * 2); ctx.fillStyle = '#4da3ff'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.stroke();
       }
@@ -494,7 +523,10 @@
       var isSeed = d.seedIds ? d.seedIds.has(id) : d.seedId === id;
       if (isSeed) badges.push({ text: 'START', x: P.x, y: P.y - r - 6, color: '#ffd23f' });
       var flags = d.nodeFlags && !dimmed ? d.nodeFlags(n) : null;
-      if (flags) flags.forEach(function (f, i) { badges.push({ text: f.text, x: P.x, y: P.y - r - 6 - (isSeed ? 10 : 0) - (n.tag ? 10 : 0) - i * 10, color: f.color }); });
+      if (flags) {                                                         // decided below: text where there is room, a dot where there is not
+        var lift = 6 + (isSeed ? 10 : 0) + (n.tag ? 10 : 0), hot = self.selected.has(id) || id === self.hover.node;
+        flags.forEach(function (f, i) { flagItems.push({ x: P.x, y: P.y - r - lift - i * 10, px: P.x, py: P.y, r: r, i: i, f: f, hot: hot }); });
+      }
       if (d.handles) {
         var hd = d.handles(id);
         if (hd) {
@@ -513,9 +545,33 @@
       if (text && !dimmed) labels.push({ text: text, sub: note, x: P.x, y: P.y + r + 12, strong: !!(n.label || known), sel: self.selected.has(id) });
     });
     ctx.font = 'bold 9.5px Calibri, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.lineJoin = 'round';
+    // Pattern flags (PEEL 3/5, CONSOL 34>2 ...) only get their text where it fits: zoomed out, or where two would sit on top of each other, a small
+    // dot in the pattern's colour stands in. The vertex under the pointer or selected is served first and also names its peel chain.
+    var dots = [];
+    if (flagItems.length) {
+      var taken = badges.map(function (b) { var w = ctx.measureText(b.text).width; return { x0: b.x - w / 2 - 2, x1: b.x + w / 2 + 2, y0: b.y - 10, y1: b.y + 3 }; });
+      var roomy = self.view.k >= 0.3;
+      flagItems.sort(function (a, b) { return (b.hot ? 1 : 0) - (a.hot ? 1 : 0); });
+      flagItems.forEach(function (it) {
+        var text = it.hot && it.f.chain ? it.f.text + ' \u00b7 ' + it.f.chain : it.f.text, w = ctx.measureText(text).width;
+        var box = { x0: it.x - w / 2 - 2, x1: it.x + w / 2 + 2, y0: it.y - 10, y1: it.y + 3 };
+        var free = (roomy || it.hot) && !taken.some(function (b) { return box.x0 < b.x1 && b.x0 < box.x1 && box.y0 < b.y1 && b.y0 < box.y1; });
+        if (free) { taken.push(box); badges.push({ text: text, x: it.x, y: it.y, color: it.f.color }); }
+        else dots.push(it);
+      });
+    }
     badges.forEach(function (b) {                                          // the tag, in its own colour, above the vertex
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(28,20,29,0.95)'; ctx.strokeText(b.text, b.x, b.y);
       ctx.fillStyle = b.color; ctx.fillText(b.text, b.x, b.y);
+    });
+    dots.forEach(function (it, k) {
+      ctx.beginPath(); ctx.arc(it.px - it.r * 0.85 - it.i * 7, it.py - it.r * 0.85, 3.2, 0, Math.PI * 2);
+      ctx.fillStyle = it.f.color; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.stroke();
+    });
+    stepNums.forEach(function (s) {
+      var big = self.view.k >= 0.2;                                        // zoomed far out a number would be unreadable: a plain dot in the chain's colour
+      ctx.beginPath(); ctx.arc(s.x, s.y, big ? 8 : 4, 0, Math.PI * 2); ctx.fillStyle = chain.color; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.stroke();
+      if (big) { ctx.font = 'bold 10px Calibri, Arial, sans-serif'; ctx.fillStyle = '#16111a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(s.n), s.x, s.y + 0.5); ctx.textBaseline = 'alphabetic'; }
     });
     ctx.font = '11px Calibri, Arial, sans-serif';
     labels.forEach(function (l) {

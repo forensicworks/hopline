@@ -175,7 +175,7 @@ test('peelChains: finds a run of linked peel steps and what it peeled', () => {
   const chains = An.peelChains(g);
   assert.equal(chains.length, 1);
   const c = chains[0];
-  assert.deepEqual(c.ids, ids); assert.equal(c.label, 'P1');
+  assert.deepEqual(c.ids, ids); assert.equal(c.label, 'P-' + tid(10).slice(0, 4));
   assert.equal(c.peeled.length, 6); assert.equal(c.peeled[0].amount, 1000); assert.equal(c.totalPeeled, 6 * 1000 + 13 * (0 + 1 + 2 + 3 + 4 + 5));
   assert.equal(c.start, 1000000); assert.equal(c.continues, 'spent');
 });
@@ -246,7 +246,7 @@ test('analyse: flags per transaction, peel membership, change marks only for med
   add(g, 30, Array.from({ length: 6 }, (_, i) => IN(80 + i, 0, a('k' + i), 10000)), [OUT(a('sink'), 59000)]);
   const r = An.analyse(g);
   assert.equal(r.chains.length, 1);
-  assert.deepEqual(r.tx.get(ids[2]).chain, { label: 'P1', step: 3, of: 5 });
+  assert.deepEqual(r.tx.get(ids[2]).chain, { label: 'P-' + tid(10).slice(0, 4), step: 3, of: 5 });
   assert.deepEqual(r.tx.get(ids[2]).flags.map((f) => f.short), ['PEEL 3/5']);
   assert.equal(r.tx.get(ID.tx(tid(30))).flags[0].kind, 'consolidation');
   assert.equal(r.counts.chains, 1); assert.ok(r.counts.flagged >= 6);
@@ -380,4 +380,68 @@ test('change: with common defaults the evidence is weak and is not enough on its
   g2.addOutspends(tid(1), [{ spent: true, txid: tid(2), vin: 0 }, { spent: true, txid: tid(3), vin: 0 }]);
   fpTx(g2, 3, [IN(1, 1, 'back', 48500)], [OUT('z2', 47000)], OTHER);                           // only one spender is loaded: nothing to contrast it with
   assert.equal(An.guessChange(An.txView(g2, t2)), null);
+});
+// ---- the name of a peel chain ---------------------------------------------------------------------
+test('a peel chain is named after the transaction it starts at, not after its rank', () => {
+  const g = new Graph();
+  peelChain(g, 4, 10);
+  const alone = An.peelChains(g)[0].label;
+  assert.equal(alone, 'P-' + tid(10).slice(0, 4));
+  peelChain(g, 7, 100);                                                             // a longer chain turns up: it would have been P1 by rank
+  const labels = An.peelChains(g).map((c) => c.label).sort();
+  assert.deepEqual(labels, ['P-' + tid(10).slice(0, 4), 'P-' + tid(100).slice(0, 4)].sort());
+  assert.ok(An.peelChains(g).some((c) => c.label === alone && c.ids.length === 4), 'the first chain keeps its name');
+});
+
+test('two chains that start alike are told apart by a longer name', () => {
+  const g = new Graph();
+  const raw = (txid, prevId, prevVout, value, tag, i) => {
+    const small = 1000 + i, large = value - small - 200;
+    g.addTx({ txid, fee: 200, weight: 800, status: { confirmed: true, block_height: 700000 + i, block_time: 1650000000 + i * 600 },
+      vin: [{ txid: prevId, vout: prevVout, is_coinbase: false, prevout: { scriptpubkey_address: a(tag + 'in' + i), scriptpubkey_type: 'v0_p2wpkh', value } }],
+      vout: [{ scriptpubkey_address: a(tag + 'p' + i), scriptpubkey_type: 'v0_p2wpkh', value: small }, { scriptpubkey_address: a(tag + 'c' + i), scriptpubkey_type: 'v0_p2wpkh', value: large }] });
+    return large;
+  };
+  const chain = (ids, tag) => {
+    let value = 1000000;
+    ids.forEach((id, i) => {
+      value = raw(id, i === 0 ? 'ee'.repeat(32) : ids[i - 1], 1, value, tag, i);
+      if (i > 0) g.addOutspends(ids[i - 1], [{ spent: false }, { spent: true, txid: id, vin: 0, status: { confirmed: true, block_time: 1650000000 + i * 600 } }]);
+    });
+  };
+  const idsA = ['ab12' + 'a'.repeat(60), 'c1' + 'a'.repeat(62), 'c2' + 'a'.repeat(62), 'c3' + 'a'.repeat(62)];
+  const idsB = ['ab12' + 'b'.repeat(60), 'd1' + 'b'.repeat(62), 'd2' + 'b'.repeat(62), 'd3' + 'b'.repeat(62)];
+  chain(idsA, 'x'); chain(idsB, 'y');
+  const labels = An.peelChains(g).map((c) => c.label).sort();
+  assert.deepEqual(labels, ['P-ab12a', 'P-ab12b']);
+});
+
+test('every step of a chain carries the chain\'s name and its one colour', () => {
+  const g = new Graph();
+  const ids = peelChain(g, 5, 10);
+  const r = An.analyse(g);
+  const colors = new Set(ids.map((id) => r.tx.get(id).flags.find((f) => f.kind === 'peel').color));
+  assert.equal(colors.size, 1, 'one colour for the whole chain');
+  assert.ok(An.CHAIN_COLORS.includes([...colors][0]));
+  assert.ok(ids.every((id) => r.tx.get(id).flags.find((f) => f.kind === 'peel').chain === r.chains[0].label));
+  const h = new Graph(); peelChain(h, 5, 10); peelChain(h, 6, 100);
+  const again = An.analyse(h).chains.find((c) => c.label === r.chains[0].label);
+  assert.equal(again.color, r.chains[0].color, 'the colour does not depend on what else is loaded');
+});
+
+test('a peel chain knows the edges the money travelled along and the edges of the payments it peeled off', () => {
+  const g = new Graph();
+  const ids = peelChain(g, 5, 10);
+  const c = An.peelChains(g)[0];
+  assert.equal(c.path.length, 2 * 5, 'into the first step, then out by the large output and into the next step, to the end');
+  assert.equal(c.pay.length, 5);
+  assert.equal(new Set(c.path.concat(c.pay)).size, c.path.length + c.pay.length, 'no edge twice');
+  c.path.concat(c.pay).forEach((e) => assert.ok(g.edges.has(e), e + ' is an edge of the graph'));
+  const first = g.edges.get(c.path[0]), large0 = g.edges.get(c.path[1]), into1 = g.edges.get(c.path[2]);
+  assert.equal(first.target, ids[0], 'the first edge goes into the first step');
+  assert.equal(large0.source, ids[0]); assert.equal(into1.target, ids[1]);
+  assert.equal(large0.target, into1.source, 'the large output and the input of the next step meet at the same address');
+  c.pay.forEach((e, i) => assert.equal(g.edges.get(e).source, ids[i]));
+  assert.deepEqual(c.pay.map((e) => g.edges.get(e).amount), c.peeled.map((x) => x.amount));
+  assert.deepEqual(c.passed.length, 5);
 });
