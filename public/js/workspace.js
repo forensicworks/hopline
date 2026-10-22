@@ -51,9 +51,9 @@
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
-    trace: { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [], groups: new Map(), seq: 0 },
+    trace: emptyTrace(),
     undoLoads: [], analysis: { flags: true, change: true, clusters: true }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
-    hidden: new Set(), hideUndo: [], arrange: 'columns', boxMode: false,
+    hidden: new Set(), hideUndo: [], hideRedo: [], arrange: 'columns', boxMode: false,
     stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, dustSats: 10000, walletView: { dir: 'all', sort: 'new', more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
@@ -280,7 +280,7 @@
     if (s.tooBig) { toast('That change was too large to keep a copy of, so it cannot be undone. Remove the vertices you do not want instead.', true); updateUndoLoad(); return; }
     stopPlay(); $('tooltip').hidden = true;
     setGraph(M.Graph.fromData(JSON.parse(s.graph)));
-    state.keep = new Set(s.keep); state.hidden = new Set(s.hidden); state.hideUndo = s.hideUndo;
+    state.keep = new Set(s.keep); state.hidden = new Set(s.hidden); state.hideUndo = s.hideUndo; state.hideRedo = [];
     state.focus = s.focus && state.graph.nodes.has(s.focus) ? s.focus : null;
     if (s.trace && loadTraceData(s.trace)) { state.trace.undo = s.traceUndo; traceSanitize(); } else state.trace = emptyTrace();
     if (traceOn() && !state.trace.seed && state.graph.nodes.size) { state.layout = 'flow'; setSeg('layoutSeg', 'data-layout', 'flow'); document.body.classList.remove('trace-on'); updateScaleRow(); }
@@ -289,12 +289,46 @@
     toast('Undid: ' + s.title + '. Back to ' + plural(s.nodes, 'vertex', 'vertices') + '.');
   }
 
-  function openQuery(raw) {
+  function openQuery(raw, o) {
+    o = o || {};
     if (!(raw || '').trim()) return;
+    var parts = String(raw).trim().split(/[\s,;]+/).filter(Boolean);
+    if (parts.length > 1) { addMany(parts, o, raw); return; }
     var q = A.checkQuery(raw);
     if (!q.ok) { toast(q.message, true); return; }
     if ($('q').value.trim() === String(raw).trim()) $('q').value = q.value;                                           // show what was actually looked up
-    navigate(q.kind === 'tx' ? ID.tx(q.value) : ID.addr(q.value));
+    navigate(q.kind === 'tx' ? ID.tx(q.value) : ID.addr(q.value), { replaceTrace: !!o.replace });
+  }
+
+  var ADD_MAX = 10;
+  /** Several transaction ids and addresses pasted into the box: each is checked and the good ones are added one after the other. */
+  function addMany(parts, o, raw) {
+    var seen = new Set(), ids = [], bad = [];
+    parts.forEach(function (p) {
+      var q = A.checkQuery(p);
+      if (!q.ok) { bad.push(p); return; }
+      var id = q.kind === 'tx' ? ID.tx(q.value) : ID.addr(q.value);
+      if (!seen.has(id)) { seen.add(id); ids.push(id); }
+    });
+    var cut = Math.max(0, ids.length - ADD_MAX); ids = ids.slice(0, ADD_MAX);
+    if (!ids.length) { toast(A.checkQuery(raw).message, true); return; }                  // nothing usable: say what a valid id looks like, as for a single entry
+    var chain = Promise.resolve(), done = 0, failed = 0;
+    ids.forEach(function (id, k) {
+      chain = chain.then(function () { return navigate(id, { replaceTrace: !!o.replace && k === 0 }); }).then(function (ok) { if (ok !== false) done++; else failed++; });
+    });
+    chain.then(function () {
+      $('q').value = '';
+      toast('Added ' + plural(done, 'transaction or wallet', 'transactions and wallets') + (bad.length ? ' · not recognised: ' + bad.slice(0, 3).map(function (b) { return S.shortId(b, 8); }).join(', ') + (bad.length > 3 ? ' and ' + (bad.length - 3) + ' more' : '') : '')
+        + (failed ? ' · ' + failed + ' could not be loaded' : '') + (cut ? ' · ' + cut + ' more left out (at most ' + ADD_MAX + ' at a time)' : ''), !done);
+    });
+  }
+  /** The top box opens what you type; once something is loaded it adds to it, and says so. */
+  function syncOpenBox() {
+    var has = state.graph.nodes.size > 0, b = $('btnOpen'), q = $('q');
+    if (!b || !q) return;
+    b.textContent = has ? 'Add' : 'Open';
+    b.title = has ? 'Add this to the workspace: in a trace it becomes another starting point and what is there stays. Several ids can be pasted at once. Shift-click (or Shift+Enter) starts over with it instead.' : 'Open a transaction or a wallet (several can be pasted at once)';
+    q.placeholder = has ? 'Add a transaction ID or address' : 'Transaction ID or address';
   }
 
   // ---- focus and navigation -------------------------------------------------------------------
@@ -406,14 +440,14 @@
     return s;
   }
   function walletOrTx(id) { return /^(tx|addr):/.test(id) && state.graph.nodes.has(id); }
-  function emptyTrace() { return { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [], groups: new Map(), seq: 0 }; }
+  function emptyTrace() { return { seed: null, seeds: [], shown: new Set(), pos: new Map(), prov: new Map(), undo: [], redo: [], groups: new Map(), seq: 0 }; }
   function syncSeed() { var T = state.trace; T.seeds = T.seeds.filter(function (s) { return T.shown.has(s); }); T.seed = T.seeds.length ? T.seeds[0] : null; }
   function traceDrop(id) { var T = state.trace; T.shown.delete(id); T.pos.delete(id); T.prov.delete(id); state.selected.delete(id); }
 
   /** Begin again from one vertex: only it is shown. */
   function traceStart(id) {
     var T = state.trace;
-    T.seed = id; T.seeds = [id]; T.shown = new Set([id]); T.pos = new Map([[id, { x: 0, y: 0 }]]); T.prov = new Map(); T.undo = []; T.groups = new Map(); T.seq = 0;
+    T.seed = id; T.seeds = [id]; T.shown = new Set([id]); T.pos = new Map([[id, { x: 0, y: 0 }]]); T.prov = new Map(); T.undo = []; T.redo = []; T.groups = new Map(); T.seq = 0;
     state.keep.add(id);
   }
 
@@ -426,7 +460,7 @@
     if (T.seed && !(T.shown.size <= 1 && T.seeds.length <= 1 && !T.undo.length && T.seed === id)) snap = { data: traceData(), undo: clone(T.undo) };      // nothing to put back when it was already just this vertex
     traceStart(id);
     if (snap && snap.data) {
-      state.trace.undo.push({ type: 'restart', snap: snap });
+      traceRecord({ type: 'restart', snap: snap });
       toast('Started over from one vertex.', false, { text: 'Undo', fn: traceUndo });
     }
   }
@@ -446,12 +480,12 @@
     var T = state.trace;
     state.keep.add(id);
     if (T.shown.has(id)) {
-      if (mark && T.seeds.indexOf(id) < 0) { T.seeds.push(id); T.undo.push({ type: 'seed', id: id, added: false }); syncSeed(); }
+      if (mark && T.seeds.indexOf(id) < 0) { T.seeds.push(id); traceRecord({ type: 'seed', id: id, added: false }); syncSeed(); }
       return false;
     }
     var b = traceBox();
     traceUnfold(id); T.shown.add(id); T.pos.set(id, { x: b.cx, y: b.bottom + 150 }); T.seeds.push(id);
-    T.undo.push({ type: 'seed', id: id, added: true }); syncSeed();
+    traceRecord({ type: 'seed', id: id, added: true }); syncSeed();
     return true;
   }
 
@@ -549,6 +583,8 @@
     $('focusOn').disabled = on; $('depth').disabled = on;
     $('focusOn').title = on ? 'Not used in the Trace layout: the trace shows what you reveal' : 'Show only the neighbourhood of the vertex you are looking at';
     $('traceUndo').disabled = on ? !T.undo.length : !state.hideUndo.length;
+    $('traceRedo').disabled = !canRedo();
+    syncOpenBox();
     $('traceHide').disabled = !sel; $('traceKeep').disabled = !sel || sel >= (on ? T.shown.size : vis);
     $('hiddenBtn').hidden = on || !hid; $('hiddenBtn').textContent = 'Hidden (' + hid + ') ▾';
     $('boxSel').setAttribute('aria-pressed', String(state.boxMode));
@@ -609,7 +645,7 @@
         if (rev.length) {
           TR.place(T.pos, id, dir, p).forEach(function (v, k) { T.pos.set(k, v); });
           rev.forEach(function (x) { traceUnfold(x.id); T.shown.add(x.id); T.prov.set(x.id, { via: x.via, dir: x.dir }); revealedIds.push(x.id); });
-          T.undo.push({ type: 'reveal', ids: revealedIds.slice() });
+          traceRecord({ type: 'reveal', ids: revealedIds.slice() });
         }
         combined = combined || { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] };
         combined.added = revealedIds.length;
@@ -848,7 +884,7 @@
     T.groups.set(id, { id: id, anchor: anchor, dir: dir, kind: spec.kind === 'party' || spec.kind === 'small' ? spec.kind : 'picked', party: spec.party || null, members: members });
     TR.place(T.pos, anchor, dir, { primary: [{ id: id }], secondary: [] }).forEach(function (v, k) { T.pos.set(k, v); });
     T.prov.set(id, { via: anchor, dir: dir });
-    T.undo.push({ type: 'group', id: id });
+    traceRecord({ type: 'group', id: id });
     state.selected = new Set([id]); state.selectedEdge = null; syncSelection();
     traceChanged([id], false);
     return id;
@@ -878,7 +914,7 @@
         return false;
       }
       var revealed = []; T.undo.splice(n0).forEach(function (u) { if (u.type === 'reveal') revealed = revealed.concat(u.ids); });
-      T.undo.push({ type: 'regroup', before: before, pos: pos, prov: prov, ids: revealed });
+      traceRecord({ type: 'regroup', before: before, pos: pos, prov: prov, ids: revealed });
       return true;
     });
   }
@@ -898,7 +934,7 @@
     if (!T.seeds.length && T.shown.size) {                                         // every starting point was hidden: the oldest remaining vertex becomes the start
       var first = Array.from(T.shown)[0]; T.seeds = [first]; T.seed = first;
     }
-    T.undo.push({ type: 'hide', items: items });
+    traceRecord({ type: 'hide', items: items });
     syncSelection(); traceChanged(null, false);
     return ids.length + gids.length;
   }
@@ -923,14 +959,14 @@
   function traceSelectBranch(id) { state.selected = new Set(traceBranch(id)); state.selectedEdge = null; syncSelection(); }
   function traceSelectAll() { state.selected = new Set(Array.from(state.trace.shown).filter(function (id) { return state.graph.nodes.has(id); }).concat(Array.from(state.trace.groups.keys()))); state.selectedEdge = null; syncSelection(); }
 
-  function traceUndo() {
+  function traceUndoStep() {
     var T = state.trace, last = T.undo.pop();
-    if (!last) return;
-    var back = [], fit = false;
+    if (!last) return false;
+    var back = [], fit = false, ok = true, direct = false;
     if (last.type === 'restart') {                                                 // the trace as it was before "Reset to start" / "Start over", with its own steps
       var keepUndo = last.snap.undo;
       if (loadTraceData(last.snap.data)) { state.trace.undo = keepUndo; T = state.trace; traceSanitize(); T = state.trace; back = Array.from(T.shown); fit = true; }
-      else T.undo.push(last);
+      else { T.undo.push(last); ok = false; }
     } else if (last.type === 'group') {                                            // a group was made: take it apart (its members were never shown)
       traceDropGroup(last.id);
     } else if (last.type === 'regroup') {                                          // some of a group were shown: hide those again and put the group back as it was
@@ -955,10 +991,95 @@
     } else if (last.type === 'seed') {
       T.seeds = T.seeds.filter(function (s) { return s !== last.id; });
       if (last.added) traceDrop(last.id);
+    } else if (last.type === 'layout') {                                           // a Re-layout: every vertex goes back to where it was
+      if (last.pos) { last.pos.forEach(function (a) { if (T.shown.has(a[0]) || T.groups.has(a[0])) T.pos.set(a[0], { x: a[1], y: a[2] }); }); fit = true; }
+      else if (last.arr === state.arrange) { posSnapRestore(last.snap); direct = true; }
+      else { toast('That Re-layout was in another arrangement: nothing to take back here.'); ok = false; }
     } else last.ids.forEach(traceDrop);
     if (!T.seeds.length && T.shown.size) T.seeds = [Array.from(T.shown)[0]];
-    syncSeed(); syncSelection(); traceChanged(back, fit);
+    syncSeed(); syncSelection();
+    if (direct) { refresh({}); updateTraceUi(); } else traceChanged(back, fit);
+    return ok;
   }
+  // ---- Undo, Redo and taking back a Re-layout ---------------------------------------------------------
+  /** Record a step the Undo button can take back. A new step also ends the chain of steps Redo could put back. */
+  function traceRecord(step) { var T = state.trace; T.undo.push(step); T.redo = []; }
+
+  /** The trace as plain data, with its Undo steps: what Redo puts back after an Undo. null for an empty trace. */
+  function traceSnap() { var d = traceData(); return d ? { data: d, undo: clone(state.trace.undo) } : null; }
+
+  /** Where every vertex is drawn and which ones were dragged: what a Re-layout overwrites and Undo puts back. */
+  function posSnap() {
+    var cur = [], pinned = [];
+    renderer.cur.forEach(function (p, id) { cur.push([id, p.x, p.y]); });
+    state.pinned.forEach(function (p, id) { pinned.push([id, p.x, p.y]); });
+    return { cur: cur, pinned: pinned };
+  }
+  function posSnapRestore(s) {
+    var m = new Map();
+    s.cur.forEach(function (a) { m.set(a[0], { x: a[1], y: a[2] }); });
+    state.pinned = new Map(s.pinned.map(function (a) { return [a[0], { x: a[1], y: a[2] }]; }));
+    if (state.layoutRes) state.layoutRes.pos = m;
+    renderer.setPositions(m, false);
+  }
+  function posKey(list) { return JSON.stringify(list.map(function (a) { return [a[0], Math.round(a[1] * 10), Math.round(a[2] * 10)]; }).sort()); }
+
+  function traceUndo() {
+    var T = state.trace; if (!T.undo.length) return;
+    var snap = traceSnap(), last = T.undo[T.undo.length - 1], redo = T.redo, arr = state.arrange;
+    var view = last.type === 'layout' && last.arr ? posSnap() : null;
+    var ok = traceUndoStep();
+    var N = state.trace; N.redo = redo;
+    if (ok && snap) redo.push({ snap: snap, len: N.undo.length, view: view, arr: arr });
+    updateTraceUi();
+  }
+  function traceRedo() {
+    var T = state.trace, e = T.redo.length ? T.redo[T.redo.length - 1] : null;
+    if (!e) return;
+    if (e.len !== T.undo.length) { T.redo = []; updateTraceUi(); return; }           // something new was done since: there is nothing to put back any more
+    T.redo.pop();
+    var redo = T.redo, was = new Set(T.shown);
+    if (!loadTraceData(e.snap.data)) { T.redo = redo; toast('Could not put that back.', true); return; }
+    state.trace.undo = clone(e.snap.undo); traceSanitize(); state.trace.redo = redo;
+    var N = state.trace, added = Array.from(N.shown).filter(function (id) { return !was.has(id); });
+    syncSeed(); syncSelection();
+    if (e.view && e.arr === state.arrange) { posSnapRestore(e.view); refresh({}); updateTraceUi(); }
+    else traceChanged(added, !added.length);
+  }
+  function canRedo() {
+    if (traceOn()) { var T = state.trace, e = T.redo.length ? T.redo[T.redo.length - 1] : null; return !!e && e.len === T.undo.length; }
+    return state.hideRedo.length > 0;
+  }
+  function redoLast() { if (traceOn()) traceRedo(); else hideRedoLast(); }
+
+  /** The positions of what the trace shows, as [id, x, y]: what the Columns arrangement keeps and a Re-layout overwrites. */
+  function tracePosList() {
+    var T = state.trace, out = [];
+    T.pos.forEach(function (p, id) { if (T.shown.has(id) || T.groups.has(id)) out.push([id, p.x, p.y]); });
+    return out;
+  }
+  /** Re-layout outside the Columns arrangement: release the dragged vertices and place everything again, as one step Undo can take back. */
+  function relayoutAll() {
+    var before = posSnap(), arr = state.arrange, lay = state.layout, inTrace = traceOn();
+    state.pinned.clear(); refresh({ relayout: true, fit: true });
+    var after = [];
+    if (state.layoutRes && state.layoutRes.pos) state.layoutRes.pos.forEach(function (p, id) { after.push([id, p.x, p.y]); });
+    var ids = new Set(after.map(function (a) { return a[0]; }));
+    if (!before.pinned.length && posKey(before.cur.filter(function (a) { return ids.has(a[0]); })) === posKey(after)) return;      // nothing moved
+    if (inTrace) traceRecord({ type: 'layout', arr: arr, snap: before });
+    else { state.hideUndo.push({ type: 'layout', layout: lay, snap: before }); state.hideRedo = []; }
+    updateTraceUi();
+    toast('Re-arranged. Undo (Ctrl+Z) puts every vertex back where it was.', false, { text: 'Undo', fn: undoLast });
+  }
+  function layoutStepUndo(e) {
+    if (e.layout !== state.layout) { toast('That Re-layout was in another layout: nothing to take back here.'); return; }
+    e.after = posSnap(); posSnapRestore(e.snap); state.hideRedo.push(e); refresh({}); updateTraceUi();
+  }
+  function layoutStepRedo(e) {
+    if (e.layout !== state.layout || !e.after) { toast('That Re-layout was in another layout: nothing to put back here.'); return; }
+    posSnapRestore(e.after); state.hideUndo.push(e); refresh({}); updateTraceUi();
+  }
+
   function traceReset() {
     var T = state.trace; if (!T.seed) return;
     var seed = T.seed;
@@ -971,9 +1092,13 @@
   }
   /** Re-run the automatic left-to-right layout over what is shown (positions are otherwise yours). */
   function traceTidy() {
-    if (state.arrange !== 'columns') { state.pinned.clear(); refresh({ relayout: true, fit: true }); return; }
-    var T = state.trace, vg = viewGraph(), vis = F.computeVisible(vg, state.filter, state.keep, null, traceOnly());
+    if (state.arrange !== 'columns') { relayoutAll(); return; }
+    var T = state.trace, before = tracePosList(), vg = viewGraph(), vis = F.computeVisible(vg, state.filter, state.keep, null, traceOnly());
     L.layoutFlow(vg, vis, {}).pos.forEach(function (p, id) { T.pos.set(id, { x: p.x, y: p.y }); });
+    if (posKey(before) !== posKey(tracePosList())) {
+      traceRecord({ type: 'layout', pos: before });
+      toast('Re-arranged. Undo (Ctrl+Z) puts every vertex back where it was.', false, { text: 'Undo', fn: undoLast });
+    }
     traceChanged(null, true);
   }
 
@@ -1005,7 +1130,7 @@
     });
     var i = 0;
     shown.forEach(function (id) { if (!pos.has(id)) { pos.set(id, id === seed ? { x: 0, y: 0 } : { x: (i % 8) * 200, y: Math.floor(i / 8) * 60 + 120 }); i++; } });
-    T.seed = seeds[0]; T.seeds = seeds; T.shown = shown; T.pos = pos; T.prov = prov; T.undo = []; T.groups = new Map(); T.seq = 0;
+    T.seed = seeds[0]; T.seeds = seeds; T.shown = shown; T.pos = pos; T.prov = prov; T.undo = []; T.redo = []; T.groups = new Map(); T.seq = 0;
     if (Array.isArray(d.groups)) d.groups.slice(0, 200).forEach(function (x) {      // groups: only well-formed ones whose anchor is on the trace
       if (!x || typeof x !== 'object' || !GR.isGroupId(x.id) || T.groups.has(x.id)) return;
       var anchor = typeof x.anchor === 'string' && NV.isId(x.anchor) ? canonicalId(x.anchor) : null;
@@ -1181,7 +1306,7 @@
     });
     if (!list.length) { if (skipped) toast('The focused vertex stays: move the focus first, or untick Focus.'); return 0; }
     list.forEach(function (id) { state.hidden.add(id); state.selected.delete(id); });
-    state.selectedEdge = null; state.hideUndo.push({ type: 'hide', ids: list });
+    state.selectedEdge = null; state.hideUndo.push({ type: 'hide', ids: list }); state.hideRedo = [];
     if (skipped) toast('The focused vertex was not hidden: move the focus first, or untick Focus.');
     afterHide();
     return list.length;
@@ -1190,12 +1315,21 @@
     var list = ids.filter(function (id) { return state.hidden.has(id); });
     if (!list.length) return 0;
     list.forEach(function (id) { state.hidden.delete(id); });
-    state.hideUndo.push({ type: 'show', ids: list }); afterHide();
+    state.hideUndo.push({ type: 'show', ids: list }); state.hideRedo = []; afterHide();
     return list.length;
   }
   function hideUndoLast() {
     var e = state.hideUndo.pop(); if (!e) return;
+    if (e.type === 'layout') { layoutStepUndo(e); return; }
     e.ids.forEach(function (id) { if (e.type === 'hide') state.hidden.delete(id); else state.hidden.add(id); });
+    state.hideRedo.push(e);
+    afterHide();
+  }
+  function hideRedoLast() {
+    var e = state.hideRedo.pop(); if (!e) return;
+    if (e.type === 'layout') { layoutStepRedo(e); return; }
+    e.ids.forEach(function (id) { if (e.type === 'hide') state.hidden.add(id); else state.hidden.delete(id); });
+    state.hideUndo.push(e);
     afterHide();
   }
   function undoLast() { if (traceOn()) traceUndo(); else hideUndoLast(); }
@@ -2764,7 +2898,7 @@
       var steps = walkSteps(walk, dir, sopts), msg = autoMessage(walk, steps, dir, o), shownNow = 0;
       if (traceOn()) {
         var T = state.trace, rev = traceRevealWalk(id, dir, walk, steps);
-        if (rev.length) { T.undo.push({ type: 'reveal', ids: rev.slice() }); traceChanged(rev, false); shownNow = rev.length; msg += ' ' + plural(rev.length, 'vertex', 'vertices') + ' shown (Ctrl+Z takes them back).'; }
+        if (rev.length) { traceRecord({ type: 'reveal', ids: rev.slice() }); traceChanged(rev, false); shownNow = rev.length; msg += ' ' + plural(rev.length, 'vertex', 'vertices') + ' shown (Ctrl+Z takes them back).'; }
       } else if (state.focusOn && walk.loadedNew) {
         state.focusOn = false; $('focusOn').checked = false; savePrefs(); afterGraphChange({ fit: true });                // a focus view shows at most 3 steps: show the whole path
         msg += ' The Focus view was switched off so the whole path shows.';
@@ -3220,7 +3354,7 @@
     if (!v || typeof v !== 'object') return;
     var traceOk = loadTraceData(v.trace);
     if (ARRANGE[v.arrange]) state.arrange = v.arrange;
-    if (Array.isArray(v.hidden)) { state.hidden = new Set(v.hidden.filter(function (id) { return typeof id === 'string' && NV.isId(id); }).slice(0, 5000).map(canonicalId)); state.hideUndo = []; }
+    if (Array.isArray(v.hidden)) { state.hidden = new Set(v.hidden.filter(function (id) { return typeof id === 'string' && NV.isId(id); }).slice(0, 5000).map(canonicalId)); state.hideUndo = []; state.hideRedo = []; }
     if (v.layout === 'trace' && !traceOk) v = Object.assign({}, v, { layout: 'flow' });
     if (LAYOUTS[v.layout]) { state.layout = v.layout; document.body.classList.toggle('trace-on', v.layout === 'trace'); setSeg('layoutSeg', 'data-layout', v.layout); }
     if (SCALES[v.timeScale]) { state.timeScale = v.timeScale; setSeg('scaleSeg', 'data-scale', v.timeScale); }
@@ -3269,7 +3403,7 @@
     setGraph(new M.Graph()); state.keep = new Set(); state.pinned = new Map(); state.selected = new Set(); state.selectedEdge = null;
     state.filter.timeFrom = null; state.filter.timeTo = null;
     state.focus = null; state.nav.reset();
-    state.trace = emptyTrace(); state.hidden = new Set(); state.hideUndo = []; state.arrange = 'columns';
+    state.trace = emptyTrace(); state.hidden = new Set(); state.hideUndo = []; state.hideRedo = []; state.arrange = 'columns';
     try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the old hash stays, harmless */ }
     renderer.cur = new Map(); renderer.target = new Map(); renderer.anim = null;
     afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); store.del(SAVE_KEY); log('Workspace cleared');
@@ -3364,7 +3498,10 @@
       $(p[0]).addEventListener('change', function () { state.analysis[p[1]] = this.checked; savePrefs(); edgeLabelCache.clear(); refresh(); });
     });
 
-    $('searchForm').addEventListener('submit', function (e) { e.preventDefault(); openQuery($('q').value); });
+    var openShift = false;
+    $('btnOpen').addEventListener('click', function (e) { openShift = !!e.shiftKey; });
+    $('q').addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); openQuery($('q').value, { replace: true }); } });
+    $('searchForm').addEventListener('submit', function (e) { e.preventDefault(); var again = openShift; openShift = false; openQuery($('q').value, { replace: again }); });
     // the box shows the proper form of whatever was pasted
     function tidyQuery() { var r = A.checkQuery($('q').value); if (r.ok) $('q').value = r.value; }
     $('q').addEventListener('change', tidyQuery);
@@ -3431,8 +3568,9 @@
     $('depth').addEventListener('change', function () { state.hops = num(this.value, 1, 3, 2); savePrefs(); afterGraphChange({ fit: true }); scheduleSave(); });
     $('btnFit').addEventListener('click', function () { renderer.fit(); });
     $('btnUndoLoad').addEventListener('click', undoLoad);
-    $('btnRelayout').addEventListener('click', function () { if (traceOn()) { traceTidy(); return; } state.pinned.clear(); refresh({ relayout: true, fit: true }); });
+    $('btnRelayout').addEventListener('click', function () { if (traceOn()) { traceTidy(); return; } relayoutAll(); });
     $('traceUndo').addEventListener('click', undoLast);
+    $('traceRedo').addEventListener('click', redoLast);
     $('traceHide').addEventListener('click', hideSelected);
     $('traceKeep').addEventListener('click', function () { keepOnly(traceOn() ? traceSelected() : Array.from(state.selected)); });
     $('selMenu').addEventListener('click', openSelectMenu);
@@ -3532,7 +3670,8 @@
       }
       else if (e.key === '[') { e.preventDefault(); if (traceOn()) traceKey('prev'); else stepClick('prev'); }
       else if (e.key === ']') { e.preventDefault(); if (traceOn()) traceKey('next'); else stepClick('next'); }
-      else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undoLast(); }
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (e.shiftKey) redoLast(); else undoLast(); }
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redoLast(); }
       else if (mod) { /* a shortcut with Ctrl, Alt or Cmd held belongs to the browser */ }
       else if (e.key === 'b' || e.key === 'B') { setBoxMode(!state.boxMode); }
       else if (e.key === 'c' || e.key === 'C') { setSideCollapsed(!state.sideCollapsed); }
