@@ -195,6 +195,42 @@ window.addEventListener('error', function (e) {
       </div>
     </details>
 
+    <details id="aiSection">
+      <summary>Assistant</summary>
+      <div class="sec">
+        <p class="hint">The findings come from the analysis; an assistant only reads, ranks or words them, and every id in its answer is checked against the evidence. Everything loaded is included, hidden or not. Nothing is sent anywhere unless you set up a model on this computer below.</p>
+        <label for="aiTask">Ask for</label>
+        <select id="aiTask">
+          <option value="triage">Triage: what to look at first</option>
+          <option value="narrative">A draft of the findings text</option>
+          <option value="explain">An explanation of the selected vertex</option>
+          <option value="challenge">A challenge: what weakens the findings</option>
+        </select>
+        <label for="aiRows">Pattern rows to include <output id="aiRowsOut"></output></label>
+        <input type="number" id="aiRows" min="5" max="400" step="5" value="60">
+        <div class="row wrap">
+          <button type="button" id="aiCopy" title="Copy the instructions and the evidence as text, to paste into any assistant">Copy for assistant</button>
+          <button type="button" id="aiAsk" title="Ask the model set up below, on this computer">Ask the local model</button>
+        </div>
+        <p class="hint" id="aiSize"></p>
+        <details id="aiLocal">
+          <summary>Local model</summary>
+          <p class="hint">Works with a server on this computer that speaks the OpenAI chat format: Ollama, LM Studio, the llama.cpp server. Only localhost, 127.0.0.1 or ::1 is accepted, so the evidence never leaves the machine, and no key is sent.</p>
+          <label for="aiEndpoint">Address</label>
+          <input type="text" id="aiEndpoint" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:11434/v1">
+          <label for="aiModel">Model</label>
+          <input type="text" id="aiModel" spellcheck="false" autocomplete="off" placeholder="for example llama3.1">
+          <div class="row wrap"><button type="button" id="aiTest" title="Ask the server which models it has (sends no evidence)">Test connection</button></div>
+          <p class="hint">Most local models read only about 4,000 tokens unless you raise their context window (in Ollama, num_ctx). If the answer ignores the end of the evidence, lower the pattern rows above or raise the context. If the browser blocks the request, allow this page's address in the server (for Ollama, the OLLAMA_ORIGINS setting).</p>
+        </details>
+        <p class="hint" id="aiNote" role="status"></p>
+        <label for="aiText">Answer</label>
+        <textarea id="aiText" rows="8" spellcheck="false" placeholder="The model's answer appears here. Or paste the answer of any assistant and press Check ids."></textarea>
+        <div class="row wrap"><button type="button" id="aiCheck" title="Compare every transaction id and address in the answer with the evidence">Check ids</button><button type="button" id="aiCopyAnswer">Copy answer</button></div>
+        <div id="aiResult" class="findings" aria-live="polite"></div>
+      </div>
+    </details>
+
     <details id="autoSection">
       <summary>Auto-expand</summary>
       <div class="sec">
@@ -346,6 +382,7 @@ window.addEventListener('error', function (e) {
         <p><b>The investigation report</b> (Export menu) is one HTML file for what is on screen: a summary, the findings with their reasons, the transactions in time order with inputs and outputs, the wallets, the graph as a picture, where and when every transaction was fetched, and the method and limits. It embeds the evidence as data and states its SHA-256, so a reader can check the file was not changed afterwards (<code>tools/verify_report.py</code>).</p>
         <p><b>Label packs</b> (left panel) import lists of wallets and names from a CSV (<code>address,label,category,url,note</code>) or JSON file, such as an exchange's addresses, or OFAC's sanctions list (<code>SDN_XML.ZIP</code>, <code>SDN_ENHANCED.ZIP</code> or <code>SDN_ADVANCED.ZIP</code>), which is read directly. They appear as <i>known (pack name)</i> with a gold ring, stop an auto-expand like any known wallet, and can be switched off or removed. <i>Export</i> writes your own labels and tags in the same format to share with a colleague. A pack is someone else's claim, not a finding.</p>
         <p><b>Analysis</b> looks for patterns in what is loaded: <i>CONSOL</i> (many inputs gathered into one or two outputs), <i>BATCH</i> (a few inputs paying many outputs), <i>COINJOIN?</i> (several wallets' inputs and several outputs of exactly the same value) and <i>PEEL</i> (a run of transactions that each pay a smaller amount out of a single coin and pass the rest on). A peel chain is named after the transaction it starts at (<i>P-65a1</i>) and has one colour, so both stay the same whatever else is loaded. Badges show their text where it fits and become small dots in the pattern's colour when zoomed out or crowded; point at or select a vertex to read its badge and chain name. Each kind can be switched off under <i>Flag patterns on transactions</i>. <i>Detections</i>, under the findings, lists every pattern found, oldest first, with its reason: filter it by kind or by chain, click a row to select that transaction and bring it into view, or copy the list. Pick a chain there (or open one of its steps) to light it up on the graph with numbered steps, show just that chain as a trace, or follow it further. A transaction's details also say which output most likely returns to the sender, and why; that output's edge is coloured amber. <b>Clusters</b> group addresses that were spent together in one transaction, which usually means one owner, and are drawn with a dashed ring in one colour; CoinJoin-like transactions are left out, and you can leave out any other by hand. All of it is heuristic: it shows its reasons and none of it is proof.</p>
+        <p><b>Assistant</b> gives an AI assistant the evidence and checks what it says. <i>Copy for assistant</i> copies the instructions and the evidence as text (triage, a draft of the findings text, an explanation of the selected vertex, or a challenge of the findings) to paste into any assistant. The findings come from the analysis; a model only reads, ranks or words them. <i>Check ids</i> compares every transaction id and address in an answer with the workspace and names the ones that are not there, which is how a made-up id is caught. <i>Ask the local model</i> does it with a model on this computer (Ollama, LM Studio, llama.cpp): only localhost or 127.0.0.1 is accepted, no key is sent, nothing leaves the machine. A model's text is a draft, not evidence.</p>
         <p><b>Auto-expand</b> follows the money several transactions in one go, forward or backward, from the selected vertex, stopping at the limits you set (hops, transactions, requests) and at labelled wallets or CoinJoins. <i>Follow</i> chooses every output, the largest, the likely change, or a peel chain. In the Trace layout everything it loaded is shown and one <kbd>Ctrl+Z</kbd> takes it back.</p>
         <p><b>Right-click</b> a wallet or transaction for its actions: tag it (EXCH, THREAT, …), look a wallet up in Arkham, load more. <b>Tags</b> give a vertex a colour, a shape and a badge; set them next to the label in the details.</p>
         <p><b>Previous / Next</b> under the graph step along the money: from a transaction to the wallets it paid (or that paid in), from a wallet to the transactions that spent from it. One choice moves at once; several open a list.</p>
@@ -448,6 +485,7 @@ window.addEventListener('error', function (e) {
 <script src="js/hopline-ofac.js"></script>
 <script src="js/hopline-find.js"></script>
 <script src="js/hopline-detections.js"></script>
+<script src="js/hopline-assist.js"></script>
 <script src="js/hopline-report.js"></script>
 <script src="js/hopline-nav.js"></script>
 <script src="data/known-addresses.js"></script>

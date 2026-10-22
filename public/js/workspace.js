@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, OF = HoplineOfac, FD = HoplineFind, DT = HoplineDetections, RP = HoplineReport, balanceOf = M.balanceOf;
+  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, OF = HoplineOfac, FD = HoplineFind, DT = HoplineDetections, AS = HoplineAssist, RP = HoplineReport, balanceOf = M.balanceOf;
   var ID = M.ID;
   var KNOWN_BASE = window.HOPLINE_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
@@ -52,7 +52,7 @@
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
     trace: emptyTrace(),
-    undoLoads: [], analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
+    undoLoads: [], analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: 'columns', boxMode: false,
     stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, dustSats: 10000, walletView: { dir: 'all', sort: 'new', more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
@@ -177,7 +177,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -197,7 +197,7 @@
       state.fiat = cleanFiat(p.fiat);
       state.sideCollapsed = p.sideCollapsed === true; state.inspCollapsed = p.inspCollapsed === true; state.tbCollapsed = p.tbCollapsed === true;
       state.edgeLabels = p.edgeLabels !== false; state.viaWallets = p.viaWallets !== false;
-      state.analysis = cleanAnalysis(p.analysis); state.auto = cleanAuto(p.auto);
+      state.analysis = cleanAnalysis(p.analysis); state.assist = cleanAssist(p.assist); state.auto = cleanAuto(p.auto);
       state.reportBy = typeof p.reportBy === 'string' ? LB.cleanText(p.reportBy, 80) : '';
       if (p.customPrices === 'server' || p.customPrices === 'mempool' || p.customPrices === 'off') state.customPrices = p.customPrices;
       if (typeof p.extProxy === 'string' && proxyUrlOk(p.extProxy)) state.ext.proxy = p.extProxy;
@@ -2924,6 +2924,140 @@
     return el('div', { 'class': 'insp-actions' }, row);
   }
 
+  // ---- assistant: the evidence for an AI assistant, an optional model on this computer, and a check of what it answers ----------------------
+  var DEFAULT_ENDPOINT = 'http://127.0.0.1:11434/v1';
+  function cleanAssist(a) {
+    a = a && typeof a === 'object' ? a : {};
+    return { endpoint: typeof a.endpoint === 'string' && a.endpoint ? a.endpoint.slice(0, 300) : DEFAULT_ENDPOINT,
+             model: typeof a.model === 'string' ? a.model.replace(/[^\w.:\/@+\-]/g, '').slice(0, 100) : '', rows: num(a.rows, 5, 400, 60) };
+  }
+  var ai = { busy: null, focus: null };                                                  // busy: the controller of a question in flight
+  function assistKnown(a) { var k = KNOWN[a]; return k ? { label: k.label, category: k.category, source: k.pack || k.source || 'built-in list' } : null; }
+  function assistSummary() { return AS.summary(state.graph, analysis(), { generated: new Date().toISOString(), title: LB.cleanText($('reportTitle').value, 120), known: assistKnown }); }
+
+  /** The prompt for the chosen task, or null (with a message) when it cannot be made. */
+  function assistPrompt() {
+    if (!state.graph.nodes.size) { toast('Nothing is loaded yet.', true); return null; }
+    var task = $('aiTask').value, focus = null;
+    if (task === 'explain') {
+      var sel = Array.from(state.selected)[0];
+      if (!sel) { toast('Select a transaction or a wallet first: that is what the assistant is asked to explain.', true); return null; }
+      focus = AS.focus(state.graph, analysis(), plainId(sel), { known: assistKnown });
+      if (!focus) { toast('Select a transaction or a wallet: that is what the assistant can be asked to explain.', true); return null; }
+    }
+    var p;
+    try { p = AS.prompt(assistSummary(), task, { maxRows: state.assist.rows, focus: focus }); } catch (e) { toast(e.message, true); return null; }
+    ai.focus = focus;
+    $('aiSize').textContent = 'About ' + p.tokens.toLocaleString() + ' tokens: ' + plural(p.shown.patterns, 'pattern row') + ', ' + plural(p.shown.peelChains, 'peel chain') + ', ' + plural(p.shown.clusters, 'cluster') + ', ' + plural(p.shown.wallets, 'noted wallet') + '.'
+      + (p.tokens > 3500 ? ' That is more than many local models read by default: lower the pattern rows, or raise the context window of the model.' : '');
+    return p;
+  }
+
+  function aiNoteSet(text, bad) { var n = $('aiNote'); n.textContent = text; n.className = 'hint' + (bad ? ' bad' : ''); }
+  function syncAssistUi() {
+    var ep = AS.localEndpoint(state.assist.endpoint);
+    if (document.activeElement !== $('aiEndpoint')) $('aiEndpoint').value = state.assist.endpoint;
+    if (document.activeElement !== $('aiModel')) $('aiModel').value = state.assist.model;
+    if (document.activeElement !== $('aiRows')) $('aiRows').value = state.assist.rows;
+    $('aiRowsOut').textContent = state.assist.rows;
+    $('aiEndpoint').setAttribute('aria-invalid', ep.ok ? 'false' : 'true'); $('aiEndpoint').title = ep.ok ? '' : ep.error;
+    $('aiAsk').textContent = ai.busy ? 'Cancel' : 'Ask the local model';
+    $('aiAsk').disabled = !ai.busy && (!ep.ok || !state.assist.model);
+    $('aiAsk').title = ai.busy ? 'Stop waiting for the model' : !ep.ok ? ep.error : !state.assist.model ? 'Name the model under Local model first' : 'Send the instructions and the evidence to the model on this computer';
+    $('aiTest').disabled = !ep.ok;
+  }
+
+  function aiCopyPrompt() {
+    var p = assistPrompt(); if (!p) return;
+    copy(p.text, 'the prompt for an assistant (about ' + p.tokens.toLocaleString() + ' tokens)');
+  }
+
+  /** A failed request to the model, in words: it was stopped, it could not be reached, or the server said no. */
+  function aiErrorText(e, base) {
+    if (e && e.name === 'AbortError') return 'Stopped: no answer was received.';
+    if (e && e.name === 'TypeError') return 'Could not reach the model at ' + base + '. Is the server running? If it is, the browser may have blocked the request: allow this page\'s address in the server (for Ollama, set OLLAMA_ORIGINS).';
+    return e && e.message ? e.message : 'The question failed.';
+  }
+
+  function aiAsk() {
+    if (ai.busy) { ai.busy.abort(); return; }                                              // while a question is out the button says Cancel
+    var ep = AS.localEndpoint(state.assist.endpoint);
+    if (!ep.ok) { toast(ep.error, true); return; }
+    if (!state.assist.model) { toast('Name the model to ask (for example llama3.1).', true); return; }
+    var p = assistPrompt(); if (!p) return;
+    var req; try { req = AS.chatRequest({ base: state.assist.endpoint, model: state.assist.model, system: p.system, user: p.user }); } catch (e) { toast(e.message, true); return; }
+    var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 10 * 60 * 1000), model = state.assist.model;
+    req.init.signal = ctl.signal; ai.busy = ctl; syncAssistUi();
+    aiNoteSet('Asking ' + model + '… (about ' + p.tokens.toLocaleString() + ' tokens; a local model can take a few minutes)');
+    log('Asked the local model ' + model + ' (' + p.task + ', about ' + p.tokens + ' tokens). It stayed on this computer.');
+    fetch(req.url, req.init).then(function (r) {
+      return r.text().then(function (body) {
+        if (!r.ok) throw new Error('The model server answered ' + r.status + ': ' + AS.plainText(body, 200));
+        return AS.parseChat(body);
+      });
+    }).then(function (text) {
+      $('aiText').value = text;
+      aiNoteSet('Written by ' + model + ' at ' + new Date().toISOString().slice(11, 16) + ' UTC. It is a draft by a model, not evidence.');
+      aiCheckNow();
+    }, function (e) {
+      aiNoteSet(aiErrorText(e, ep.base), !(e && e.name === 'AbortError'));
+    }).then(function () { clearTimeout(timer); ai.busy = null; syncAssistUi(); });
+  }
+
+  function aiTest() {
+    var ep = AS.localEndpoint(state.assist.endpoint);
+    if (!ep.ok) { toast(ep.error, true); return; }
+    aiNoteSet('Asking ' + ep.base + ' which models it has…');
+    fetch(ep.base + '/models').then(function (r) {
+      return r.text().then(function (body) {
+        if (!r.ok) throw new Error('The server answered ' + r.status + '.');
+        var d; try { d = JSON.parse(body); } catch (e) { throw new Error('The server did not send a list of models.'); }
+        var names = (Array.isArray(d.data) ? d.data : Array.isArray(d.models) ? d.models : []).map(function (m) { return m && (m.id || m.name); }).filter(function (x) { return typeof x === 'string'; }).map(function (x) { return AS.plainText(x, 80); });
+        if (!names.length) return aiNoteSet('Connected to ' + ep.base + ', but it lists no models.', true);
+        var has = state.assist.model && names.indexOf(state.assist.model) >= 0;
+        aiNoteSet('Connected. Models: ' + names.slice(0, 12).join(', ') + (names.length > 12 ? ' and ' + (names.length - 12) + ' more' : '') + '.' + (state.assist.model && !has ? ' "' + state.assist.model + '" is not among them.' : ''), !!state.assist.model && !has);
+      });
+    }).catch(function (e) { aiNoteSet(aiErrorText(e, ep.base), true); });
+  }
+
+  /** Compare every id in the answer box with the evidence and say which ones are not there. The text is shown as text only. */
+  function aiCheckNow() {
+    var text = $('aiText').value, box = $('aiResult'); box.textContent = '';
+    if (!text.trim()) { box.appendChild(el('p', { 'class': 'hint', text: 'Paste an answer, or ask the model, then check the ids it cites.' })); return; }
+    var r = AS.checkCitations(text, AS.idSets(assistSummary(), state.graph, ai.focus));
+    var nTx = r.cited.txids.length, nAd = r.cited.addresses.length, bad = r.unknown.txids.length + r.unknown.addresses.length;
+    if (bad) box.appendChild(el('p', { 'class': 'hint bad', text: plural(bad, 'id') + (bad === 1 ? ' is' : ' are') + ' NOT in this workspace: a model made up or garbled ' + (bad === 1 ? 'it' : 'them') + '. Do not use what is said about ' + (bad === 1 ? 'it' : 'them') + '.' }));
+    else if (r.ok && nTx + nAd + r.abbreviated.length) box.appendChild(el('p', { 'class': 'hint ok', text: 'Every id it cites is in the workspace: ' + plural(nTx, 'transaction id') + ', ' + plural(nAd, 'address', 'addresses') + '.' }));
+    else if (r.ok) box.appendChild(el('p', { 'class': 'hint bad', text: 'It cites no transaction id or address, so there is nothing here to check: treat it as unsupported.' }));
+    r.unknown.txids.concat(r.unknown.addresses).slice(0, 20).forEach(function (id) { box.appendChild(idRow(id, 'the id that is not in the workspace')); });
+    r.abbreviated.forEach(function (x) {
+      if (x.id) box.appendChild(el('p', { 'class': 'hint', text: 'Shortened id ' + x.text + ' matches one transaction.' }));
+      else box.appendChild(el('p', { 'class': 'hint bad', text: 'Shortened id ' + x.text + ' matches no single transaction.' }));
+    });
+    r.uncited.slice(0, 5).forEach(function (u) { box.appendChild(el('p', { 'class': 'hint', text: 'States an amount without citing an id: "' + u + '"' })); });
+    var shown = r.cited.txids.map(function (c) { return { id: 'tx:' + c.id, where: c.where, text: S.shortId(c.id, 8) }; }).concat(r.cited.addresses.map(function (c) { return { id: 'addr:' + c.id, where: c.where, text: S.shortId(c.id, 8) }; }));
+    if (shown.length) box.appendChild(el('span', { 'class': 'lbl', text: 'Cited (click to find it)' }));
+    shown.slice(0, 30).forEach(function (c) {
+      box.appendChild(el('button', { type: 'button', 'class': 'linkrow', title: 'Select it and bring it into view', onclick: function () { findGo(c.id); } },
+                         [el('span', { 'class': 'mono', text: c.text }), el('span', { 'class': 'amt', text: c.where === 'evidence' ? 'in the evidence' : 'loaded, not in the evidence' })]));
+    });
+    box.appendChild(el('p', { 'class': 'hint', text: 'A model\'s text is not evidence. Check each claim against the transactions before it goes into a report.' }));
+  }
+
+  function wireAssistant() {
+    $('aiCopy').addEventListener('click', aiCopyPrompt);
+    $('aiAsk').addEventListener('click', aiAsk);
+    $('aiTest').addEventListener('click', aiTest);
+    $('aiCheck').addEventListener('click', aiCheckNow);
+    $('aiCopyAnswer').addEventListener('click', function () { var t = $('aiText').value; if (t.trim()) copy(t, 'the answer'); else toast('There is no answer to copy.', true); });
+    $('aiEndpoint').addEventListener('input', function () { state.assist.endpoint = this.value.slice(0, 300); savePrefs(); syncAssistUi(); });
+    $('aiModel').addEventListener('input', function () { state.assist.model = cleanAssist({ model: this.value }).model; savePrefs(); syncAssistUi(); });
+    $('aiRows').addEventListener('change', function () { state.assist.rows = num(this.value, 5, 400, 60); this.value = state.assist.rows; savePrefs(); syncAssistUi(); });
+    $('aiRows').addEventListener('input', function () { $('aiRowsOut').textContent = this.value; });
+    $('aiEndpoint').addEventListener('blur', function () { this.value = state.assist.endpoint; });
+    $('aiModel').addEventListener('blur', function () { this.value = state.assist.model; });
+  }
+
   /** The Analysis panel: what was found, as lists that select the vertices involved. */
   var findingsFor = null;
   function updateFindings() {
@@ -3045,7 +3179,7 @@
     $('autoHops').value = a.hops; $('autoFollow').value = a.follow; $('autoMaxTx').value = a.maxTx; $('autoMaxReq').value = a.maxReq; $('autoPerTx').value = a.perTx; $('autoMin').value = a.minSats;
     $('autoStopLabel').checked = a.stopLabel; $('autoStopMix').checked = a.stopMix;
     $('anFlags').checked = state.analysis.flags; $('anChange').checked = state.analysis.change; $('anClusters').checked = state.analysis.clusters;
-    $('anKPeel').checked = state.analysis.kinds.peel; $('anKConsol').checked = state.analysis.kinds.consolidation; $('anKBatch').checked = state.analysis.kinds.batch; $('anKCoinjoin').checked = state.analysis.kinds.coinjoin;
+    $('anKPeel').checked = state.analysis.kinds.peel; $('anKConsol').checked = state.analysis.kinds.consolidation; $('anKBatch').checked = state.analysis.kinds.batch; $('anKCoinjoin').checked = state.analysis.kinds.coinjoin; syncAssistUi();
     updateAutoUi();
   }
   function updateAutoUi() {
@@ -3760,7 +3894,7 @@
     Array.prototype.forEach.call($('autoDirSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { state.auto.dir = b.getAttribute('data-dir'); syncAutoUi(); savePrefs(); }); });
     ['autoHops', 'autoFollow', 'autoMaxTx', 'autoMaxReq', 'autoPerTx', 'autoMin', 'autoStopLabel', 'autoStopMix'].forEach(function (id) { $(id).addEventListener('change', readAuto); });
     $('autoGo').addEventListener('click', function () { var id = autoTarget(); if (id) autoExpand(id); });
-    wireDetections();
+    wireDetections(); wireAssistant();
     [['anKPeel', 'peel'], ['anKConsol', 'consolidation'], ['anKBatch', 'batch'], ['anKCoinjoin', 'coinjoin']].forEach(function (p) {
       $(p[0]).addEventListener('change', function () { state.analysis.kinds[p[1]] = this.checked; savePrefs(); refresh(); });
     });

@@ -383,3 +383,12 @@ dl.kv dt { color: var(--dim); } dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 #chainChip #chainChipText { color: var(--dim); }
 body.axis-on #chainChip { top: 86px; }
 body.trace-on #chainChip { top: 112px; }                              /* the trace bar has two rows */
+
+/* Assistant: the evidence for a model, and a check of its answer */
+#aiSection .sec > label, #aiSection details > label { margin-top: 6px; }
+#aiSection #aiLocal { border-bottom: 0; margin: 6px 0; }
+#aiSection #aiLocal > summary { padding: 4px 0; font-size: 12.5px; font-weight: 600; }
+#aiText { min-height: 120px; font-size: 12px; line-height: 1.4; }
+#aiEndpoint[aria-invalid="true"] { border-color: var(--danger); }
+.hint.bad { color: var(--danger); }
+.hint.ok { color: #6be675; }
