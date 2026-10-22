@@ -20,7 +20,7 @@ def no_js_errors(errors, request):
 
 def test_page_loads_clean_and_shows_the_empty_state(page):
     assert page.is_visible("#empty")
-    assert page.locator("#layoutSeg button").count() == 4        # Flow, Timeline, Force, Trace
+    assert page.locator("#layoutSeg button").count() == 4        # Trace, Timeline, Force, Flow
     assert page.inner_text("#counts") == ""
     assert page.is_disabled("#tFrom")           # nothing to slide yet
 
@@ -383,7 +383,7 @@ def test_delete_hides_the_selection_and_shift_delete_removes_it(page):
 def test_session_is_saved_and_can_be_restored(ctx, errors):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e)))
     from conftest import PAGE_URL
-    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); p.click("#layoutSeg [data-layout=flow]")
     open_query(p, NORMAL["txid"])
     click_node(p, "addr:" + NORMAL["vout"][0]["scriptpubkey_address"])
     p.fill("#fLabel", "kept across reload"); p.wait_for_timeout(1200)       # autosave is debounced
@@ -411,6 +411,26 @@ def test_url_parameter_opens_a_transaction(ctx, errors):
     p.goto(PAGE_URL + "?q=" + NORMAL["txid"])
     p.wait_for_function("() => window.__hopline && window.__hopline.state.graph.nodes.size > 0"); idle(p)
     assert counts(p)["nodes"] == 7
+    p.close()
+
+
+def test_a_link_that_names_a_wallet_opens_it_even_when_a_session_is_saved(ctx, errors):
+    """The wallet page's "Open in workspace" link must not land on an empty canvas behind the saved-session banner."""
+    from conftest import PAGE_URL
+    COINBASE_ID = "tx:" + COINBASE["txid"]
+    first = ctx.new_page(); first.on("pageerror", lambda e: errors.append(str(e)))
+    first.goto(PAGE_URL); first.wait_for_function("window.__hopline && window.__hopline.renderer")
+    open_query(first, COINBASE["txid"]); first.wait_for_timeout(1200)                     # autosave is debounced
+    first.close()
+    p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e)))
+    p.goto(PAGE_URL + "?q=" + ADDRESS)
+    p.wait_for_function("() => window.__hopline && window.__hopline.state.graph.nodes.has('addr:%s')" % ADDRESS); idle(p)
+    assert p.is_visible("#restore") and "adds it to what is open" in p.inner_text("#restoreText"), "the saved session is still offered"
+    assert not p.evaluate("(id) => window.__hopline.state.graph.nodes.has(id)", COINBASE_ID), "but not mixed in until asked"
+    p.wait_for_timeout(1200)
+    assert COINBASE["txid"] in p.evaluate("() => localStorage.getItem('hopline.workspace.v1')"), "nothing overwrote it meanwhile"
+    p.click("#restoreYes"); p.wait_for_function("(id) => window.__hopline.state.graph.nodes.has(id)", arg=COINBASE_ID); idle(p)
+    assert p.evaluate("(a) => window.__hopline.state.graph.nodes.has(a)", "addr:" + ADDRESS), "what the link opened stays"
     p.close()
 
 

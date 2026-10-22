@@ -134,8 +134,11 @@ def test_a_trace_started_by_the_undone_open_does_not_outlive_it(fpage):
     open_query(fpage, NORMAL["txid"])
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     undo(fpage)                                                             # the open that the trace was built from
-    assert n_nodes(fpage) == 0 and fpage.evaluate("() => window.__hopline.state.layout") == "flow", "no trace without a starting vertex"
-    assert fpage.evaluate("() => window.__hopline.state.trace.shown.size") == 0
+    assert n_nodes(fpage) == 0 and fpage.evaluate("() => window.__hopline.state.trace.shown.size") == 0, "no trace without a starting vertex"
+    assert fpage.evaluate("() => window.__hopline.state.trace.seed") is None, "and no stale starting point"
+    assert fpage.evaluate("() => window.__hopline.state.layout") == "trace" and fpage.is_visible("#empty"), "still in Trace (the layout a visitor starts in), on the empty screen"
+    open_query(fpage, NORMAL["txid"])
+    assert fpage.evaluate("() => window.__hopline.state.trace.seed") == "tx:" + NORMAL["txid"], "what is opened next starts a fresh trace"
 
 
 def test_removal_clear_and_import_can_all_be_undone(fpage):

@@ -108,14 +108,21 @@ def ctx(browser, mock):
 
 
 @pytest.fixture
-def fpage(ctx, errors):
-    """A fresh page exactly as a new visitor gets it: Focus on."""
+def tpage(ctx, errors):
+    """A fresh page exactly as a new visitor gets it: the Trace layout, nothing loaded."""
     p = ctx.new_page()
     p.on("pageerror", lambda e: errors.append("pageerror: " + str(e)))
     p.on("console", lambda m: errors.append("console: " + m.text) if m.type == "error" else None)
     p.goto(PAGE_URL)
     p.wait_for_function("window.__hopline && window.__hopline.renderer")
     return p
+
+
+@pytest.fixture
+def fpage(tpage):
+    """A fresh page in the Flow layout with Focus on: the baseline most tests were written for (a new visitor starts in Trace; see tpage)."""
+    tpage.click("#layoutSeg [data-layout=flow]")
+    return tpage
 
 
 @pytest.fixture

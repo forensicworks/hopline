@@ -12,7 +12,7 @@
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
   var SAVE_KEY = 'hopline.workspace.v1', PREF_KEY = 'hopline.prefs.v1', TOKEN_KEY = 'hopline.ext.token', PACKS_KEY = 'hopline.packs.v1';
-  var ARRANGE = { columns: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 };
+  var ARRANGE = { columns: 1, flow: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 };
   var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SIZES = { auto: 1, area: 1, log: 1 }, SCALES = { compact: 1, proportional: 1 };
 
   function $(id) { return document.getElementById(id); }
@@ -45,7 +45,7 @@
 
   // ---- state ----------------------------------------------------------------------------------
   var state = {
-    graph: new M.Graph(), layout: 'flow', colorBy: 'type', sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
+    graph: new M.Graph(), layout: 'trace', colorBy: 'type', sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
     keep: new Set(), pinned: new Map(), selected: new Set(), selectedEdge: null,
     source: 'clearnet', fallback: true, customBase: '', capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: true,
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
@@ -283,7 +283,7 @@
     state.keep = new Set(s.keep); state.hidden = new Set(s.hidden); state.hideUndo = s.hideUndo;
     state.focus = s.focus && state.graph.nodes.has(s.focus) ? s.focus : null;
     if (s.trace && loadTraceData(s.trace)) { state.trace.undo = s.traceUndo; traceSanitize(); } else state.trace = emptyTrace();
-    if (traceOn() && !state.trace.seed) { state.layout = 'flow'; setSeg('layoutSeg', 'data-layout', 'flow'); document.body.classList.remove('trace-on'); updateScaleRow(); }
+    if (traceOn() && !state.trace.seed && state.graph.nodes.size) { state.layout = 'flow'; setSeg('layoutSeg', 'data-layout', 'flow'); document.body.classList.remove('trace-on'); updateScaleRow(); }
     state.selected = new Set(); state.selectedEdge = null; state.pinned = new Map();
     state.graph.refreshDerived(); afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); scheduleSave(); updateUndoLoad();
     toast('Undid: ' + s.title + '. Back to ' + plural(s.nodes, 'vertex', 'vertices') + '.');
@@ -544,7 +544,7 @@
     var sel = on ? traceSelected().length : Array.from(state.selected).filter(function (id) { return state.graph.nodes.has(id); }).length;
     var vis = renderer && renderer.data ? renderer.data.visible.nodes.size : 0;
     document.body.classList.toggle('trace-on', on);
-    $('traceBar').hidden = !(on || has);
+    $('traceBar').hidden = !has;
     $('barTitle').textContent = on ? 'Trace' : 'Selection';
     $('focusOn').disabled = on; $('depth').disabled = on;
     $('focusOn').title = on ? 'Not used in the Trace layout: the trace shows what you reveal' : 'Show only the neighbourhood of the vertex you are looking at';
@@ -3099,8 +3099,8 @@
     if (!LAYOUTS[name]) return;
     if (name === 'trace' && (!state.trace.seed || !state.graph.nodes.has(state.trace.seed))) {
       var c = traceCandidate();
-      if (!c) { toast('Open a transaction or a wallet first, then switch to Trace.', true); return; }
-      traceStart(c);
+      if (c) traceStart(c);
+      else if (state.graph.nodes.size) { toast('Open a transaction or a wallet first, then switch to Trace.', true); return; }       // with nothing loaded the trace simply waits: what you open next starts it
     }
     state.layout = name; document.body.classList.toggle('trace-on', name === 'trace'); setSeg('layoutSeg', 'data-layout', name); updateScaleRow();
     state.pinned.clear(); refresh({ relayout: true, fit: !o || o.fit !== false }); updateTraceUi(); renderStepBar(); scheduleSave();
@@ -3290,13 +3290,14 @@
    * Offers the saved session. Returns true when the banner is shown. Until the user decides, nothing is autosaved, so a
    * reload (whose URL now names the vertex you were on) cannot overwrite the saved labels and notes with a bare graph.
    * `afterDiscard` runs when the saved session is thrown away (e.g. to open the vertex named in the URL instead).
+   * `alongside` says something is being opened already, so Restore merges the saved session into it.
    */
-  function offerRestore(afterDiscard) {
+  function offerRestore(afterDiscard, alongside) {
     if (!state.persist) return false;
     var raw = store.get(SAVE_KEY); if (!raw) return false;
     var meta; try { meta = JSON.parse(raw); } catch (e) { store.del(SAVE_KEY); return false; }
     if (!meta || !IO.isFormat(meta.format) || !Array.isArray(meta.nodes) || !meta.nodes.length) return false;
-    $('restoreText').textContent = 'A saved session with ' + meta.nodes.length + ' vertices from ' + S.fmtTime(Date.parse(meta.exported) / 1000) + ' is stored in this browser.';
+    $('restoreText').textContent = 'A saved session with ' + meta.nodes.length + ' vertices from ' + S.fmtTime(Date.parse(meta.exported) / 1000) + ' is stored in this browser.' + (alongside ? ' Restore adds it to what is open now.' : '');
     $('restore').hidden = false;
     $('restoreYes').onclick = function () { $('restore').hidden = true; doImport(raw); };
     $('restoreNo').onclick = function () { $('restore').hidden = true; store.del(SAVE_KEY); if (afterDiscard) afterDiscard(); };
@@ -3333,6 +3334,7 @@
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets;
     setSideCollapsed(state.sideCollapsed); setInspCollapsed(state.inspCollapsed); setTbCollapsed(state.tbCollapsed);
     loadPacks(); renderPacks();
+    document.body.classList.toggle('trace-on', traceOn()); setSeg('layoutSeg', 'data-layout', state.layout); updateScaleRow();
     $('stepCopy').appendChild(copyIconSvg());
     $('reportBy').value = state.reportBy || ''; $('reportBy').addEventListener('change', savePrefs);
     $('packImport').addEventListener('click', function () { $('packFile').click(); });
@@ -3555,7 +3557,8 @@
     var openTarget = null;
     if (hp && (hp.id.indexOf('tx:') === 0 || hp.id.indexOf('addr:') === 0)) openTarget = function () { navigate(hp.id); };
     else if (q) openTarget = function () { $('q').value = q; openQuery(q); };
-    if (!offerRestore(openTarget) && openTarget) openTarget();
+    if (openTarget && !hp) { offerRestore(null, true); openTarget(); }                 // a link that names what to open (the wallet page's "Open in workspace") is followed at once; the saved session waits beside it and nothing is autosaved until it is answered
+    else if (!offerRestore(openTarget) && openTarget) openTarget();
     updateNavUi();
     if (fiatOn()) ensurePrices();
     window.__booted = true;                                                    // the page started: the start-up error banner stays out of the way from here

@@ -195,7 +195,7 @@ def test_a_failed_move_leaves_you_where_you_were(fpage, mock):
 
 def test_reload_offers_the_saved_session_and_keeps_the_focus(ctx, errors):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e)))
-    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); p.click("#layoutSeg [data-layout=flow]")
     open_query(p, NORMAL["txid"])
     click_node(p, SP0, dbl=True); idle(p)
     p.wait_for_timeout(1200)

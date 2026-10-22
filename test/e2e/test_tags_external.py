@@ -292,7 +292,7 @@ def test_lookup_asks_once_for_consent_sends_the_token_and_shows_the_result(fpage
 
 def test_a_lookup_result_is_shown_and_can_be_applied_by_choice(ctx, errors, arkham):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e))); p.on("dialog", lambda d: d.accept())
-    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); p.click("#layoutSeg [data-layout=flow]")
     open_query(p, NORMAL["txid"])
     set_up_proxy(p, "tok123")
     select_only(p, BIG_ADDR)
@@ -318,7 +318,7 @@ def test_a_lookup_result_is_shown_and_can_be_applied_by_choice(ctx, errors, arkh
 
 def test_lookup_errors_are_explained(ctx, errors, arkham):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e))); p.on("dialog", lambda d: d.accept())
-    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); p.click("#layoutSeg [data-layout=flow]")
     open_query(p, NORMAL["txid"]); set_up_proxy(p); select_only(p, BIG_ADDR)
     for status, body, expect in [(401, {"error": "missing or wrong token"}, "token"), (502, {"error": "Arkham rejected the API key (HTTP 401)"}, "API key"),
                                  (429, {"error": "slow down"}, "slow down"), (500, {"error": "boom"}, "boom")]:
@@ -337,7 +337,7 @@ def test_lookup_errors_are_explained(ctx, errors, arkham):
 def test_a_proxy_that_is_not_running_is_explained(ctx, errors):
     ctx.route(re.compile(r"^http://127\.0\.0\.1:8787/"), lambda r: r.abort("connectionrefused"))
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e))); p.on("dialog", lambda d: d.accept())
-    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); p.click("#layoutSeg [data-layout=flow]")
     open_query(p, NORMAL["txid"]); set_up_proxy(p); select_only(p, BIG_ADDR)
     p.click("#btnArkham")
     p.wait_for_function("() => /arkham_proxy/.test(document.getElementById('toast').textContent)")
@@ -420,7 +420,7 @@ def test_the_real_proxy_works_with_the_real_page_and_the_key_never_reaches_the_p
     port = srv.server_address[1]
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e))); p.on("dialog", lambda d: d.accept())
     try:
-        p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
+        p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); p.click("#layoutSeg [data-layout=flow]")
         open_query(p, NORMAL["txid"])
         p.click("summary:has-text('External sources')")
         p.fill("#arkUrl", "http://127.0.0.1:%d" % port); p.dispatch_event("#arkUrl", "change")

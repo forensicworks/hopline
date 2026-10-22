@@ -289,10 +289,13 @@ def test_filters_still_apply_to_what_is_shown(fpage):
     assert SMALL_ADDR in shown(fpage)
 
 
-def test_trace_needs_something_to_start_from(fpage):
-    fpage.click("#layoutSeg [data-layout=trace]")
-    assert "Open a transaction or a wallet first" in toast_text(fpage)
-    assert fpage.evaluate("() => window.__hopline.state.layout") == "flow"
+def test_trace_on_an_empty_workspace_waits_for_the_first_vertex(fpage):
+    """With nothing loaded Trace is not refused any more (it is where a visitor starts): it waits, and what is opened next starts it."""
+    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    assert fpage.evaluate("() => window.__hopline.state.layout") == "trace" and fpage.is_hidden("#toast")
+    assert fpage.evaluate("() => window.__hopline.state.trace.shown.size") == 0 and fpage.is_visible("#empty")
+    open_query(fpage, NORMAL["txid"])
+    assert fpage.evaluate("() => window.__hopline.state.trace.seed") == NORMAL_ID and len(shown(fpage)) == 1
 
 
 def test_the_details_panel_offers_the_same_steps(fpage):
