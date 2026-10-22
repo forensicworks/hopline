@@ -12,7 +12,7 @@ Bitcoin investigation tools that run in your browser: nothing to install and no 
 
 **Running it:** open `index.html` straight from the folder, or serve the folder with `python tools/serve.py` and open <http://127.0.0.1:8000/index.html>. Prefer that to `python -m http.server`: the standard server lets the browser keep copies of the scripts, so after an update a page can come up blank, or part of it can run old code, until you press Ctrl+F5. `tools/serve.py` tells the browser to keep nothing (it listens on this computer only and never writes anything). If a page says it could not start, that is the cause: reload with Ctrl+F5.
 
-**Status:** in development, not published yet. Licensed under the Apache License 2.0 (see the end).
+**Status:** in development, not published yet. Licensed under the Apache License 2.0 (see the end). What is planned: [ROADMAP.md](ROADMAP.md).
 
 ## Wallet overview
 
@@ -87,5 +87,5 @@ Maintenance:
 
 Hopline began as a fork of Orion by Kyle Honeycutt ("coinables", 2023 to 2024), a small transaction viewer released into the public domain under the Unlicense. Its viewer pages and the sigma.js library they used have since been removed; what remains of it is the starting list of exchange and service wallets in `public/data/known-addresses.js`, the idea behind the wallet overview, and the early history in this repository. The QR code library in `public/lib` is qrcode.js by davidshimjs (MIT).
 
-Hopline is licensed under the [Apache License, Version 2.0](LICENSE); the notices that go with it are in [NOTICE](NOTICE). The licence covers the code in this repository, which is the open, local-only edition. The licence does not give rights to the name Hopline or the logo (Apache-2.0, section 6).
+Hopline is licensed under the [Apache License, Version 2.0](LICENSE); the notices that go with it are in [NOTICE](NOTICE). The licence does not give rights to the name Hopline or the logo (Apache-2.0, section 6).
 
