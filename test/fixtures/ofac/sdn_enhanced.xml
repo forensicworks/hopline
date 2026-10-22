@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<sanctionsData xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/ENHANCED_XML">
+  <publicationInfo>
+    <dataAsOf>2026-10-21T00:00:00-04:00</dataAsOf>
+    <filters>
+      <sanctionsLists>
+        <sanctionsList refId="1550">SDN List</sanctionsList>
+      </sanctionsLists>
+    </filters>
+  </publicationInfo>
+  <referenceValues>
+    <featureType featureTypeId="344">
+      <type>Digital Currency Address - XBT</type>
+      <detailType refId="1432">TEXT</detailType>
+    </featureType>
+  </referenceValues>
+  <entities>
+    <entity id="100">
+      <generalInfo><identityId>1</identityId><entityType refId="601">Entity</entityType></generalInfo>
+      <sanctionsPrograms>
+        <sanctionsProgram refId="91741" id="1">CYBER2</sanctionsProgram>
+      </sanctionsPrograms>
+      <names>
+        <name id="1">
+          <isPrimary>true</isPrimary>
+          <translations>
+            <translation id="1">
+              <isPrimary>true</isPrimary>
+              <script refId="20122">Latin</script>
+              <formattedLastName>EXAMPLE GROUP &amp; SONS</formattedLastName>
+              <formattedFullName>EXAMPLE GROUP &amp; SONS</formattedFullName>
+            </translation>
+            <translation id="2">
+              <isPrimary>false</isPrimary>
+              <script refId="20100">Arabic</script>
+              <formattedFullName>NOT THE NAME</formattedFullName>
+            </translation>
+          </translations>
+        </name>
+        <name id="2">
+          <isPrimary>false</isPrimary>
+          <translations>
+            <translation id="3">
+              <isPrimary>true</isPrimary>
+              <formattedFullName>ALIAS</formattedFullName>
+            </translation>
+          </translations>
+        </name>
+      </names>
+      <features>
+        <feature id="1"><type featureTypeId="344">Digital Currency Address - XBT</type><versionId>1</versionId><value>bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h</value><isPrimary>true</isPrimary></feature>
+        <feature id="2"><type featureTypeId="344">Digital Currency Address - XBT</type><versionId>2</versionId><value>325gSHHe7UGvzEc9kGx43VqPboXUVwa26i</value><isPrimary>true</isPrimary></feature>
+        <feature id="3"><type featureTypeId="345">Digital Currency Address - ETH</type><versionId>3</versionId><value>0x742d35Cc6634C0532925a3b844Bc454e4438f44e</value><isPrimary>true</isPrimary></feature>
+        <feature id="4"><type featureTypeId="12">Email Address</type><versionId>4</versionId><value>contact@example.org</value><isPrimary>true</isPrimary></feature>
+      </features>
+    </entity>
+    <entity id="200">
+      <generalInfo><identityId>2</identityId><entityType refId="601">Entity</entityType></generalInfo>
+      <sanctionsPrograms>
+        <sanctionsProgram refId="1" id="2">SDGT</sanctionsProgram>
+      </sanctionsPrograms>
+      <names>
+        <name id="3"><isPrimary>true</isPrimary><translations><translation id="4"><isPrimary>true</isPrimary><formattedFullName>ETH ONLY LTD</formattedFullName></translation></translations></name>
+      </names>
+      <features>
+        <feature id="5"><type featureTypeId="345">Digital Currency Address - ETH</type><versionId>5</versionId><value>0x742d35Cc6634C0532925a3b844Bc454e4438f44e</value><isPrimary>true</isPrimary></feature>
+      </features>
+    </entity>
+    <entity id="300">
+      <generalInfo><identityId>3</identityId><entityType refId="601">Entity</entityType></generalInfo>
+      <sanctionsPrograms>
+        <sanctionsProgram refId="2" id="3">IRAN</sanctionsProgram>
+      </sanctionsPrograms>
+      <names>
+        <name id="4"><isPrimary>true</isPrimary><translations><translation id="5"><isPrimary>true</isPrimary><formattedFullName>NO ADDRESS INC</formattedFullName></translation></translations></name>
+      </names>
+    </entity>
+    <entity id="400">
+      <generalInfo><identityId>4</identityId><entityType refId="600">Individual</entityType></generalInfo>
+      <sanctionsPrograms>
+        <sanctionsProgram refId="3" id="4">DPRK3</sanctionsProgram>
+        <sanctionsProgram refId="91741" id="5">CYBER2</sanctionsProgram>
+      </sanctionsPrograms>
+      <names>
+        <name id="5">
+          <isPrimary>true</isPrimary>
+          <translations>
+            <translation id="6">
+              <isPrimary>true</isPrimary>
+              <formattedFirstName>Jane</formattedFirstName>
+              <formattedLastName>SMITH</formattedLastName>
+              <formattedFullName>SMITH, Jane</formattedFullName>
+            </translation>
+          </translations>
+        </name>
+      </names>
+      <features>
+        <feature id="6"><type featureTypeId="344">Digital Currency Address - XBT</type><versionId>6</versionId><value>bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h</value><isPrimary>true</isPrimary></feature>
+      </features>
+    </entity>
+    <entity id="500">
+      <generalInfo><identityId>5</identityId><entityType refId="600">Individual</entityType></generalInfo>
+      <sanctionsPrograms>
+        <sanctionsProgram refId="1" id="6">SDGT</sanctionsProgram>
+      </sanctionsPrograms>
+      <names>
+        <name id="6">
+          <isPrimary>true</isPrimary>
+          <translations>
+            <translation id="7">
+              <isPrimary>true</isPrimary>
+              <formattedFirstName>John Michael</formattedFirstName>
+              <formattedLastName>DOE</formattedLastName>
+              <formattedFullName>DOE, John Michael</formattedFullName>
+            </translation>
+          </translations>
+        </name>
+      </names>
+      <features>
+        <feature id="7"><type featureTypeId="344">Digital Currency Address - XBT</type><versionId>7</versionId><value>1opFYNKYG21CfzMYgCZBDoeBpQ9vhVUC9</value><isPrimary>true</isPrimary></feature>
+      </features>
+    </entity>
+  </entities>
+</sanctionsData>

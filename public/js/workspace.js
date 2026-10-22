@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, RP = HoplineReport, balanceOf = M.balanceOf;
+  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, OF = HoplineOfac, RP = HoplineReport, balanceOf = M.balanceOf;
   var ID = M.ID;
   var KNOWN_BASE = window.HOPLINE_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
@@ -2445,7 +2445,7 @@
     state.packs = state.packs.filter(function (p) { return p.id !== id; });
     rebuildKnown(); savePacks(); renderPacks(); refresh(); showInspector(true);
   }
-  function importPack(text, filename) {
+  function importPack(text, filename, note) {
     var r;
     try { r = LB.parse(text, String(filename || 'Imported labels').replace(/\.(csv|json|txt)$/i, '')); } catch (e) { toast('Import failed: ' + e.message, true); return; }
     var replaced = state.packs.filter(function (p) { return p.name === r.name; }).length;
@@ -2459,7 +2459,16 @@
     if (s.duplicate) left.push(s.duplicate + ' repeated');
     if (s.empty) left.push(s.empty + ' had no label');
     toast((replaced ? 'Replaced the pack "' + r.name + '": ' : 'Imported ') + fmtInt(r.entries.length) + ' labelled wallets' + (packMatches(pack) ? ', ' + packMatches(pack) + ' of them already in the workspace' : '') + '.'
-      + (left.length ? ' Left out: ' + left.join(', ') + '.' : '') + (r.truncated ? ' Stopped at ' + fmtInt(LB.MAX_ENTRIES) + ' entries.' : ''), !!left.length && !r.entries.length);
+      + (left.length ? ' Left out: ' + left.join(', ') + '.' : '') + (r.truncated ? ' Stopped at ' + fmtInt(LB.MAX_ENTRIES) + ' entries.' : '') + (note && note.text ? ' ' + note.text : ''), (!!left.length && !r.entries.length) || !!(note && note.warn));
+    if (note && note.text) log(note.text);
+  }
+  /** OFAC's SDN list (SDN_XML.ZIP or SDN.XML): read here, in the browser, into a pack, then imported like any other. */
+  function importOfac(f) {
+    toast('Reading the OFAC list…');
+    f.arrayBuffer().then(function (buf) { return OF.convertFile(buf); }).then(function (r) {
+      var i = r.info, txt = 'OFAC list dated ' + (i.date || 'unknown') + ': ' + fmtInt(r.pack.labels.length) + (r.pack.labels.length === 1 ? ' Bitcoin address' : ' Bitcoin addresses') + ' from ' + fmtInt(i.withAddress) + ' of its ' + fmtInt(i.entries) + ' entries.' + (i.warning ? ' Warning: ' + i.warning : '');
+      importPack(JSON.stringify(r.pack), r.pack.name, { text: txt, warn: !!i.warning });
+    }).catch(function (e) { toast('Import failed: ' + (e && e.message ? e.message : 'the file could not be read') + '', true); });
   }
   function exportOwnLabels(kind) {
     var entries = LB.fromGraph(state.graph);
@@ -3330,8 +3339,18 @@
     $('packFile').addEventListener('change', function () {
       var f = this.files && this.files[0]; this.value = '';
       if (!f) return;
+      if (/\.(xml|zip)$/i.test(f.name)) {
+        if (f.size > 200 * 1024 * 1024) { toast('That file is too large (limit 200 MB).', true); return; }
+        importOfac(f); return;
+      }
       if (f.size > 40 * 1024 * 1024) { toast('That file is too large (limit 40 MB).', true); return; }
-      var rd = new FileReader(); rd.onload = function () { importPack(String(rd.result), f.name); }; rd.onerror = function () { toast('Could not read the file.', true); }; rd.readAsText(f);
+      var rd = new FileReader();
+      rd.onload = function () {
+        var txt = String(rd.result);
+        if (OF.looksLikeSdnCsv(txt)) { toast('That looks like the OFAC file SDN.CSV, which cannot be used: it cuts long entries and loses addresses. Download SDN_XML.ZIP or SDN.XML from the OFAC SDN list page and choose that.', true); return; }
+        importPack(txt, f.name);
+      };
+      rd.onerror = function () { toast('Could not read the file.', true); }; rd.readAsText(f);
     });
     $('packExportCsv').addEventListener('click', function () { exportOwnLabels('csv'); });
     $('packExportJson').addEventListener('click', function () { exportOwnLabels('json'); });

@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from conftest import NORMAL, OUTSPENDS
+from conftest import NORMAL, OUTSPENDS, ROOT
 from helpers import idle, open_query, settle, toast_text
 
 BIG = max(range(len(NORMAL["vout"])), key=lambda i: NORMAL["vout"][i]["value"])
@@ -156,3 +156,111 @@ def test_exporting_with_nothing_labelled_says_so(fpage):
     open_packs(fpage)
     fpage.click("#packExportCsv")
     assert "Nothing to export" in toast_text(fpage)
+
+
+# ---- OFAC's SDN list, read directly in the page ----------------------------------------------------------------------------
+
+def sdn_xml(address, uid="24003", last="MESRI", first="Behzad"):
+    """A miniature SDN.XML in the real layout: one entry with a Bitcoin address, one without."""
+    return ('<?xml version="1.0" standalone="yes"?><sdnList xmlns="https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/XML">'
+            '<publshInformation><Publish_Date>10/21/2026</Publish_Date><Record_Count>2</Record_Count></publshInformation>'
+            '<sdnEntry><uid>%s</uid><firstName>%s</firstName><lastName>%s</lastName><sdnType>Individual</sdnType>'
+            '<programList><program>CYBER2</program><program>HRIT-IR</program></programList>'
+            '<idList><id><uid>1</uid><idType>Digital Currency Address - XBT</idType><idNumber>%s</idNumber></id></idList></sdnEntry>'
+            '<sdnEntry><uid>9</uid><lastName>OTHER</lastName><sdnType>Entity</sdnType></sdnEntry></sdnList>' % (uid, first, last, address))
+
+
+def zipped(name, data):
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(name, data)
+    return buf.getvalue()
+
+
+def load_file(page, name, data, mime):
+    open_packs(page)
+    page.set_input_files("#packFile", files=[{"name": name, "mimeType": mime, "buffer": data if isinstance(data, bytes) else data.encode("utf-8")}])
+    page.wait_for_function("() => /Imported|Replaced|Import failed|cannot be used/.test(document.getElementById('toast').textContent)")
+    settle(page)
+
+
+def test_the_ofac_zip_is_read_in_the_page_and_labels_the_wallets_it_names(fpage):
+    open_query(fpage, NORMAL["txid"])
+    load_file(fpage, "SDN_XML.ZIP", zipped("SDN.XML", sdn_xml(SMALL_ADDR)), "application/zip")
+    t = toast_text(fpage)
+    assert "Imported 1 labelled wallets, 1 of them already in the workspace" in t and "OFAC list dated 10/21/2026: 1 Bitcoin address from 1 of its 2 entries." in t, t
+    k = known(fpage, SMALL_ADDR)
+    assert k["label"] == "OFAC SDN: MESRI, Behzad" and k["pack"] == "OFAC SDN list (Bitcoin)" and k["category"] == "CYBER2, HRIT-IR"
+    assert "OFAC SDN: MESRI, Behzad" in drawn_texts(fpage), "drawn on the canvas like any known wallet"
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + SMALL_ADDR); settle(fpage)
+    insp = fpage.inner_text("#inspBody")
+    assert "known: OFAC SDN: MESRI, Behzad (OFAC SDN list (Bitcoin))" in insp and "CYBER2, HRIT-IR" in insp
+    assert fpage.get_attribute("#inspBody a:has-text('source')", "href") == "https://sanctionssearch.ofac.treas.gov/Details.aspx?id=24003", "links to the entry"
+    assert "OFAC SDN list (Bitcoin)" in fpage.inner_text("#packList") and "1 wallets" in fpage.inner_text("#packList")
+
+
+def test_the_unzipped_xml_works_too_and_importing_again_replaces_the_pack(fpage):
+    open_query(fpage, NORMAL["txid"])
+    load_file(fpage, "SDN.XML", sdn_xml(SMALL_ADDR), "text/xml")
+    assert "Imported 1 labelled wallets" in toast_text(fpage)
+    load_file(fpage, "SDN_XML.ZIP", zipped("SDN.XML", sdn_xml(SMALL_ADDR, uid="777", last="RENAMED", first="Ann")), "application/zip")
+    assert 'Replaced the pack "OFAC SDN list (Bitcoin)"' in toast_text(fpage)
+    assert known(fpage, SMALL_ADDR)["label"] == "OFAC SDN: RENAMED, Ann"
+    assert fpage.locator("#packList .packrow").count() == 1
+
+
+def test_the_ofac_pack_is_remembered_across_a_reload(fpage):
+    open_query(fpage, NORMAL["txid"])
+    load_file(fpage, "SDN_XML.ZIP", zipped("SDN.XML", sdn_xml(SMALL_ADDR)), "application/zip")
+    assert "OFAC SDN list (Bitcoin)" in fpage.evaluate("() => localStorage.getItem('hopline.packs.v1')"), "saved in this browser"
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    open_packs(fpage)
+    assert "OFAC SDN list (Bitcoin)" in fpage.inner_text("#packList") and "1 wallets" in fpage.inner_text("#packList")
+    assert known(fpage, SMALL_ADDR)["label"] == "OFAC SDN: MESRI, Behzad", "and it is active again: the name is known before anything is loaded"
+
+
+def test_the_ofac_csv_is_refused_because_it_loses_addresses(fpage):
+    csv_text = '36,"AEROCARIBBEAN AIRLINES",-0- ,"CUBA",-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- \n173,"ANGLO-CARIBBEAN CO., LTD.",-0- ,"CUBA",-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- \n'
+    load_file(fpage, "SDN.CSV", csv_text, "text/csv")
+    t = toast_text(fpage)
+    assert "SDN.CSV" in t and "cannot be used" in t and "SDN_XML.ZIP" in t, t
+    assert fpage.locator("#packList .packrow").count() == 0
+
+
+def test_a_broken_or_wrong_zip_is_refused_with_a_reason_and_imports_nothing(fpage):
+    load_file(fpage, "SDN_XML.ZIP", b"PK\x03\x04 this is not a zip file", "application/zip")
+    assert "Import failed" in toast_text(fpage) and "not a readable zip" in toast_text(fpage)
+    load_file(fpage, "other.xml", '<?xml version="1.0"?><Whatever xmlns="http://example.org"><DistinctParties/></Whatever>', "text/xml")
+    assert "Import failed" in toast_text(fpage) and "not an OFAC SDN list" in toast_text(fpage)
+    assert fpage.locator("#packList .packrow").count() == 0
+
+
+FX_OFAC = ROOT / "test" / "fixtures" / "ofac"
+BECH = "bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h"
+
+
+@pytest.mark.parametrize("layout", ["legacy", "enhanced", "advanced"])
+@pytest.mark.parametrize("zipped_up", [True, False])
+def test_every_ofac_layout_zipped_or_not_is_read_in_the_page(fpage, layout, zipped_up):
+    data = (FX_OFAC / ("sdn_" + layout + ".xml")).read_bytes()
+    if zipped_up:
+        load_file(fpage, "SDN_%s.ZIP" % layout.upper(), zipped("SDN_%s.XML" % layout.upper(), data), "application/zip")
+    else:
+        load_file(fpage, "SDN_%s.XML" % layout.upper(), data, "text/xml")
+    t = toast_text(fpage)
+    assert "Imported 3 labelled wallets" in t and "OFAC list dated 10/21/2026: 3 Bitcoin addresses from 3 of its 5 entries." in t and "Warning" not in t, t
+    clean = known(fpage, "1opFYNKYG21CfzMYgCZBDoeBpQ9vhVUC9")           # not on the built-in list: the OFAC name is the name
+    assert clean["label"] == "OFAC SDN: DOE, John Michael" and clean["category"] == "SDGT" and clean["pack"] == "OFAC SDN list (Bitcoin)"
+    # these two are also on the built-in list (Binance, FTX): the first name stays and the other claim is kept beside it
+    both = known(fpage, BECH)
+    assert both["label"] == "Binance Hot Wallet" and both["alt"] == ["OFAC SDN: EXAMPLE GROUP & SONS / SMITH, Jane (OFAC SDN list (Bitcoin))"]
+    assert known(fpage, "325gSHHe7UGvzEc9kGx43VqPboXUVwa26i")["alt"] == ["OFAC SDN: EXAMPLE GROUP & SONS (OFAC SDN list (Bitcoin))"]
+    assert "3 wallets" in fpage.inner_text("#packList")
+
+
+def test_a_list_the_page_could_not_read_completely_says_so_but_keeps_what_it_read(fpage):
+    text = (FX_OFAC / "sdn_enhanced.xml").read_text(encoding="utf-8").replace("<value>1opFYNKYG21CfzMYgCZBDoeBpQ9vhVUC9", "<value>")
+    load_file(fpage, "SDN_ENHANCED.XML", text, "text/xml")
+    t = toast_text(fpage)
+    assert "Imported 2 labelled wallets" in t and "Warning: The file mentions 4 Bitcoin address entries but only 3 could be read" in t, t

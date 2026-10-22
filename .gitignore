@@ -3,3 +3,8 @@ __pycache__/
 .pytest_cache/
 node_modules/
 test/e2e/shots/
+# downloaded OFAC lists and the packs made from them: data, not source
+/sdn_*.zip
+/SDN*.xml
+/SDN*.zip
+/ofac*.json

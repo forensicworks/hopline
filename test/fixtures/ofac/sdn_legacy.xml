@@ -1,0 +1,102 @@
+<?xml version="1.0" standalone="yes"?>
+<sdnList xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/XML">
+  <publshInformation>
+    <Publish_Date>10/21/2026</Publish_Date>
+    <Record_Count>5</Record_Count>
+  </publshInformation>
+  <sdnEntry>
+    <uid>100</uid>
+    <lastName>EXAMPLE GROUP &amp; SONS</lastName>
+    <sdnType>Entity</sdnType>
+    <programList>
+      <program>CYBER2</program>
+    </programList>
+    <idList>
+      <id>
+        <uid>9001</uid>
+        <idType>Digital Currency Address - XBT</idType>
+        <idNumber>bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h</idNumber>
+      </id>
+      <id>
+        <uid>9002</uid>
+        <idType>Digital Currency Address - XBT</idType>
+        <idNumber>325gSHHe7UGvzEc9kGx43VqPboXUVwa26i</idNumber>
+      </id>
+      <id>
+        <uid>9003</uid>
+        <idType>Digital Currency Address - ETH</idType>
+        <idNumber>0x742d35Cc6634C0532925a3b844Bc454e4438f44e</idNumber>
+      </id>
+      <id>
+        <uid>9004</uid>
+        <idType>Email Address</idType>
+        <idNumber>contact@example.org</idNumber>
+      </id>
+    </idList>
+    <akaList>
+      <aka>
+        <uid>5</uid>
+        <type>a.k.a.</type>
+        <category>strong</category>
+        <firstName>ALIAS</firstName>
+        <lastName>NOT THE NAME</lastName>
+      </aka>
+    </akaList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>200</uid>
+    <lastName>ETH ONLY LTD</lastName>
+    <sdnType>Entity</sdnType>
+    <programList>
+      <program>SDGT</program>
+    </programList>
+    <idList>
+      <id>
+        <uid>9010</uid>
+        <idType>Digital Currency Address - ETH</idType>
+        <idNumber>0x742d35Cc6634C0532925a3b844Bc454e4438f44e</idNumber>
+      </id>
+    </idList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>300</uid>
+    <lastName>NO ADDRESS INC</lastName>
+    <sdnType>Entity</sdnType>
+    <programList>
+      <program>IRAN</program>
+    </programList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>400</uid>
+    <firstName>Jane</firstName>
+    <lastName>SMITH</lastName>
+    <sdnType>Individual</sdnType>
+    <programList>
+      <program>DPRK3</program>
+      <program>CYBER2</program>
+    </programList>
+    <idList>
+      <id>
+        <uid>9020</uid>
+        <idType>Digital Currency Address - XBT</idType>
+        <idNumber>bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h</idNumber>
+      </id>
+    </idList>
+  </sdnEntry>
+  <sdnEntry>
+    <uid>500</uid>
+    <firstName>John Michael</firstName>
+    <lastName>DOE</lastName>
+    <sdnType>Individual</sdnType>
+    <programList>
+      <program>SDGT</program>
+    </programList>
+    <idList>
+      <id>
+        <uid>9030</uid>
+        <idType>Digital Currency Address - XBT</idType>
+        <idNumber>1opFYNKYG21CfzMYgCZBDoeBpQ9vhVUC9</idNumber>
+      </id>
+    </idList>
+  </sdnEntry>
+</sdnList>
