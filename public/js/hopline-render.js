@@ -425,19 +425,34 @@
       }
       if (d.edgeLabel && edgeTexts.length < 250) {
         var seg = Math.hypot(x2 - x1, y2 - y1);
-        if (seg > 70 && x1 > -200 && x1 < self.w + 200) edgeTexts.push({ e: e, mx: (x1 + x2) / 2, my: (y1 + y2) / 2, seg: seg, alpha: ctx.globalAlpha });
+        if (seg > 70 && x1 > -200 && x1 < self.w + 200) edgeTexts.push({ e: e, id: id, x1: x1, y1: y1, x2: x2, y2: y2, seg: seg, alpha: ctx.globalAlpha });
       }
     });
     ctx.globalAlpha = 1;
     if (edgeTexts.length) {                                              // amounts along the edges, only where the edge is long enough to carry the text
       ctx.font = '10.5px Calibri, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.lineJoin = 'round';
-      edgeTexts.forEach(function (t) {
-        var text = d.edgeLabel(t.e); if (!text) return;
-        if (ctx.measureText(text).width + 14 > t.seg) return;
-        ctx.globalAlpha = Math.min(1, t.alpha + 0.15);
-        ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(28,20,29,0.92)'; ctx.strokeText(text, t.mx, t.my - 5);
-        ctx.fillStyle = '#d8eef5'; ctx.fillText(text, t.mx, t.my - 5);
-      });
+      // Two amounts must never be drawn on top of each other (each has a dark outline, so the second would smear the first). The edge under the
+      // mouse or selected picks its place first, then the edges in focus, then the bigger amounts. An amount tries the middle of its edge, then
+      // slides along the edge (never past its ends) to a free spot; with none free it is left out (its details are on hover and in the panel).
+      var placed = [];
+      edgeTexts.map(function (t, i) { return { t: t, i: i, rank: (t.id === hotEdge || t.id === self.selectedEdge ? 2 : 0) + (t.alpha >= 0.9 ? 1 : 0) }; })
+        .sort(function (a, b) { return (b.rank - a.rank) || ((b.t.e.amount || 0) - (a.t.e.amount || 0)) || (a.i - b.i); })
+        .forEach(function (o) {
+          var t = o.t, text = d.edgeLabel(t.e); if (!text) return;
+          var tw = ctx.measureText(text).width, room = (t.seg - tw - 14) / 2;
+          if (room < 0) return;
+          var steps = [0, -0.5, 0.5, -1, 1];
+          for (var k = 0; k < steps.length; k++) {
+            var f = 0.5 + steps[k] * room / t.seg, px = t.x1 + (t.x2 - t.x1) * f, py = t.y1 + (t.y2 - t.y1) * f - 5;
+            var box = { x0: px - tw / 2 - 2, x1: px + tw / 2 + 2, y0: py - 11, y1: py + 3 };
+            if (placed.some(function (b) { return box.x0 < b.x1 && b.x0 < box.x1 && box.y0 < b.y1 && b.y0 < box.y1; })) continue;
+            placed.push(box);
+            ctx.globalAlpha = Math.min(1, t.alpha + 0.15);
+            ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(28,20,29,0.92)'; ctx.strokeText(text, px, py);
+            ctx.fillStyle = '#d8eef5'; ctx.fillText(text, px, py);
+            return;
+          }
+        });
       ctx.globalAlpha = 1;
     }
 
