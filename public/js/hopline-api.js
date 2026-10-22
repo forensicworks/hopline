@@ -1,13 +1,13 @@
 /*
- * Orion data source: an Esplora / mempool.space client with the behaviour a public API needs
+ * Hopline data source: an Esplora / mempool.space client with the behaviour a public API needs
  * (request queue, concurrency and spacing, timeout, retry with backoff, response cache, request cap),
  * plus the expansion operations that turn responses into graph vertices.
  *
  * `fetch` is injected so tests run without a network.
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./orion-model.js'), require('./orion-address.js'));
-  else root.OrionApi = factory(root.OrionModel, root.OrionAddress);
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./hopline-model.js'), require('./hopline-address.js'));
+  else root.HoplineApi = factory(root.HoplineModel, root.HoplineAddress);
 }(typeof self !== 'undefined' ? self : this, function (Model, Addr) {
   'use strict';
 
@@ -219,7 +219,7 @@
   };
   /** Today's prices in every supported currency (mempool.space API). */
   Client.prototype.prices = function () { return this.get('/v1/prices'); };
-  /** The whole price history for a currency: one request, ~25,000 points (see orion-price.js). */
+  /** The whole price history for a currency: one request, ~25,000 points (see hopline-price.js). */
   Client.prototype.historicalPrices = function (currency) { return this.get('/v1/historical-price?currency=' + encodeURIComponent(currency)); };
   Client.prototype.tipHeight = function () { return this.get('/blocks/tip/height', true).then(Number); };
 

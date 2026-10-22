@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Check an Orion investigation report: was it changed after it was made?
+"""Check a Hopline investigation report: was it changed after it was made?
 
     python tools/verify_report.py report.html
     python tools/verify_report.py report.html --extract evidence.json
 
-An Orion report embeds its evidence (every vertex and movement it describes, where and when each transaction was fetched,
+A Hopline report embeds its evidence (every vertex and movement it describes, where and when each transaction was fetched,
 the settings used) as a JSON block and states two SHA-256 hashes: one of that block's text, one of the whole file (with the
 document hash itself written as 64 zeros). This script recomputes both, checks that the JSON reads, that its counts add up,
 and that every transaction listed in the readable part of the report is in the evidence. Exit status 0 = nothing wrong
 found, 1 = a problem. A change to a single word of the readable part, or re-saving the file with other line endings,
 changes the document hash.
 
-It proves the file matches what Orion wrote, not that Orion's data source told the truth: for that, compare against the
+It proves the file matches what Hopline wrote, not that Hopline's data source told the truth: for that, compare against the
 blockchain yourself (the report names the source and the time each transaction was fetched).
 """
 import argparse
@@ -20,7 +20,7 @@ import json
 import re
 import sys
 
-BLOCK = re.compile(r'<script type="application/json" id="orion-evidence">(.*?)</script>', re.S)
+BLOCK = re.compile(r'<script type="application/json" id="(?:hopline|orion)-evidence">(.*?)</script>', re.S)   # "orion": reports made before the rename
 STATED = re.compile(r'<p class="hash" id="evidence-hash">([0-9a-f]{64})</p>')
 DOC = re.compile(r'(<p class="hash" id="document-hash">)([0-9a-f]{64})(</p>)')
 TX_ANCHOR = re.compile(r'<section class="tx" id="tx-([0-9a-f]{64})">')
@@ -76,7 +76,7 @@ def verify(html):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("report", help="the report (.html)")
-    ap.add_argument("--extract", metavar="FILE", help="also write the embedded evidence to FILE (a workspace file Orion can import)")
+    ap.add_argument("--extract", metavar="FILE", help="also write the embedded evidence to FILE (a workspace file Hopline can import)")
     a = ap.parse_args(argv)
     with open(a.report, encoding="utf-8", newline="") as f:
         html = f.read()

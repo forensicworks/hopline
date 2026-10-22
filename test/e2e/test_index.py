@@ -36,7 +36,7 @@ def test_an_address_opens_as_a_wallet_overview(ipage):
 def test_a_transaction_id_opens_in_the_workspace(ipage):
     go(ipage, "  " + TXID.upper() + "  ")
     ipage.wait_for_url("**/public/workspace.html?q=" + TXID)
-    ipage.wait_for_function("() => window.__orion && window.__orion.state.graph.nodes.size > 0")
+    ipage.wait_for_function("() => window.__hopline && window.__hopline.state.graph.nodes.size > 0")
 
 
 def test_links_and_bitcoin_uris_are_understood(ipage):

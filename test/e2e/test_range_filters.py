@@ -19,7 +19,7 @@ def t_of(n):
 
 
 def set_window(page, frm=None, to=None):
-    page.evaluate("([a, b]) => { const s = window.__orion.state; s.filter.timeFrom = a; s.filter.timeTo = b; window.__orion.refresh(); }", [frm, to])
+    page.evaluate("([a, b]) => { const s = window.__hopline.state; s.filter.timeFrom = a; s.filter.timeTo = b; window.__hopline.refresh(); }", [frm, to])
     settle(page)
 
 
@@ -60,7 +60,7 @@ def test_the_arrow_list_holds_only_what_is_inside_the_range_and_says_so(fpage, m
 
 def test_a_plain_click_in_the_few_at_a_time_mode_takes_the_largest_inside_the_range(fpage, mock):
     start_wallet_trace(fpage, mock)
-    fpage.evaluate("() => { window.__orion.state.stepMode = 'batch'; }")
+    fpage.evaluate("() => { window.__hopline.state.stepMode = 'batch'; }")
     set_window(fpage, t_of(104))                                              # 104..108: five, all of them in range
     click_handle(fpage, W_ID, "right"); idle(fpage); settle(fpage)
     got = {i for i in shown(fpage) if i.startswith("tx:")}
@@ -84,8 +84,8 @@ def test_the_setting_switches_it_off(fpage, mock):
     fpage.evaluate("() => [...document.querySelectorAll('details')].find(d => d.querySelector('summary').textContent.trim() === 'Expansion limits').open = true")
     fpage.uncheck("#arrowsInRange")
     assert handle(fpage, W_ID, "right")["label"] == "9", "counted as if the range were not there"
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
-    assert fpage.evaluate("() => window.__orion.state.arrowsInRange") is False, "remembered"
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    assert fpage.evaluate("() => window.__hopline.state.arrowsInRange") is False, "remembered"
 
 
 def test_dragging_the_real_slider_narrows_the_arrows_too(fpage, mock):
@@ -99,10 +99,10 @@ def test_dragging_the_real_slider_narrows_the_arrows_too(fpage, mock):
 def test_the_hover_summary_counts_only_what_is_inside_the_range(fpage, mock):
     start_wallet_trace(fpage, mock)
     set_window(fpage, t_of(106))                                              # 106, 107, 108: three, each 70000 sats spent from the wallet
-    p = fpage.evaluate("""([id]) => { const r = window.__orion.renderer, h = r.handleRects.find(x => x.id === id && x.dir === 'right');
+    p = fpage.evaluate("""([id]) => { const r = window.__hopline.renderer, h = r.handleRects.find(x => x.id === id && x.dir === 'right');
         const b = r.canvas.getBoundingClientRect(); return { x: b.left + h.x + h.w / 2, y: b.top + h.y + h.h / 2 }; }""", [W_ID])
     fpage.mouse.move(p["x"], p["y"])
-    tip = fpage.evaluate("() => window.__orion.renderer.canvas.title")
+    tip = fpage.evaluate("() => window.__hopline.renderer.canvas.title")
     assert "3 transactions" in tip and "0.00210000 BTC in total" in tip, tip
 
 
@@ -159,8 +159,8 @@ def test_a_wallet_you_labelled_is_not_a_service_to_skip_but_counts_as_known(fpag
     t = twelve_outputs(mock)
     open_query(fpage, tid(150))
     pack(fpage, "address,label\n%s,Exchange A\n" % KNOWN_OUT[2])
-    fpage.evaluate("(id) => { window.__orion.state.graph.nodes.get(id).label = 'Suspect 1'; }", "addr:" + KNOWN_OUT[2])      # you labelled the same wallet
-    fpage.evaluate("(id) => { window.__orion.state.graph.nodes.get(id).label = 'Suspect 2'; }", "addr:" + KNOWN_OUT[7])
+    fpage.evaluate("(id) => { window.__hopline.state.graph.nodes.get(id).label = 'Suspect 1'; }", "addr:" + KNOWN_OUT[2])      # you labelled the same wallet
+    fpage.evaluate("(id) => { window.__hopline.state.graph.nodes.get(id).label = 'Suspect 2'; }", "addr:" + KNOWN_OUT[7])
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     click_handle(fpage, t, "right"); idle(fpage)
     fpage.select_option("#ctxMenu .choosertools select >> nth=1", "skip")
@@ -173,7 +173,7 @@ def test_known_or_labelled_first_is_an_order(fpage, mock):
     t = twelve_outputs(mock)
     open_query(fpage, tid(150))
     pack(fpage, "address,label\n%s,Exchange A\n" % KNOWN_OUT[8])
-    fpage.evaluate("(id) => { window.__orion.state.graph.nodes.get(id).label = 'Suspect'; }", "addr:" + KNOWN_OUT[10])
+    fpage.evaluate("(id) => { window.__hopline.state.graph.nodes.get(id).label = 'Suspect'; }", "addr:" + KNOWN_OUT[10])
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     click_handle(fpage, t, "right"); idle(fpage)
     fpage.select_option("#ctxMenu .choosertools select >> nth=0", "known")
@@ -182,8 +182,8 @@ def test_known_or_labelled_first_is_an_order(fpage, mock):
     assert "Exchange A" in firsts[1], "then the known one"
     assert fpage.input_value("#ctxMenu .choosertools select >> nth=0") == "known"
     fpage.keyboard.press("Escape")
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
-    assert fpage.evaluate("() => window.__orion.state.chooseSort") == "known", "the order is remembered like the others"
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    assert fpage.evaluate("() => window.__hopline.state.chooseSort") == "known", "the order is remembered like the others"
 
 
 def test_unspent_only_keeps_the_outputs_not_spent_yet(fpage, mock):
@@ -214,9 +214,9 @@ def test_the_wallets_that_paid_this_one_can_be_narrowed_to_those_still_unspent(f
                                                  "mempool_stats": {"funded_txo_count": 0, "funded_txo_sum": 0, "spent_txo_count": 0, "spent_txo_sum": 0, "tx_count": 0}}
     mock.routes["/address/" + real_addr(500) + "/txs"] = [mock.routes["/tx/" + tid(300 + i)] for i in range(8)]
     open_query(fpage, real_addr(500))
-    assert fpage.evaluate("() => window.__orion.state.graph.nodes.size") > 8
+    assert fpage.evaluate("() => window.__hopline.state.graph.nodes.size") > 8
     for i in range(8):                                                                     # an address history does not say what became of each payment: load that, as expanding a transaction would
-        fpage.evaluate("([id, o]) => { window.__orion.state.graph.addOutspends(id, o); }", [tid(300 + i), mock.routes["/tx/" + tid(300 + i) + "/outspends"]])
+        fpage.evaluate("([id, o]) => { window.__hopline.state.graph.addOutspends(id, o); }", [tid(300 + i), mock.routes["/tx/" + tid(300 + i) + "/outspends"]])
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     click_handle(fpage, "addr:" + real_addr(500), "left"); idle(fpage)
     assert listed(fpage) == 8

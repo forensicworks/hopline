@@ -1,5 +1,5 @@
 /*
- * Orion import / export. Pure string in, string out (no DOM, no downloads), so it is testable under node.
+ * Hopline import / export. Pure string in, string out (no DOM, no downloads), so it is testable under node.
  *
  *   JSON     the full workspace: graph, labels, notes and view settings. The only format that imports back.
  *   CSV      nodes and edges as two tables, for spreadsheets and for Gephi / Maltego table import.
@@ -9,12 +9,13 @@
  * CSV cells are defused against spreadsheet formula injection and XML is escaped.
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./orion-model.js'), require('./orion-style.js'), require('./orion-address.js'), require('./orion-tags.js'), require('./orion-external.js'));
-  else root.OrionIO = factory(root.OrionModel, root.OrionStyle, root.OrionAddress, root.OrionTags, root.OrionExternal);
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./hopline-model.js'), require('./hopline-style.js'), require('./hopline-address.js'), require('./hopline-tags.js'), require('./hopline-external.js'));
+  else root.HoplineIO = factory(root.HoplineModel, root.HoplineStyle, root.HoplineAddress, root.HoplineTags, root.HoplineExternal);
 }(typeof self !== 'undefined' ? self : this, function (Model, Style, Addr, Tags, Ext) {
   'use strict';
 
-  var FORMAT = 'orion-workspace', VERSION = 1;
+  var FORMAT = 'hopline-workspace', VERSION = 1;
+  var OLD_FORMATS = ['orion-workspace'];            // files and saved sessions made when the project was still called Orion
   var NODE_TYPES = { tx: 1, addr: 1, coinbase: 1, data: 1, nonstd: 1 };
   var EDGE_KINDS = { 'in': 1, out: 1 };
   var MAX_NODES = 200000, MAX_EDGES = 400000, MAX_TEXT = 20000;
@@ -70,12 +71,14 @@
     if ('bip69' in c && typeof c.bip69 !== 'boolean') delete c.bip69;
   }
 
+  function isFormat(f) { return f === FORMAT || OLD_FORMATS.indexOf(f) >= 0; }
+
   /** Returns { graph, view, positions, warnings } or throws Error with a user-readable message. */
   function fromJson(text) {
     var d;
     try { d = JSON.parse(text); } catch (e) { throw new Error('Not a JSON file.'); }
-    if (!d || typeof d !== 'object' || d.format !== FORMAT) throw new Error('Not an Orion workspace file (missing format "' + FORMAT + '").');
-    if (typeof d.version !== 'number' || d.version > VERSION) throw new Error('This file was written by a newer Orion (version ' + d.version + ').');
+    if (!d || typeof d !== 'object' || !isFormat(d.format)) throw new Error('Not a Hopline workspace file (missing format "' + FORMAT + '").');
+    if (typeof d.version !== 'number' || d.version > VERSION) throw new Error('This file was written by a newer Hopline (version ' + d.version + ').');
     if (!Array.isArray(d.nodes) || !Array.isArray(d.edges)) throw new Error('The file has no nodes/edges lists.');
     if (d.nodes.length > MAX_NODES || d.edges.length > MAX_EDGES) throw new Error('The file is too large to open (limit ' + MAX_NODES + ' nodes / ' + MAX_EDGES + ' edges).');
 
@@ -201,7 +204,7 @@
     out.push('<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">');
     G_NODE.forEach(function (k) { out.push('  <key id="n_' + k[0] + '" for="node" attr.name="' + k[0] + '" attr.type="' + k[1] + '"/>'); });
     G_EDGE.forEach(function (k) { out.push('  <key id="e_' + k[0] + '" for="edge" attr.name="' + k[0] + '" attr.type="' + k[1] + '"/>'); });
-    out.push('  <graph id="orion" edgedefault="directed">');
+    out.push('  <graph id="hopline" edgedefault="directed">');
     function data(prefix, name, v) { if (v !== null && v !== undefined && v !== '') out.push('      <data key="' + prefix + name + '">' + xml(v) + '</data>'); }
     p.nodes.forEach(function (n) {
       out.push('    <node id="' + xml(n.id) + '">');
@@ -230,6 +233,6 @@
     return out.join('\n');
   }
 
-  return { FORMAT: FORMAT, VERSION: VERSION, toJson: toJson, fromJson: fromJson, toCsv: toCsv, toGraphMl: toGraphMl,
+  return { FORMAT: FORMAT, VERSION: VERSION, isFormat: isFormat, toJson: toJson, fromJson: fromJson, toCsv: toCsv, toGraphMl: toGraphMl,
            defuse: defuse, xml: xml, NODE_COLS: NODE_COLS, EDGE_COLS: EDGE_COLS };
 }));

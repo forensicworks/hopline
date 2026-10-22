@@ -52,7 +52,7 @@ def test_the_summary_is_the_addresses_own_totals_and_what_is_loaded(wpage):
     assert "8 on chain" in text_of(wpage, "#sCount") and "8 loaded (all)" in text_of(wpage, "#sCount")
     assert text_of(wpage, "#sPending") == "none"
     assert "2021-03-22" in text_of(wpage, "#sFirst") and "2022-08-10" in text_of(wpage, "#sLast")
-    assert wpage.title().startswith("Orion Wallet")
+    assert wpage.title().startswith("Hopline Wallet")
 
 
 def test_every_transaction_is_a_card_with_inputs_on_the_left_and_outputs_on_the_right(wpage):
@@ -115,7 +115,7 @@ def test_labelled_wallets_are_listed_as_associations_and_marked_on_the_cards(wpa
 def test_label_lists_saved_by_the_workspace_are_used_and_a_hostile_name_stays_text(ctx, wpage):
     packs = [["p1", "Case list", True, [[PAYER, "Suspect <img src=x onerror=window.__pwned=1>", "THREAT", "https://example.org/x", "note"]]]]
     stored = json.dumps([{"id": p[0], "name": p[1], "enabled": p[2], "entries": p[3]} for p in packs])
-    ctx.add_init_script("localStorage.setItem('orion.packs.v1', %s);" % json.dumps(stored))
+    ctx.add_init_script("localStorage.setItem('hopline.packs.v1', %s);" % json.dumps(stored))
     goto(wpage)
     assert wpage.locator("#assoc .assocrow").filter(has_text="Suspect").count() == 1
     assert "<img src=x" in wpage.inner_text("#assoc") and wpage.locator("#assoc img, #ledger img").count() == 0
@@ -125,7 +125,7 @@ def test_label_lists_saved_by_the_workspace_are_used_and_a_hostile_name_stays_te
 
 def test_a_switched_off_pack_adds_nothing(ctx, wpage):
     stored = json.dumps([{"id": "p1", "name": "Off", "enabled": False, "entries": [[PAYER, "Hidden name"]]}])
-    ctx.add_init_script("localStorage.setItem('orion.packs.v1', %s);" % json.dumps(stored))
+    ctx.add_init_script("localStorage.setItem('hopline.packs.v1', %s);" % json.dumps(stored))
     goto(wpage)
     assert "Hidden name" not in wpage.inner_text("body")
 
@@ -261,7 +261,7 @@ def test_when_mempool_space_throttles_blockstream_answers_and_the_page_says_wher
 
 
 def test_the_server_choice_saved_by_the_workspace_is_followed(ctx, wpage, mock):
-    ctx.add_init_script("localStorage.setItem('orion.prefs.v1', JSON.stringify({ source: 'blockstream', fallback: false }));")
+    ctx.add_init_script("localStorage.setItem('hopline.prefs.v1', JSON.stringify({ source: 'blockstream', fallback: false }));")
     goto(wpage)
     assert {h for h, p in mock.requests if p.startswith("/address/")} == {BLOCKSTREAM}, "only the server that was chosen, no backup"
     assert "blockstream.info" in wpage.inner_text("#source") and "backup" not in wpage.inner_text("#source")
@@ -308,7 +308,7 @@ def site():
 
 def old_copy(page, name):
     """What a browser that kept an old copy of a script would run: the script, without what the newer page expects from it."""
-    glob = {"orion-labels.js": "OrionLabels", "orion-api.js": "OrionApi"}[name]
+    glob = {"hopline-labels.js": "HoplineLabels", "hopline-api.js": "HoplineApi"}[name]
     page.route("**/js/" + name, lambda r: r.fulfill(status=200, content_type="text/javascript", body="window." + glob + " = {};"))
 
 
@@ -318,7 +318,7 @@ def test_the_pages_work_over_http_too_with_the_real_file_types(site, wpage):
 
 
 def test_an_old_copy_of_a_script_gives_a_message_about_reloading_not_a_blank_page(site, wpage, errors):
-    old_copy(wpage, "orion-labels.js")
+    old_copy(wpage, "hopline-labels.js")
     wpage.goto(site + "/public/wallet.html?q=" + ADDRESS)
     wpage.wait_for_selector("#bootError")
     t = wpage.inner_text("#bootError")
@@ -328,7 +328,7 @@ def test_an_old_copy_of_a_script_gives_a_message_about_reloading_not_a_blank_pag
 
 
 def test_the_workspace_says_the_same_when_one_of_its_scripts_is_an_old_copy(site, wpage, errors):
-    old_copy(wpage, "orion-api.js")
+    old_copy(wpage, "hopline-api.js")
     wpage.goto(site + "/public/workspace.html")
     wpage.wait_for_selector("#bootError")
     assert "could not start" in wpage.inner_text("#bootError") and "Ctrl+F5" in wpage.inner_text("#bootError")
@@ -345,8 +345,8 @@ def test_the_banner_stays_away_once_the_page_has_started(wpage, errors):
 
 
 def test_a_failure_while_drawing_is_shown_with_a_way_to_try_again(site, wpage, errors):
-    src = (ROOT / "public" / "js" / "orion-wallet.js").read_text(encoding="utf-8")
-    wpage.route("**/js/orion-wallet.js", lambda r: r.fulfill(status=200, content_type="text/javascript", body=src + ";OrionWallet.ledger = function () { throw new Error('boom'); };"))
+    src = (ROOT / "public" / "js" / "hopline-wallet.js").read_text(encoding="utf-8")
+    wpage.route("**/js/hopline-wallet.js", lambda r: r.fulfill(status=200, content_type="text/javascript", body=src + ";HoplineWallet.ledger = function () { throw new Error('boom'); };"))
     wpage.goto(site + "/public/wallet.html?q=" + ADDRESS)
     wpage.wait_for_function("() => /could not be shown/.test(document.getElementById('message').textContent)")
     assert "The data arrived but could not be shown: boom" in wpage.inner_text("#message")
@@ -355,7 +355,7 @@ def test_a_failure_while_drawing_is_shown_with_a_way_to_try_again(site, wpage, e
 
 
 def test_a_server_that_does_not_answer_gets_a_note_after_a_while(ctx, wpage):
-    ctx.add_init_script("window.ORION_WAIT_MS = 300;")
+    ctx.add_init_script("window.HOPLINE_WAIT_MS = 300;")
     wpage.route("https://mempool.space/**", lambda route: None)               # never answers
     wpage.route("https://blockstream.info/**", lambda route: None)
     wpage.goto(WALLET_URL + "?q=" + ADDRESS)

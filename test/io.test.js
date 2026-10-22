@@ -4,9 +4,9 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { Graph, ID } = require('../public/js/orion-model.js');
-const F = require('../public/js/orion-filter.js');
-const IO = require('../public/js/orion-io.js');
+const { Graph, ID } = require('../public/js/hopline-model.js');
+const F = require('../public/js/hopline-filter.js');
+const IO = require('../public/js/hopline-io.js');
 
 const fx = (n) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8'));
 
@@ -59,14 +59,22 @@ test('JSON export can be limited to what is visible', () => {
 
 test('JSON import rejects things that are not workspaces, with a readable message', () => {
   assert.throws(() => IO.fromJson('not json'), /Not a JSON file/);
-  assert.throws(() => IO.fromJson('{"a":1}'), /Not an Orion workspace/);
-  assert.throws(() => IO.fromJson('null'), /Not an Orion workspace/);
-  assert.throws(() => IO.fromJson(JSON.stringify({ format: 'orion-workspace', version: 99, nodes: [], edges: [] })), /newer Orion/);
-  assert.throws(() => IO.fromJson(JSON.stringify({ format: 'orion-workspace', version: 1 })), /no nodes/);
+  assert.throws(() => IO.fromJson('{"a":1}'), /Not a Hopline workspace/);
+  assert.throws(() => IO.fromJson('null'), /Not a Hopline workspace/);
+  assert.throws(() => IO.fromJson(JSON.stringify({ format: 'hopline-workspace', version: 99, nodes: [], edges: [] })), /newer Hopline/);
+  assert.throws(() => IO.fromJson(JSON.stringify({ format: 'hopline-workspace', version: 1 })), /no nodes/);
+});
+
+test('JSON import still opens files and sessions written when the project was called Orion', () => {
+  assert.ok(IO.isFormat('hopline-workspace') && IO.isFormat('orion-workspace') && !IO.isFormat('orion-labels') && !IO.isFormat(undefined));
+  const doc = { format: 'orion-workspace', version: 1, nodes: [{ id: 'addr:x', type: 'addr', address: 'x', label: 'old file' }], edges: [] };
+  const back = IO.fromJson(JSON.stringify(doc));
+  assert.equal(back.graph.nodes.get('addr:x').label, 'old file');
+  assert.equal(JSON.parse(IO.toJson(back.graph, {})).format, 'hopline-workspace', 'what is written now carries the new name');
 });
 
 test('JSON import skips invalid nodes/edges and reports them', () => {
-  const doc = { format: 'orion-workspace', version: 1,
+  const doc = { format: 'hopline-workspace', version: 1,
     nodes: [{ id: 'a', type: 'addr' }, { id: 'b', type: 'tx' }, { id: 'c', type: 'bogus' }, { type: 'tx' }, null],
     edges: [{ id: 'e1', source: 'a', target: 'b', kind: 'in', amount: 5 }, { id: 'e2', source: 'a', target: 'zzz', kind: 'in', amount: 5 },
             { id: 'e3', source: 'a', target: 'b', kind: 'sideways', amount: 1 }, { id: 'e4', source: 'a', target: 'b', kind: 'in', amount: 'lots' }] };
@@ -77,7 +85,7 @@ test('JSON import skips invalid nodes/edges and reports them', () => {
 });
 
 test('JSON import ignores prototype-polluting keys and does not pollute Object', () => {
-  const evil = '{"format":"orion-workspace","version":1,"nodes":[{"id":"a","type":"addr","__proto__":{"polluted":true},"constructor":{"x":1}}],"edges":[],"view":{"__proto__":{"polluted2":true}}}';
+  const evil = '{"format":"hopline-workspace","version":1,"nodes":[{"id":"a","type":"addr","__proto__":{"polluted":true},"constructor":{"x":1}}],"edges":[],"view":{"__proto__":{"polluted2":true}}}';
   const r = IO.fromJson(evil);
   assert.equal({}.polluted, undefined);
   assert.equal({}.polluted2, undefined);
@@ -86,7 +94,7 @@ test('JSON import ignores prototype-polluting keys and does not pollute Object',
 });
 
 test('JSON import refuses oversized files', () => {
-  const big = { format: 'orion-workspace', version: 1, nodes: new Array(200001).fill({ id: 'x', type: 'tx' }), edges: [] };
+  const big = { format: 'hopline-workspace', version: 1, nodes: new Array(200001).fill({ id: 'x', type: 'tx' }), edges: [] };
   assert.throws(() => IO.fromJson(JSON.stringify(big)), /too large/);
 });
 
@@ -165,7 +173,7 @@ test('export of the visible subset applies to CSV and GraphML too', () => {
 
 test('import canonicalises address case: one vertex per address however the file spelled it, edges and focus follow', () => {
   const lower = 'bc1qdg78fm9gjwwywsh3545qp4us4rpyrclm9v8udq';
-  const doc = { format: 'orion-workspace', version: 1, view: { focus: 'addr:' + lower.toUpperCase() },
+  const doc = { format: 'hopline-workspace', version: 1, view: { focus: 'addr:' + lower.toUpperCase() },
     nodes: [{ id: 'addr:' + lower.toUpperCase(), type: 'addr', address: lower.toUpperCase(), label: 'x' },
             { id: 'addr:' + lower, type: 'addr', address: lower, note: 'n' },
             { id: 'addr:1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2', type: 'addr', address: '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2' },
@@ -204,7 +212,7 @@ test('CSV and GraphML carry fiat columns when a converter is given, and leave th
 test('tags, colours, shapes and lookup results survive export and import', () => {
   const { g, t } = sample();
   const id = ID.addr(t.vout[0].scriptpubkey_address);
-  const T = require('../public/js/orion-tags.js'), X = require('../public/js/orion-external.js');
+  const T = require('../public/js/hopline-tags.js'), X = require('../public/js/hopline-external.js');
   T.apply(g.node(id), { tag: 'EXCH' }); T.apply(g.node(id), { color: '#123abc' });
   g.node(id).ext = { arkham: X.toExt({ arkhamEntity: { name: 'Binance', type: 'cex' }, arkhamLabel: { name: 'Hot Wallet' } }, 1700000000) };
   const back = IO.fromJson(IO.toJson(g)).graph.node(id);
@@ -218,7 +226,7 @@ test('tags, colours, shapes and lookup results survive export and import', () =>
 });
 
 test('import refuses hostile tag, colour, shape and lookup data', () => {
-  const doc = { format: 'orion-workspace', version: 1, nodes: [
+  const doc = { format: 'hopline-workspace', version: 1, nodes: [
     { id: 'addr:x', type: 'addr', address: 'x', tag: '<script>alert(1)</script>', color: 'url(javascript:1)', shape: 'blob',
       ext: { arkham: { name: '<img src=x onerror=1>', tags: 'nope', suggest: 'HACK', evil: 1 }, other: { a: 1 } } },
     { id: 'addr:y', type: 'addr', address: 'y', tag: 'exch', color: '#ABCDEF', shape: 'star', ext: 'junk' }], edges: [] };

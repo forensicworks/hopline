@@ -27,7 +27,7 @@ def stats(mock, addr, funded, spent, mem_in=0, mem_out=0, n=3):
 
 
 def select(page, *addrs):
-    page.evaluate("(ids) => window.__orion.setSel(ids)", ["addr:" + a for a in addrs]); settle(page)
+    page.evaluate("(ids) => window.__hopline.setSel(ids)", ["addr:" + a for a in addrs]); settle(page)
 
 
 def insp(page):
@@ -54,7 +54,7 @@ def test_a_wallet_whose_balance_is_unknown_says_so_and_one_click_reads_it_withou
     got = [p for _, p in mock.requests[n:]]
     assert got == ["/address/" + SMALL_ADDR], "one request, and no history"
     assert "0.00050000 BTC" in insp(fpage) and "not loaded yet" not in insp(fpage)
-    assert fpage.evaluate("(a) => window.__orion.state.graph.nodes.get('addr:' + a).txCount", SMALL_ADDR) == 3
+    assert fpage.evaluate("(a) => window.__hopline.state.graph.nodes.get('addr:' + a).txCount", SMALL_ADDR) == 3
 
 
 def test_unconfirmed_money_is_shown_apart_from_the_balance(fpage, mock):
@@ -65,9 +65,9 @@ def test_unconfirmed_money_is_shown_apart_from_the_balance(fpage, mock):
     t = insp(fpage)
     assert "0.00050000 BTC" in t and "+0.00030000 BTC (not in the balance above)" in t
     stats(mock, SMALL_ADDR, 200000, 150000, mem_in=0, mem_out=20000)
-    fpage.evaluate("() => window.__orion.state.client.cache.clear()")
-    fpage.evaluate("(a) => window.__orion.state.explorer.loadBalances([a], 10).then(() => window.__orion.refresh())", SMALL_ADDR); idle(fpage)
-    fpage.evaluate("() => window.__orion.setSel(['addr:' + %s])" % json.dumps(SMALL_ADDR)); settle(fpage)
+    fpage.evaluate("() => window.__hopline.state.client.cache.clear()")
+    fpage.evaluate("(a) => window.__hopline.state.explorer.loadBalances([a], 10).then(() => window.__hopline.refresh())", SMALL_ADDR); idle(fpage)
+    fpage.evaluate("() => window.__hopline.setSel(['addr:' + %s])" % json.dumps(SMALL_ADDR)); settle(fpage)
     assert "-0.00020000 BTC (not in the balance above)" in insp(fpage)
 
 
@@ -129,8 +129,8 @@ def test_balances_are_in_the_exports_the_session_and_the_report(fpage, mock, tmp
     html = export("report", "r.html").read_text(encoding="utf-8")
     assert "<th>Balance</th>" in html and "0.00050000 BTC" in html and "not read" in html and "as of 20" in html
     fpage.wait_for_timeout(1100)
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
-    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); settle(fpage)
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); settle(fpage)
     select(fpage, SMALL_ADDR)
     assert "0.00050000 BTC" in insp(fpage) and "not loaded yet" not in insp(fpage), "kept with the session"
 
@@ -140,13 +140,13 @@ def test_hostile_balance_values_in_an_imported_file_are_dropped(fpage, mock):
     stats(mock, SMALL_ADDR, 200000, 150000)
     select(fpage, SMALL_ADDR)
     fpage.click("#inspBody button:has-text('Load balance')"); idle(fpage); settle(fpage)
-    doc = json.loads(fpage.evaluate("() => OrionIO.toJson(window.__orion.state.graph)"))
+    doc = json.loads(fpage.evaluate("() => HoplineIO.toJson(window.__hopline.state.graph)"))
     node = next(n for n in doc["nodes"] if n["id"] == "addr:" + SMALL_ADDR)
     node.update({"fundedSum": -5, "spentSum": 1.5, "mempoolFundedSum": 10 ** 20, "statsAt": "now", "statsSource": "javascript:alert(1)"})
     fpage.click("#btnClear"); fpage.click("#btnClear"); settle(fpage)
     fpage.evaluate("(text) => { const f = new File([text], 'w.json'); const dt = new DataTransfer(); dt.items.add(f); const i = document.getElementById('fileImport'); i.files = dt.files; i.dispatchEvent(new Event('change')); }", json.dumps(doc))
-    fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); settle(fpage)
-    n = fpage.evaluate("(a) => window.__orion.state.graph.nodes.get('addr:' + a)", SMALL_ADDR)
+    fpage.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); settle(fpage)
+    n = fpage.evaluate("(a) => window.__hopline.state.graph.nodes.get('addr:' + a)", SMALL_ADDR)
     assert all(k not in n for k in ("fundedSum", "spentSum", "mempoolFundedSum", "statsAt", "statsSource"))
     select(fpage, SMALL_ADDR)
     assert "not loaded yet" in insp(fpage)

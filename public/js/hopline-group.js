@@ -1,5 +1,5 @@
 /*
- * Orion grouping: collapse many similar rows of a list into one line, so a busy wallet does not bury the investigator.
+ * Hopline grouping: collapse many similar rows of a list into one line, so a busy wallet does not bury the investigator.
  * Pure functions over plain rows, no DOM, no network, nothing about the graph itself: a group is only a way of showing a list,
  * and every member stays individually reachable (nothing is hidden or dropped).
  *
@@ -11,7 +11,7 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.OrionGroup = factory();
+  else root.HoplineGroup = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 

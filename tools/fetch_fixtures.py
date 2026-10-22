@@ -18,7 +18,7 @@ def main():
 
     def get(path):
         time.sleep(0.6)                                    # be polite to a public API
-        req = urllib.request.Request(base + path, headers={"User-Agent": "orion-fixtures/1.0"})
+        req = urllib.request.Request(base + path, headers={"User-Agent": "hopline-fixtures/1.0"})
         with urllib.request.urlopen(req, timeout=40) as r:
             raw = r.read().decode("utf-8")
         try: return json.loads(raw)

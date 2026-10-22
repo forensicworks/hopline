@@ -72,5 +72,5 @@ def test_changing_the_price_source_loads_the_prices_again_and_is_remembered(fpag
     fpage.select_option("#customPrices", "mempool")
     fpage.wait_for_function("() => /1 BTC =/.test(document.getElementById('fiatStatus').textContent)"); settle(fpage)
     assert len([1 for h, p in mock.requests if p.startswith("/v1/")]) > before and "https://mempool.space" in hosts(mock, "/v1/")
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert fpage.input_value("#source") == "custom" and fpage.input_value("#customPrices") == "mempool" and fpage.is_visible("#customPricesRow")

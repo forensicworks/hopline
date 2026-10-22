@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const Addr = require('../public/js/orion-address.js');
+const Addr = require('../public/js/hopline-address.js');
 
 const fx = (n) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8'));
 

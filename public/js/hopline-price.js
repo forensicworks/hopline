@@ -1,5 +1,5 @@
 /*
- * Orion fiat conversion: turn satoshis into a currency amount using the price at a moment in time (or today's).
+ * Hopline fiat conversion: turn satoshis into a currency amount using the price at a moment in time (or today's).
  * Pure functions, no network: the page fetches the data, this module reads it.
  *
  * Data shapes (mempool.space):
@@ -10,7 +10,7 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.OrionPrice = factory();
+  else root.HoplinePrice = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 

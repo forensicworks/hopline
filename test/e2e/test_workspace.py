@@ -32,7 +32,7 @@ def test_open_transaction_builds_the_graph_with_amounts_and_times(page, mock):
     assert c["nodes"] == 7 and c["edges"] == 6
     assert c["vnodes"] == 7 and c["vedges"] == 6
     assert canvas_has_ink(page) > 50
-    node = page.evaluate("(id) => window.__orion.state.graph.nodes.get(id)", NORMAL_ID)
+    node = page.evaluate("(id) => window.__hopline.state.graph.nodes.get(id)", NORMAL_ID)
     assert node["loaded"] and node["confirmed"] and node["time"] == NORMAL["status"]["block_time"]
     assert [p for h, p in mock.requests] == ["/tx/" + NORMAL["txid"], "/tx/" + NORMAL["txid"] + "/outspends"]
     assert "2 requests" in toast_text(page)
@@ -54,11 +54,11 @@ def test_coinbase_and_op_return_transactions_do_not_crash(page):
 
 def test_edge_width_follows_amount_and_is_deterministic(page):
     open_query(page, NORMAL["txid"])
-    widths = page.evaluate("""() => { const r = window.__orion.renderer.data, g = window.__orion.state.graph;
+    widths = page.evaluate("""() => { const r = window.__hopline.renderer.data, g = window.__hopline.state.graph;
         return [...r.visible.edges].map(id => [g.edges.get(id).amount, r.style.edgeWidth(g.edges.get(id))]); }""")
     widths.sort()
     assert widths[0][0] < widths[-1][0] and widths[0][1] < widths[-1][1]
-    again = page.evaluate("""() => { const r = window.__orion.renderer.data, g = window.__orion.state.graph;
+    again = page.evaluate("""() => { const r = window.__hopline.renderer.data, g = window.__hopline.state.graph;
         return [...r.visible.edges].map(id => [g.edges.get(id).amount, r.style.edgeWidth(g.edges.get(id))]); }""")
     assert sorted(again) == widths
 
@@ -66,10 +66,10 @@ def test_edge_width_follows_amount_and_is_deterministic(page):
 def test_double_click_expands_a_transaction(page):
     open_query(page, NORMAL["txid"])
     spender_ids = ["tx:" + t["txid"] for t in SPENDERS]
-    assert all(not page.evaluate("(id) => window.__orion.state.graph.nodes.get(id).loaded", i) for i in spender_ids)
+    assert all(not page.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).loaded", i) for i in spender_ids)
     click_node(page, NORMAL_ID, dbl=True)
     idle(page)
-    page.wait_for_function("(ids) => ids.every(id => window.__orion.state.graph.nodes.get(id).loaded)", arg=spender_ids)
+    page.wait_for_function("(ids) => ids.every(id => window.__hopline.state.graph.nodes.get(id).loaded)", arg=spender_ids)
     assert counts(page)["nodes"] > 7
 
 
@@ -95,12 +95,12 @@ def test_replay_grows_the_graph_through_time(page):
     open_query(page, NORMAL["txid"])
     click_node(page, NORMAL_ID, dbl=True); idle(page)
     full = counts(page)["vedges"]
-    page.evaluate("() => { window.__orion.state.playMs = 5; }")
+    page.evaluate("() => { window.__hopline.state.playMs = 5; }")
     page.click("#tbPlay")
-    page.wait_for_function("() => window.__orion.state.filter.timeTo !== null || !window.__orion.state.playTimer")
-    page.wait_for_function("() => !window.__orion.state.playTimer", timeout=8000)
+    page.wait_for_function("() => window.__hopline.state.filter.timeTo !== null || !window.__hopline.state.playTimer")
+    page.wait_for_function("() => !window.__hopline.state.playTimer", timeout=8000)
     assert counts(page)["vedges"] == full
-    assert page.evaluate("() => window.__orion.state.filter.timeTo") is None
+    assert page.evaluate("() => window.__hopline.state.filter.timeTo") is None
     assert "Replay" in page.inner_text("#tbPlay")
 
 
@@ -109,13 +109,13 @@ def test_timeline_layout_places_transactions_by_time(page):
     click_node(page, NORMAL_ID, dbl=True); idle(page)
     page.click("#layoutSeg [data-layout=timeline]"); idle(page)
     assert page.get_attribute("#layoutSeg [data-layout=timeline]", "aria-checked") == "true"
-    rows = page.evaluate("""() => { const s = window.__orion.state, r = window.__orion.renderer;
+    rows = page.evaluate("""() => { const s = window.__hopline.state, r = window.__hopline.renderer;
         return [...s.graph.nodes.values()].filter(n => n.type === 'tx' && n.time != null).map(n => [n.time, r.positionOf(n.id).x]); }""")
     assert len(rows) >= 3
     rows.sort()
     xs = [x for _, x in rows]
     assert xs == sorted(xs) and xs[0] < xs[-1]
-    assert page.evaluate("() => !!window.__orion.renderer.data.axis")
+    assert page.evaluate("() => !!window.__hopline.renderer.data.axis")
     shot(page, "timeline.png")
 
 
@@ -125,14 +125,14 @@ def test_time_scale_control_compacts_long_gaps(page):
     assert page.is_hidden("#scaleRow")
     page.click("#layoutSeg [data-layout=timeline]"); idle(page)
     assert page.is_visible("#scaleRow")
-    xs = lambda: page.evaluate("""() => { const s = window.__orion.state, r = window.__orion.renderer;
+    xs = lambda: page.evaluate("""() => { const s = window.__hopline.state, r = window.__hopline.renderer;
         return [...s.graph.nodes.values()].filter(n => n.type === 'tx' && n.time != null).sort((a, b) => a.time - b.time).map(n => r.positionOf(n.id).x); }""")
     compact = xs()
-    assert page.evaluate("() => window.__orion.renderer.data.axis.mode") == "compact"
-    assert page.evaluate("() => window.__orion.renderer.data.axis.breaks.length") >= 1
+    assert page.evaluate("() => window.__hopline.renderer.data.axis.mode") == "compact"
+    assert page.evaluate("() => window.__hopline.renderer.data.axis.breaks.length") >= 1
     shot(page, "timeline_compact.png")
     page.click("#scaleSeg [data-scale=proportional]"); idle(page)
-    assert page.evaluate("() => window.__orion.renderer.data.axis.mode") == "proportional"
+    assert page.evaluate("() => window.__hopline.renderer.data.axis.mode") == "proportional"
     prop = xs()
     # the same ordering either way; proportional squeezes the early transactions together
     assert compact == sorted(compact) and prop == sorted(prop)
@@ -152,9 +152,9 @@ def test_force_layout_and_dragging_pins_a_vertex(page):
     page.mouse.move(before["x"], before["y"]); page.mouse.down(); page.mouse.move(before["x"] + 120, before["y"] + 60, steps=6); page.mouse.up()
     after = xy(page, NORMAL_ID)
     assert abs(after["x"] - before["x"] - 120) < 3 and abs(after["y"] - before["y"] - 60) < 3
-    assert page.evaluate("(id) => window.__orion.state.pinned.has(id)", NORMAL_ID)
+    assert page.evaluate("(id) => window.__hopline.state.pinned.has(id)", NORMAL_ID)
     page.click("#btnRelayout"); idle(page)
-    assert page.evaluate("() => window.__orion.state.pinned.size") == 0
+    assert page.evaluate("() => window.__hopline.state.pinned.size") == 0
     shot(page, "force.png")
 
 
@@ -164,7 +164,7 @@ def test_dust_filter_hides_small_edges_and_the_vertices_only_they_touch(page):
     page.click("[data-min='1000']")
     page.wait_for_timeout(100)
     after = counts(page)
-    zero = page.evaluate("() => [...window.__orion.state.graph.edges.values()].filter(e => e.amount < 1000).length")
+    zero = page.evaluate("() => [...window.__hopline.state.graph.edges.values()].filter(e => e.amount < 1000).length")
     assert zero > 0, "fixture should contain sub-1000-sat edges (OP_RETURN outputs carry 0)"
     assert after["vedges"] == before["vedges"] - zero
     assert after["nodes"] == before["nodes"]
@@ -188,17 +188,17 @@ def test_hiding_op_return_and_script_types(page):
 def test_colour_modes_change_the_legend_and_colours(page):
     open_query(page, NORMAL["txid"])
     click_node(page, NORMAL_ID, dbl=True); idle(page)
-    kind = page.evaluate("() => window.__orion.renderer.data.style.nodeColor(window.__orion.state.graph.nodes.get([...window.__orion.state.graph.nodes.keys()].find(k => k.startsWith('addr:'))))")
+    kind = page.evaluate("() => window.__hopline.renderer.data.style.nodeColor(window.__hopline.state.graph.nodes.get([...window.__hopline.state.graph.nodes.keys()].find(k => k.startsWith('addr:'))))")
     assert "transaction" in page.inner_text("#legend")
     page.click("#colorSeg [data-color=age]"); page.wait_for_timeout(100)
     assert "older" in page.inner_text("#legend")
-    colours = page.evaluate("() => { const r = window.__orion.renderer.data, g = window.__orion.state.graph; return [...new Set([...g.nodes.values()].filter(n => n.type === 'tx').map(n => r.style.nodeColor(n)))]; }")
+    colours = page.evaluate("() => { const r = window.__hopline.renderer.data, g = window.__hopline.state.graph; return [...new Set([...g.nodes.values()].filter(n => n.type === 'tx').map(n => r.style.nodeColor(n)))]; }")
     assert len(colours) >= 2, "different ages must get different colours"
     shot(page, "age.png")
     page.click("#colorSeg [data-color=script]"); page.wait_for_timeout(100)
     assert "v0_p2wpkh" in page.inner_text("#legend")
     page.click("#colorSeg [data-color=type]")
-    assert page.evaluate("() => window.__orion.renderer.data.style.nodeColor(window.__orion.state.graph.nodes.get([...window.__orion.state.graph.nodes.keys()].find(k => k.startsWith('addr:'))))") == kind
+    assert page.evaluate("() => window.__hopline.renderer.data.style.nodeColor(window.__hopline.state.graph.nodes.get([...window.__hopline.state.graph.nodes.keys()].find(k => k.startsWith('addr:'))))") == kind
 
 
 def test_labels_and_notes_survive_export_clear_and_import(page, tmp_path):
@@ -208,14 +208,14 @@ def test_labels_and_notes_survive_export_clear_and_import(page, tmp_path):
     page.fill("#fLabel", "Suspect wallet #1")
     page.fill("#fNote", "seen paying the broker, twice")
     page.wait_for_timeout(100)
-    assert page.evaluate("(id) => window.__orion.state.graph.nodes.get(id).label", addr) == "Suspect wallet #1"
+    assert page.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).label", addr) == "Suspect wallet #1"
 
     page.click("#exportMenu summary")
     with page.expect_download() as dl:
         page.click("[data-export=json]")
     path = tmp_path / "ws.json"; dl.value.save_as(path)
     doc = json.loads(path.read_text(encoding="utf-8"))
-    assert doc["format"] == "orion-workspace" and doc["version"] == 1
+    assert doc["format"] == "hopline-workspace" and doc["version"] == 1
     saved = {n["id"]: n for n in doc["nodes"]}
     assert saved[addr]["label"] == "Suspect wallet #1" and saved[addr]["note"] == "seen paying the broker, twice"
     total = counts(page)
@@ -224,10 +224,10 @@ def test_labels_and_notes_survive_export_clear_and_import(page, tmp_path):
     assert counts(page)["nodes"] == 0 and page.is_visible("#empty")
 
     page.set_input_files("#fileImport", str(path))
-    page.wait_for_function("() => window.__orion.state.graph.nodes.size > 0")
+    page.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0")
     idle(page)
     assert counts(page)["nodes"] == total["nodes"] and counts(page)["edges"] == total["edges"]
-    assert page.evaluate("(id) => window.__orion.state.graph.nodes.get(id).note", addr) == "seen paying the broker, twice"
+    assert page.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).note", addr) == "seen paying the broker, twice"
     assert "Imported" in toast_text(page)
     shot(page, "imported.png")
 
@@ -264,13 +264,13 @@ def test_csv_and_graphml_exports(page, tmp_path):
 
 def test_untrusted_text_in_labels_and_imports_is_inert(page, tmp_path):
     evil = '<img src=x onerror="window.__pwned=1">'
-    doc = {"format": "orion-workspace", "version": 1,
+    doc = {"format": "hopline-workspace", "version": 1,
            "nodes": [{"id": "addr:evil", "type": "addr", "address": "evil", "label": evil, "note": '=HYPERLINK("http://x","y")' + evil},
                      {"id": "tx:" + "a" * 64, "type": "tx", "txid": "a" * 64, "loaded": False}],
            "edges": [{"id": "in:" + "a" * 64 + ":0", "source": "addr:evil", "target": "tx:" + "a" * 64, "kind": "in", "amount": 5, "txid": "a" * 64}]}
     f = tmp_path / "evil.json"; f.write_text(json.dumps(doc), encoding="utf-8")
     page.set_input_files("#fileImport", str(f))
-    page.wait_for_function("() => window.__orion.state.graph.nodes.size === 2"); idle(page)
+    page.wait_for_function("() => window.__hopline.state.graph.nodes.size === 2"); idle(page)
     click_node(page, "addr:evil")
     assert page.input_value("#fLabel") == evil
     assert page.locator("#inspBody img").count() == 0, "label must be text, never markup"
@@ -296,9 +296,9 @@ def test_tor_source_uses_the_onion_service_with_gentler_limits(page, mock):
     open_query(page, NORMAL["txid"])
     hosts = {h for h, _ in mock.requests}
     assert hosts and all(h.endswith(".onion") for h in hosts), hosts
-    assert page.evaluate("() => window.__orion.state.client.concurrency") == 2
-    assert page.evaluate("() => window.__orion.state.client.timeoutMs") == 60000
-    page.reload(); page.wait_for_function("window.__orion && window.__orion.renderer")
+    assert page.evaluate("() => window.__hopline.state.client.concurrency") == 2
+    assert page.evaluate("() => window.__hopline.state.client.timeoutMs") == 60000
+    page.reload(); page.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert page.input_value("#source") == "tor", "the choice is remembered"
     page.select_option("#source", "clearnet")
 
@@ -322,7 +322,7 @@ def test_per_expand_cap_reports_truncation(page):
     page.fill("#capTx", "1"); page.dispatch_event("#capTx", "change")
     click_node(page, NORMAL_ID, dbl=True); idle(page)
     assert "per-expand limit" in toast_text(page)
-    loaded = page.evaluate("(ids) => ids.filter(id => window.__orion.state.graph.nodes.get(id).loaded).length", ["tx:" + t["txid"] for t in SPENDERS])
+    loaded = page.evaluate("(ids) => ids.filter(id => window.__hopline.state.graph.nodes.get(id).loaded).length", ["tx:" + t["txid"] for t in SPENDERS])
     assert loaded == 1
 
 
@@ -337,7 +337,7 @@ def test_unknown_transaction_is_reported_and_leaves_the_graph_empty(page):
 def test_server_errors_are_retried_then_reported(page, mock):
     page.uncheck("#fallbackOn")                                                       # one server only: the backup has its own tests (test_backup.py)
     mock.fail["/tx/" + NORMAL["txid"]] = 503
-    page.evaluate("() => { window.__orion.state.client.backoffMs = 5; }")
+    page.evaluate("() => { window.__hopline.state.client.backoffMs = 5; }")
     open_query(page, NORMAL["txid"])
     assert counts(page)["nodes"] == 0
     assert sum(1 for _, p in mock.requests if p == "/tx/" + NORMAL["txid"]) == 4      # first try + 3 retries
@@ -347,7 +347,7 @@ def test_server_errors_are_retried_then_reported(page, mock):
 def test_address_history_loads_and_continues(page):
     open_query(page, ADDRESS)
     assert len(node_ids(page, "tx")) >= len(ADDR_TXS)
-    node = page.evaluate("(id) => window.__orion.state.graph.nodes.get(id)", "addr:" + ADDRESS)
+    node = page.evaluate("(id) => window.__hopline.state.graph.nodes.get(id)", "addr:" + ADDRESS)
     assert node["txCount"] == ADDR_STATS_COUNT()
     click_node(page, "addr:" + ADDRESS)
     assert ADDRESS in page.inner_text("#inspBody")
@@ -360,7 +360,7 @@ def ADDR_STATS_COUNT():
 
 def test_known_address_is_labelled_in_the_tooltip(page):
     open_query(page, NORMAL["txid"])
-    known = page.evaluate("() => [...window.__orion.state.graph.nodes.values()].filter(n => n.type === 'addr' && window.ORION_KNOWN[n.address]).map(n => n.id)")
+    known = page.evaluate("() => [...window.__hopline.state.graph.nodes.values()].filter(n => n.type === 'addr' && window.HOPLINE_KNOWN[n.address]).map(n => n.id)")
     assert known, "the fixture pays a labelled exchange address"
     p = xy(page, known[0]); page.mouse.move(p["x"], p["y"]); page.wait_for_timeout(100)
     assert page.is_visible("#tooltip") and "Known" in page.inner_text("#tooltip")
@@ -374,7 +374,7 @@ def test_delete_hides_the_selection_and_shift_delete_removes_it(page):
     assert page.is_hidden("#inspector")
     page.keyboard.press("Control+z"); settle(page)
     assert counts(page)["vnodes"] == 7
-    page.evaluate("(id) => window.__orion.setSel([id])", NORMAL_ID); settle(page)      # (selected directly: a mouse click can land mid-refit when the machine is busy)
+    page.evaluate("(id) => window.__hopline.setSel([id])", NORMAL_ID); settle(page)      # (selected directly: a mouse click can land mid-refit when the machine is busy)
     page.locator("#cv").focus()
     page.keyboard.press("Shift+Delete")
     assert counts(page)["nodes"] == 0
@@ -383,25 +383,25 @@ def test_delete_hides_the_selection_and_shift_delete_removes_it(page):
 def test_session_is_saved_and_can_be_restored(ctx, errors):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e)))
     from conftest import PAGE_URL
-    p.goto(PAGE_URL); p.wait_for_function("window.__orion && window.__orion.renderer")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
     open_query(p, NORMAL["txid"])
     click_node(p, "addr:" + NORMAL["vout"][0]["scriptpubkey_address"])
     p.fill("#fLabel", "kept across reload"); p.wait_for_timeout(1200)       # autosave is debounced
     n = counts(p)["nodes"]
-    p.reload(); p.wait_for_function("window.__orion && window.__orion.renderer")
+    p.reload(); p.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert p.is_visible("#restore") and counts(p)["nodes"] == 0
-    p.click("#restoreYes"); p.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); idle(p)
+    p.click("#restoreYes"); p.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); idle(p)
     assert counts(p)["nodes"] == n
-    assert p.evaluate("(id) => window.__orion.state.graph.nodes.get(id).label", "addr:" + NORMAL["vout"][0]["scriptpubkey_address"]) == "kept across reload"
-    p.reload(); p.wait_for_function("window.__orion && window.__orion.renderer")
+    assert p.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).label", "addr:" + NORMAL["vout"][0]["scriptpubkey_address"]) == "kept across reload"
+    p.reload(); p.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert p.is_visible("#restore"), "the URL names a vertex now, but the saved session still wins until you decide"
     p.wait_for_timeout(1200)
-    assert counts(p)["nodes"] == 0 and "kept across reload" in p.evaluate("() => localStorage.getItem('orion.workspace.v1')"), "nothing overwrote it meanwhile"
+    assert counts(p)["nodes"] == 0 and "kept across reload" in p.evaluate("() => localStorage.getItem('hopline.workspace.v1')"), "nothing overwrote it meanwhile"
     p.click("#restoreNo")
-    p.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); idle(p)          # the vertex from the URL is opened instead
-    assert p.evaluate("(id) => window.__orion.state.graph.nodes.get(id).label", "addr:" + NORMAL["vout"][0]["scriptpubkey_address"]) is None, "discarded labels are gone"
+    p.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); idle(p)          # the vertex from the URL is opened instead
+    assert p.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).label", "addr:" + NORMAL["vout"][0]["scriptpubkey_address"]) is None, "discarded labels are gone"
     p.wait_for_timeout(1200)
-    assert "kept across reload" not in (p.evaluate("() => localStorage.getItem('orion.workspace.v1')") or "")
+    assert "kept across reload" not in (p.evaluate("() => localStorage.getItem('hopline.workspace.v1')") or "")
     p.close()
 
 
@@ -409,7 +409,7 @@ def test_url_parameter_opens_a_transaction(ctx, errors):
     from conftest import PAGE_URL
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e)))
     p.goto(PAGE_URL + "?q=" + NORMAL["txid"])
-    p.wait_for_function("() => window.__orion && window.__orion.state.graph.nodes.size > 0"); idle(p)
+    p.wait_for_function("() => window.__hopline && window.__hopline.state.graph.nodes.size > 0"); idle(p)
     assert counts(p)["nodes"] == 7
     p.close()
 
@@ -420,7 +420,7 @@ def test_narrow_screen_has_no_horizontal_scroll(browser, mock, errors):
     c.route(re.compile(r"^https?://[^/]+/api/"), mock.handle)
     p = c.new_page(); p.on("pageerror", lambda e: errors.append(str(e)))
     from conftest import PAGE_URL
-    p.goto(PAGE_URL); p.wait_for_function("window.__orion && window.__orion.renderer")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert p.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1")
     p.click("#btnSide"); assert p.evaluate("() => document.body.classList.contains('side-open')")
     shot(p, "narrow.png")
@@ -443,12 +443,12 @@ def test_session_saving_can_be_switched_off(page):
     page.click("summary:has-text('Privacy')")
     open_query(page, NORMAL["txid"])
     page.wait_for_timeout(1100)
-    assert page.evaluate("() => localStorage.getItem('orion.workspace.v1') !== null")
+    assert page.evaluate("() => localStorage.getItem('hopline.workspace.v1') !== null")
     page.uncheck("#persist")
-    assert page.evaluate("() => localStorage.getItem('orion.workspace.v1')") is None
+    assert page.evaluate("() => localStorage.getItem('hopline.workspace.v1')") is None
     click_node(page, NORMAL_ID); page.fill("#fLabel", "not saved"); page.wait_for_timeout(1100)
-    assert page.evaluate("() => localStorage.getItem('orion.workspace.v1')") is None, "nothing is written while it is off"
-    page.reload(); page.wait_for_function("window.__orion && window.__orion.renderer")
+    assert page.evaluate("() => localStorage.getItem('hopline.workspace.v1')") is None, "nothing is written while it is off"
+    page.reload(); page.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert page.is_hidden("#restore")
     page.click("summary:has-text('Privacy')")
     assert not page.is_checked("#persist"), "the choice is remembered"
@@ -459,12 +459,12 @@ def test_background_loading_does_not_steal_focus_from_the_label_box(page):
     click_node(page, NORMAL_ID)
     page.click("#fLabel"); page.keyboard.type("half a thought")
     # a background action finishing re-renders the app through this same path
-    page.evaluate("() => window.__orion.afterGraphChange()")
+    page.evaluate("() => window.__hopline.afterGraphChange()")
     assert page.evaluate("() => document.activeElement.id") == "fLabel", "typing position is kept"
     page.keyboard.type(" ...and the rest")
     assert page.input_value("#fLabel") == "half a thought ...and the rest"
     page.evaluate("() => document.activeElement.blur()")
-    page.evaluate("() => window.__orion.afterGraphChange()")
+    page.evaluate("() => window.__hopline.afterGraphChange()")
     assert page.input_value("#fLabel") == "half a thought ...and the rest", "and a re-render shows the stored label"
 
 

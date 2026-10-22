@@ -1,11 +1,11 @@
 /*
- * Orion Canvas 2D renderer: pan, zoom, drag, hover, selection, time axis, labels.
+ * Hopline Canvas 2D renderer: pan, zoom, drag, hover, selection, time axis, labels.
  * It draws what it is given (graph + visible set + positions + style) and reports interaction through callbacks.
  * No data is ever put into the DOM as HTML: everything is drawn on the canvas or handed to the host as plain values.
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./orion-style.js'));
-  else root.OrionRender = factory(root.OrionStyle);
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./hopline-style.js'));
+  else root.HoplineRender = factory(root.HoplineStyle);
 }(typeof self !== 'undefined' ? self : this, function (Style) {
   'use strict';
 

@@ -1,13 +1,13 @@
 /*
- * Orion wallet ledger: turns the transactions the API returns for one address into the rows of a wallet overview (the kind of page
+ * Hopline wallet ledger: turns the transactions the API returns for one address into the rows of a wallet overview (the kind of page
  * a wallet explorer shows): every transaction with its inputs on one side and its outputs on the other, what it did to the wallet,
  * the balance after it, and the labelled wallets it dealt with. Pure functions over plain data, no DOM, no network.
  *
  * Everything here is arithmetic on what the server said; it adds no guesses. Amounts are satoshis.
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./orion-model.js'), require('./orion-io.js'), require('./orion-style.js'));
-  else root.OrionWallet = factory(root.OrionModel, root.OrionIO, root.OrionStyle);
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./hopline-model.js'), require('./hopline-io.js'), require('./hopline-style.js'));
+  else root.HoplineWallet = factory(root.HoplineModel, root.HoplineIO, root.HoplineStyle);
 }(typeof self !== 'undefined' ? self : this, function (Model, IO, Style) {
   'use strict';
 

@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const G = require('../public/js/orion-group.js');
+const G = require('../public/js/hopline-group.js');
 
 let n = 0;
 const row = (dir, amount, parties, time) => ({ id: 'tx:' + (++n), dir, amount, time: time === undefined ? 1650000000 + n * 60 : time, parties: parties || [] });

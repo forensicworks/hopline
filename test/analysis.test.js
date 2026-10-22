@@ -1,8 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { Graph, ID } = require('../public/js/orion-model.js');
-const An = require('../public/js/orion-analysis.js');
+const { Graph, ID } = require('../public/js/hopline-model.js');
+const An = require('../public/js/hopline-analysis.js');
 
 // ---- a tiny chain builder -----------------------------------------------------------------------
 const tid = (n) => ('0' + n.toString(16)).slice(-2).repeat(32);                    // 64 hex characters

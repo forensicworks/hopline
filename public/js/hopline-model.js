@@ -1,5 +1,5 @@
 /*
- * Orion graph model.
+ * Hopline graph model.
  *
  * A Bitcoin investigation graph with TWO kinds of vertex that matter and a few special ones:
  *   tx        a transaction                       id "tx:<txid>"
@@ -17,7 +17,7 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.OrionModel = factory();
+  else root.HoplineModel = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
@@ -171,7 +171,7 @@
       fee: t.fee != null ? t.fee : null,
       vsize: t.weight ? Math.ceil(t.weight / 4) : (t.size || null),
       nIn: t.vin.length, nOut: t.vout.length, valueIn: valueIn, valueOut: valueOut, coinbase: isCoinbase,
-      // the habits of the wallet that made it (see OrionAnalysis.fingerprint): version, locktime, the sequence numbers used, BIP 69 ordering
+      // the habits of the wallet that made it (see HoplineAnalysis.fingerprint): version, locktime, the sequence numbers used, BIP 69 ordering
       version: typeof t.version === 'number' ? t.version : null, locktime: typeof t.locktime === 'number' ? t.locktime : null,
       seqs: t.vin.map(function (v) { return v.sequence; }).filter(function (s, i, a) { return typeof s === 'number' && a.indexOf(s) === i; }).sort(function (x, y) { return x - y; }).slice(0, 4),
       bip69: sortedBip69(t)

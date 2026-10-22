@@ -1,8 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { Graph, ID } = require('../public/js/orion-model.js');
-const { Client, Explorer } = require('../public/js/orion-api.js');
+const { Graph, ID } = require('../public/js/hopline-model.js');
+const { Client, Explorer } = require('../public/js/hopline-api.js');
 
 const A = 'https://a.example/api', B = 'https://b.example/api';
 const R = (status, body, headers) => ({ __resp: true, status, body, headers });

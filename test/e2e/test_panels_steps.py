@@ -20,7 +20,7 @@ def no_js_errors(errors):
 
 
 def focus(page):
-    return page.evaluate("() => window.__orion.state.focus")
+    return page.evaluate("() => window.__hopline.state.focus")
 
 
 def canvas_width(page):
@@ -28,7 +28,7 @@ def canvas_width(page):
 
 
 def all_nodes_inside_canvas(page):
-    return page.evaluate("""() => { const r = window.__orion.renderer, b = r.canvas.getBoundingClientRect(), bar = document.getElementById('stepbar');
+    return page.evaluate("""() => { const r = window.__hopline.renderer, b = r.canvas.getBoundingClientRect(), bar = document.getElementById('stepbar');
         const barTop = bar.hidden ? Infinity : bar.getBoundingClientRect().top;
         return [...r.data.visible.nodes].every(id => { const p = r.positionOf(id), x = b.left + p.x * r.view.k + r.view.x, y = b.top + p.y * r.view.k + r.view.y;
           return x > b.left && x < b.right && y > b.top && y < Math.min(b.bottom, barTop); }); }""")
@@ -77,9 +77,9 @@ def test_keyboard_toggles_and_the_choice_is_remembered(fpage):
     assert fpage.evaluate("() => document.body.classList.contains('side-collapsed')")
     fpage.keyboard.press("d")
     assert fpage.evaluate("() => document.body.classList.contains('insp-collapsed')")
-    prefs = fpage.evaluate("() => JSON.parse(localStorage.getItem('orion.prefs.v1'))")
+    prefs = fpage.evaluate("() => JSON.parse(localStorage.getItem('hopline.prefs.v1'))")
     assert prefs["sideCollapsed"] is True and prefs["inspCollapsed"] is True
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert fpage.evaluate("() => document.body.classList.contains('side-collapsed') && document.body.classList.contains('insp-collapsed')")
     assert fpage.is_visible("#sideTab")
     fpage.keyboard.press("c"); fpage.keyboard.press("d")
@@ -94,11 +94,11 @@ def test_typing_in_a_box_does_not_trigger_the_shortcuts(fpage):
 
 def test_a_user_who_zoomed_is_not_refitted_when_a_panel_moves(fpage):
     open_query(fpage, NORMAL["txid"])
-    fpage.evaluate("() => window.__orion.renderer.zoomBy(1.5)")
-    assert fpage.evaluate("() => window.__orion.renderer.autoFit") is False
-    k = fpage.evaluate("() => window.__orion.renderer.view.k")
+    fpage.evaluate("() => window.__hopline.renderer.zoomBy(1.5)")
+    assert fpage.evaluate("() => window.__hopline.renderer.autoFit") is False
+    k = fpage.evaluate("() => window.__hopline.renderer.view.k")
     fpage.click("#sideCollapse"); fpage.wait_for_timeout(300)
-    assert fpage.evaluate("() => window.__orion.renderer.view.k") == k
+    assert fpage.evaluate("() => window.__hopline.renderer.view.k") == k
 
 
 # ---------------------------------------------------------------- Bitcoin / both / fiat
@@ -142,7 +142,7 @@ def test_the_header_button_cycles_through_the_three_displays(page):
     seen = []
     for _ in range(3):
         page.click("#btnAmounts")
-        seen.append(page.evaluate("() => window.__orion.state.fiat.show"))
+        seen.append(page.evaluate("() => window.__hopline.state.fiat.show"))
     assert seen == ["fiat", "btc", "both"]
     assert page.get_attribute("#showSeg button[data-show=both]", "aria-checked") == "true"
 
@@ -152,8 +152,8 @@ def test_lists_and_edge_labels_follow_the_display(fpage):
     use_usd(fpage)
     row = fpage.locator("#inspBody .linkrow .amt").first
     assert "BTC" in row.inner_text() and "$" in row.inner_text()
-    edge = fpage.evaluate("() => { const g = window.__orion.state.graph; return [...g.edges.values()].find(e => e.kind === 'out' && e.amount > 1e6).id; }")
-    label = lambda: fpage.evaluate("(id) => window.__orion.renderer.data.edgeLabel(window.__orion.state.graph.edges.get(id))", edge)
+    edge = fpage.evaluate("() => { const g = window.__hopline.state.graph; return [...g.edges.values()].find(e => e.kind === 'out' && e.amount > 1e6).id; }")
+    label = lambda: fpage.evaluate("(id) => window.__hopline.renderer.data.edgeLabel(window.__hopline.state.graph.edges.get(id))", edge)
     assert " BTC" in label() and "·" in label() and "$" in label()
     fpage.click("#showSeg button[data-show=btc]")
     assert label().endswith(" BTC") and "$" not in label()
@@ -165,14 +165,14 @@ def test_lists_and_edge_labels_follow_the_display(fpage):
 
 def test_amounts_are_really_drawn_on_the_edges_and_can_be_switched_off(fpage):
     open_query(fpage, NORMAL["txid"])
-    spy = """() => { const r = window.__orion.renderer, ctx = r.ctx, orig = ctx.fillText.bind(ctx), seen = [];
+    spy = """() => { const r = window.__hopline.renderer, ctx = r.ctx, orig = ctx.fillText.bind(ctx), seen = [];
         ctx.fillText = (t, ...a) => { seen.push(String(t)); return orig(t, ...a); }; r.draw(); ctx.fillText = orig; return seen; }"""
     texts = fpage.evaluate(spy)
     assert any(t.endswith(" BTC") or t.endswith(" sat") for t in texts), texts
     fpage.uncheck("#edgeLabels")
     texts = fpage.evaluate(spy)
     assert not any(t.endswith(" BTC") or t.endswith(" sat") for t in texts), texts
-    assert fpage.evaluate("() => JSON.parse(localStorage.getItem('orion.prefs.v1')).edgeLabels") is False
+    assert fpage.evaluate("() => JSON.parse(localStorage.getItem('hopline.prefs.v1')).edgeLabels") is False
     shot(fpage, "edge_labels_off.png")
 
 
@@ -180,7 +180,7 @@ def test_the_display_choice_is_remembered(page):
     open_query(page, NORMAL["txid"])
     use_usd(page)
     page.click("#showSeg button[data-show=fiat]")
-    page.reload(); page.wait_for_function("window.__orion && window.__orion.renderer")
+    page.reload(); page.wait_for_function("window.__hopline && window.__hopline.renderer")
     page.wait_for_function("() => /history to|today/.test(document.getElementById('fiatStatus').textContent)")
     assert page.get_attribute("#showSeg button[data-show=fiat]", "aria-checked") == "true"
     assert "USD only" in page.inner_text("#btnAmounts")
@@ -211,25 +211,25 @@ def test_next_with_several_choices_opens_a_list_and_choosing_moves_there(fpage, 
     assert rows.first.get_attribute("title") == BIG_ADDR, "largest amount first"
     assert fpage.get_attribute("#stepNext", "aria-expanded") == "true"
     rows.first.click()
-    fpage.wait_for_function("(id) => window.__orion.state.focus === id", arg=BIG_ADDR); idle(fpage)
+    fpage.wait_for_function("(id) => window.__hopline.state.focus === id", arg=BIG_ADDR); idle(fpage)
     assert fpage.is_hidden("#stepMenu")
     assert fpage.text_content("#stepKind") == "Wallet"
     assert not [r for r in mock.requests if r[1].startswith("/address/")], "stepping onto a wallet does not download its whole history"
     assert fpage.is_visible("#stepLoad"), "but its history is one click away"
-    assert fpage.evaluate("() => window.__orion.state.nav.entries.length") == 2, "the step is on the Back/Forward trail"
+    assert fpage.evaluate("() => window.__hopline.state.nav.entries.length") == 2, "the step is on the Back/Forward trail"
 
 
 def test_a_single_choice_moves_without_a_list(fpage):
     open_query(fpage, NORMAL["txid"])
     fpage.click("#stepNext"); fpage.locator("#stepMenu button.steprow").first.click()
-    fpage.wait_for_function("(id) => window.__orion.state.focus === id", arg=BIG_ADDR); idle(fpage)
+    fpage.wait_for_function("(id) => window.__hopline.state.focus === id", arg=BIG_ADDR); idle(fpage)
     assert fpage.inner_text("#stepNextN") == "1"
     fpage.click("#stepNext")                                          # the wallet was spent by exactly one transaction
-    fpage.wait_for_function("(id) => window.__orion.state.focus === id", arg=BIG_SPENDER); idle(fpage)
+    fpage.wait_for_function("(id) => window.__hopline.state.focus === id", arg=BIG_SPENDER); idle(fpage)
     assert fpage.is_hidden("#stepMenu") and fpage.text_content("#stepKind") == "Transaction"
-    assert fpage.evaluate("(id) => window.__orion.state.graph.nodes.get(id).loaded", BIG_SPENDER)
+    assert fpage.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).loaded", BIG_SPENDER)
     fpage.click("#stepPrev")                                          # and back up: the wallet, then the first transaction
-    fpage.wait_for_function("(id) => window.__orion.state.focus === id", arg="addr:" + SPENDERS_INPUT_FOR_BIG()); idle(fpage)
+    fpage.wait_for_function("(id) => window.__hopline.state.focus === id", arg="addr:" + SPENDERS_INPUT_FOR_BIG()); idle(fpage)
 
 
 def SPENDERS_INPUT_FOR_BIG():
@@ -240,10 +240,10 @@ def SPENDERS_INPUT_FOR_BIG():
 def test_previous_from_a_wallet_goes_to_the_transaction_that_paid_it(fpage):
     open_query(fpage, NORMAL["txid"])
     fpage.click("#stepNext"); fpage.locator("#stepMenu button.steprow").first.click()
-    fpage.wait_for_function("(id) => window.__orion.state.focus === id", arg=BIG_ADDR); idle(fpage)
+    fpage.wait_for_function("(id) => window.__hopline.state.focus === id", arg=BIG_ADDR); idle(fpage)
     assert fpage.inner_text("#stepPrevN") == "1"
     fpage.click("#stepPrev")
-    fpage.wait_for_function("(id) => window.__orion.state.focus === id", arg=NORMAL_ID); idle(fpage)
+    fpage.wait_for_function("(id) => window.__hopline.state.focus === id", arg=NORMAL_ID); idle(fpage)
 
 
 def test_transactions_only_mode_jumps_from_transaction_to_transaction(fpage):
@@ -255,9 +255,9 @@ def test_transactions_only_mode_jumps_from_transaction_to_transaction(fpage):
     assert rows.count() == 2 and all(t.startswith("tx:") for t in rows.evaluate_all("els => els.map(e => e.title)"))
     assert "via" in rows.first.inner_text()
     rows.first.click()
-    fpage.wait_for_function("(id) => window.__orion.state.focus === id", arg=BIG_SPENDER); idle(fpage)
+    fpage.wait_for_function("(id) => window.__hopline.state.focus === id", arg=BIG_SPENDER); idle(fpage)
     assert fpage.text_content("#stepKind") == "Transaction"
-    assert fpage.evaluate("() => JSON.parse(localStorage.getItem('orion.prefs.v1')).viaWallets") is False
+    assert fpage.evaluate("() => JSON.parse(localStorage.getItem('hopline.prefs.v1')).viaWallets") is False
 
 
 def test_buttons_are_disabled_with_a_reason_at_the_ends_of_the_chain(fpage):
@@ -271,7 +271,7 @@ def test_buttons_are_disabled_with_a_reason_at_the_ends_of_the_chain(fpage):
     fpage.click("#stepNext")                                             # one wallet is paid: straight there
     if fpage.is_visible("#stepMenu"):
         fpage.locator("#stepMenu button.steprow").first.click()
-    fpage.wait_for_function("() => window.__orion.state.focus.startsWith('addr:')"); idle(fpage)
+    fpage.wait_for_function("() => window.__hopline.state.focus.startsWith('addr:')"); idle(fpage)
     assert fpage.is_disabled("#stepNext")
     assert "Unspent" in fpage.get_attribute("#stepNext", "title")
     assert wallet
@@ -280,7 +280,7 @@ def test_buttons_are_disabled_with_a_reason_at_the_ends_of_the_chain(fpage):
 def test_the_load_history_button_loads_it_and_goes_away(fpage, mock):
     open_query(fpage, NORMAL["txid"])
     fpage.click("#stepNext"); fpage.locator("#stepMenu button.steprow").first.click()
-    fpage.wait_for_function("(id) => window.__orion.state.focus === id", arg=BIG_ADDR); idle(fpage)
+    fpage.wait_for_function("(id) => window.__hopline.state.focus === id", arg=BIG_ADDR); idle(fpage)
     addr = BIG_ADDR[len("addr:"):]
     mock.routes["/address/" + addr] = {"address": addr, "chain_stats": {"tx_count": 2}, "mempool_stats": {"tx_count": 0}}
     mock.routes["/address/" + addr + "/txs"] = [NORMAL, SPENDERS[1] if BIG_SPENDER.endswith(SPENDERS[1]["txid"]) else SPENDERS[0]]
@@ -299,7 +299,7 @@ def test_keyboard_steps_and_escape_closes_the_list(fpage):
     assert fpage.is_hidden("#stepMenu")
     assert focus(fpage) == NORMAL_ID, "Escape only closed the list"
     fpage.keyboard.press("[")                                            # one way back: goes straight there
-    fpage.wait_for_function("(id) => window.__orion.state.focus === id", arg=INPUT_ADDR); idle(fpage)
+    fpage.wait_for_function("(id) => window.__hopline.state.focus === id", arg=INPUT_ADDR); idle(fpage)
 
 
 def test_clicking_elsewhere_closes_the_list(fpage):
@@ -327,7 +327,7 @@ def test_the_step_bar_disappears_when_the_graph_is_cleared(fpage):
     open_query(fpage, NORMAL["txid"])
     fpage.click("#btnClear"); fpage.click("#btnClear")
     assert fpage.is_hidden("#stepbar")
-    assert fpage.evaluate("() => window.__orion.renderer.insets.bottom") == 0
+    assert fpage.evaluate("() => window.__hopline.renderer.insets.bottom") == 0
 
 
 def test_an_edge_of_a_transaction_not_loaded_yet_is_priced_when_it_was_spent_not_at_todays_price(fpage):
@@ -335,7 +335,7 @@ def test_an_edge_of_a_transaction_not_loaded_yet_is_priced_when_it_was_spent_not
     open_query(fpage, NORMAL["txid"])
     use_usd(fpage)
     fund = "out:%s:%d" % (NORMAL["vin"][0]["txid"], NORMAL["vin"][0]["vout"])
-    label = fpage.evaluate("(id) => window.__orion.renderer.data.edgeLabel(window.__orion.state.graph.edges.get(id))", fund)
+    label = fpage.evaluate("(id) => window.__hopline.renderer.data.edgeLabel(window.__hopline.state.graph.edges.get(id))", fund)
     amount = NORMAL["vin"][0]["prevout"]["value"]
     assert label.startswith("0.0212") and "≈ $" in label, label
     expected = amount / 1e8 * price_at(NORMAL["status"]["block_time"])

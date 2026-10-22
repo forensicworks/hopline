@@ -85,7 +85,7 @@ def call(srv, method, path, token=TOKEN, headers=None):
     c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
     h = dict(headers or {})
     if token is not None:
-        h["X-Orion-Token"] = token
+        h["X-Hopline-Token"] = token
     c.request(method, path, headers=h)
     r = c.getresponse()
     body = r.read()
@@ -116,9 +116,9 @@ def test_a_lookup_sends_the_key_upstream_and_returns_the_answer(px):
 
 def test_preflight_answers_without_a_token_and_allows_the_token_header(px):
     s, h, b = call(px, "OPTIONS", "/intelligence/address/" + KNOWN, token=None,
-                   headers={"Origin": "null", "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "x-orion-token"})
+                   headers={"Origin": "null", "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "x-hopline-token"})
     assert s == 204
-    assert "x-orion-token" in h["access-control-allow-headers"].lower()
+    assert "x-hopline-token" in h["access-control-allow-headers"].lower()
     assert h["access-control-allow-private-network"] == "true"
     assert FakeArkham.log == []
 

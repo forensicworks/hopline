@@ -74,7 +74,7 @@ def test_a_group_opens_to_its_rows_and_folds_again(fpage, mock):
     assert members.count() in (6, 7)
     assert all(t.startswith("tx:") for t in fpage.eval_on_selector_all("#inspBody .walletsec .groupmembers .linkrow", "els => els.map(e => e.title)"))
     members.first.click()
-    fpage.wait_for_function("() => window.__orion.state.focus && window.__orion.state.focus.startsWith('tx:')"); idle(fpage)
+    fpage.wait_for_function("() => window.__hopline.state.focus && window.__hopline.state.focus.startsWith('tx:')"); idle(fpage)
 
 
 def test_folding_never_loses_a_row(fpage, mock):
@@ -117,11 +117,11 @@ def test_group_similar_rows_can_be_switched_off_in_the_list_and_in_the_settings_
     fpage.uncheck("#inspBody .walletgroup input")
     assert heads(fpage).count() == 0 and not fpage.is_checked("#groupRows")
     assert len(row_titles(fpage)) == 27
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
-    assert fpage.evaluate("() => window.__orion.state.groupRows") is False
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    assert fpage.evaluate("() => window.__hopline.state.groupRows") is False
     fpage.evaluate("() => [...document.querySelectorAll('details')].find(d => d.querySelector('summary').textContent.trim() === 'Expansion limits').open = true")
     fpage.check("#groupRows")
-    assert fpage.evaluate("() => window.__orion.state.groupRows") is True
+    assert fpage.evaluate("() => window.__hopline.state.groupRows") is True
 
 
 def test_a_group_copies_the_ids_of_all_its_transactions(fpage, mock):
@@ -149,7 +149,7 @@ def test_in_a_trace_a_group_puts_its_largest_few_or_all_of_them_on_the_trace(fpa
     busy_wallet(mock)
     open_query(fpage, W)
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     wrap = fpage.locator("#inspBody .walletsec .groupwrap").filter(has_text="6 transactions to")
     assert wrap.locator(".groupacts .showbtn").all_inner_texts() == ["+ largest 5", "+ all 6", "◼ as one"]
     wrap.locator(".groupacts .showbtn >> text=+ largest 5").click(); idle(fpage); settle(fpage)
@@ -166,12 +166,12 @@ def test_in_a_trace_a_group_of_incoming_ones_is_brought_in_from_behind(fpage, mo
     busy_wallet(mock)
     open_query(fpage, W)
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     wrap = fpage.locator("#inspBody .walletsec .groupwrap").filter(has_text="small transactions")
     wrap.locator(".groupacts .showbtn >> text=+ all 7").click(); idle(fpage); settle(fpage)
     got = {i for i in shown(fpage) if i.startswith("tx:")}
     assert got == {"tx:" + tid(n) for n in range(110, 117)}
-    px = lambda i: fpage.evaluate("(id) => window.__orion.renderer.positionOf(id).x", i)
+    px = lambda i: fpage.evaluate("(id) => window.__hopline.renderer.positionOf(id).x", i)
     assert all(px("tx:" + tid(n)) < px(W_ID) for n in range(110, 117)), "they came before the wallet: to its left"
 
 
@@ -235,7 +235,7 @@ def test_group_similar_rows_in_the_arrow_list_is_a_checkbox_shared_with_the_sett
     click_handle(fpage, W_ID, "right"); idle(fpage)
     fpage.uncheck("#ctxMenu .choosertools >> text=Group similar rows")
     assert fpage.locator("#ctxMenu .choosergroup").count() == 0 and fpage.locator("#ctxMenu .chooserrow").count() == 9
-    assert fpage.evaluate("() => window.__orion.state.groupRows") is False and not fpage.is_checked("#groupRows")
+    assert fpage.evaluate("() => window.__hopline.state.groupRows") is False and not fpage.is_checked("#groupRows")
 
 
 def test_many_small_outputs_of_one_transaction_fold_into_one_line(fpage, mock):

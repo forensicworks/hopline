@@ -1,17 +1,17 @@
 /*
- * Orion workspace controller: wires the model, filters, layouts, data source, import/export and the renderer
+ * Hopline workspace controller: wires the model, filters, layouts, data source, import/export and the renderer
  * to workspace.html. Everything that comes from the network or from a file reaches the page through
  * textContent / canvas drawing only, never as HTML.
  */
 (function () {
   'use strict';
 
-  var M = OrionModel, S = OrionStyle, F = OrionFilter, L = OrionLayout, A = OrionApi, IO = OrionIO, R = OrionRender, NV = OrionNav, AD = OrionAddress, PR = OrionPrice, ST = OrionSteps, TG = OrionTags, XT = OrionExternal, TR = OrionTrace, GR = OrionGroup, AN = OrionAnalysis, LB = OrionLabels, RP = OrionReport, balanceOf = M.balanceOf;
+  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, RP = HoplineReport, balanceOf = M.balanceOf;
   var ID = M.ID;
-  var KNOWN_BASE = window.ORION_KNOWN || {};
+  var KNOWN_BASE = window.HOPLINE_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
-  var SAVE_KEY = 'orion.workspace.v1', PREF_KEY = 'orion.prefs.v1', TOKEN_KEY = 'orion.ext.token', PACKS_KEY = 'orion.packs.v1';
+  var SAVE_KEY = 'hopline.workspace.v1', PREF_KEY = 'hopline.prefs.v1', TOKEN_KEY = 'hopline.ext.token', PACKS_KEY = 'hopline.packs.v1';
   var ARRANGE = { columns: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 };
   var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SIZES = { auto: 1, area: 1, log: 1 }, SCALES = { compact: 1, proportional: 1 };
 
@@ -33,6 +33,13 @@
     set: function (k, v) { try { window.localStorage.setItem(k, v); return true; } catch (e) { return false; } },
     del: function (k) { try { window.localStorage.removeItem(k); } catch (e) { /* ignore */ } }
   };
+  // The project was called Orion before it was Hopline: move what an older version saved in this browser to the new names (once).
+  ['workspace.v1', 'prefs.v1', 'ext.token', 'packs.v1'].forEach(function (k) {
+    var old = store.get('orion.' + k);
+    if (old == null) return;
+    if (store.get('hopline.' + k) == null && !store.set('hopline.' + k, old)) return;
+    store.del('orion.' + k);
+  });
   function fmtInt(n) { return Number(n).toLocaleString('en-US'); }
   function num(v, lo, hi, dflt) { v = parseInt(v, 10); return isNaN(v) ? dflt : Math.max(lo, Math.min(hi, v)); }
 
@@ -324,7 +331,7 @@
     if (!state.nav.visit(id)) return;
     var hash = NV.toHash(state.nav.index, id);
     try {
-      if (first) window.history.replaceState({ orion: 1 }, '', hash); else window.history.pushState({ orion: 1 }, '', hash);
+      if (first) window.history.replaceState({ hopline: 1 }, '', hash); else window.history.pushState({ hopline: 1 }, '', hash);
       state.histOk = true;
     } catch (e) { state.histOk = false; }
   }
@@ -2457,14 +2464,14 @@
   function exportOwnLabels(kind) {
     var entries = LB.fromGraph(state.graph);
     if (!entries.length) { toast('Nothing to export: label or tag a wallet first (its details panel).', true); return; }
-    var name = 'orion-labels-' + stamp();
-    if (kind === 'json') download(name + '.json', LB.toJson(entries, { name: 'Orion labels ' + stamp(), source: 'exported from Orion' }), 'application/json');
+    var name = 'hopline-labels-' + stamp();
+    if (kind === 'json') download(name + '.json', LB.toJson(entries, { name: 'Hopline labels ' + stamp(), source: 'exported from Hopline' }), 'application/json');
     else download(name + '.csv', '\ufeff' + LB.toCsv(entries), 'text/csv;charset=utf-8');
     log('Exported ' + entries.length + ' labelled wallets (' + kind + ')');
   }
 
   // ---- analysis: patterns, likely change, clusters ----------------------------------------------
-  // All of it is a guess from what is loaded; every result carries its reasons (see orion-analysis.js).
+  // All of it is a guess from what is loaded; every result carries its reasons (see hopline-analysis.js).
   var CLUSTER_COLORS = ['#00d1b2', '#ff7aa2', '#ffd23f', '#7aa2ff', '#b58cff', '#ff9f43', '#6be675', '#e0e0e0'];
   var FLAG_NAME = { consolidation: 'CONSOL', batch: 'BATCH', coinjoin: 'COINJOIN?', peel: 'PEEL' };
 
@@ -3149,7 +3156,7 @@
     var g = state.graph; g.refreshDerived();
     var vis = F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt());
     if (!vis.nodes.size) { toast('Nothing on screen to put in a report.', true); return Promise.resolve(false); }
-    var an = analysis(), title = LB.cleanText($('reportTitle').value, 120) || 'Orion investigation report', by = LB.cleanText($('reportBy').value, 80);
+    var an = analysis(), title = LB.cleanText($('reportTitle').value, 120) || 'Hopline investigation report', by = LB.cleanText($('reportBy').value, 80);
     var base = JSON.parse(IO.toJson(g, { only: vis, view: viewState(), source: sourceBase() }));
     if (base.view) delete base.view.hidden;                                    // what you hid is not part of what is reported
     var atx = {};
@@ -3166,7 +3173,7 @@
     var loadedTx = base.nodes.filter(function (n) { return n.type === 'tx' && n.loaded; }).length;
     var groups = traceOn() ? Array.from(state.trace.groups.values()).map(reportGroup).filter(Boolean) : [];
     if (base.view && base.view.trace) { delete base.view.trace.groups; delete base.view.trace.seq; }              // the members of a group are not among this file's vertices: they are listed under groups instead
-    base.evidence = { generatedBy: 'Orion workspace', title: title, preparedBy: by, generated: new Date().toISOString(), source: sourceBase(), fiat: state.fiat,
+    base.evidence = { generatedBy: 'Hopline workspace', title: title, preparedBy: by, generated: new Date().toISOString(), source: sourceBase(), fiat: state.fiat,
                       counts: { nodes: base.nodes.length, edges: base.edges.length, transactionsLoaded: loadedTx },
                       analysis: { transactions: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped, thresholds: AN.DEFAULTS } };
     if (groups.length) base.evidence.groups = groups;
@@ -3176,7 +3183,7 @@
                   known: function (a) { return KNOWN[a] || null; }, fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {
-      download('orion-report-' + stamp() + '.html', r.html, 'text/html;charset=utf-8');
+      download('hopline-report-' + stamp() + '.html', r.html, 'text/html;charset=utf-8');
       toast('Report written: ' + plural(loadedTx, 'transaction') + ', ' + plural(base.edges.length, 'movement') + '. SHA-256 of its evidence: ' + r.hash.slice(0, 16) + '…', false);
       log('Report SHA-256 ' + r.hash);
       return true;
@@ -3189,7 +3196,7 @@
     if (kind === 'report') { $('exportMenu').open = false; doReport(); return; }
     g.refreshDerived();
     var only = $('exportVisible').checked ? F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()) : null;
-    var name = 'orion-' + stamp();
+    var name = 'hopline-' + stamp();
     if (fiatOn() && !fiatLoaded() && (kind === 'csv-edges' || kind === 'graphml')) toast('Prices are not loaded, so the fiat columns are empty.', true);
     if (kind === 'json') download(name + '.json', IO.toJson(g, { only: only, view: viewState(), source: sourceBase() }), 'application/json');
     else if (kind === 'csv-nodes') download(name + '-nodes.csv', '﻿' + IO.toCsv(g, 'nodes', { only: only, analysis: exportAnalysis() }), 'text/csv;charset=utf-8');
@@ -3279,7 +3286,7 @@
     if (!state.persist) return false;
     var raw = store.get(SAVE_KEY); if (!raw) return false;
     var meta; try { meta = JSON.parse(raw); } catch (e) { store.del(SAVE_KEY); return false; }
-    if (!meta || meta.format !== IO.FORMAT || !Array.isArray(meta.nodes) || !meta.nodes.length) return false;
+    if (!meta || !IO.isFormat(meta.format) || !Array.isArray(meta.nodes) || !meta.nodes.length) return false;
     $('restoreText').textContent = 'A saved session with ' + meta.nodes.length + ' vertices from ' + S.fmtTime(Date.parse(meta.exported) / 1000) + ' is stored in this browser.';
     $('restore').hidden = false;
     $('restoreYes').onclick = function () { $('restore').hidden = true; doImport(raw); };
@@ -3535,6 +3542,6 @@
     window.__booted = true;                                                    // the page started: the start-up error banner stays out of the way from here
   }
 
-  window.__orion = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, importPack: importPack, undoLoad: undoLoad, traceExpand: traceExpand, traceMakeGroup: traceMakeGroup, traceExpandGroup: traceExpandGroup, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
+  window.__hopline = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, importPack: importPack, undoLoad: undoLoad, traceExpand: traceExpand, traceMakeGroup: traceMakeGroup, traceExpandGroup: traceExpandGroup, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

@@ -18,24 +18,24 @@ def no_js_errors(errors):
 
 
 def drawn_texts(page):
-    return page.evaluate("""() => { const r = window.__orion.renderer, ctx = r.ctx, orig = ctx.fillText.bind(ctx), seen = [];
+    return page.evaluate("""() => { const r = window.__hopline.renderer, ctx = r.ctx, orig = ctx.fillText.bind(ctx), seen = [];
         ctx.fillText = (t, ...a) => { seen.push(String(t)); return orig(t, ...a); }; r.draw(); ctx.fillText = orig; return seen; }""")
 
 
 def shown(page):
-    return set(page.evaluate("() => [...window.__orion.renderer.data.visible.nodes]"))
+    return set(page.evaluate("() => [...window.__hopline.renderer.data.visible.nodes]"))
 
 
 def pos(page, id_):
-    return page.evaluate("(id) => { const p = window.__orion.renderer.positionOf(id); return p ? [Math.round(p.x), Math.round(p.y)] : null; }", id_)
+    return page.evaluate("(id) => { const p = window.__hopline.renderer.positionOf(id); return p ? [Math.round(p.x), Math.round(p.y)] : null; }", id_)
 
 
 def loaded(page):
-    return set(page.evaluate("() => [...window.__orion.state.graph.nodes.values()].filter(n => n.type === 'tx' && n.loaded).map(n => n.id)"))
+    return set(page.evaluate("() => [...window.__hopline.state.graph.nodes.values()].filter(n => n.type === 'tx' && n.loaded).map(n => n.id)"))
 
 
 def an(page):
-    return page.evaluate("""() => { const a = window.__orion.analysis();
+    return page.evaluate("""() => { const a = window.__hopline.analysis();
         return { flags: Object.fromEntries([...a.tx].map(([id, r]) => [id, r.flags.map(f => f.short)])), change: Object.fromEntries([...a.changeEdges].map(([id, c]) => [id, c.confidence])),
                  chains: a.chains.map(c => c.ids), clusters: a.clusters.list.map(c => ({ label: c.label, addrs: c.addrs, txs: c.txs })), skipped: a.clusters.skipped }; }""")
 
@@ -122,12 +122,12 @@ def test_the_likely_change_is_named_with_its_reasons_and_its_edge_is_marked(fpag
     insp = low(fpage, "#inspBody")
     assert "likely change" in insp and "output 1" in insp and "high confidence" in insp
     assert "also one of the inputs" in insp and "not a certainty" in insp
-    assert fpage.evaluate("(id) => window.__orion.renderer.data.edgeMark(window.__orion.state.graph.edges.get(id))", edge) == AMBER
-    assert fpage.evaluate("(id) => window.__orion.renderer.data.edgeMark(window.__orion.state.graph.edges.get(id))", "out:%s:0" % tid(40)) is None
-    assert "likely change" in fpage.evaluate("(id) => window.__orion.renderer.data.edgeLabel(window.__orion.state.graph.edges.get(id))", edge)
+    assert fpage.evaluate("(id) => window.__hopline.renderer.data.edgeMark(window.__hopline.state.graph.edges.get(id))", edge) == AMBER
+    assert fpage.evaluate("(id) => window.__hopline.renderer.data.edgeMark(window.__hopline.state.graph.edges.get(id))", "out:%s:0" % tid(40)) is None
+    assert "likely change" in fpage.evaluate("(id) => window.__hopline.renderer.data.edgeLabel(window.__hopline.state.graph.edges.get(id))", edge)
     assert "amber edge" in low(fpage, "#legend")
     fpage.uncheck("#anChange")
-    assert fpage.evaluate("(id) => window.__orion.renderer.data.edgeMark", edge) is None, "switched off: the canvas is not even asked"
+    assert fpage.evaluate("(id) => window.__hopline.renderer.data.edgeMark", edge) is None, "switched off: the canvas is not even asked"
     assert "amber edge" not in low(fpage, "#legend")
 
 
@@ -142,7 +142,7 @@ def test_select_the_change_output_from_the_details(fpage, mock):
     reuse_change(mock)
     open_query(fpage, tid(40))
     fpage.click("#inspBody button:has-text('Select that output')"); settle(fpage)
-    assert fpage.evaluate("() => [...window.__orion.state.selected]") == ["addr:" + addr("me")]
+    assert fpage.evaluate("() => [...window.__hopline.state.selected]") == ["addr:" + addr("me")]
 
 
 # ---------------------------------------------------------------- clusters
@@ -152,18 +152,18 @@ def test_addresses_spent_together_form_a_cluster_with_rings_a_list_and_details(f
     members = ["addr:" + addr("k%d" % i) for i in range(6)]
     a = an(fpage)
     assert len(a["clusters"]) == 1 and sorted(a["clusters"][0]["addrs"]) == sorted(members) and a["clusters"][0]["txs"] == [tid(30)]
-    colours = {fpage.evaluate("(id) => window.__orion.renderer.data.clusterColor(id)", m) for m in members}
+    colours = {fpage.evaluate("(id) => window.__hopline.renderer.data.clusterColor(id)", m) for m in members}
     assert len(colours) == 1 and None not in colours, "one colour for the whole cluster"
-    assert fpage.evaluate("(id) => window.__orion.renderer.data.clusterColor(id)", "addr:" + addr("sink")) is None
+    assert fpage.evaluate("(id) => window.__hopline.renderer.data.clusterColor(id)", "addr:" + addr("sink")) is None
     assert "c1 · 6 addresses" in low(fpage, "#anFindings")
     fpage.click("#anFindings button:has-text('C1')"); settle(fpage)
-    assert set(fpage.evaluate("() => [...window.__orion.state.selected]")) == set(members)
+    assert set(fpage.evaluate("() => [...window.__hopline.state.selected]")) == set(members)
     click_node(fpage, members[2]); settle(fpage)
     insp = low(fpage, "#inspBody")
     assert "cluster c1" in insp and "6 addresses were spent together in 1 transaction" in insp
     shot(fpage, "analysis_cluster.png")
     fpage.uncheck("#anClusters")
-    assert fpage.evaluate("() => window.__orion.renderer.data.clusterColor") is None
+    assert fpage.evaluate("() => window.__hopline.renderer.data.clusterColor") is None
 
 
 def test_right_click_selects_the_whole_cluster(fpage, mock):
@@ -171,7 +171,7 @@ def test_right_click_selects_the_whole_cluster(fpage, mock):
     open_query(fpage, tid(30))
     p = xy(fpage, "addr:" + addr("k1")); fpage.mouse.click(p["x"], p["y"], button="right")
     fpage.click("#ctxMenu >> text=Select its cluster (6)"); settle(fpage)
-    assert len(fpage.evaluate("() => [...window.__orion.state.selected]")) == 6
+    assert len(fpage.evaluate("() => [...window.__hopline.state.selected]")) == 6
 
 
 def test_a_transaction_can_be_excluded_from_clustering_and_it_is_remembered(fpage, mock):
@@ -183,7 +183,7 @@ def test_a_transaction_can_be_excluded_from_clustering_and_it_is_remembered(fpag
     assert a["clusters"] == [] and a["skipped"]["excluded"] == 1
     assert "not linked: you excluded" in low(fpage, "#inspBody")
     assert "1 you excluded" in low(fpage, "#anFindings")
-    assert '"noCluster": true' in fpage.evaluate("() => OrionIO.toJson(window.__orion.state.graph)"), "kept in the saved session and the export"
+    assert '"noCluster": true' in fpage.evaluate("() => HoplineIO.toJson(window.__hopline.state.graph)"), "kept in the saved session and the export"
     fpage.click("#inspBody button:has-text('Link them again')"); settle(fpage)
     assert len(an(fpage)["clusters"]) == 1
 
@@ -193,10 +193,10 @@ def test_the_exclusion_survives_a_reload_of_the_saved_session(fpage, mock):
     open_query(fpage, tid(30))
     fpage.click("#inspBody button:has-text('Not the same owner')"); settle(fpage)
     fpage.wait_for_timeout(1100)
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
-    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); settle(fpage)
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); settle(fpage)
     assert an(fpage)["clusters"] == []
-    assert fpage.evaluate("(id) => window.__orion.state.graph.nodes.get(id).noCluster", "tx:" + tid(30)) is True
+    assert fpage.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).noCluster", "tx:" + tid(30)) is True
 
 
 def test_a_cluster_can_be_tagged_all_at_once(fpage, mock):
@@ -204,9 +204,9 @@ def test_a_cluster_can_be_tagged_all_at_once(fpage, mock):
     open_query(fpage, tid(30))
     click_node(fpage, "addr:" + addr("k0")); settle(fpage)
     fpage.click("#inspBody button:has-text('Tag the cluster')"); settle(fpage)
-    assert fpage.evaluate("() => window.__orion.state.selected.size") == 6
+    assert fpage.evaluate("() => window.__hopline.state.selected.size") == 6
     fpage.select_option("#fTag", "EXCH"); settle(fpage)
-    tags = fpage.evaluate("() => [...window.__orion.state.graph.nodes.values()].filter(n => n.tag).map(n => n.id)")
+    tags = fpage.evaluate("() => [...window.__hopline.state.graph.nodes.values()].filter(n => n.tag).map(n => n.id)")
     assert sorted(tags) == sorted("addr:" + addr("k%d" % i) for i in range(6))
 
 
@@ -220,7 +220,7 @@ def test_a_run_of_single_coin_payments_is_a_possible_peel_chain(fpage, mock):
     assert a["flags"]["tx:" + tid(12)] == ["PEEL 3/6"]
     assert "p1 · 6 transactions" in low(fpage, "#anFindings") and "peel" in low(fpage, "#anFindings")
     assert "possible peel chains" in low(fpage, "#anFindings")
-    fpage.evaluate("(id) => window.__orion.navigate(id)", "tx:" + tid(12)); idle(fpage); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.navigate(id)", "tx:" + tid(12)); idle(fpage); settle(fpage)
     assert "step 3 of 6 in a possible peel chain (p1)" in low(fpage, "#inspBody")
 
 
@@ -305,8 +305,8 @@ def test_auto_expand_stops_at_a_labelled_wallet_unless_told_not_to(fpage, mock):
     peel_chain(mock, 6)
     open_query(fpage, tid(10))
     auto(fpage, hops=2, follow="largest")                                  # loads transactions 11 and 12, so the wallet 12 passes the rest to exists
-    fpage.evaluate("(id) => { const n = window.__orion.state.graph.nodes.get(id); n.tag = 'EXCH'; n.label = 'Some exchange'; }", "addr:" + addr("c12"))
-    fpage.evaluate("() => window.__orion.refresh()")
+    fpage.evaluate("(id) => { const n = window.__hopline.state.graph.nodes.get(id); n.tag = 'EXCH'; n.label = 'Some exchange'; }", "addr:" + addr("c12"))
+    fpage.evaluate("() => window.__hopline.refresh()")
     auto(fpage, hops=6, follow="largest")
     assert "tx:" + tid(12) in loaded(fpage) and "tx:" + tid(13) not in loaded(fpage), "it went on to the labelled wallet and stopped there"
     assert "reached a labelled wallet (Some exchange)" in toast_text(fpage)
@@ -332,7 +332,7 @@ def test_the_settings_are_remembered(fpage, mock):
     fpage.click("#autoDirSeg [data-dir=prev]")
     fpage.uncheck("#autoStopMix")
     fpage.uncheck("#anClusters")
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
     open_section(fpage, "autoSection")
     assert fpage.input_value("#autoHops") == "7" and fpage.input_value("#autoFollow") == "peel"
     assert fpage.get_attribute("#autoDirSeg [data-dir=prev]", "aria-checked") == "true" and not fpage.is_checked("#autoStopMix")
@@ -369,7 +369,7 @@ def test_a_wallet_can_be_the_start_and_its_history_is_loaded_when_nothing_is_kno
     mock.routes["/address/" + wallet + "/txs"] = [mock.routes["/tx/" + tid(72)]]
     open_query(fpage, tid(71))
     n = len(mock.requests)
-    fpage.evaluate("(id) => window.__orion.autoExpand(id, { dir: 'next', hops: 1, follow: 'largest' })", "addr:" + wallet)
+    fpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: 1, follow: 'largest' })", "addr:" + wallet)
     idle(fpage); settle(fpage)
     got = [p for _, p in mock.requests[n:]]
     assert "/address/" + wallet in got and "/address/" + wallet + "/txs" in got, "its history was asked for"
@@ -400,10 +400,10 @@ def test_a_trace_auto_expand_keeps_what_was_already_shown_where_it_was(fpage, mo
     peel_chain(mock, 6)
     open_query(fpage, tid(10))
     go_trace(fpage)
-    fpage.evaluate("(id) => window.__orion.traceExpand(id, 'next')", "tx:" + tid(10)); idle(fpage); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.traceExpand(id, 'next')", "tx:" + tid(10)); idle(fpage); settle(fpage)
     before = {i: pos(fpage, i) for i in shown(fpage)}
     assert len(before) == 3
-    fpage.evaluate("(id) => window.__orion.autoExpand(id, { dir: 'next', hops: 2, follow: 'largest' })", "addr:" + addr("c10")); idle(fpage); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: 2, follow: 'largest' })", "addr:" + addr("c10")); idle(fpage); settle(fpage)
     assert {i: pos(fpage, i) for i in before} == before
     assert "tx:" + tid(11) in shown(fpage) and "tx:" + tid(12) in shown(fpage)
 
@@ -412,7 +412,7 @@ def test_auto_expand_in_a_trace_needs_the_vertex_to_be_on_screen(fpage, mock):
     peel_chain(mock, 4)
     open_query(fpage, tid(10))
     go_trace(fpage)
-    fpage.evaluate("(id) => window.__orion.autoExpand(id)", "tx:" + tid(11))
+    fpage.evaluate("(id) => window.__hopline.autoExpand(id)", "tx:" + tid(11))
     idle(fpage)
     assert "not on screen" in toast_text(fpage)
 

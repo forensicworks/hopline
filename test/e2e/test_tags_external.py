@@ -31,7 +31,7 @@ def no_js_errors(errors):
 
 
 def node(page, id_):
-    return page.evaluate("(id) => window.__orion.state.graph.nodes.get(id)", id_)
+    return page.evaluate("(id) => window.__hopline.state.graph.nodes.get(id)", id_)
 
 
 def rclick(page, id_):
@@ -40,13 +40,13 @@ def rclick(page, id_):
 
 
 def drawn_texts(page):
-    return page.evaluate("""() => { const r = window.__orion.renderer, ctx = r.ctx, orig = ctx.fillText.bind(ctx), seen = [];
+    return page.evaluate("""() => { const r = window.__hopline.renderer, ctx = r.ctx, orig = ctx.fillText.bind(ctx), seen = [];
         ctx.fillText = (t, ...a) => { seen.push(String(t)); return orig(t, ...a); }; r.draw(); ctx.fillText = orig; return seen; }""")
 
 
 def select_only(page, id_):
     click_node(page, id_)
-    assert page.evaluate("() => [...window.__orion.state.selected]") == [id_]
+    assert page.evaluate("() => [...window.__hopline.state.selected]") == [id_]
 
 
 # ---------------------------------------------------------------- tags
@@ -56,7 +56,7 @@ def test_choosing_a_tag_sets_colour_shape_and_a_badge_on_the_graph(fpage):
     fpage.select_option("#fTag", "EXCH")
     n = node(fpage, BIG_ADDR)
     assert (n["tag"], n["color"], n["shape"]) == ("EXCH", "#2ecc71", "hexagon")
-    assert fpage.evaluate("(id) => window.__orion.renderer.data.style.nodeColor(window.__orion.state.graph.nodes.get(id))", BIG_ADDR) == "#2ecc71"
+    assert fpage.evaluate("(id) => window.__hopline.renderer.data.style.nodeColor(window.__hopline.state.graph.nodes.get(id))", BIG_ADDR) == "#2ecc71"
     assert "EXCH" in drawn_texts(fpage), "the badge is drawn above the vertex"
     assert "EXCH 1" in fpage.inner_text("#legend")
     assert fpage.input_value("#fColor") == "#2ecc71" and fpage.input_value("#fShape") == "hexagon"
@@ -105,14 +105,14 @@ def test_several_vertices_can_be_tagged_at_once_and_the_legend_selects_them(fpag
     open_query(fpage, NORMAL["txid"])
     click_node(fpage, BIG_ADDR); fpage.keyboard.down("Shift"); click_node(fpage, SMALL_ADDR); fpage.keyboard.up("Shift")
     # shift-click is handled as additive selection by the renderer
-    assert len(fpage.evaluate("() => [...window.__orion.state.selected]")) == 2
+    assert len(fpage.evaluate("() => [...window.__hopline.state.selected]")) == 2
     assert "tag all 2" in fpage.inner_text("#inspBody").lower()
     fpage.select_option("#fTag", "EXCH")
     assert node(fpage, BIG_ADDR)["tag"] == node(fpage, SMALL_ADDR)["tag"] == "EXCH"
     assert "EXCH 2" in fpage.inner_text("#legend")
     fpage.keyboard.press("Escape")
     fpage.locator("#legend .tagitem").first.click()
-    assert sorted(fpage.evaluate("() => [...window.__orion.state.selected]")) == sorted([BIG_ADDR, SMALL_ADDR])
+    assert sorted(fpage.evaluate("() => [...window.__hopline.state.selected]")) == sorted([BIG_ADDR, SMALL_ADDR])
 
 
 def test_tags_survive_reload_export_and_import(fpage, tmp_path):
@@ -134,11 +134,11 @@ def test_tags_survive_reload_export_and_import(fpage, tmp_path):
     row = next(r for r in rows[1:] if r[0] == BIG_ADDR)
     assert [row[rows[0].index(k)] for k in ("tag", "color", "shape")] == ["EXCH", "#abcdef", "hexagon"]
     fpage.wait_for_timeout(1000)
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
-    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); idle(fpage)
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); idle(fpage)
     assert node(fpage, BIG_ADDR)["tag"] == "EXCH" and node(fpage, BIG_ADDR)["color"] == "#abcdef"
     fpage.click("#btnClear"); fpage.click("#btnClear")
-    fpage.set_input_files("#fileImport", str(p)); fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); idle(fpage)
+    fpage.set_input_files("#fileImport", str(p)); fpage.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); idle(fpage)
     assert node(fpage, BIG_ADDR)["shape"] == "hexagon"
 
 
@@ -148,7 +148,7 @@ def test_the_tag_colour_wins_in_every_colour_mode(fpage):
     fpage.select_option("#fTag", "THREAT")
     for mode in ("age", "script", "type"):
         fpage.click("#colorSeg [data-color=%s]" % mode)
-        assert fpage.evaluate("(id) => window.__orion.renderer.data.style.nodeColor(window.__orion.state.graph.nodes.get(id))", BIG_ADDR) == "#ff4d4d", mode
+        assert fpage.evaluate("(id) => window.__hopline.renderer.data.style.nodeColor(window.__hopline.state.graph.nodes.get(id))", BIG_ADDR) == "#ff4d4d", mode
 
 
 # ---------------------------------------------------------------- right-click menu
@@ -156,7 +156,7 @@ def test_right_click_a_wallet_opens_its_menu_and_selects_it(fpage):
     open_query(fpage, NORMAL["txid"])
     rclick(fpage, BIG_ADDR)
     assert fpage.is_visible("#ctxMenu")
-    assert fpage.evaluate("() => [...window.__orion.state.selected]") == [BIG_ADDR]
+    assert fpage.evaluate("() => [...window.__hopline.state.selected]") == [BIG_ADDR]
     items = fpage.locator("#ctxMenu [role=menuitem]").all_inner_texts()
     joined = " | ".join(items)
     for want in ("Focus here", "Load history", "Look up in Arkham", "Tag as", "Copy address", "Open in explorer", "Remove from view"):
@@ -189,7 +189,7 @@ def test_menu_for_a_transaction_and_for_several_vertices_and_for_the_background(
     settle(fpage)                                                          # Escape also hid the details panel: the canvas widens and refits
     click_node(fpage, BIG_ADDR); settle(fpage)                             # ... and the first click opens it again
     fpage.keyboard.down("Shift"); click_node(fpage, SMALL_ADDR); fpage.keyboard.up("Shift")
-    assert len(fpage.evaluate("() => [...window.__orion.state.selected]")) == 2
+    assert len(fpage.evaluate("() => [...window.__hopline.state.selected]")) == 2
     rclick(fpage, SMALL_ADDR)
     t = fpage.inner_text("#ctxMenu")
     assert "2 selected" in t.lower() and "Remove 2 from view" in t and "Look up" not in t and "Load history" not in t, "no look-up for a group"
@@ -239,11 +239,11 @@ class Proxy:
 
     def handle(self, route):
         req = route.request
-        cors = {"access-control-allow-origin": "*", "access-control-allow-headers": "X-Orion-Token, Accept", "access-control-allow-methods": "GET, OPTIONS",
+        cors = {"access-control-allow-origin": "*", "access-control-allow-headers": "X-Hopline-Token, Accept", "access-control-allow-methods": "GET, OPTIONS",
                 "access-control-allow-private-network": "true"}
         if req.method == "OPTIONS":
             return route.fulfill(status=204, headers=cors)
-        self.requests.append((req.url, req.headers.get("x-orion-token")))
+        self.requests.append((req.url, req.headers.get("x-hopline-token")))
         if req.url.endswith("/health"):
             return route.fulfill(status=200, headers=cors, content_type="application/json", body=json.dumps({"ok": True, "keyConfigured": True, "upstream": "https://api.arkm.com"}))
         route.fulfill(status=self.status, headers=cors, content_type="application/json", body=json.dumps(self.body))
@@ -266,7 +266,7 @@ def test_nothing_is_ever_looked_up_unless_you_ask(fpage, arkham):
     set_up_proxy(fpage)
     fpage.wait_for_timeout(500)
     assert arkham.requests == []
-    assert fpage.evaluate("() => [...window.__orion.state.graph.nodes.values()].some(n => n.ext)") is False
+    assert fpage.evaluate("() => [...window.__hopline.state.graph.nodes.values()].some(n => n.ext)") is False
 
 
 def test_the_lookup_needs_the_proxy_to_be_set_up_and_says_how(fpage, arkham):
@@ -292,12 +292,12 @@ def test_lookup_asks_once_for_consent_sends_the_token_and_shows_the_result(fpage
 
 def test_a_lookup_result_is_shown_and_can_be_applied_by_choice(ctx, errors, arkham):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e))); p.on("dialog", lambda d: d.accept())
-    p.goto(PAGE_URL); p.wait_for_function("window.__orion && window.__orion.renderer")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
     open_query(p, NORMAL["txid"])
     set_up_proxy(p, "tok123")
     select_only(p, BIG_ADDR)
     p.click("#btnArkham")
-    p.wait_for_function("(id) => !!window.__orion.state.graph.nodes.get(id).ext", arg=BIG_ADDR)
+    p.wait_for_function("(id) => !!window.__hopline.state.graph.nodes.get(id).ext", arg=BIG_ADDR)
     assert arkham.requests == [("http://127.0.0.1:8787/intelligence/address/" + BIG_ADDR[5:], "tok123")]
     card = p.inner_text("#inspBody .extcard")
     assert "Binance" in card and "cex" in card and "Hot Wallet" in card and "CEX" in card
@@ -308,7 +308,7 @@ def test_a_lookup_result_is_shown_and_can_be_applied_by_choice(ctx, errors, arkh
     p.click("button:has-text('Tag as EXCH')")
     assert node(p, BIG_ADDR)["tag"] == "EXCH"
     assert "Raw reply" in p.inner_text("#inspBody .extcard")
-    assert p.evaluate("(id) => !!window.__orion.state.graph.nodes.get(id).ext.arkham.raw", BIG_ADDR)
+    assert p.evaluate("(id) => !!window.__hopline.state.graph.nodes.get(id).ext.arkham.raw", BIG_ADDR)
     # the wallet is marked on the graph, a second lookup does not ask for consent again
     p.click("#btnArkham"); p.wait_for_function("() => true")
     p.click("text=Remove result")
@@ -318,7 +318,7 @@ def test_a_lookup_result_is_shown_and_can_be_applied_by_choice(ctx, errors, arkh
 
 def test_lookup_errors_are_explained(ctx, errors, arkham):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e))); p.on("dialog", lambda d: d.accept())
-    p.goto(PAGE_URL); p.wait_for_function("window.__orion && window.__orion.renderer")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
     open_query(p, NORMAL["txid"]); set_up_proxy(p); select_only(p, BIG_ADDR)
     for status, body, expect in [(401, {"error": "missing or wrong token"}, "token"), (502, {"error": "Arkham rejected the API key (HTTP 401)"}, "API key"),
                                  (429, {"error": "slow down"}, "slow down"), (500, {"error": "boom"}, "boom")]:
@@ -337,7 +337,7 @@ def test_lookup_errors_are_explained(ctx, errors, arkham):
 def test_a_proxy_that_is_not_running_is_explained(ctx, errors):
     ctx.route(re.compile(r"^http://127\.0\.0\.1:8787/"), lambda r: r.abort("connectionrefused"))
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e))); p.on("dialog", lambda d: d.accept())
-    p.goto(PAGE_URL); p.wait_for_function("window.__orion && window.__orion.renderer")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
     open_query(p, NORMAL["txid"]); set_up_proxy(p); select_only(p, BIG_ADDR)
     p.click("#btnArkham")
     p.wait_for_function("() => /arkham_proxy/.test(document.getElementById('toast').textContent)")
@@ -358,7 +358,7 @@ def test_only_wallets_can_be_looked_up(fpage, arkham):
     open_query(fpage, NORMAL["txid"]); set_up_proxy(fpage)
     select_only(fpage, NORMAL_ID)
     assert fpage.locator("#btnArkham").count() == 0
-    fpage.evaluate("(id) => window.__orion.lookupArkham(id)", NORMAL_ID)
+    fpage.evaluate("(id) => window.__hopline.lookupArkham(id)", NORMAL_ID)
     assert "wallet" in toast_text(fpage).lower() and arkham.requests == []
 
 
@@ -371,18 +371,18 @@ def test_proxy_settings_are_checked_and_the_token_is_only_kept_if_asked(fpage):
     fpage.fill("#arkUrl", "http://localhost:9000"); fpage.dispatch_event("#arkUrl", "change")
     assert fpage.input_value("#arkUrl") == "http://localhost:9000"
     fpage.fill("#arkToken", "secret-token")
-    assert fpage.evaluate("() => localStorage.getItem('orion.ext.token')") is None, "session only by default"
+    assert fpage.evaluate("() => localStorage.getItem('hopline.ext.token')") is None, "session only by default"
     fpage.check("#arkRemember")
-    assert fpage.evaluate("() => localStorage.getItem('orion.ext.token')") == "secret-token"
+    assert fpage.evaluate("() => localStorage.getItem('hopline.ext.token')") == "secret-token"
     fpage.uncheck("#arkRemember")
-    assert fpage.evaluate("() => localStorage.getItem('orion.ext.token')") is None
+    assert fpage.evaluate("() => localStorage.getItem('hopline.ext.token')") is None
     assert "secret-token" not in fpage.evaluate("() => JSON.stringify(Object.assign({}, localStorage))")
 
 
 def test_lookup_results_are_exported_with_the_workspace(fpage, arkham, tmp_path):
     fpage.on("dialog", lambda d: d.accept())
     open_query(fpage, NORMAL["txid"]); set_up_proxy(fpage); select_only(fpage, BIG_ADDR)
-    fpage.click("#btnArkham"); fpage.wait_for_function("(id) => !!window.__orion.state.graph.nodes.get(id).ext", arg=BIG_ADDR)
+    fpage.click("#btnArkham"); fpage.wait_for_function("(id) => !!window.__hopline.state.graph.nodes.get(id).ext", arg=BIG_ADDR)
     fpage.click("#exportMenu summary")
     with fpage.expect_download() as dl:
         fpage.click("[data-export=csv-nodes]")
@@ -420,7 +420,7 @@ def test_the_real_proxy_works_with_the_real_page_and_the_key_never_reaches_the_p
     port = srv.server_address[1]
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e))); p.on("dialog", lambda d: d.accept())
     try:
-        p.goto(PAGE_URL); p.wait_for_function("window.__orion && window.__orion.renderer")
+        p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
         open_query(p, NORMAL["txid"])
         p.click("summary:has-text('External sources')")
         p.fill("#arkUrl", "http://127.0.0.1:%d" % port); p.dispatch_event("#arkUrl", "change")
@@ -433,11 +433,11 @@ def test_the_real_proxy_works_with_the_real_page_and_the_key_never_reaches_the_p
         assert "API key configured" in p.inner_text("#arkResult")
         select_only(p, BIG_ADDR)
         p.click("#btnArkham")
-        p.wait_for_function("(id) => !!window.__orion.state.graph.nodes.get(id).ext", arg=BIG_ADDR)
+        p.wait_for_function("(id) => !!window.__hopline.state.graph.nodes.get(id).ext", arg=BIG_ADDR)
         assert "Binance" in p.inner_text("#inspBody .extcard")
         assert FakeUpstream.seen == [("/intelligence/address/" + BIG_ADDR[5:], "REAL-KEY-123")]
         # the key lives in the proxy only
-        page_state = p.evaluate("() => document.documentElement.outerHTML + JSON.stringify(Object.assign({}, localStorage)) + JSON.stringify(window.__orion.state.graph.toData())")
+        page_state = p.evaluate("() => document.documentElement.outerHTML + JSON.stringify(Object.assign({}, localStorage)) + JSON.stringify(window.__hopline.state.graph.toData())")
         assert "REAL-KEY-123" not in page_state
     finally:
         p.close(); srv.shutdown(); srv.server_close(); up.shutdown(); up.server_close()

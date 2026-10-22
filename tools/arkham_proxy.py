@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local lookup proxy: lets the Orion workspace ask Arkham Intelligence about ONE wallet at a time.
+"""Local lookup proxy: lets the Hopline workspace ask Arkham Intelligence about ONE wallet at a time.
 
 Why it exists: Arkham's API sends no CORS headers, so a web page cannot call it, and an API key must not be placed in a
 web page anyway. This small program runs on your own machine, keeps the key in an environment variable and forwards
@@ -12,7 +12,7 @@ It prints a proxy URL and a token. In the workspace open Controls > External sou
 
 What it will and will not do
   * listens on 127.0.0.1 only (no option to listen elsewhere);
-  * answers only  GET /health  and  GET /intelligence/address/<address>  and only with the right X-Orion-Token header,
+  * answers only  GET /health  and  GET /intelligence/address/<address>  and only with the right X-Hopline-Token header,
     so a web page you happen to visit cannot use your key or learn anything from it;
   * sends the key to the upstream only, never logs it, never returns it, refuses a plain-http upstream (except loopback,
     for tests) so the key cannot travel in the clear;
@@ -60,7 +60,7 @@ class Config:
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    server_version = "orion-arkham-proxy/1"
+    server_version = "hopline-arkham-proxy/1"
     protocol_version = "HTTP/1.1"
 
     # -- plumbing -------------------------------------------------------------------------------
@@ -73,7 +73,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")           # the token, not the origin, is what protects it
-        self.send_header("Access-Control-Allow-Headers", "X-Orion-Token, Accept, Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "X-Hopline-Token, Accept, Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Private-Network", "true")
         self.send_header("Access-Control-Max-Age", "600")
@@ -92,7 +92,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def token_ok(self):
-        given = self.headers.get("X-Orion-Token", "")
+        given = self.headers.get("X-Hopline-Token", "")
         return hmac.compare_digest(given.encode("utf-8"), self.cfg.token.encode("utf-8"))
 
     # -- methods --------------------------------------------------------------------------------
@@ -150,7 +150,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def ask_upstream(self, address):
         cfg = self.cfg
         req = urllib.request.Request(cfg.upstream + "/intelligence/address/" + urllib.parse.quote(address, safe=""),
-                                     headers={"API-Key": cfg.key, "Accept": "application/json", "User-Agent": "orion-arkham-proxy/1"})
+                                     headers={"API-Key": cfg.key, "Accept": "application/json", "User-Agent": "hopline-arkham-proxy/1"})
 
         def err(status, message, extra=None):
             return status, json.dumps({"error": message}).encode("utf-8"), extra or {}
@@ -199,9 +199,9 @@ def make_server(port, key, token, upstream=DEFAULT_UPSTREAM, cache_seconds=3600,
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Local lookup proxy for the Orion workspace (see the top of this file).")
+    ap = argparse.ArgumentParser(description="Local lookup proxy for the Hopline workspace (see the top of this file).")
     ap.add_argument("--port", type=int, default=8787, help="port on 127.0.0.1 (default 8787; 0 = pick a free one)")
-    ap.add_argument("--token", default=os.environ.get("ORION_PROXY_TOKEN"), help="token the page must send (default: random each start; or env ORION_PROXY_TOKEN)")
+    ap.add_argument("--token", default=os.environ.get("HOPLINE_PROXY_TOKEN") or os.environ.get("ORION_PROXY_TOKEN"), help="token the page must send (default: random each start; or env HOPLINE_PROXY_TOKEN)")
     ap.add_argument("--upstream", default=DEFAULT_UPSTREAM, help="Arkham API base URL (default %(default)s)")
     ap.add_argument("--cache-minutes", type=float, default=60, help="how long to remember an answer (default 60)")
     ap.add_argument("--max-per-minute", type=int, default=30, help="most requests per minute sent to Arkham (default 30)")
@@ -213,7 +213,7 @@ def main(argv=None):
     except ValueError as e:
         sys.exit("arkham_proxy: %s" % e)
     port = srv.server_address[1]
-    print("Orion Arkham proxy is running. The API key is read from ARKHAM_API_KEY and is never shown or sent anywhere but %s." % srv.cfg.upstream)
+    print("Hopline Arkham proxy is running. The API key is read from ARKHAM_API_KEY and is never shown or sent anywhere but %s." % srv.cfg.upstream)
     print("  Proxy URL : http://127.0.0.1:%d" % port)
     print("  Token     : %s" % token)
     print("Enter both in the workspace under Controls > External sources. Ctrl+C stops it.", flush=True)

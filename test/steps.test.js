@@ -3,9 +3,9 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { Graph, ID } = require('../public/js/orion-model.js');
-const Steps = require('../public/js/orion-steps.js');
-const S = require('../public/js/orion-style.js');
+const { Graph, ID } = require('../public/js/hopline-model.js');
+const Steps = require('../public/js/hopline-steps.js');
+const S = require('../public/js/hopline-style.js');
 
 const fx = (n) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8'));
 

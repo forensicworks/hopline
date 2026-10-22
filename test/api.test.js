@@ -3,8 +3,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { Graph, ID } = require('../public/js/orion-model.js');
-const { Client, Explorer, PRESETS, ONION, isTxid } = require('../public/js/orion-api.js');
+const { Graph, ID } = require('../public/js/hopline-model.js');
+const { Client, Explorer, PRESETS, ONION, isTxid } = require('../public/js/hopline-api.js');
 
 const fx = (n) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8'));
 const NORMAL = fx('tx_normal.json'), OUTSP = fx('outspends_normal.json');
@@ -301,7 +301,7 @@ test('cached responses expire after the TTL so an unconfirmed tx can be seen con
 });
 
 test('normaliseQuery: bech32 is case-insensitive so it is lower-cased, base58 is case-sensitive so it is not', () => {
-  const { normaliseQuery } = require('../public/js/orion-api.js');
+  const { normaliseQuery } = require('../public/js/hopline-api.js');
   const lower = 'bc1qdg78fm9gjwwywsh3545qp4us4rpyrclm9v8udq';
   assert.deepEqual(normaliseQuery('Bc1qdg78fm9gjwwywsh3545qp4us4rpyrclm9v8udq'), { kind: 'addr', value: lower }, 'autocorrected first capital');
   assert.deepEqual(normaliseQuery(lower.toUpperCase()), { kind: 'addr', value: lower });
@@ -334,7 +334,7 @@ test('a rejected address is reported once, clearly, with a single request', asyn
 });
 
 test('checkQuery: right case, understands pasted explorer links, and checks the address locally', () => {
-  const { checkQuery, normaliseQuery } = require('../public/js/orion-api.js');
+  const { checkQuery, normaliseQuery } = require('../public/js/hopline-api.js');
   const good = 'bc1qdg78fm9gjwwywsh3545qp4us4rpyrclm9v8udq';
   assert.deepEqual(checkQuery('Bc1qdg78fm9gjwwywsh3545qp4us4rpyrclm9v8udq'), { ok: true, kind: 'addr', value: good });
   assert.deepEqual(checkQuery(good.toUpperCase()), { ok: true, kind: 'addr', value: good });
@@ -354,7 +354,7 @@ test('checkQuery: right case, understands pasted explorer links, and checks the 
 });
 
 test('presets: Blockstream.info is an Esplora source with its own gentler limits; prices come from mempool where it has none', () => {
-  const { PRESETS, ONION } = require('../public/js/orion-api.js');
+  const { PRESETS, ONION } = require('../public/js/hopline-api.js');
   assert.equal(PRESETS.blockstream.base, 'https://blockstream.info/api');
   assert.equal(PRESETS.blockstream.prices, 'https://mempool.space/api');
   assert.ok(PRESETS.blockstream.concurrency <= PRESETS.clearnet.concurrency && PRESETS.blockstream.delayMs >= PRESETS.clearnet.delayMs);
@@ -418,7 +418,7 @@ test('expanding an address records its totals as well as its history', async () 
 });
 
 test('buildClient: the pacing and the backup that go with a saved source choice, and never a backup for Tor or your own server', () => {
-  const m = require('../public/js/orion-api.js');
+  const m = require('../public/js/hopline-api.js');
   const a = m.buildClient({ source: 'clearnet', fallback: true });
   assert.equal(a.base, PRESETS.clearnet.base); assert.equal(a.backup.base, PRESETS.blockstream.base); assert.equal(a.concurrency, PRESETS.clearnet.concurrency);
   assert.equal(m.buildClient({ source: 'blockstream' }).backup.base, PRESETS.clearnet.base, 'the other way round');

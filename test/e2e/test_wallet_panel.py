@@ -85,8 +85,8 @@ def test_the_tags_follow_what_the_transaction_did_to_the_wallet_net_of_change(fp
 def test_each_row_says_who_is_on_the_other_side(fpage, mock):
     wallet(mock)
     open_query(fpage, W)
-    fpage.evaluate("([id, label]) => { window.__orion.state.graph.nodes.get(id).label = label; window.__orion.refresh(); }", ["addr:" + addr("payer1"), "Alice <img src=x onerror=window.__pwned=1>"])
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("([id, label]) => { window.__hopline.state.graph.nodes.get(id).label = label; window.__hopline.refresh(); }", ["addr:" + addr("payer1"), "Alice <img src=x onerror=window.__pwned=1>"])
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     inn = fpage.locator("#inspBody .walletsec .linkrow[title^='tx:%s']" % tid(111)).inner_text()
     assert "from Alice <img src=x onerror=window.__pwned=1>" in inn, "a label is shown as text, never as markup"
     assert fpage.evaluate("() => window.__pwned") is None and fpage.locator("#inspBody img").count() == 0
@@ -117,8 +117,8 @@ def test_the_choice_is_kept_when_another_wallet_is_looked_at(fpage, mock):
     wallet(mock)
     open_query(fpage, W)
     fpage.click("#inspBody .walletseg [data-dir=out]")
-    fpage.evaluate("(id) => window.__orion.setSel([id])", "tx:" + tid(110)); settle(fpage)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", "tx:" + tid(110)); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     assert tags(fpage) == ["↑ out"] * 7
 
 
@@ -134,9 +134,9 @@ def test_newest_first_by_default_and_largest_first_on_request(fpage, mock):
 
 def test_a_long_list_is_paged_not_dropped(fpage, mock):
     # 45 transactions paying one wallet, added straight to the graph (no history paging involved); small amounts would fold into a group, so grouping is off here
-    fpage.evaluate("() => { window.__orion.state.groupRows = false; }")
+    fpage.evaluate("() => { window.__hopline.state.groupRows = false; }")
     fpage.evaluate("""() => {
-      const g = window.__orion.state.graph, w = 'bc1qbig' + 'x'.repeat(13);
+      const g = window.__hopline.state.graph, w = 'bc1qbig' + 'x'.repeat(13);
       for (let i = 0; i < 45; i++) {
         const txid = (i < 16 ? '0' : '') + (i + 1).toString(16) + (((i + 1) * 7) % 256).toString(16).padStart(2, '0') ;
         const id = txid.padEnd(64, 'a').slice(0, 64);
@@ -145,7 +145,7 @@ def test_a_long_list_is_paged_not_dropped(fpage, mock):
                   vout: [{ scriptpubkey_address: w, scriptpubkey_type: 'v0_p2wpkh', value: 9000 + i }] });
       }
       g.refreshDerived();
-      window.__orion.navigate('addr:' + w, { light: true });
+      window.__hopline.navigate('addr:' + w, { light: true });
     }""")
     idle(fpage); settle(fpage)
     assert rows(fpage).count() == 40 and "(45)" in fpage.inner_text("#inspBody")
@@ -159,28 +159,28 @@ def test_the_row_under_the_pointer_is_outlined_on_the_graph(fpage, mock):
     wallet(mock)
     open_query(fpage, W)
     fpage.locator("#inspBody .walletsec .rowcopy").nth(1).hover()
-    assert fpage.evaluate("() => window.__orion.renderer.highlight") == titles(fpage)[1]
+    assert fpage.evaluate("() => window.__hopline.renderer.highlight") == titles(fpage)[1]
     fpage.mouse.move(5, 5)
-    assert fpage.evaluate("() => window.__orion.renderer.highlight") is None
+    assert fpage.evaluate("() => window.__hopline.renderer.highlight") is None
 
 
 def test_clicking_a_row_still_moves_the_focus_there(fpage, mock):
     wallet(mock)
     open_query(fpage, W)
     fpage.locator("#inspBody .walletsec .linkrow[title='tx:%s']" % tid(110)).click()
-    fpage.wait_for_function("(id) => window.__orion.state.focus === id", arg="tx:" + tid(110)); idle(fpage)
+    fpage.wait_for_function("(id) => window.__hopline.state.focus === id", arg="tx:" + tid(110)); idle(fpage)
 
 
 def test_in_the_trace_a_row_not_yet_shown_can_be_put_on_it_one_at_a_time(fpage, mock):
     wallet(mock)
     open_query(fpage, W)
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     assert fpage.locator("#inspBody .walletsec .showbtn").count() == 21, "nothing but the wallet is on the trace yet"
     assert fpage.locator("#inspBody .walletsec .rowcopy.off").count() == 21
     row = fpage.locator("#inspBody .walletsec .rowcopy:has(.linkrow[title^='tx:%s'])" % tid(121))
     row.locator(".showbtn").click(); idle(fpage); settle(fpage)
-    shown = set(fpage.evaluate("() => [...window.__orion.renderer.data.visible.nodes]"))
+    shown = set(fpage.evaluate("() => [...window.__hopline.renderer.data.visible.nodes]"))
     assert {W_ID, "tx:" + tid(121), "addr:" + addr("shop")} <= shown
     assert "tx:" + tid(120) not in shown and "tx:" + tid(110) not in shown, "only the chosen transaction came"
     assert fpage.locator("#inspBody .walletsec .showbtn").count() == 20
@@ -191,11 +191,11 @@ def test_in_the_trace_an_incoming_row_is_brought_in_from_behind(fpage, mock):
     wallet(mock)
     open_query(fpage, W)
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     fpage.locator("#inspBody .walletsec .rowcopy:has(.linkrow[title^='tx:%s']) .showbtn" % tid(111)).click(); idle(fpage); settle(fpage)
-    shown = set(fpage.evaluate("() => [...window.__orion.renderer.data.visible.nodes]"))
+    shown = set(fpage.evaluate("() => [...window.__hopline.renderer.data.visible.nodes]"))
     assert "tx:" + tid(111) in shown and "addr:" + addr("payer1") in shown, "the transaction and the wallet that paid"
-    pos = lambda i: fpage.evaluate("(id) => window.__orion.renderer.positionOf(id).x", i)
+    pos = lambda i: fpage.evaluate("(id) => window.__hopline.renderer.positionOf(id).x", i)
     assert pos("tx:" + tid(111)) < pos(W_ID), "it sits to the left: it came before"
 
 

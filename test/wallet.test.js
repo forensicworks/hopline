@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const Wallet = require('../public/js/orion-wallet.js');
+const Wallet = require('../public/js/hopline-wallet.js');
 
 const ME = 'bc1qme000000000000000000000000000000000';
 const tid = (n) => ('0' + n.toString(16)).slice(-2).repeat(32);

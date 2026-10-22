@@ -2,9 +2,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const nodeCrypto = require('node:crypto');
-const { Graph, ID } = require('../public/js/orion-model.js');
-const An = require('../public/js/orion-analysis.js');
-const RP = require('../public/js/orion-report.js');
+const { Graph, ID } = require('../public/js/hopline-model.js');
+const An = require('../public/js/hopline-analysis.js');
+const RP = require('../public/js/hopline-report.js');
 
 const tid = (n) => ('0' + n.toString(16)).slice(-2).repeat(32);
 const sha = (s) => nodeCrypto.createHash('sha256').update(s, 'utf8').digest('hex');
@@ -35,7 +35,7 @@ function modelOf(g, over) {
   const nodes = JSON.parse(JSON.stringify(Array.from(g.nodes.values()))), edges = JSON.parse(JSON.stringify(Array.from(g.edges.values())));
   return Object.assign({
     title: 'Case 12', preparedBy: 'A. Analyst', generated: 1700000100000, nodes, edges,
-    evidence: { format: 'orion-workspace', version: 1, nodes, edges, evidence: { counts: { nodes: nodes.length, edges: edges.length } } },
+    evidence: { format: 'hopline-workspace', version: 1, nodes, edges, evidence: { counts: { nodes: nodes.length, edges: edges.length } } },
     analysis: { tx: atx, chains: [], clusters: an.clusters.list.map((c) => ({ label: c.label, size: c.size, addrs: c.addrs, txs: c.txs })), skipped: an.clusters.skipped },
     known: () => null, fiat: null, fiatNote: '', image: null, fingerprint: (n) => (An.fingerprint(n) || {}).text || ''
   }, over);
@@ -69,15 +69,15 @@ test('every word that came from outside is escaped; the only script is the inert
   assert.ok(!/<img src=x/.test(r.html) && !/<svg onload/.test(r.html) && !/<b>Case/.test(r.html) && !/<i>me/.test(r.html) && !/<u>note/.test(r.html) && !/<b>pack/.test(r.html));
   assert.ok(r.html.includes('&lt;img src=x onerror=alert(1)&gt;Suspect') && r.html.includes('&lt;b&gt;Case&lt;/b&gt; &amp; &quot;quotes&quot;'));
   const scripts = r.html.match(/<script[\s>]/g) || [];
-  assert.equal(scripts.length, 1); assert.match(r.html, /<script type="application\/json" id="orion-evidence">/);
-  const block = /<script type="application\/json" id="orion-evidence">(.*?)<\/script>/s.exec(r.html)[1];
+  assert.equal(scripts.length, 1); assert.match(r.html, /<script type="application\/json" id="hopline-evidence">/);
+  const block = /<script type="application\/json" id="hopline-evidence">(.*?)<\/script>/s.exec(r.html)[1];
   assert.ok(!block.includes('<') && !block.includes('>'), 'no markup characters inside the data block');
   assert.equal(JSON.parse(block).nodes.find((x) => x.id === 'addr:me').note, '</script><script>alert(2)</script>', 'and it still reads back exactly');
 });
 
 test('the stated hashes are right: the evidence block, and the whole file with the document hash zeroed', async () => {
   const r = await RP.build(modelOf(sample()));
-  const block = /<script type="application\/json" id="orion-evidence">(.*?)<\/script>/s.exec(r.html)[1];
+  const block = /<script type="application\/json" id="hopline-evidence">(.*?)<\/script>/s.exec(r.html)[1];
   assert.equal(block, r.text); assert.equal(sha(block), r.hash);
   assert.match(r.html, new RegExp('id="evidence-hash">' + r.hash + '<'));
   assert.match(r.html, new RegExp('id="document-hash">' + r.docHash + '<'));
@@ -103,9 +103,9 @@ test('a long list is cut with a note while the embedded data keeps everything; a
   g.refreshDerived();
   const m = modelOf(g), r = await RP.build(m);
   assert.equal((r.html.match(/<section class="tx"/g) || []).length, 500); assert.match(r.html, /Only the first 500 of 520 are listed/);
-  assert.equal(JSON.parse(/<script type="application\/json" id="orion-evidence">(.*?)<\/script>/s.exec(r.html)[1]).nodes.filter((x) => x.type === 'tx' && x.loaded).length, 520);
+  assert.equal(JSON.parse(/<script type="application\/json" id="hopline-evidence">(.*?)<\/script>/s.exec(r.html)[1]).nodes.filter((x) => x.type === 'tx' && x.loaded).length, 520);
   const empty = await RP.build({ title: '', generated: 0, nodes: [], edges: [], evidence: { nodes: [], edges: [] }, analysis: null });
-  assert.match(empty.html, /No loaded transaction in this selection/); assert.match(empty.html, /Orion investigation report/);
+  assert.match(empty.html, /No loaded transaction in this selection/); assert.match(empty.html, /Hopline investigation report/);
 });
 
 test('known wallets, tags and notes get their own table, with the pack named', async () => {

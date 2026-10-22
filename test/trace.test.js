@@ -3,8 +3,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { Graph, ID } = require('../public/js/orion-model.js');
-const TR = require('../public/js/orion-trace.js');
+const { Graph, ID } = require('../public/js/hopline-model.js');
+const TR = require('../public/js/hopline-trace.js');
 
 const fx = (n) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8'));
 

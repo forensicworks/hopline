@@ -29,7 +29,7 @@ def copied(page):
 
 
 def select(page, ids):
-    page.evaluate("(ids) => window.__orion.setSel(ids)", ids); settle(page)
+    page.evaluate("(ids) => window.__hopline.setSel(ids)", ids); settle(page)
 
 
 def opened(fpage):
@@ -49,7 +49,7 @@ def test_the_transaction_header_has_a_copy_icon_that_copies_the_full_id(fpage):
 
 def test_the_address_header_copies_the_address_and_not_its_label(fpage):
     opened(fpage)
-    fpage.evaluate("([id, label]) => { window.__orion.state.graph.nodes.get(id).label = label; window.__orion.refresh(); }", ["addr:" + BIG_ADDR, "Alice <b>exchange</b>"])
+    fpage.evaluate("([id, label]) => { window.__hopline.state.graph.nodes.get(id).label = label; window.__hopline.refresh(); }", ["addr:" + BIG_ADDR, "Alice <b>exchange</b>"])
     select(fpage, ["addr:" + BIG_ADDR])
     fpage.click("#inspBody .idrow .copybtn")
     assert copied(fpage) == [BIG_ADDR]
@@ -68,8 +68,8 @@ def test_every_address_and_transaction_in_the_lists_has_its_own_icon(fpage):
         row_title = rows.nth(i).locator(".linkrow").get_attribute("title").split(" ")[0]
         rows.nth(i).locator(".copybtn").click()
         assert copied(fpage)[-1] == row_title.split(":", 1)[1]
-    assert fpage.evaluate("() => [...window.__orion.state.selected]") == [NORMAL_ID], "copying is not a click on the row"
-    assert fpage.evaluate("() => window.__orion.state.focus") == NORMAL_ID
+    assert fpage.evaluate("() => [...window.__hopline.state.selected]") == [NORMAL_ID], "copying is not a click on the row"
+    assert fpage.evaluate("() => window.__hopline.state.focus") == NORMAL_ID
 
 
 def test_the_bar_under_the_graph_copies_the_vertex_it_shows(fpage):
@@ -77,7 +77,7 @@ def test_the_bar_under_the_graph_copies_the_vertex_it_shows(fpage):
     assert fpage.is_visible("#stepCopy") and fpage.get_attribute("#stepCopy", "title") == "Copy transaction id"
     fpage.click("#stepCopy")
     assert copied(fpage) == [NORMAL["txid"]]
-    fpage.evaluate("(id) => window.__orion.navigate(id, { light: true })", "addr:" + BIG_ADDR); idle(fpage); settle(fpage)       # light: no history request, the mock has none for it
+    fpage.evaluate("(id) => window.__hopline.navigate(id, { light: true })", "addr:" + BIG_ADDR); idle(fpage); settle(fpage)       # light: no history request, the mock has none for it
     assert fpage.get_attribute("#stepCopy", "title") == "Copy address"
     fpage.click("#stepCopy")
     assert copied(fpage)[-1] == BIG_ADDR
@@ -91,7 +91,7 @@ def test_the_previous_and_next_lists_have_icons_too(fpage):
     expected = fpage.eval_on_selector_all("#stepMenu .steprowwrap .steprow", "els => els.map(e => e.title.split(':').slice(1).join(':'))")
     wraps.first.locator(".copybtn").click()
     assert copied(fpage) == [expected[0]]
-    assert fpage.evaluate("() => window.__orion.state.focus") == NORMAL_ID, "the click on the icon did not step anywhere"
+    assert fpage.evaluate("() => window.__hopline.state.focus") == NORMAL_ID, "the click on the icon did not step anywhere"
     assert fpage.is_visible("#stepMenu")
 
 
@@ -147,10 +147,10 @@ def test_ctrl_c_copies_the_selected_ids_and_leaves_the_panels_alone(fpage):
     opened(fpage)
     ids = ["addr:" + BIG_ADDR, NORMAL_ID]
     select(fpage, ids)
-    side = fpage.evaluate("() => window.__orion.state.sideCollapsed")
+    side = fpage.evaluate("() => window.__hopline.state.sideCollapsed")
     fpage.locator("#cv").focus(); fpage.keyboard.press("Control+c")
     assert copied(fpage) == [BIG_ADDR + "\n" + NORMAL["txid"]], "addresses first, then transactions"
-    assert fpage.evaluate("() => window.__orion.state.sideCollapsed") == side, "Ctrl+C is not the C shortcut for the side panel"
+    assert fpage.evaluate("() => window.__hopline.state.sideCollapsed") == side, "Ctrl+C is not the C shortcut for the side panel"
     assert "Copied" in toast_text(fpage)
 
 
@@ -167,13 +167,13 @@ def test_ctrl_c_with_nothing_selected_does_nothing_and_text_selection_keeps_its_
 
 def test_letter_shortcuts_do_not_fire_while_ctrl_or_alt_is_held(fpage):
     opened(fpage)
-    st = fpage.evaluate("() => [window.__orion.state.boxMode, window.__orion.state.tbCollapsed, window.__orion.state.inspCollapsed]")
+    st = fpage.evaluate("() => [window.__hopline.state.boxMode, window.__hopline.state.tbCollapsed, window.__hopline.state.inspCollapsed]")
     fpage.locator("#cv").focus()
     for combo in ("Control+b", "Alt+t", "Control+d"):
         fpage.keyboard.press(combo)
-    assert fpage.evaluate("() => [window.__orion.state.boxMode, window.__orion.state.tbCollapsed, window.__orion.state.inspCollapsed]") == st
+    assert fpage.evaluate("() => [window.__hopline.state.boxMode, window.__hopline.state.tbCollapsed, window.__hopline.state.inspCollapsed]") == st
     fpage.keyboard.press("b")
-    assert fpage.evaluate("() => window.__orion.state.boxMode") is True, "the plain key still works"
+    assert fpage.evaluate("() => window.__hopline.state.boxMode") is True, "the plain key still works"
 
 
 def test_without_the_clipboard_api_the_old_way_is_used(fpage):
@@ -203,10 +203,10 @@ def test_a_failed_copy_says_so(fpage):
 def test_an_edge_can_be_copied(fpage):
     opened(fpage)
     fpage.uncheck("#focusOn"); settle(fpage)
-    e = fpage.evaluate("() => { const e = [...window.__orion.state.graph.edges.values()].find(e => e.kind === 'out'); return { source: e.source, target: e.target, txid: e.txid }; }")
+    e = fpage.evaluate("() => { const e = [...window.__hopline.state.graph.edges.values()].find(e => e.kind === 'out'); return { source: e.source, target: e.target, txid: e.txid }; }")
     a, b = xy(fpage, e["source"]), xy(fpage, e["target"])
     fpage.mouse.click((a["x"] + b["x"]) / 2, (a["y"] + b["y"]) / 2)
-    fpage.wait_for_function("() => window.__orion.state.selectedEdge")
+    fpage.wait_for_function("() => window.__hopline.state.selectedEdge")
     fpage.click("#inspBody button:has-text('Copy txid')")
     assert copied(fpage) == [e["txid"]]
 
@@ -216,7 +216,7 @@ def test_the_rows_in_the_analysis_findings_copy_all_the_ids_of_a_chain_and_a_clu
     peel_chain(mock, 6)
     open_query(fpage, tid(10))
     capture(fpage)
-    fpage.evaluate("(id) => window.__orion.autoExpand(id, { dir: 'next', hops: 5, follow: 'largest' })", "tx:" + tid(10)); idle(fpage); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: 5, follow: 'largest' })", "tx:" + tid(10)); idle(fpage); settle(fpage)
     row = fpage.locator("#anFindings .rowcopy:has(.linkrow[title^='Select the 6 transactions'])")
     assert row.count() == 1, fpage.inner_text("#anFindings")
     row.locator(".copybtn").click()

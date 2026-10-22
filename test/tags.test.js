@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const T = require('../public/js/orion-tags.js');
+const T = require('../public/js/hopline-tags.js');
 
 test('presets cover the classifications an investigator needs, each with a colour and a shape', () => {
   ['EXCH', 'THREAT', 'VICTIM', 'MIXER', 'MARKET', 'SERVICE', 'GAMBLING', 'PAYMENT', 'WATCH'].forEach((id) => {

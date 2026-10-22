@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const X = require('../public/js/orion-external.js');
+const X = require('../public/js/hopline-external.js');
 
 // the documented shape (field names from Arkham's published API); NOT captured from a live key
 const SAMPLE = { address: 'bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h', chain: 'bitcoin',
@@ -77,7 +77,7 @@ test('lookupArkham asks the proxy for one address with the token and nothing els
   assert.equal(r.found, true); assert.equal(r.ext.name, 'Binance');
   assert.equal(f.calls.length, 1);
   assert.equal(f.calls[0].url, 'http://127.0.0.1:8787/intelligence/address/bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h');
-  assert.equal(f.calls[0].init.headers['X-Orion-Token'], 'T0K');
+  assert.equal(f.calls[0].init.headers['X-Hopline-Token'], 'T0K');
   assert.ok(!JSON.stringify(f.calls[0].init.headers).toLowerCase().includes('api-key'), 'the Arkham key is never in the page');
 });
 

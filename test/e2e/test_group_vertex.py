@@ -24,7 +24,7 @@ def start(page, mock):
     busy_wallet(mock)
     open_query(page, W)
     page.click("#layoutSeg [data-layout=trace]"); settle(page)
-    page.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(page)
+    page.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(page)
 
 
 def group_exch(page):
@@ -34,11 +34,11 @@ def group_exch(page):
 
 
 def groups(page):
-    return page.evaluate("() => [...window.__orion.state.trace.groups.values()].map(g => ({ id: g.id, anchor: g.anchor, dir: g.dir, kind: g.kind, members: g.members.length }))")
+    return page.evaluate("() => [...window.__hopline.state.trace.groups.values()].map(g => ({ id: g.id, anchor: g.anchor, dir: g.dir, kind: g.kind, members: g.members.length }))")
 
 
 def real_nodes(page):
-    return page.evaluate("() => window.__orion.state.graph.nodes.size")
+    return page.evaluate("() => window.__hopline.state.graph.nodes.size")
 
 
 def undo(page):
@@ -51,26 +51,26 @@ def insp(page):
 
 def test_a_group_becomes_one_vertex_beside_its_anchor_and_the_graph_itself_is_untouched(fpage, mock):
     start(fpage, mock)
-    n0, e0 = real_nodes(fpage), fpage.evaluate("() => window.__orion.state.graph.edges.size")
+    n0, e0 = real_nodes(fpage), fpage.evaluate("() => window.__hopline.state.graph.edges.size")
     assert handle(fpage, W_ID, "right")["label"] == "9"
     group_exch(fpage)
     assert shown(fpage) == {W_ID, GID}, "the anchor and the one group vertex; none of the six"
     assert groups(fpage) == [{"id": GID, "anchor": W_ID, "dir": "next", "kind": "party", "members": 6}]
-    assert real_nodes(fpage) == n0 and fpage.evaluate("() => window.__orion.state.graph.edges.size") == e0, "nothing was added to the graph"
-    assert not fpage.evaluate("(id) => window.__orion.state.graph.nodes.has(id)", GID)
+    assert real_nodes(fpage) == n0 and fpage.evaluate("() => window.__hopline.state.graph.edges.size") == e0, "nothing was added to the graph"
+    assert not fpage.evaluate("(id) => window.__hopline.state.graph.nodes.has(id)", GID)
     assert handle(fpage, W_ID, "right")["label"] == "3", "the six in the group no longer count: three transactions are left behind the arrow"
-    px = lambda i: fpage.evaluate("(id) => window.__orion.renderer.positionOf(id).x", i)
+    px = lambda i: fpage.evaluate("(id) => window.__hopline.renderer.positionOf(id).x", i)
     assert px(GID) > px(W_ID), "forward: to the right of the wallet"
 
 
 def test_the_group_vertex_is_drawn_with_its_text_and_an_edge_with_the_total(fpage, mock):
     start(fpage, mock)
     group_exch(fpage)
-    texts = fpage.evaluate("""() => { const r = window.__orion.renderer, ctx = r.ctx, orig = ctx.fillText.bind(ctx), seen = [];
+    texts = fpage.evaluate("""() => { const r = window.__hopline.renderer, ctx = r.ctx, orig = ctx.fillText.bind(ctx), seen = [];
         ctx.fillText = (t, ...a) => { seen.push(String(t)); return orig(t, ...a); }; r.draw(); ctx.fillText = orig; return seen; }""")
     assert any("6 transactions to" in t for t in texts), texts
     assert any("0.00315 BTC" in t for t in texts), "the edge says how much the six moved"
-    edge = fpage.evaluate("() => [...window.__orion.renderer.data.visible.edges]")
+    edge = fpage.evaluate("() => [...window.__hopline.renderer.data.visible.edges]")
     assert edge == ["grpe:grp:1"]
 
 
@@ -128,7 +128,7 @@ def test_hiding_a_group_leaves_its_members_hidden_and_undo_brings_the_group_back
     start(fpage, mock)
     group_exch(fpage)
     click_node(fpage, GID); settle(fpage)
-    assert fpage.evaluate("() => [...window.__orion.state.selected]") == [GID]
+    assert fpage.evaluate("() => [...window.__hopline.state.selected]") == [GID]
     fpage.locator("#cv").focus(); fpage.keyboard.press("Delete"); settle(fpage)
     assert groups(fpage) == [] and shown(fpage) == {W_ID}
     assert handle(fpage, W_ID, "right")["label"] == "9", "the members are ordinary hidden transactions again"
@@ -141,7 +141,7 @@ def test_hiding_the_anchor_takes_its_group_with_it_and_undo_restores_both(fpage,
     group_exch(fpage)
     click_handle(fpage, W_ID, "right"); idle(fpage); settle(fpage)             # the three transactions that are left: five or fewer, so they just show
     assert {i for i in shown(fpage) if i.startswith("tx:")} == {"tx:" + tid(n) for n in (106, 107, 108)}
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     fpage.locator("#cv").focus(); fpage.keyboard.press("Delete"); settle(fpage)
     assert groups(fpage) == [] and W_ID not in shown(fpage)
     undo(fpage)
@@ -153,7 +153,7 @@ def test_the_group_vertex_can_be_dragged_and_stays_where_it_is_put(fpage, mock):
     group_exch(fpage)
     p = xy(fpage, GID)
     fpage.mouse.move(p["x"], p["y"]); fpage.mouse.down(); fpage.mouse.move(p["x"] + 60, p["y"] + 90, steps=5); fpage.mouse.up(); settle(fpage)
-    pos = fpage.evaluate("(id) => { const q = window.__orion.state.trace.pos.get(id); return [Math.round(q.x), Math.round(q.y)]; }", GID)
+    pos = fpage.evaluate("(id) => { const q = window.__hopline.state.trace.pos.get(id); return [Math.round(q.x), Math.round(q.y)]; }", GID)
     q = xy(fpage, GID)
     assert abs(q["x"] - (p["x"] + 60)) < 4 and abs(q["y"] - (p["y"] + 90)) < 4
     assert pos != [0, 0]
@@ -210,9 +210,9 @@ def test_a_group_of_what_came_in_hangs_behind_the_wallet(fpage, mock):
     wrap = fpage.locator("#inspBody .walletsec .groupwrap").filter(has_text="small transactions")
     wrap.locator(".groupacts .showbtn >> text=as one").click(); idle(fpage); settle(fpage)
     assert groups(fpage) == [{"id": GID, "anchor": W_ID, "dir": "prev", "kind": "small", "members": 7}]
-    px = lambda i: fpage.evaluate("(id) => window.__orion.renderer.positionOf(id).x", i)
+    px = lambda i: fpage.evaluate("(id) => window.__hopline.renderer.positionOf(id).x", i)
     assert px(GID) < px(W_ID), "backward: to the left"
-    edge = fpage.evaluate("() => { const g = window.__orion.renderer.data.graph.edges.get('grpe:grp:1'); return [g.kind, g.source, g.target]; }")
+    edge = fpage.evaluate("() => { const g = window.__hopline.renderer.data.graph.edges.get('grpe:grp:1'); return [g.kind, g.source, g.target]; }")
     assert edge == ["out", GID, W_ID], edge
     assert "7 transactions (small)" in insp(fpage)
 
@@ -244,7 +244,7 @@ def test_many_small_outputs_of_a_transaction_can_be_one_vertex(fpage, mock):
     fpage.locator("#ctxMenu .grouphead .groupone").click(); idle(fpage); settle(fpage)
     g = groups(fpage)
     assert len(g) == 1 and g[0]["members"] == 12 and g[0]["kind"] == "small" and g[0]["anchor"] == "tx:" + txid
-    assert "12 outputs (small)" in fpage.evaluate("() => window.__orion.renderer.data.graph.nodes.get('grp:1').groupText")
+    assert "12 outputs (small)" in fpage.evaluate("() => window.__hopline.renderer.data.graph.nodes.get('grp:1').groupText")
     assert "Stands for" in insp(fpage) and "12 outputs" in insp(fpage)
     assert handle(fpage, "tx:" + txid, "right")["label"] == "3", "the three large outputs are still behind the arrow"
     fpage.click("#inspBody button:has-text('Show all 12')"); idle(fpage); settle(fpage)
@@ -264,12 +264,12 @@ def test_a_group_survives_a_reload_and_an_export_and_is_not_in_the_graph_data(fp
     assert not any(n["id"].startswith("grp:") for n in data["nodes"]) and not any(e["id"].startswith("grpe:") for e in data["edges"]), "the graph data holds only what is on the chain"
     tr = data["view"]["trace"]
     assert tr["groups"][0]["id"] == GID and tr["groups"][0]["anchor"] == W_ID and len(tr["groups"][0]["members"]) == 6 and tr["seq"] == 1
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
-    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); settle(fpage)
-    assert fpage.evaluate("() => window.__orion.state.layout") == "trace" and GID in shown(fpage)
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); settle(fpage)
+    assert fpage.evaluate("() => window.__hopline.state.layout") == "trace" and GID in shown(fpage)
     assert groups(fpage) == [{"id": GID, "anchor": W_ID, "dir": "next", "kind": "party", "members": 6}]
     fpage.click("#btnClear"); fpage.click("#btnClear"); settle(fpage)
-    fpage.set_input_files("#fileImport", str(p)); fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); settle(fpage)
+    fpage.set_input_files("#fileImport", str(p)); fpage.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); settle(fpage)
     assert GID in shown(fpage) and groups(fpage)[0]["members"] == 6
     # a file that was edited by hand: groups that do not make sense are ignored, good ones kept
     bad = json.loads(p.read_text(encoding="utf-8"))
@@ -282,7 +282,7 @@ def test_a_group_survives_a_reload_and_an_export_and_is_not_in_the_graph_data(fp
         "not even an object", None]
     q = tmp_path / "bad.json"; q.write_text(json.dumps(bad), encoding="utf-8")
     fpage.click("#btnClear"); fpage.click("#btnClear"); settle(fpage)
-    fpage.set_input_files("#fileImport", str(q)); fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); settle(fpage)
+    fpage.set_input_files("#fileImport", str(q)); fpage.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); settle(fpage)
     assert [g["id"] for g in groups(fpage)] == [GID], groups(fpage)
 
 
@@ -292,7 +292,7 @@ def test_other_arrangements_and_layouts_cope_with_a_group(fpage, mock):
     for arr in ("timeline", "timeforce", "force", "timeamount", "columns"):
         fpage.select_option("#traceArrange", arr); settle(fpage)
         assert GID in shown(fpage), arr
-        assert fpage.evaluate("(id) => !!window.__orion.renderer.positionOf(id)", GID), arr
+        assert fpage.evaluate("(id) => !!window.__hopline.renderer.positionOf(id)", GID), arr
     fpage.click("#layoutSeg [data-layout=flow]"); settle(fpage)
     assert GID not in shown(fpage), "outside the trace layout the graph is just the graph"
     assert len(groups(fpage)) == 1
@@ -305,7 +305,7 @@ def test_select_all_includes_the_group_and_hide_selected_takes_it_off(fpage, moc
     group_exch(fpage)
     click_handle(fpage, W_ID, "right"); idle(fpage); settle(fpage)
     fpage.locator("#cv").focus(); fpage.keyboard.press("Control+a"); settle(fpage)
-    sel = set(fpage.evaluate("() => [...window.__orion.state.selected]"))
+    sel = set(fpage.evaluate("() => [...window.__hopline.state.selected]"))
     assert GID in sel and W_ID in sel
     assert "selected" in insp(fpage).lower()
 
@@ -345,7 +345,7 @@ def test_opening_a_folded_transaction_as_a_new_starting_point_takes_it_out_of_th
     group_exch(fpage)
     open_query(fpage, tid(100)); settle(fpage)
     assert "tx:" + tid(100) in shown(fpage), "it is on the trace for real now"
-    assert groups(fpage)[0]["members"] == 5 and "tx:" + tid(100) not in fpage.evaluate("() => window.__orion.state.trace.groups.get('grp:1').members")
+    assert groups(fpage)[0]["members"] == 5 and "tx:" + tid(100) not in fpage.evaluate("() => window.__hopline.state.trace.groups.get('grp:1').members")
 
 
 def test_reset_to_start_drops_the_groups_and_undo_brings_them_back(fpage, mock):
@@ -372,5 +372,5 @@ def test_with_a_currency_chosen_the_group_edge_stays_in_bitcoin_because_one_pric
     start(fpage, mock)
     group_exch(fpage)
     use_usd(fpage); settle(fpage)
-    label = fpage.evaluate("() => window.__orion.renderer.data.edgeLabel(window.__orion.renderer.data.graph.edges.get('grpe:grp:1'))")
+    label = fpage.evaluate("() => window.__hopline.renderer.data.edgeLabel(window.__hopline.renderer.data.graph.edges.get('grpe:grp:1'))")
     assert "BTC" in label and "$" not in label, label

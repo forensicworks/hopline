@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { Graph, ID, decodeOpReturn } = require('../public/js/orion-model.js');
+const { Graph, ID, decodeOpReturn } = require('../public/js/hopline-model.js');
 
 const fx = (n) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8'));
 
@@ -292,7 +292,7 @@ test('a coinbase and a transaction without those fields are handled', () => {
 });
 
 test('address stats give a balance: confirmed, unconfirmed apart, and null until they are read', () => {
-  const { balanceOf } = require('../public/js/orion-model.js');
+  const { balanceOf } = require('../public/js/hopline-model.js');
   const g = new Graph();
   g.upsertNode({ id: ID.addr('A'), type: 'addr', address: 'A' });
   assert.equal(balanceOf(g.node(ID.addr('A'))), null, 'never read: unknown, not zero');

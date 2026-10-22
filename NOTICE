@@ -1,0 +1,12 @@
+Hopline
+Copyright 2026 thaneye
+
+Licensed under the Apache License, Version 2.0 (see the file LICENSE).
+
+This product includes work by others:
+
+* Orion, a Bitcoin transaction viewer by Kyle Honeycutt ("coinables"), 2023 to 2024, released into the public domain under the
+  Unlicense (https://unlicense.org). Hopline began as a fork of it. What remains of it here: the starting list of exchange and
+  service wallets (public/data/known-addresses.js) and the early history of the repository.
+* qrcode.js ("QRCode for JavaScript") by davidshimjs, MIT License, https://github.com/davidshimjs/qrcodejs
+  (public/lib/qrcode.js).

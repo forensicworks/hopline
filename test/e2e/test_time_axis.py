@@ -16,7 +16,7 @@ def no_js_errors(errors):
 
 
 def drawn_texts(page):
-    return page.evaluate("""() => { const r = window.__orion.renderer, ctx = r.ctx, orig = ctx.fillText.bind(ctx), seen = [];
+    return page.evaluate("""() => { const r = window.__hopline.renderer, ctx = r.ctx, orig = ctx.fillText.bind(ctx), seen = [];
         ctx.fillText = (t, ...a) => { seen.push(String(t)); return orig(t, ...a); }; r.draw(); ctx.fillText = orig; return seen; }""")
 
 
@@ -33,7 +33,7 @@ def chain(fpage, mock, length=8, hops=6, late=True, trace=False):
     open_query(fpage, tid(10))
     if trace:
         fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
-    fpage.evaluate("(id) => window.__orion.autoExpand(id, { dir: 'next', hops: %d, follow: 'all' })" % hops, "tx:" + tid(10)); idle(fpage); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: %d, follow: 'all' })" % hops, "tx:" + tid(10)); idle(fpage); settle(fpage)
     fpage.click("#inspClose"); settle(fpage)
 
 
@@ -43,7 +43,7 @@ def canvas_origin(page):
 
 
 def axis_state(page):
-    return page.evaluate("""() => { const r = window.__orion.renderer, a = r.data.axis, v = r.view;
+    return page.evaluate("""() => { const r = window.__hopline.renderer, a = r.data.axis, v = r.view;
         return { tMin: a.tMin, pps: a.pxPerSec, x0: a.x0 || 0, vx: v.x, k: v.k, mode: a.mode, breaks: a.breaks.map(b => [b.x0, b.x1, b.t0, b.t1]) }; }""")
 
 
@@ -58,7 +58,7 @@ def test_the_timeline_layout_axis_is_a_line_with_ticks_and_timestamps(fpage, moc
     fpage.click("#layoutSeg [data-layout=timeline]"); settle(fpage)
     texts = drawn_texts(fpage)
     assert sum(1 for t in texts if re.match(r"^\d{2}-\d{2} \d{2}:\d{2}$|^\d{4}-\d{2}-\d{2}", t)) >= 3, "timestamps along the line: %s" % texts
-    ink = fpage.evaluate("""() => { const r = window.__orion.renderer, c = r.canvas, ctx = c.getContext('2d'), y = Math.floor(22 * r.dpr), row = ctx.getImageData(0, y, c.width, 1).data;
+    ink = fpage.evaluate("""() => { const r = window.__hopline.renderer, c = r.canvas, ctx = c.getContext('2d'), y = Math.floor(22 * r.dpr), row = ctx.getImageData(0, y, c.width, 1).data;
         let lit = 0; for (let i = 0; i < row.length; i += 4) if (row[i] > 0x50) lit++; return lit / (row.length / 4); }""")
     assert ink > 0.8, "the line runs the whole width of the canvas (%.2f of the row is lit)" % ink
 
@@ -84,7 +84,7 @@ def test_hovering_a_transaction_writes_its_exact_time_on_the_axis(fpage, mock):
     chain(fpage, mock, late=False)
     fpage.click("#layoutSeg [data-layout=timeline]"); settle(fpage)
     p = xy(fpage, "tx:" + tid(12)); fpage.mouse.move(p["x"], p["y"])
-    t = fpage.evaluate("(id) => window.__orion.state.graph.nodes.get(id).time", "tx:" + tid(12))
+    t = fpage.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).time", "tx:" + tid(12))
     got = readouts(fpage)
     assert len(got) == 1 and abs(parse(got[0]) - t) == 0, (got, t)
     tip = fpage.inner_text("#tooltip")
@@ -118,7 +118,7 @@ def test_the_trace_arrangements_with_time_have_the_same_axis_and_the_others_have
         got = readouts(fpage)
         assert len(got) == 1, (name, got)
         p = xy(fpage, "tx:" + tid(11)); fpage.mouse.move(p["x"], p["y"])
-        t = fpage.evaluate("(id) => window.__orion.state.graph.nodes.get(id).time", "tx:" + tid(11))
+        t = fpage.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).time", "tx:" + tid(11))
         assert [abs(parse(g) - t) for g in readouts(fpage)] == [0], name
     fpage.select_option("#traceArrange", "force"); idle(fpage); settle(fpage)
     fpage.mouse.move(x0 + w / 2, y0 + 10)
@@ -141,7 +141,7 @@ def test_a_stale_readout_does_not_survive_leaving_the_time_layout(fpage, mock):
 # ---------------------------------------------------------------- Columns: timestamps over hand-placed transactions
 def tx_marks(page):
     """{id: (screen x, time)} of the transactions on screen."""
-    return page.evaluate("""() => { const r = window.__orion.renderer, b = r.canvas.getBoundingClientRect(), v = r.view, g = window.__orion.state.graph, out = {};
+    return page.evaluate("""() => { const r = window.__hopline.renderer, b = r.canvas.getBoundingClientRect(), v = r.view, g = window.__hopline.state.graph, out = {};
         r.data.visible.nodes.forEach(id => { const n = g.nodes.get(id); if (n.type === 'tx' && n.time != null) out[id] = [b.left + r.positionOf(id).x * v.k + v.x, n.time]; }); return out; }""")
 
 
@@ -152,13 +152,13 @@ def fmt_minute(t):
 
 def test_a_trace_in_columns_has_a_line_of_timestamps_over_its_transactions(fpage, mock):
     chain(fpage, mock, late=False, hops=4, trace=True)
-    assert fpage.evaluate("() => window.__orion.renderer.data.axis.mode") == "marks" and fpage.is_hidden("#scaleRow")
+    assert fpage.evaluate("() => window.__hopline.renderer.data.axis.mode") == "marks" and fpage.is_hidden("#scaleRow")
     marks = tx_marks(fpage)
     labels = [t for t in drawn_texts(fpage) if re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$", t)]
     assert labels and set(labels) <= {fmt_minute(t) for _, t in marks.values()}, "every label is a transaction's time"
     first = min(marks.items(), key=lambda kv: kv[1][0])
     assert fmt_minute(first[1][1]) in labels, "the leftmost transaction is labelled"
-    ink = fpage.evaluate("""() => { const r = window.__orion.renderer, c = r.canvas, ctx = c.getContext('2d'), y = Math.floor(22 * r.dpr), row = ctx.getImageData(0, y, c.width, 1).data;
+    ink = fpage.evaluate("""() => { const r = window.__hopline.renderer, c = r.canvas, ctx = c.getContext('2d'), y = Math.floor(22 * r.dpr), row = ctx.getImageData(0, y, c.width, 1).data;
         let lit = 0; for (let i = 0; i < row.length; i += 4) if (row[i] > 0x50) lit++; return lit / (row.length / 4); }""")
     assert ink > 0.8, "a line runs along the top (%.2f)" % ink
     assert fpage.locator("#traceBar").bounding_box()["y"] > 30, "the bar steps down below it"
@@ -194,8 +194,8 @@ def test_no_line_when_the_trace_shows_no_transaction_and_none_outside_a_trace(fp
     from conftest import ADDRESS
     open_query(fpage, ADDRESS)
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
-    assert fpage.evaluate("() => [...window.__orion.renderer.data.visible.nodes].every(id => id.startsWith('addr:'))")
-    assert fpage.evaluate("() => window.__orion.renderer.data.axis") is None and not fpage.evaluate("() => document.body.classList.contains('axis-on')")
+    assert fpage.evaluate("() => [...window.__hopline.renderer.data.visible.nodes].every(id => id.startsWith('addr:'))")
+    assert fpage.evaluate("() => window.__hopline.renderer.data.axis") is None and not fpage.evaluate("() => document.body.classList.contains('axis-on')")
     chain(fpage, mock, late=False, hops=3, trace=False)
     fpage.click("#layoutSeg [data-layout=flow]"); settle(fpage)
-    assert fpage.evaluate("() => window.__orion.renderer.data.axis") is None
+    assert fpage.evaluate("() => window.__hopline.renderer.data.axis") is None

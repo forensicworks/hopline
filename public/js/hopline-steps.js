@@ -1,5 +1,5 @@
 /*
- * Orion "follow the money" steps: given the vertex you are looking at, where could you go next, and where did the
+ * Hopline "follow the money" steps: given the vertex you are looking at, where could you go next, and where did the
  * money come from? Pure functions over the graph, no DOM.
  *
  *   previous   what is upstream:  a transaction <- the wallets that paid into it;  a wallet <- the transactions that paid it
@@ -9,8 +9,8 @@
  * reported as `via`), which is the quick way to walk a chain of payments.
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./orion-model.js'));
-  else root.OrionSteps = factory(root.OrionModel);
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./hopline-model.js'));
+  else root.HoplineSteps = factory(root.HoplineModel);
 }(typeof self !== 'undefined' ? self : this, function (Model) {
   'use strict';
 

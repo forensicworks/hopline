@@ -1,5 +1,5 @@
 /*
- * Orion navigation history: the trail of vertices you have focused, with back / forward.
+ * Hopline navigation history: the trail of vertices you have focused, with back / forward.
  * Pure data (no DOM). The page mirrors it into location.hash so the browser's own Back / Forward buttons,
  * Alt+Arrow keys and shared links work, and so it also works when the page is opened from disk (file://), where
  * changing the query string with pushState is not allowed.
@@ -8,7 +8,7 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.OrionNav = factory();
+  else root.HoplineNav = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 

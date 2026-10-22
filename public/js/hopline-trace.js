@@ -1,5 +1,5 @@
 /*
- * Orion trace: build a chain of transactions by hand, one click at a time, starting from a single wallet or
+ * Hopline trace: build a chain of transactions by hand, one click at a time, starting from a single wallet or
  * transaction. Pure functions over the graph; nothing here touches the DOM or the network.
  *
  * The unit of a click is "one wallet hop":
@@ -13,8 +13,8 @@
  * new ones are put next to the vertex that was clicked, in the next column, without landing on anything.
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./orion-model.js'));
-  else root.OrionTrace = factory(root.OrionModel);
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./hopline-model.js'));
+  else root.HoplineTrace = factory(root.HoplineModel);
 }(typeof self !== 'undefined' ? self : this, function (Model) {
   'use strict';
 

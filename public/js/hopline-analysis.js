@@ -1,5 +1,5 @@
 /*
- * Orion analysis: patterns in the transactions that are loaded. Pure functions over the graph, no DOM, no network.
+ * Hopline analysis: patterns in the transactions that are loaded. Pure functions over the graph, no DOM, no network.
  *
  * EVERYTHING HERE IS A HEURISTIC. Each result carries the reasons it was reached so a person can judge it; none of it
  * is proof of who controls what. In particular:
@@ -11,8 +11,8 @@
  * Only loaded transactions can be analysed (a transaction not loaded has no inputs or outputs to look at).
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./orion-model.js'));
-  else root.OrionAnalysis = factory(root.OrionModel);
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./hopline-model.js'));
+  else root.HoplineAnalysis = factory(root.HoplineModel);
 }(typeof self !== 'undefined' ? self : this, function (Model) {
   'use strict';
 

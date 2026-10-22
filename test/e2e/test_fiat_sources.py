@@ -86,12 +86,12 @@ def test_one_transactions_time_converts_everything_at_that_moment(page):
     use_fiat(page, "USD")
     click_node(page, SP0)
     page.check("input[name=fiatBasis][value=ref]")
-    page.wait_for_function("() => window.__orion.state.fiat.ref !== null")
-    sp_time = page.evaluate("(id) => window.__orion.state.graph.nodes.get(id).time", SP0)
-    assert page.evaluate("() => window.__orion.state.fiat.ref.time") == sp_time
+    page.wait_for_function("() => window.__hopline.state.fiat.ref !== null")
+    sp_time = page.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).time", SP0)
+    assert page.evaluate("() => window.__hopline.state.fiat.ref.time") == sp_time
     assert "tx " in page.inner_text("#fiatRef")
-    rates = page.evaluate("""([a, b]) => { const g = window.__orion.state.graph;
-        return [window.__orion.fiatOf(1e8, g.nodes.get(a).time).rate.price, window.__orion.fiatOf(1e8, g.nodes.get(b).time).rate.price]; }""", [NORMAL_ID, SP0])
+    rates = page.evaluate("""([a, b]) => { const g = window.__hopline.state.graph;
+        return [window.__hopline.fiatOf(1e8, g.nodes.get(a).time).rate.price, window.__hopline.fiatOf(1e8, g.nodes.get(b).time).rate.price]; }""", [NORMAL_ID, SP0])
     assert rates[0] == rates[1], "both transactions are converted at the reference moment"
     assert abs(rates[0] - price_at(sp_time)) < 0.01
     click_node(page, NORMAL_ID)
@@ -102,7 +102,7 @@ def test_the_inspector_button_sets_the_reference_and_turns_conversion_on(page):
     open_query(page, NORMAL["txid"])
     use_fiat(page, "EUR")
     page.click("text=Convert all at this time")
-    page.wait_for_function("() => window.__orion.state.fiat.basis === 'ref'")
+    page.wait_for_function("() => window.__hopline.state.fiat.basis === 'ref'")
     assert page.is_checked("input[name=fiatBasis][value=ref]")
     assert page.is_disabled("text=Converting at this time")
     eur = page.locator("#inspBody dd", has_text="BTC").first.locator(".fiat").inner_text()
@@ -113,7 +113,7 @@ def test_the_inspector_button_sets_the_reference_and_turns_conversion_on(page):
 def test_unconfirmed_amounts_fall_back_to_todays_price(page):
     open_query(page, NORMAL["txid"])
     use_fiat(page, "USD")
-    r = page.evaluate("() => window.__orion.fiatOf(100000000, null)")
+    r = page.evaluate("() => window.__hopline.fiatOf(100000000, null)")
     assert abs(r["value"] - PRICES_NOW["USD"]) < 1e-6
     assert "not confirmed yet" in r["title"]
 
@@ -128,7 +128,7 @@ def test_other_currencies_and_yen_without_decimals(page):
 
 def test_a_price_failure_is_explained_and_leaves_bitcoin_amounts_alone(page, mock):
     mock.fail["/v1/historical-price?currency=USD"] = 500
-    page.evaluate("() => { window.__orion.state.priceClient.backoffMs = 5; }")
+    page.evaluate("() => { window.__hopline.state.priceClient.backoffMs = 5; }")
     open_query(page, NORMAL["txid"])
     use_fiat(page, "USD")
     assert "Could not load prices" in page.inner_text("#fiatStatus")
@@ -165,7 +165,7 @@ def test_exports_carry_the_fiat_value_and_how_it_was_priced(page, tmp_path):
 
 def test_the_currency_choice_is_remembered(page):
     use_fiat(page, "GBP")
-    page.reload(); page.wait_for_function("window.__orion && window.__orion.renderer")
+    page.reload(); page.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert page.input_value("#fiatCur") == "GBP"
     page.wait_for_function("() => /today/.test(document.getElementById('fiatStatus').textContent)")
 
@@ -180,7 +180,7 @@ def test_blockstream_is_a_data_source_and_prices_still_come_from_mempool(page, m
     use_fiat(page, "USD")
     price_hosts = {h for h, p in mock.requests if p.startswith("/v1/")}
     assert price_hosts == {"https://mempool.space"}, price_hosts
-    assert page.evaluate("() => window.__orion.state.client.concurrency") <= 3
+    assert page.evaluate("() => window.__hopline.state.client.concurrency") <= 3
     assert "Prices from mempool.space" in page.inner_text("#fiatStatus")
 
 
@@ -191,7 +191,7 @@ def test_tor_never_asks_the_clearnet_for_prices(page, mock):
     hosts = {h for h, _ in mock.requests}
     assert hosts and all(h.endswith(".onion") for h in hosts), hosts
     assert "over Tor" in page.inner_text("#fiatStatus")
-    assert page.evaluate("() => window.__orion.state.priceClient.timeoutMs") >= 120000
+    assert page.evaluate("() => window.__hopline.state.priceClient.timeoutMs") >= 120000
 
 
 def test_a_custom_source_without_a_url_says_why_prices_are_missing(page):
@@ -237,7 +237,7 @@ def test_the_box_tidies_pasted_text_without_pressing_open(page):
 
 def test_explorer_links_are_understood(page):
     open_query(page, "https://blockstream.info/tx/" + NORMAL["txid"].upper() + "?expand")
-    assert NORMAL_ID in page.evaluate("() => [...window.__orion.state.graph.nodes.keys()]")
+    assert NORMAL_ID in page.evaluate("() => [...window.__hopline.state.graph.nodes.keys()]")
 
 
 def test_a_legacy_address_in_the_wrong_case_is_not_guessed_at(page, mock):
@@ -250,7 +250,7 @@ def test_a_legacy_address_in_the_wrong_case_is_not_guessed_at(page, mock):
 def test_a_shared_link_with_an_uppercase_address_opens_the_proper_one(ctx, errors, mock):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e)))
     p.goto(PAGE_URL + "#f0/addr:" + ADDRESS.upper())
-    p.wait_for_function("() => window.__orion && window.__orion.state.graph.nodes.size > 0"); idle(p)
-    assert p.evaluate("() => window.__orion.state.focus") == "addr:" + ADDRESS
+    p.wait_for_function("() => window.__hopline && window.__hopline.state.graph.nodes.size > 0"); idle(p)
+    assert p.evaluate("() => window.__hopline.state.focus") == "addr:" + ADDRESS
     assert all(path == path.lower() for _, path in mock.requests if path.startswith("/address/"))
     p.close()

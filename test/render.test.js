@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { niceTicks, distToSegment } = require('../public/js/orion-render.js');
+const { niceTicks, distToSegment } = require('../public/js/hopline-render.js');
 
 const DAY = 86400;
 

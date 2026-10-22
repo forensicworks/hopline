@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Turn the U.S. Treasury OFAC "SDN" sanctions list into an Orion label pack of Bitcoin addresses.
+"""Turn the U.S. Treasury OFAC "SDN" sanctions list into a Hopline label pack of Bitcoin addresses.
 
 The list names people and organisations and, in the Remarks column, the digital-currency addresses attributed to them
 ("Digital Currency Address - XBT 1abc...;"). This script keeps the Bitcoin (XBT) ones, labels each "OFAC SDN: <name>" with
-the sanctions programme as its category, and writes a file that Orion's "Label packs > Import labels" reads.
+the sanctions programme as its category, and writes a file that Hopline's "Label packs > Import labels" reads.
 
-    python tools/make_label_pack_ofac.py --sdn sdn.csv --out ofac-sdn.orion-labels.json
-    python tools/make_label_pack_ofac.py --download --out ofac-sdn.orion-labels.json
+    python tools/make_label_pack_ofac.py --sdn sdn.csv --out ofac-sdn.hopline-labels.json
+    python tools/make_label_pack_ofac.py --download --out ofac-sdn.hopline-labels.json
 
 --download fetches the file from the address given by --url (default: the long-standing Treasury location, which may
 have moved: if it fails, download sdn.csv from https://ofac.treasury.gov/ yourself and use --sdn). Nothing else is
 fetched, and the result is a plain file you can read before importing it.
 
-A sanctions listing is a claim by a government, not a finding of yours: Orion shows it as "known (pack name)".
+A sanctions listing is a claim by a government, not a finding of yours: Hopline shows it as "known (pack name)".
 """
 import argparse
 import csv
@@ -33,6 +33,19 @@ def clean(s):
     return "" if s == "-0-" else s
 
 
+def category(program, limit=40):
+    """The programme column lists several programmes as "DPRK3] [CYBER2" (the outer brackets are cut off): "DPRK3, CYBER2",
+    shortened at a programme boundary when it would not fit."""
+    parts = [p.strip() for p in re.split(r"\]\s*\[", program.strip().strip("[]")) if p.strip()]
+    out = ""
+    for p in parts:
+        nxt = p if not out else out + ", " + p
+        if len(nxt) > limit:
+            return out or p[:limit]
+        out = nxt
+    return out
+
+
 def convert(text, today=None):
     """Return the label pack (a dict) for the Bitcoin addresses in the text of an sdn.csv."""
     today = today or datetime.date.today().isoformat()
@@ -46,10 +59,10 @@ def convert(text, today=None):
                 continue
             seen.add(address)
             entry = {"address": address, "label": "OFAC SDN: " + name if name else "OFAC SDN", "url": SEARCH_PAGE}
-            if program:
-                entry["category"] = program[:40]
+            if category(program):
+                entry["category"] = category(program)
             labels.append(entry)
-    return {"format": "orion-labels", "version": 1, "name": "OFAC SDN list (Bitcoin)",
+    return {"format": "hopline-labels", "version": 1, "name": "OFAC SDN list (Bitcoin)",
             "source": "U.S. Treasury OFAC SDN list (sdn.csv), converted " + today, "created": datetime.datetime.now(datetime.timezone.utc).isoformat(), "labels": labels}
 
 

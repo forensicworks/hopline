@@ -42,7 +42,7 @@ def verify(path, *extra):
 
 
 def evidence(html):
-    return json.loads(re.search(r'<script type="application/json" id="orion-evidence">(.*?)</script>', html, re.S).group(1))
+    return json.loads(re.search(r'<script type="application/json" id="hopline-evidence">(.*?)</script>', html, re.S).group(1))
 
 
 def test_the_report_covers_what_is_on_screen_and_verifies(fpage, tmp_path):
@@ -57,7 +57,7 @@ def test_the_report_covers_what_is_on_screen_and_verifies(fpage, tmp_path):
     r = verify(p)
     assert r.returncode == 0 and "OK:" in r.stdout, r.stdout + r.stderr
     ev = evidence(html)
-    on_screen = fpage.evaluate("() => window.__orion.renderer.data.visible.nodes.size")
+    on_screen = fpage.evaluate("() => window.__hopline.renderer.data.visible.nodes.size")
     assert len(ev["nodes"]) == on_screen and ev["evidence"]["counts"]["nodes"] == on_screen
     assert ev["evidence"]["title"] == "Case 12: the hot wallet" and ev["evidence"]["preparedBy"] == "A. Analyst"
 
@@ -65,7 +65,7 @@ def test_the_report_covers_what_is_on_screen_and_verifies(fpage, tmp_path):
 def test_what_is_hidden_is_not_in_the_report(fpage, tmp_path):
     open_query(fpage, NORMAL["txid"])
     fpage.uncheck("#focusOn"); settle(fpage)
-    fpage.evaluate("(id) => window.__orion.hideIds([id])", "addr:" + SMALL_ADDR); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.hideIds([id])", "addr:" + SMALL_ADDR); settle(fpage)
     html = make_report(fpage, tmp_path).read_text(encoding="utf-8")
     assert SMALL_ADDR not in html, "neither in the readable part nor in the embedded evidence"
     assert all(n.get("address") != SMALL_ADDR for n in evidence(html)["nodes"])
@@ -82,7 +82,7 @@ def test_each_transaction_says_where_and_when_it_was_fetched(fpage, tmp_path):
 
 def test_hostile_labels_in_the_workspace_cannot_run_anything_in_the_report(fpage, ctx, tmp_path):
     open_query(fpage, NORMAL["txid"])
-    fpage.evaluate("""(a) => { const g = window.__orion.state.graph; g.annotate('addr:' + a, '<img src=x onerror=window.__pwned=1>Suspect', '</script><script>window.__pwned=2</script>'); g.nodes.get('addr:' + a).tag = 'THREAT'; window.__orion.refresh(); }""", SMALL_ADDR)
+    fpage.evaluate("""(a) => { const g = window.__hopline.state.graph; g.annotate('addr:' + a, '<img src=x onerror=window.__pwned=1>Suspect', '</script><script>window.__pwned=2</script>'); g.nodes.get('addr:' + a).tag = 'THREAT'; window.__hopline.refresh(); }""", SMALL_ADDR)
     open_menu(fpage); fpage.fill("#reportTitle", "<script>window.__pwned=3</script>")
     p = make_report(fpage, tmp_path)
     html = p.read_text(encoding="utf-8")
@@ -105,9 +105,9 @@ def test_the_embedded_evidence_is_a_workspace_that_imports_back(fpage, tmp_path)
     n_nodes = len(json.loads(out.read_text(encoding="utf-8"))["nodes"])
     fpage.click("#btnClear"); fpage.click("#btnClear"); settle(fpage)
     fpage.set_input_files("#fileImport", str(out))
-    fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); settle(fpage)
-    assert fpage.evaluate("() => window.__orion.state.graph.nodes.size") == n_nodes
-    assert fpage.evaluate("(id) => window.__orion.state.graph.nodes.get(id).source", "tx:" + NORMAL["txid"]) == "https://mempool.space/api", "provenance survives the round trip"
+    fpage.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); settle(fpage)
+    assert fpage.evaluate("() => window.__hopline.state.graph.nodes.size") == n_nodes
+    assert fpage.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).source", "tx:" + NORMAL["txid"]) == "https://mempool.space/api", "provenance survives the round trip"
 
 
 def test_findings_and_their_reasons_are_in_the_report(fpage, mock, tmp_path):
@@ -123,7 +123,7 @@ def test_findings_and_their_reasons_are_in_the_report(fpage, mock, tmp_path):
 def test_a_peel_chain_is_listed_with_its_totals(fpage, mock, tmp_path):
     peel_chain(mock, 6)
     open_query(fpage, tid(10))
-    fpage.evaluate("(id) => window.__orion.autoExpand(id, { dir: 'next', hops: 5, follow: 'largest' })", "tx:" + tid(10)); idle(fpage); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: 5, follow: 'largest' })", "tx:" + tid(10)); idle(fpage); settle(fpage)
     html = make_report(fpage, tmp_path).read_text(encoding="utf-8")
     assert "Possible peel chains (1)" in html and "PEEL 3/6" in html and "Step 3 of 6 in a possible peel chain (P1)" in html
     order = re.findall(r'<section class="tx" id="tx-([0-9a-f]{64})"', html)
@@ -147,5 +147,5 @@ def test_prepared_by_is_remembered_and_an_empty_screen_gives_a_message(fpage, tm
     fpage.click("[data-export=report]")
     assert "Nothing to export" in toast_text(fpage)
     open_query(fpage, NORMAL["txid"])
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert fpage.input_value("#reportBy") == "A. Analyst"

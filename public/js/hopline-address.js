@@ -1,5 +1,5 @@
 /*
- * Orion address handling: put whatever was typed or pasted into its proper form, and check it locally.
+ * Hopline address handling: put whatever was typed or pasted into its proper form, and check it locally.
  *
  *   bech32 / bech32m (bc1..., tb1..., bcrt1...)   case does not matter, so it is lower-cased ("Bc1q..." from an
  *                                                  autocorrecting keyboard, "BC1Q..." from a QR code)
@@ -10,7 +10,7 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.OrionAddress = factory();
+  else root.HoplineAddress = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 

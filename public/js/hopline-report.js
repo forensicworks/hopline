@@ -1,5 +1,5 @@
 /*
- * Orion report: turns what is on screen into one self-contained HTML file an investigator can hand over: findings, the
+ * Hopline report: turns what is on screen into one self-contained HTML file an investigator can hand over: findings, the
  * transactions in time order with their inputs and outputs, the wallets, the graph as a picture, how every finding was reached,
  * where and when each transaction was fetched, and a SHA-256 of the evidence data embedded in the file so a reader can
  * check that it was not changed afterwards (tools/verify_report.py does that).
@@ -9,8 +9,8 @@
  * data block, whose text is escaped so it cannot end early.
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./orion-style.js'), require('./orion-address.js'));
-  else root.OrionReport = factory(root.OrionStyle, root.OrionAddress);
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./hopline-style.js'), require('./hopline-address.js'));
+  else root.HoplineReport = factory(root.HoplineStyle, root.HoplineAddress);
 }(typeof self !== 'undefined' ? self : this, function (Style, Addr) {
   'use strict';
 
@@ -144,11 +144,11 @@
     var times = txs.map(function (n) { return n.time; }).filter(function (x) { return x != null; });
     var fetched = txs.map(function (n) { return n.fetchedAt; }).filter(function (x) { return x != null; });
     var sources = {}; txs.forEach(function (n) { if (n.source) sources[host(n.source)] = (sources[host(n.source)] || 0) + 1; });
-    var title = model.title || 'Orion investigation report', h = [];
+    var title = model.title || 'Hopline investigation report', h = [];
     model.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded && model.fingerprint) n.fingerprintText = model.fingerprint(n) || ''; });
 
     h.push('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + esc(title) + '</title><style>' + CSS + '</style></head><body>');
-    h.push('<h1>' + esc(title) + '</h1><p class="meta">' + (model.preparedBy ? 'Prepared by ' + esc(model.preparedBy) + ' · ' : '') + 'generated ' + esc(t(Math.floor((model.generated || Date.now()) / 1000))) + ' · made with Orion workspace · all times UTC</p>');
+    h.push('<h1>' + esc(title) + '</h1><p class="meta">' + (model.preparedBy ? 'Prepared by ' + esc(model.preparedBy) + ' · ' : '') + 'generated ' + esc(t(Math.floor((model.generated || Date.now()) / 1000))) + ' · made with Hopline workspace · all times UTC</p>');
     h.push('<div class="notice"><b>Read this first.</b> The facts here (transactions, amounts, times, which output was spent by which transaction) come from the blockchain data source named below and were fetched at the times shown. The <i>findings</i> (patterns, likely change, address clusters) are heuristics: they are guesses with their reasons stated, not proof of who controls what.</div>');
 
     h.push('<h2>Summary</h2><table><tr><th>What is covered</th><td>' + plural(txs.length, 'transaction') + ' loaded' + (stubs ? ' (and ' + stubs + ' more referenced but not loaded)' : '') + ', ' + plural(wallets.length, 'wallet') + ', ' + plural(model.edges.length, 'movement') + '. This is what was on screen when the report was made.</td></tr>'
@@ -218,8 +218,8 @@
 
     h.push('<h2>Integrity</h2><p>The evidence data embedded in this file (every vertex and movement above, with where and when it was fetched, and the settings used) has this SHA-256:</p><p class="hash" id="evidence-hash">' + esc(hash) + '</p>'
       + '<p>The whole of this file, with the line below written as 64 zeros, has this SHA-256 (it changes if a single word of the readable report is edited, or if the file is re-saved with other line endings):</p>' + DOC_P
-      + '<p class="hint">To check that nothing was changed since the report was made, run <code>python tools/verify_report.py this-file.html</code> from the Orion repository, or hash the text of the <code>orion-evidence</code> data block at the end of this file yourself and compare. Do not open and re-save the file in an editor. The block is a workspace file: save its text as .json and Orion\'s Import opens it.</p>');
-    h.push('<script type="application/json" id="orion-evidence">' + text + '</script></body></html>');
+      + '<p class="hint">To check that nothing was changed since the report was made, run <code>python tools/verify_report.py this-file.html</code> from the Hopline repository, or hash the text of the <code>hopline-evidence</code> data block at the end of this file yourself and compare. Do not open and re-save the file in an editor. The block is a workspace file: save its text as .json and Hopline\'s Import opens it.</p>');
+    h.push('<script type="application/json" id="hopline-evidence">' + text + '</script></body></html>');
     return h.join('\n');
   }
 

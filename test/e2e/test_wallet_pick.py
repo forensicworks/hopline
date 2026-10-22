@@ -23,7 +23,7 @@ def start(page, mock, trace=True):
     open_query(page, W)
     if trace:
         page.click("#layoutSeg [data-layout=trace]"); settle(page)
-        page.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(page)
+        page.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(page)
 
 
 def tick(page, *ns):
@@ -65,7 +65,7 @@ def test_show_on_graph_puts_all_the_ticked_transactions_on_the_trace_in_the_righ
     tick(fpage, 106, 107, 120)
     fpage.click("#inspBody .walletpick >> text=Show on graph (3)"); idle(fpage); settle(fpage)
     assert txs_on(fpage) == {"tx:" + tid(n) for n in (106, 107, 120)}
-    px = lambda i: fpage.evaluate("(id) => window.__orion.renderer.positionOf(id).x", i)
+    px = lambda i: fpage.evaluate("(id) => window.__hopline.renderer.positionOf(id).x", i)
     assert px("tx:" + tid(106)) > px(W_ID) and px("tx:" + tid(107)) > px(W_ID), "what the wallet spent goes forward"
     assert px("tx:" + tid(120)) < px(W_ID), "what paid the wallet comes from behind"
     assert fpage.locator("#inspBody .walletsec .rowtick:checked").count() == 0, "the ticks are used up"
@@ -81,7 +81,7 @@ def test_rows_already_on_the_trace_are_not_counted_again(fpage, mock):
     fpage.click("#inspBody .walletpick >> text=Show on graph (1)"); idle(fpage); settle(fpage)
     tick(fpage, 106, 107)
     assert buttons(fpage)[0] == "Show on graph (1)", buttons(fpage)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     fpage.click("#inspBody .walletpick >> text=Clear")
     tick(fpage, 106)
     assert buttons(fpage)[0] == "Show on graph (0)"
@@ -93,7 +93,7 @@ def test_as_one_vertex_folds_the_ticked_ones_into_a_group_per_direction(fpage, m
     start(fpage, mock)
     tick(fpage, *TXS_OUT)
     fpage.click("#inspBody .walletpick >> text=As one vertex"); idle(fpage); settle(fpage)
-    g = fpage.evaluate("() => [...window.__orion.state.trace.groups.values()].map(g => [g.dir, g.kind, g.members.length])")
+    g = fpage.evaluate("() => [...window.__hopline.state.trace.groups.values()].map(g => [g.dir, g.kind, g.members.length])")
     assert g == [["next", "picked", 3]], g
     assert shown(fpage) == {W_ID, "grp:1"}
 
@@ -102,7 +102,7 @@ def test_as_one_vertex_with_two_directions_makes_a_group_where_it_can_and_shows_
     start(fpage, mock)
     tick(fpage, 106, 107, 120)                                              # two out, one in
     fpage.click("#inspBody .walletpick >> text=As one vertex"); idle(fpage); settle(fpage)
-    g = fpage.evaluate("() => [...window.__orion.state.trace.groups.values()].map(g => [g.dir, g.members.length])")
+    g = fpage.evaluate("() => [...window.__hopline.state.trace.groups.values()].map(g => [g.dir, g.members.length])")
     assert g == [["next", 2]], g
     assert "tx:" + tid(120) in shown(fpage), "the single one that came in is just shown"
 
@@ -145,11 +145,11 @@ def test_ticks_survive_a_new_order_and_more_rows_but_not_another_wallet(fpage, m
     tick(fpage, 106, 120)
     fpage.select_option("#inspBody .walletbar select", "big")
     assert "2 ticked" in bar(fpage)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", "tx:" + tid(106)); settle(fpage)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", "tx:" + tid(106)); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     assert "2 ticked" in bar(fpage), "the same wallet again"
-    fpage.evaluate("(id) => window.__orion.setSel([id])", "addr:bc1qexchxxxxxxxxxxxxxxxx"); settle(fpage)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:bc1qexchxxxxxxxxxxxxxxxx"); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     assert "Tick rows" in bar(fpage), "ticks made on one wallet do not follow you to another"
 
 
@@ -164,11 +164,11 @@ def test_copy_ids_copies_one_transaction_id_per_line(fpage, mock):
 def test_outside_a_trace_the_bar_selects_the_ticked_transactions_on_the_graph(fpage, mock):
     start(fpage, mock, trace=False)
     fpage.uncheck("#focusOn"); settle(fpage)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", W_ID); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     tick(fpage, 106, 107)
     assert buttons(fpage) == ["Select on graph", "Copy ids", "Clear"], "no trace actions where there is no trace"
     fpage.click("#inspBody .walletpick >> text=Select on graph"); settle(fpage)
-    assert set(fpage.evaluate("() => [...window.__orion.state.selected]")) == {"tx:" + tid(106), "tx:" + tid(107)}
+    assert set(fpage.evaluate("() => [...window.__hopline.state.selected]")) == {"tx:" + tid(106), "tx:" + tid(107)}
     assert "2 selected" in fpage.inner_text("#inspBody")
 
 

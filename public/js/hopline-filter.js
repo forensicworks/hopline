@@ -1,5 +1,5 @@
 /*
- * Orion filters: decide which vertices and edges are shown. Pure functions, no DOM.
+ * Hopline filters: decide which vertices and edges are shown. Pure functions, no DOM.
  *
  * state = {
  *   timeFrom, timeTo      unix seconds, null = unbounded. Applies to the TRANSACTION an edge belongs to.
@@ -14,7 +14,7 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.OrionFilter = factory();
+  else root.HoplineFilter = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 

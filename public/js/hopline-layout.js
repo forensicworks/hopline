@@ -1,5 +1,5 @@
 /*
- * Orion layouts. Each takes (graph, visible, opts) and returns
+ * Hopline layouts. Each takes (graph, visible, opts) and returns
  *   { pos: Map<id,{x,y}>, axis: null | { tMin, tMax, x0, x1, pendingX } }
  * x grows to the right, y downwards. Pure functions; deterministic for the same input.
  *
@@ -13,7 +13,7 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.OrionLayout = factory();
+  else root.HoplineLayout = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 

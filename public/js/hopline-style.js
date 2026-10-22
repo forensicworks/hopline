@@ -1,9 +1,9 @@
 /*
- * Orion visual encoding: size, width and colour from data. Pure functions, no DOM.
+ * Hopline visual encoding: size, width and colour from data. Pure functions, no DOM.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.OrionStyle = factory();
+  else root.HoplineStyle = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 

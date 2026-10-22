@@ -1,5 +1,5 @@
 /*
- * Orion external lookups: ask a third-party service about ONE wallet, on request. Never run over the whole graph.
+ * Hopline external lookups: ask a third-party service about ONE wallet, on request. Never run over the whole graph.
  *
  * Arkham Intelligence has no CORS headers, so a web page cannot call it. The lookup goes to a small local proxy
  * (tools/arkham_proxy.py) that holds the API key in an environment variable and forwards only
@@ -10,8 +10,8 @@
  * raw reply is always kept, and nothing is applied to a wallet automatically.
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./orion-tags.js'));
-  else root.OrionExternal = factory(root.OrionTags);
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./hopline-tags.js'));
+  else root.HoplineExternal = factory(root.HoplineTags);
 }(typeof self !== 'undefined' ? self : this, function (Tags) {
   'use strict';
 
@@ -100,7 +100,7 @@
     if (!opts.token) return Promise.reject(fail('token', 'Enter the proxy token first (it is printed when the proxy starts).'));
     var ctl = typeof AbortController === 'function' ? new AbortController() : null, timer = null, timedOut = false;
     if (ctl) timer = setTimeout(function () { timedOut = true; ctl.abort(); }, opts.timeoutMs || 25000);
-    return opts.fetch(base + '/intelligence/address/' + encodeURIComponent(opts.address), { headers: { 'X-Orion-Token': opts.token, 'Accept': 'application/json' }, signal: ctl ? ctl.signal : undefined })
+    return opts.fetch(base + '/intelligence/address/' + encodeURIComponent(opts.address), { headers: { 'X-Hopline-Token': opts.token, 'Accept': 'application/json' }, signal: ctl ? ctl.signal : undefined })
       .then(function (res) {
         return res.text().then(function (body) {
           var json = null; try { json = JSON.parse(body); } catch (e) { json = null; }
@@ -124,7 +124,7 @@
   function proxyHealth(opts) {
     var base = String(opts.base || '').replace(/\/+$/, '');
     if (!/^https?:\/\//i.test(base)) return Promise.reject(fail('proxy', 'Enter the address of the lookup proxy first.'));
-    return opts.fetch(base + '/health', { headers: { 'X-Orion-Token': opts.token || '' } }).then(function (res) {
+    return opts.fetch(base + '/health', { headers: { 'X-Hopline-Token': opts.token || '' } }).then(function (res) {
       if (res.status === 401) throw fail('token', 'The proxy is running but rejected the token.', 401);
       if (!res.ok) throw fail('proxy', 'The proxy answered HTTP ' + res.status + '.', res.status);
       return res.json();

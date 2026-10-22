@@ -20,7 +20,7 @@ def trace_of(page, mock, n):
 
 
 def handle_xy(page, id_, dir_):
-    return page.evaluate("""([id, d]) => { const r = window.__orion.renderer, h = r.handleRects.find(x => x.id === id && x.dir === d);
+    return page.evaluate("""([id, d]) => { const r = window.__hopline.renderer, h = r.handleRects.find(x => x.id === id && x.dir === d);
         const b = r.canvas.getBoundingClientRect(); return { x: b.left + h.x + h.w / 2, y: b.top + h.y + h.h / 2 }; }""", [id_, dir_])
 
 
@@ -79,12 +79,12 @@ def test_hovering_an_arrow_gives_the_count_the_total_and_the_dates(fpage, mock):
     tx = trace_of(fpage, mock, 12)
     p = handle_xy(fpage, tx, "right")
     fpage.mouse.move(p["x"], p["y"])
-    tip = fpage.evaluate("() => window.__orion.renderer.canvas.title")
+    tip = fpage.evaluate("() => window.__hopline.renderer.canvas.title")
     assert "Click to choose which: the top 5 come ticked" in tip, tip
     assert "12 outputs" in tip and "BTC in total" in tip and "largest 0.00100000 BTC" in tip and "2022-04-" in tip, tip
     left = handle_xy(fpage, tx, "left")
     fpage.mouse.move(left["x"], left["y"])
-    assert "1 input" in fpage.evaluate("() => window.__orion.renderer.canvas.title")
+    assert "1 input" in fpage.evaluate("() => window.__hopline.renderer.canvas.title")
 
 
 def test_for_a_wallet_the_hover_counts_transactions(fpage, mock):
@@ -93,7 +93,7 @@ def test_for_a_wallet_the_hover_counts_transactions(fpage, mock):
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     p = handle_xy(fpage, W_ID, "right")
     fpage.mouse.move(p["x"], p["y"])
-    tip = fpage.evaluate("() => window.__orion.renderer.canvas.title")
+    tip = fpage.evaluate("() => window.__hopline.renderer.canvas.title")
     assert "9 transactions" in tip and "BTC in total" in tip, tip
 
 
@@ -158,7 +158,7 @@ def test_double_click_and_the_bracket_keys_ask_too(fpage, mock):
     click_node(fpage, tx, dbl=True); idle(fpage)
     assert fpage.is_visible("#ctxMenu .chooser") and shown(fpage) == {tx}
     fpage.keyboard.press("Escape")
-    fpage.evaluate("(id) => window.__orion.setSel([id])", tx); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", tx); settle(fpage)
     fpage.locator("#cv").focus(); fpage.keyboard.press("]"); idle(fpage)
     assert fpage.is_visible("#ctxMenu .chooser")
     box = fpage.locator("#ctxMenu").bounding_box(); p = xy(fpage, tx)
@@ -167,7 +167,7 @@ def test_double_click_and_the_bracket_keys_ask_too(fpage, mock):
 
 def test_the_buttons_in_the_details_and_the_menu_ask_as_well(fpage, mock):
     tx = trace_of(fpage, mock, 12)
-    fpage.evaluate("(id) => window.__orion.setSel([id])", tx); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.setSel([id])", tx); settle(fpage)
     fpage.click("#inspBody button:has-text('Show forward')"); idle(fpage)
     assert fpage.is_visible("#ctxMenu .chooser") and shown(fpage) == {tx}
     fpage.keyboard.press("Escape")
@@ -215,14 +215,14 @@ def test_the_two_settings_are_remembered(fpage):
     open_limits(fpage)
     assert fpage.input_value("#stepMode") == "ask" and fpage.input_value("#stepSize") == "5"
     fpage.select_option("#stepMode", "batch"); fpage.fill("#stepSize", "8"); fpage.dispatch_event("#stepSize", "change")
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert fpage.input_value("#stepMode") == "batch" and fpage.input_value("#stepSize") == "8"
-    assert fpage.evaluate("() => [window.__orion.state.stepMode, window.__orion.state.stepSize]") == ["batch", 8]
+    assert fpage.evaluate("() => [window.__hopline.state.stepMode, window.__hopline.state.stepSize]") == ["batch", 8]
 
 
 def test_the_list_never_runs_markup_from_an_address_label(fpage, mock):
     tx = trace_of(fpage, mock, 12)
-    fpage.evaluate("(id) => { window.__orion.state.graph.nodes.get(id).label = '<img src=x onerror=window.__pwned=1>'; }", "addr:bc1qchoose000")
+    fpage.evaluate("(id) => { window.__hopline.state.graph.nodes.get(id).label = '<img src=x onerror=window.__pwned=1>'; }", "addr:bc1qchoose000")
     click_handle(fpage, tx, "right"); idle(fpage)
     assert fpage.evaluate("() => window.__pwned") is None and fpage.locator("#ctxMenu img").count() == 0
     assert "<img src=x" in fpage.inner_text("#ctxMenu")
@@ -252,9 +252,9 @@ def test_the_order_is_remembered_the_next_time_the_list_opens_and_after_a_reload
     assert fpage.input_value("#ctxMenu .choosertools select") == "old", "the order of last time"
     fpage.select_option("#ctxMenu .choosertools select", "small")
     fpage.keyboard.press("Escape")
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
-    assert fpage.evaluate("() => window.__orion.state.chooseSort") == "small"
-    if fpage.evaluate("() => window.__orion.state.layout") != "trace":                  # the saved session comes back with its graph; open the trace again if it is not showing
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    assert fpage.evaluate("() => window.__hopline.state.chooseSort") == "small"
+    if fpage.evaluate("() => window.__hopline.state.layout") != "trace":                  # the saved session comes back with its graph; open the trace again if it is not showing
         fpage.click("#layoutSeg [data-layout=trace]")
     settle(fpage)
     click_handle(fpage, tx, "right"); idle(fpage)

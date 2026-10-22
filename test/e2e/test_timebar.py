@@ -28,7 +28,7 @@ def hist_origin(page):
 
 def dots(page):
     """Every transaction on the time line with the x it is drawn at (relative to the canvas) and its exact time."""
-    return page.evaluate("""() => { const o = window.__orion, w = o.state.tbGeom.w;
+    return page.evaluate("""() => { const o = window.__hopline, w = o.state.tbGeom.w;
       return o.state.tbTxs.map(t => ({ id: t.id, time: t.time, loaded: t.loaded, x: o.timeX(t.time, w) })); }""")
 
 
@@ -54,7 +54,7 @@ def drawn_on_hist(page):
     """The text drawn on the time line's canvas (a spy on fillText for one redraw)."""
     return page.evaluate("""() => { const seen = [], orig = CanvasRenderingContext2D.prototype.fillText;
       CanvasRenderingContext2D.prototype.fillText = function (t) { if (this.canvas.id === 'hist') seen.push(String(t)); return orig.apply(this, arguments); };
-      try { window.__orion.drawHistogram(); } finally { CanvasRenderingContext2D.prototype.fillText = orig; }
+      try { window.__hopline.drawHistogram(); } finally { CanvasRenderingContext2D.prototype.fillText = orig; }
       return seen; }""")
 
 
@@ -70,14 +70,14 @@ def test_the_time_bar_folds_away_gives_the_room_to_the_graph_and_comes_back(fpag
     assert fpage.get_attribute("#tbCollapse", "aria-expanded") == "false"
     assert fpage.is_hidden("#hist") and fpage.is_visible("#tbPlay"), "the slider body folds, the title row with the range and Replay stays"
     assert box(fpage, "#timebar")["height"] < 60
-    assert fpage.evaluate("""() => { const r = window.__orion.renderer, b = r.canvas.getBoundingClientRect();
+    assert fpage.evaluate("""() => { const r = window.__hopline.renderer, b = r.canvas.getBoundingClientRect();
         return [...r.data.visible.nodes].every(id => { const p = r.positionOf(id), y = b.top + p.y * r.view.k + r.view.y; return y > b.top && y < b.bottom; }); }"""), "the graph was refitted to the taller canvas"
     bar_top, step_bottom = box(fpage, "#timebar")["y"], box(fpage, "#stepbar")["y"] + box(fpage, "#stepbar")["height"]
     assert step_bottom <= bar_top, "the Previous / Next bar moved down with it, it does not sit on the time bar"
     fpage.click("#tbCollapse")
     fpage.wait_for_function("(h) => Math.abs(document.getElementById('cv').getBoundingClientRect().height - h) < 2", arg=full)
     assert fpage.is_visible("#hist") and fpage.get_attribute("#tbCollapse", "aria-expanded") == "true"
-    fpage.wait_for_function("() => window.__orion.state.tbGeom && window.__orion.state.tbGeom.w > 100")
+    fpage.wait_for_function("() => window.__hopline.state.tbGeom && window.__hopline.state.tbGeom.w > 100")
 
 
 def test_t_key_toggles_it_and_the_choice_is_remembered(fpage):
@@ -85,13 +85,13 @@ def test_t_key_toggles_it_and_the_choice_is_remembered(fpage):
     fpage.locator("#cv").focus()
     fpage.keyboard.press("t")
     assert fpage.evaluate("() => document.body.classList.contains('tb-collapsed')")
-    assert fpage.evaluate("() => JSON.parse(localStorage.getItem('orion.prefs.v1')).tbCollapsed") is True
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
+    assert fpage.evaluate("() => JSON.parse(localStorage.getItem('hopline.prefs.v1')).tbCollapsed") is True
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert fpage.evaluate("() => document.body.classList.contains('tb-collapsed')") and fpage.is_hidden("#hist")
     fpage.locator("#cv").focus()
     fpage.keyboard.press("t")
     assert fpage.is_visible("#hist")
-    assert fpage.evaluate("() => JSON.parse(localStorage.getItem('orion.prefs.v1')).tbCollapsed") is False
+    assert fpage.evaluate("() => JSON.parse(localStorage.getItem('hopline.prefs.v1')).tbCollapsed") is False
 
 
 def test_t_is_ignored_while_typing_in_a_box(fpage):
@@ -112,16 +112,16 @@ def test_the_time_line_has_a_scale_with_dates(fpage):
     texts = drawn_on_hist(fpage)
     assert len(texts) >= 2, texts
     assert all(len(t) >= 4 for t in texts) and any(t[:2] == "20" for t in texts), "calendar labels such as 2022-06: %s" % texts
-    span = fpage.evaluate("() => { const b = window.__orion.state.tb; return [b.min, b.max]; }")
+    span = fpage.evaluate("() => { const b = window.__hopline.state.tb; return [b.min, b.max]; }")
     assert any(utc(span[0])[:4] in t or utc(span[1])[:4] in t for t in texts), "the labels belong to the years the graph spans"
 
 
 def test_the_time_line_is_drawn_and_a_hover_guide_does_not_disturb_the_scale(fpage):
     open_with_timeline(fpage)
     plain = drawn_on_hist(fpage)
-    fpage.evaluate("() => { window.__orion.state.tbHover = { x: 60 }; }")
+    fpage.evaluate("() => { window.__hopline.state.tbHover = { x: 60 }; }")
     assert drawn_on_hist(fpage) == plain
-    fpage.evaluate("() => { window.__orion.state.tbHover = null; }")
+    fpage.evaluate("() => { window.__hopline.state.tbHover = null; }")
 
 
 # ---------------------------------------------------------------- hovering the dots
@@ -174,7 +174,7 @@ def test_clicking_a_dot_selects_that_transaction(fpage):
     d = lone_dots(fpage)[-1]
     ox, oy = hist_origin(fpage)
     fpage.mouse.click(ox + d["x"], oy + 40); settle(fpage)
-    assert fpage.evaluate("() => [...window.__orion.state.selected]") == [d["id"]]
+    assert fpage.evaluate("() => [...window.__hopline.state.selected]") == [d["id"]]
     assert d["id"][3:8] in fpage.inner_text("#inspBody")
 
 
@@ -188,28 +188,28 @@ def test_dots_drawn_on_top_of_each_other_are_one_spot_that_lists_and_selects_the
     assert "2 transactions here" in tip and utc(stack[0]["time"]) in tip
     assert all(d["id"][3:9] in tip for d in stack), tip
     fpage.mouse.click(ox + stack[0]["x"], oy + 40); settle(fpage)
-    assert set(fpage.evaluate("() => [...window.__orion.state.selected]")) == {d["id"] for d in stack}
+    assert set(fpage.evaluate("() => [...window.__hopline.state.selected]")) == {d["id"] for d in stack}
 
 
 def test_clicking_where_nothing_happened_selects_nothing(fpage):
     open_with_timeline(fpage)
     click_node(fpage, "tx:" + NORMAL["txid"]); settle(fpage)
-    before = fpage.evaluate("() => [...window.__orion.state.selected]")
+    before = fpage.evaluate("() => [...window.__hopline.state.selected]")
     ds = dots(fpage)
     gap = max(range(len(ds) - 1), key=lambda i: ds[i + 1]["x"] - ds[i]["x"])
     ox, oy = hist_origin(fpage)
     fpage.mouse.click(ox + (ds[gap]["x"] + ds[gap + 1]["x"]) / 2, oy + 20); settle(fpage)
-    assert fpage.evaluate("() => [...window.__orion.state.selected]") == before
+    assert fpage.evaluate("() => [...window.__hopline.state.selected]") == before
 
 
 def test_a_dot_outside_the_chosen_window_says_so_instead_of_selecting(fpage):
     open_with_timeline(fpage)
     click_node(fpage, "tx:" + NORMAL["txid"]); settle(fpage)
-    before = fpage.evaluate("() => [...window.__orion.state.selected]")
+    before = fpage.evaluate("() => [...window.__hopline.state.selected]")
     set_slider(fpage, "#tTo", 10); idle(fpage); settle(fpage)
-    late = [d for d in dots(fpage) if d["time"] > fpage.evaluate("() => window.__orion.state.filter.timeTo")]
+    late = [d for d in dots(fpage) if d["time"] > fpage.evaluate("() => window.__hopline.state.filter.timeTo")]
     assert late, "a transaction lies after the window"
     ox, oy = hist_origin(fpage)
     fpage.mouse.click(ox + late[-1]["x"], oy + 40); settle(fpage)
     assert "not on screen" in toast_text(fpage)
-    assert fpage.evaluate("() => [...window.__orion.state.selected]") == before
+    assert fpage.evaluate("() => [...window.__hopline.state.selected]") == before

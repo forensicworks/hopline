@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FX = ROOT / "test" / "fixtures"
 PAGE_URL = (ROOT / "public" / "workspace.html").as_uri()
-SHOTS = pathlib.Path(__import__("os").environ.get("ORION_SHOTS", ROOT / "test" / "e2e" / "shots"))
+SHOTS = pathlib.Path(__import__("os").environ.get("HOPLINE_SHOTS", ROOT / "test" / "e2e" / "shots"))
 
 
 def fx(name):
@@ -114,7 +114,7 @@ def fpage(ctx, errors):
     p.on("pageerror", lambda e: errors.append("pageerror: " + str(e)))
     p.on("console", lambda m: errors.append("console: " + m.text) if m.type == "error" else None)
     p.goto(PAGE_URL)
-    p.wait_for_function("window.__orion && window.__orion.renderer")
+    p.wait_for_function("window.__hopline && window.__hopline.renderer")
     return p
 
 

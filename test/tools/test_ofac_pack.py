@@ -1,4 +1,4 @@
-"""tools/make_label_pack_ofac.py: the OFAC list becomes a label pack that Orion's importer accepts."""
+"""tools/make_label_pack_ofac.py: the OFAC list becomes a label pack that Hopline's importer accepts."""
 import json
 import pathlib
 import subprocess
@@ -37,15 +37,27 @@ def test_bitcoin_addresses_become_labels_and_everything_else_is_left_out(tmp_pat
     r = run("--sdn", str(sdn), "--out", str(out))
     assert r.returncode == 0 and "Wrote 2 Bitcoin addresses" in r.stdout, r.stderr
     pack = json.loads(out.read_text(encoding="utf-8"))
-    assert pack["format"] == "orion-labels" and pack["name"] == "OFAC SDN list (Bitcoin)" and "OFAC SDN list" in pack["source"]
+    assert pack["format"] == "hopline-labels" and pack["name"] == "OFAC SDN list (Bitcoin)" and "OFAC SDN list" in pack["source"]
     assert [(e["address"], e["label"], e["category"]) for e in pack["labels"]] == [(BECH, "OFAC SDN: EXAMPLE GROUP", "CYBER2"), (LEGACY, "OFAC SDN: EXAMPLE GROUP", "CYBER2")], "the Ethereum address, the row without one and the repeat are left out"
 
 
-def test_orions_own_importer_accepts_the_result(tmp_path):
+def test_several_programmes_become_a_readable_category_not_bracket_debris():
+    sys.path.insert(0, str(ROOT / "tools"))
+    import make_label_pack_ofac as m
+    assert m.category("CYBER2") == "CYBER2"
+    assert m.category("DPRK3] [CYBER2") == "DPRK3, CYBER2"
+    assert m.category("[SDGT] [IFSR] [IRGC]") == "SDGT, IFSR, IRGC"
+    assert m.category("ILLICIT-DRUGS-EO14059] [SDNTK] [SDNT") == "ILLICIT-DRUGS-EO14059, SDNTK, SDNT"
+    long = m.category("ILLICIT-DRUGS-EO14059] [SDNTK] [SDNT] [CYBER2")
+    assert len(long) <= 40 and long == "ILLICIT-DRUGS-EO14059, SDNTK, SDNT"[:len(long)] and not long.endswith(","), "cut at a programme, never in the middle of one"
+    assert m.category("A" * 60) == "A" * 40 and m.category("") == "" and m.category("-0-") == "-0-"
+
+
+def test_hoplines_own_importer_accepts_the_result(tmp_path):
     sdn, out = tmp_path / "sdn.csv", tmp_path / "pack.json"
     write_sdn(sdn); assert run("--sdn", str(sdn), "--out", str(out)).returncode == 0
     js = "const L = require(process.argv[1]); const p = L.parse(require('fs').readFileSync(process.argv[2], 'utf8'), 'x'); console.log(JSON.stringify([p.name, p.entries.length, p.skipped]));"
-    r = subprocess.run(["node", "-e", js, str(ROOT / "public" / "js" / "orion-labels.js"), str(out)], capture_output=True, text=True, timeout=60)
+    r = subprocess.run(["node", "-e", js, str(ROOT / "public" / "js" / "hopline-labels.js"), str(out)], capture_output=True, text=True, timeout=60)
     if r.returncode != 0 and "not found" in (r.stderr or "").lower():
         pytest.skip("node is not available")
     assert r.returncode == 0, r.stderr

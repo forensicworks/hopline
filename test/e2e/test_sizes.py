@@ -16,7 +16,7 @@ def no_js_errors(errors):
 def chain(fpage, mock, length=6, hops=5):
     peel_chain(mock, length)
     open_query(fpage, tid(10))
-    fpage.evaluate("(id) => window.__orion.autoExpand(id, { dir: 'next', hops: %d, follow: 'all' })" % hops, "tx:" + tid(10)); idle(fpage); settle(fpage)
+    fpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: %d, follow: 'all' })" % hops, "tx:" + tid(10)); idle(fpage); settle(fpage)
 
 
 def layout(page, name):
@@ -29,7 +29,7 @@ def size_by(page, name):
 
 def sizes(page):
     """{id: (radius drawn, value it stands for)} for what is on screen."""
-    return page.evaluate("""() => { const o = window.__orion, g = o.state.graph, st = o.renderer.data.style, out = {};
+    return page.evaluate("""() => { const o = window.__hopline, g = o.state.graph, st = o.renderer.data.style, out = {};
         o.renderer.data.visible.nodes.forEach(id => { const n = g.nodes.get(id); out[id] = [st.nodeRadius(n), n.type === 'tx' ? n.valueOut : n.received]; }); return out; }""")
 
 
@@ -72,9 +72,9 @@ def test_the_size_buttons_override_auto_and_are_remembered(fpage, mock):
     assert max(r for r, _ in sizes(fpage).values()) <= 16.01 and "compact scale" in legend(fpage), "compact even in the force layout"
     size_by(fpage, "area")
     fpage.wait_for_timeout(1100)
-    fpage.reload(); fpage.wait_for_function("window.__orion && window.__orion.renderer")
-    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__orion.state.graph.nodes.size > 0"); settle(fpage)
-    assert fpage.evaluate("() => window.__orion.state.sizeBy") == "area"
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    fpage.click("#restoreYes"); fpage.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0"); settle(fpage)
+    assert fpage.evaluate("() => window.__hopline.state.sizeBy") == "area"
     assert fpage.get_attribute("#sizeSeg [data-size=area]", "aria-checked") == "true"
 
 
@@ -83,7 +83,7 @@ def test_the_force_layout_leaves_room_for_the_shapes(fpage, mock):
     layout(fpage, "force")
     for mode in ("area", "log"):
         size_by(fpage, mode)
-        pts = fpage.evaluate("""() => { const o = window.__orion, g = o.state.graph, st = o.renderer.data.style, out = [];
+        pts = fpage.evaluate("""() => { const o = window.__hopline, g = o.state.graph, st = o.renderer.data.style, out = [];
             o.renderer.data.visible.nodes.forEach(id => { const p = o.renderer.positionOf(id); out.push([p.x, p.y, st.nodeRadius(g.nodes.get(id))]); }); return out; }""")
         for i, a in enumerate(pts):
             for b in pts[i + 1:]:

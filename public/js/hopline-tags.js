@@ -1,5 +1,5 @@
 /*
- * Orion tags: your own classification of a wallet or transaction (EXCH, THREAT, ...) with a colour and a shape.
+ * Hopline tags: your own classification of a wallet or transaction (EXCH, THREAT, ...) with a colour and a shape.
  * Pure functions. A vertex carries three independent optional fields:
  *   tag    a short name: one of the presets below or your own text
  *   color  '#rrggbb' used instead of the usual colour
@@ -9,7 +9,7 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.OrionTags = factory();
+  else root.HoplineTags = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 

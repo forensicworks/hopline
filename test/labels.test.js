@@ -1,8 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { Graph } = require('../public/js/orion-model.js');
-const Labels = require('../public/js/orion-labels.js');
+const { Graph } = require('../public/js/hopline-model.js');
+const Labels = require('../public/js/hopline-labels.js');
 
 const BECH = 'bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h';              // real addresses from the built-in list: their checksums are valid
 const LEGACY = '325gSHHe7UGvzEc9kGx43VqPboXUVwa26i';
@@ -21,8 +21,13 @@ test('CSV without a header: two columns are address and label', () => {
   assert.deepEqual(p.entries.map((e) => [e.address, e.label]), [[BECH, 'Exchange A'], [LEGACY, 'Exchange B']]);
 });
 
+test('a label pack made when the project was called Orion still imports', () => {
+  const p = Labels.parse(JSON.stringify({ format: 'orion-labels', name: 'Old pack', labels: [{ address: BECH, label: 'Suspect A' }] }), 'old.json');
+  assert.equal(p.name, 'Old pack'); assert.equal(p.entries.length, 1); assert.equal(p.entries[0].label, 'Suspect A');
+});
+
 test('JSON: the pack format, a bare list, a list of pairs, and an address-to-label map', () => {
-  const pack = Labels.parse(JSON.stringify({ format: 'orion-labels', name: 'Case 12 wallets', source: 'our own notes', labels: [{ address: BECH, label: 'Suspect A', category: 'THREAT' }] }), 'x.json');
+  const pack = Labels.parse(JSON.stringify({ format: 'hopline-labels', name: 'Case 12 wallets', source: 'our own notes', labels: [{ address: BECH, label: 'Suspect A', category: 'THREAT' }] }), 'x.json');
   assert.equal(pack.name, 'Case 12 wallets'); assert.equal(pack.source, 'our own notes'); assert.equal(pack.entries[0].category, 'THREAT');
   assert.equal(Labels.parse(JSON.stringify([{ addr: LEGACY, entity: 'FTX' }])).entries[0].label, 'FTX');
   assert.equal(Labels.parse(JSON.stringify([[LEGACY2, 'Coinbase']])).entries[0].address, LEGACY2);

@@ -1,12 +1,12 @@
 /*
- * Orion wallet overview: one address as a ledger. Everything that came from outside (names, notes, addresses, OP_RETURN text) reaches
+ * Hopline wallet overview: one address as a ledger. Everything that came from outside (names, notes, addresses, OP_RETURN text) reaches
  * the page through textContent only, never as HTML.
  */
 (function () {
   'use strict';
 
-  var A = OrionApi, AD = OrionAddress, S = OrionStyle, W = OrionWallet, LB = OrionLabels;
-  var PREF_KEY = 'orion.prefs.v1', PACKS_KEY = 'orion.packs.v1', PAGE = 25, NL = String.fromCharCode(10);
+  var A = HoplineApi, AD = HoplineAddress, S = HoplineStyle, W = HoplineWallet, LB = HoplineLabels;
+  var PREF_KEY = 'hopline.prefs.v1', PACKS_KEY = 'hopline.packs.v1', PAGE = 25, NL = String.fromCharCode(10);
 
   function $(id) { return document.getElementById(id); }
   function el(tag, props, kids) {
@@ -22,7 +22,8 @@
     (kids || []).forEach(function (c) { if (c != null) n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
     return n;
   }
-  var store = { get: function (k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } } };
+  // reads the new name first, then the one an older version (called Orion) used
+  var store = { get: function (k) { try { var v = window.localStorage.getItem(k); return v != null ? v : window.localStorage.getItem(k.replace(/^hopline\./, 'orion.')); } catch (e) { return null; } } };
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many || one + 's'); }
   function btc(sats) { return S.fmtBtc(sats) + ' BTC'; }
 
@@ -33,7 +34,7 @@
   var choice = { source: A.PRESETS[prefs.source] ? prefs.source : 'clearnet', customBase: typeof prefs.customBase === 'string' ? prefs.customBase : '', fallback: prefs.fallback !== false };
   if (qs.get('source') && A.PRESETS[qs.get('source')] && qs.get('source') !== 'custom') choice.source = qs.get('source');
   if (choice.source === 'custom' && !/^https?:\/\//i.test(choice.customBase.trim())) choice.source = 'clearnet';
-  var KNOWN = LB.buildKnown(window.ORION_KNOWN || {}, LB.parseStored(store.get(PACKS_KEY)));
+  var KNOWN = LB.buildKnown(window.HOPLINE_KNOWN || {}, LB.parseStored(store.get(PACKS_KEY)));
   function known(a) { return KNOWN[a] || null; }
 
   var state = { addr: null, stats: null, txs: [], done: false, busy: false, dir: 'all', client: null, led: null };
@@ -91,7 +92,7 @@
     $('addrNote').textContent = k && k.note ? k.note : '';
     $('head').hidden = false;
     $('toWorkspace').href = 'workspace.html?q=' + encodeURIComponent(a); $('toWorkspace').hidden = false;
-    document.title = 'Orion Wallet · ' + S.shortId(a, 8);
+    document.title = 'Hopline Wallet · ' + S.shortId(a, 8);
   }
 
   function drawSummary() {
@@ -196,7 +197,7 @@
     clearTimeout(waitTimer);
     waitTimer = setTimeout(function () {                                              // a server that neither answers nor refuses: say what is happening
       if (state.busy) message('Still waiting for ' + A.hostOf(state.client.base) + '… If this goes on, the server may be slow or blocked here; you can try the other one (add &source=blockstream to the address of this page).', false, load);
-    }, window.ORION_WAIT_MS || 20000);
+    }, window.HOPLINE_WAIT_MS || 20000);
     return Promise.all([state.client.address(state.addr), state.client.addressTxs(state.addr)]).then(function (r) {
       clearTimeout(waitTimer);
       state.stats = r[0]; state.txs = []; state.done = false;
@@ -228,7 +229,7 @@
 
   function csv() {
     var blob = new Blob([String.fromCharCode(0xFEFF) + W.csv(state.led.rows)], { type: 'text/csv;charset=utf-8' });
-    var a = el('a', { href: URL.createObjectURL(blob), download: 'orion-wallet-' + state.addr.slice(0, 12) + '.csv' });
+    var a = el('a', { href: URL.createObjectURL(blob), download: 'hopline-wallet-' + state.addr.slice(0, 12) + '.csv' });
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   }

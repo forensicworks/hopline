@@ -1,5 +1,5 @@
 /* Built-in wallet labels (exchanges and services). They began as the list in the original Orion project by Kyle Honeycutt (public domain) and are kept here as a data file: edit it directly. A name is a claim, not proof. */
-window.ORION_KNOWN = {
+window.HOPLINE_KNOWN = {
   "bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h": {"label": "Binance Hot Wallet"},
   "325gSHHe7UGvzEc9kGx43VqPboXUVwa26i": {"label": "FTX Hot Wallet"},
   "bc1q9d4ywgfnd8h43da5tpcxcn6ajv590cg6d3tg6axemvljvt2k76zs50tv4q": {"label": "Luna Foundation Guard"},

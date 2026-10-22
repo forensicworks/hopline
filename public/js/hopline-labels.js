@@ -1,5 +1,5 @@
 /*
- * Orion label packs: lists of "this address belongs to that" imported from a file (CSV or JSON), and your own labels
+ * Hopline label packs: lists of "this address belongs to that" imported from a file (CSV or JSON), and your own labels
  * exported in the same shape so they can be shared. Pure functions, no DOM, no network.
  *
  * A pack is somebody else's claim about wallets. It is shown as "known (pack name)", never mixed into your own labels, and
@@ -9,16 +9,16 @@
  * Accepted files
  *   CSV   a header row with an `address` column and optionally label, category, url, note (name, tag, type, program,
  *         link, notes, comment are understood too); or no header and two columns: address, label
- *   JSON  { "format": "orion-labels", "name", "source", "labels": [ {address, label, category, url, note} ] },
+ *   JSON  { "format": "hopline-labels", "name", "source", "labels": [ {address, label, category, url, note} ] },
  *         or just such a list, or a plain { "<address>": "<label>" } map
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./orion-address.js'));
-  else root.OrionLabels = factory(root.OrionAddress);
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./hopline-address.js'));
+  else root.HoplineLabels = factory(root.HoplineAddress);
 }(typeof self !== 'undefined' ? self : this, function (Addr) {
   'use strict';
 
-  var FORMAT = 'orion-labels', MAX_ENTRIES = 200000, MAX_LABEL = 120, MAX_CATEGORY = 40, MAX_NOTE = 500;
+  var FORMAT = 'hopline-labels', MAX_ENTRIES = 200000, MAX_LABEL = 120, MAX_CATEGORY = 40, MAX_NOTE = 500;
   var ALIASES = {
     address: ['address', 'addr', 'wallet', 'bitcoin address', 'btc address', 'digital currency address'],
     label: ['label', 'name', 'entity', 'owner', 'description'],
