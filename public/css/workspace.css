@@ -392,3 +392,11 @@ body.trace-on #chainChip { top: 112px; }                              /* the tra
 #aiEndpoint[aria-invalid="true"] { border-color: var(--danger); }
 .hint.bad { color: var(--danger); }
 .hint.ok { color: #6be675; }
+
+/* Full screen: the graph alone (the details panel still opens when something is selected) */
+body.canvas-full #top, body.canvas-full #side, body.canvas-full #sideTab, body.canvas-full #trail, body.canvas-full #restore, body.canvas-full #log { display: none !important; }
+#fullBtn .exit { display: none; }
+#fullBtn[aria-pressed="true"] .enter { display: none; }
+#fullBtn[aria-pressed="true"] .exit { display: inline; }
+#fullBtn { display: flex; align-items: center; justify-content: center; }
+#fullBtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }

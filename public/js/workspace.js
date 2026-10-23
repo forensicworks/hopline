@@ -2571,6 +2571,32 @@
     $('inspCollapse').setAttribute('aria-expanded', String(!state.inspCollapsed));
     updateInspTab(); savePrefs();
   }
+  // ---- full screen: the graph alone ----------------------------------------------------------
+  var fullScr = { on: false };
+  /**
+   * Hide everything but the graph (the top bar, the left panel, the trail, the activity log) and ask the browser for real full screen.
+   * Where the browser refuses (some embedded views) the page is still cleared, and Esc or the same button brings everything back.
+   * The details panel is left alone: it only shows while something is selected, and D folds it away.
+   */
+  function setFullScreen(on) {
+    on = !!on; if (on === fullScr.on) return;
+    fullScr.on = on;
+    document.body.classList.toggle('canvas-full', on);
+    var b = $('fullBtn'); b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Leave full screen' : 'Full screen');
+    b.title = on ? 'Leave full screen (M or Esc)' : 'Full screen (M): the graph alone. Esc or this button leaves it.';
+    var de = document.documentElement;
+    try {
+      if (on) { var rq = de.requestFullscreen || de.webkitRequestFullscreen; var p = rq && rq.call(de); if (p && p.catch) p.catch(function () { /* the page is cleared anyway */ }); }
+      else if (document.fullscreenElement || document.webkitFullscreenElement) { var ex = document.exitFullscreen || document.webkitExitFullscreen; var q = ex && ex.call(document); if (q && q.catch) q.catch(function () { /* already out */ }); }
+    } catch (e) { /* no full screen API: the cleared page is what there is */ }
+    renderer.resize(); if (renderer.autoFit) renderer.fit(); drawHistogram();
+  }
+  function wireFullScreen() {
+    $('fullBtn').addEventListener('click', function () { setFullScreen(!fullScr.on); });
+    function left() { if (fullScr.on && !document.fullscreenElement && !document.webkitFullscreenElement) setFullScreen(false); }       // the browser's own Esc or F11 ended it
+    document.addEventListener('fullscreenchange', left); document.addEventListener('webkitfullscreenchange', left);
+  }
+
   /** The tab that brings the details back: only while they are collapsed and something is selected. */
   function updateInspTab() {
     var has = !$('inspector').hidden, tab = $('inspTab');
@@ -3994,6 +4020,7 @@
     $('traceArrange').addEventListener('change', function () { setArrange(this.value); });
     $('traceReset').addEventListener('click', traceReset);
     $('zoomIn').addEventListener('click', function () { renderer.zoomBy(1.3); });
+    wireFullScreen();
     $('zoomOut').addEventListener('click', function () { renderer.zoomBy(1 / 1.3); });
     $('cancel').addEventListener('click', function () { state.client.abort(); });
     $('sample').addEventListener('click', function () { $('q').value = SAMPLE; openQuery(SAMPLE); });
@@ -4078,7 +4105,7 @@
       if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); selectAllVisible(); return; }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) { if (copySelection()) e.preventDefault(); return; }
       if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selected.size) { e.preventDefault(); if (e.shiftKey) deleteIds(Array.from(state.selected)); else hideSelected(); } }
-      else if (e.key === 'Escape') { if (!$('stepMenu').hidden) closeStepMenu(); else if (state.boxMode) setBoxMode(false); else { state.selected = new Set(); state.selectedEdge = null; syncSelection(); } }
+      else if (e.key === 'Escape') { if (!$('stepMenu').hidden) closeStepMenu(); else if (state.boxMode) setBoxMode(false); else if (fullScr.on) setFullScreen(false); else { state.selected = new Set(); state.selectedEdge = null; syncSelection(); } }
       else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
         var id = state.selected.size ? Array.from(state.selected)[0] : state.focus;
         if (id && state.graph.nodes.has(id)) { e.preventDefault(); openCtx(id, null, clientPosOf(id)); }
@@ -4087,14 +4114,15 @@
       else if (e.key === ']') { e.preventDefault(); if (traceOn()) traceKey('next'); else stepClick('next'); }
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (e.shiftKey) redoLast(); else undoLast(); }
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redoLast(); }
-      else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && e.target === $('cv')) { e.preventDefault(); findOpen(); }
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && e.target === $('cv')) { e.preventDefault(); setFullScreen(false); findOpen(); }
       else if (mod) { /* a shortcut with Ctrl, Alt or Cmd held belongs to the browser */ }
       else if (e.key === 'b' || e.key === 'B') { setBoxMode(!state.boxMode); }
       else if (e.key === 'c' || e.key === 'C') { setSideCollapsed(!state.sideCollapsed); }
       else if (e.key === 'd' || e.key === 'D') { setInspCollapsed(!state.inspCollapsed); }
       else if (e.key === 't' || e.key === 'T') { setTbCollapsed(!state.tbCollapsed); }
       else if (e.key === 'f' || e.key === 'F') { renderer.fit(); }
-      else if (e.key === '/') { e.preventDefault(); $('q').focus(); }
+      else if (e.key === 'm' || e.key === 'M') { setFullScreen(!fullScr.on); }
+      else if (e.key === '/') { e.preventDefault(); setFullScreen(false); $('q').focus(); }
     });
     window.addEventListener('resize', function () { renderer.resize(); drawHistogram(); });
     if (typeof ResizeObserver === 'function') {

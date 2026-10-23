@@ -386,7 +386,7 @@ window.addEventListener('error', function (e) {
         <p><b>Auto-expand</b> follows the money several transactions in one go, forward or backward, from the selected vertex, stopping at the limits you set (hops, transactions, requests) and at labelled wallets or CoinJoins. <i>Follow</i> chooses every output, the largest, the likely change, or a peel chain. In the Trace layout everything it loaded is shown and one <kbd>Ctrl+Z</kbd> takes it back.</p>
         <p><b>Right-click</b> a wallet or transaction for its actions: tag it (EXCH, THREAT, …), look a wallet up in Arkham, load more. <b>Tags</b> give a vertex a colour, a shape and a badge; set them next to the label in the details.</p>
         <p><b>Previous / Next</b> under the graph step along the money: from a transaction to the wallets it paid (or that paid in), from a wallet to the transactions that spent from it. One choice moves at once; several open a list.</p>
-        <p>Keys: <kbd>[</kbd> previous, <kbd>]</kbd> next, <kbd>C</kbd> controls, <kbd>D</kbd> details, <kbd>T</kbd> time line, <kbd>B</kbd> box select, <kbd>Ctrl+A</kbd> select all, <kbd>Ctrl+Z</kbd> undo, <kbd>Del</kbd> hide, <kbd>Esc</kbd> deselect, <kbd>F</kbd> fit, <kbd>/</kbd> search.</p>
+        <p>Keys: <kbd>[</kbd> previous, <kbd>]</kbd> next, <kbd>C</kbd> controls, <kbd>D</kbd> details, <kbd>T</kbd> time line, <kbd>B</kbd> box select, <kbd>Ctrl+A</kbd> select all, <kbd>Ctrl+Z</kbd> undo, <kbd>Del</kbd> hide, <kbd>Esc</kbd> deselect (or leave full screen), <kbd>F</kbd> fit, <kbd>M</kbd> full screen, <kbd>/</kbd> search.</p>
       </div>
     </details>
   </aside>
@@ -424,7 +424,7 @@ window.addEventListener('error', function (e) {
       <label class="check small" title="Tick to go wallet by wallet; untick to jump from transaction to transaction"><input type="checkbox" id="viaWallets" checked> via wallets</label>
     </div>
     <div id="hud"><span id="counts"></span></div>
-    <div id="zoomBtns"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button></div>
+    <div id="zoomBtns"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="fullBtn" aria-label="Full screen" aria-pressed="false" title="Full screen (M): the graph alone. Esc or this button leaves it."><svg class="enter" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg><svg class="exit" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg></button></div>
     <div id="empty">
       <h2>Follow the money</h2>
       <p>Paste a transaction id or an address above.</p>
