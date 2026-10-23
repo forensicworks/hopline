@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from chains import consolidation, peel_chain, reuse_change, tid
+from chains import IN, OUT, consolidation, peel_chain, reuse_change, tid, tx
 from conftest import NORMAL
 from helpers import idle, open_query, settle, toast_text
 
@@ -149,3 +149,13 @@ def test_prepared_by_is_remembered_and_an_empty_screen_gives_a_message(fpage, tm
     open_query(fpage, NORMAL["txid"])
     fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert fpage.input_value("#reportBy") == "A. Analyst"
+
+
+def test_a_weak_change_guess_is_called_possible_in_the_report(fpage, mock, tmp_path):
+    tx(mock, 71, [IN(96, 0, "src2", 100000)], [OUT("legacy", 61234, "p2pkh"), OUT("mine", 38000)])
+    open_query(fpage, tid(71))
+    fpage.uncheck("#focusOn"); settle(fpage)
+    html = make_report(fpage, tmp_path).read_text(encoding="utf-8")
+    assert "Possible change:" in html and "Likely change:" not in html and "possible change</b> (medium confidence)" in html
+    assert "Only one sign points to this output" in html and "both outputs should be followed" in html
+    assert "within 1% of each other" in html, "the method note says what is not named"

@@ -506,6 +506,7 @@
         ctx.stroke();
       }
       if (id === self.highlight) { shape(ctx, kindOf(n), P.x, P.y, r + 7); ctx.lineWidth = 3; ctx.strokeStyle = th.select; ctx.setLineDash([]); ctx.stroke(); }
+      if (known && known.sanctions) { shape(ctx, kindOf(n), P.x, P.y, r + 6.5); ctx.lineWidth = 3; ctx.strokeStyle = '#ff4d4f'; ctx.setLineDash([]); ctx.stroke(); }      // on a sanctions list (according to a pack)
       var ring = d.clusterColor && n.type === 'addr' ? d.clusterColor(id) : null;
       if (ring) {                                                           // a dashed ring in the cluster's colour: addresses spent together
         ctx.beginPath(); ctx.arc(P.x, P.y, r + 7.5, 0, Math.PI * 2); ctx.lineWidth = 2.5; ctx.strokeStyle = ring; ctx.setLineDash([5, 3]); ctx.stroke(); ctx.setLineDash([]);
@@ -522,6 +523,7 @@
       if (n.tag && !dimmed) badges.push({ text: n.tag, x: P.x, y: P.y - r - 6 - ((d.seedIds ? d.seedIds.has(id) : d.seedId === id) ? 10 : 0), color: colour });
       var isSeed = d.seedIds ? d.seedIds.has(id) : d.seedId === id;
       if (isSeed) badges.push({ text: 'START', x: P.x, y: P.y - r - 6, color: '#ffd23f' });
+      if (known && known.sanctions && !dimmed) badges.push({ text: 'SANCTIONS', x: P.x, y: P.y - r - 6 - (isSeed ? 10 : 0) - (n.tag ? 10 : 0), color: '#ff6b6b' });
       var flags = d.nodeFlags && !dimmed ? d.nodeFlags(n) : null;
       if (flags) {                                                         // decided below: text where there is room, a dot where there is not
         var lift = 6 + (isSeed ? 10 : 0) + (n.tag ? 10 : 0), hot = self.selected.has(id) || id === self.hover.node;
@@ -535,7 +537,7 @@
         }
       }
       var text = null;
-      if (n.type === 'group') text = n.groupText;                         // "6 transactions to bc1q…"
+      if (n.type === 'group') text = n.label || n.groupText;              // your label, else "6 transactions to bc1q…"
       else if (n.label) text = n.label;
       else if (known) text = known.label;
       else if (self.selected.has(id) || id === self.hover.node || d.labelAll || (d.showLabels && v.k >= 0.9)) {

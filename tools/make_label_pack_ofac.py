@@ -265,7 +265,7 @@ def convert(data, today=None):
             entry["category"] = category(rec["programs"])
         entry["note"] = ("OFAC SDN entry " + ", ".join(rec["uids"]) if rec["uids"] else "OFAC SDN") + ("; list dated " + date if date else "")
         labels.append(entry)
-    pack = {"format": "hopline-labels", "version": 1, "name": "OFAC SDN list (Bitcoin)",
+    pack = {"format": "hopline-labels", "version": 1, "name": "OFAC SDN list (Bitcoin)", "sanctions": True,
             "source": "U.S. Treasury OFAC SDN list (" + file + (", dated " + date if date else "") + "), converted " + today,
             "created": datetime.datetime.now(datetime.timezone.utc).isoformat(), "labels": labels}
     info = {"layout": name, "date": date, "entries": entries, "with_address": len({r[0] for r in records}), "read": len(records), "expected": expected, "warning": ""}

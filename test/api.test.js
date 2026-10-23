@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Graph, ID } = require('../public/js/hopline-model.js');
 const { Client, Explorer, PRESETS, ONION, isTxid } = require('../public/js/hopline-api.js');
+const Api = require('../public/js/hopline-api.js');
 
 const fx = (n) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8'));
 const NORMAL = fx('tx_normal.json'), OUTSP = fx('outspends_normal.json');
@@ -431,4 +432,94 @@ test('buildClient: the pacing and the backup that go with a saved source choice,
   assert.equal(m.hostOf('https://blockstream.info/api'), 'blockstream.info');
   let sw = null; const c = m.buildClient({ source: 'clearnet' }, { onSwitch: (i) => { sw = i; }, maxRequests: 7 });
   assert.equal(c.maxRequests, 7); assert.equal(c.onSwitch !== null, true); assert.equal(sw, null);
+});
+
+// ---- a key for a server, and the pace of your own ---------------------------------------------------------------------
+// A fetch that keeps what it was asked: the address and the headers. answers: base -> (path) => status
+function spyFetch(answers) {
+  const calls = [];
+  const f = (url, init) => {
+    const m = /^(https?:\/\/[^/]+(?:\/api)?)(\/.*)$/.exec(url), base = m[1], p = m[2];
+    calls.push({ url, base, p, headers: (init && init.headers) || {} });
+    const status = (answers[base] || (() => 200))(p, calls.filter((c) => c.base === base).length);
+    return Promise.resolve({ ok: status >= 200 && status < 300, status, headers: { get: () => null }, text: () => Promise.resolve(status === 200 ? '123' : 'no') });
+  };
+  f.calls = calls;
+  return f;
+}
+
+test('cleanKey: a key with its header, tidied; nothing for an empty key; a bad header name becomes Authorization', () => {
+  assert.deepEqual(Api.cleanKey({ header: ' X-API-Key ', value: '  abc123  ' }), { header: 'X-API-Key', value: 'abc123' });
+  assert.deepEqual(Api.cleanKey({ value: 'abc' }), { header: 'Authorization', value: 'abc' });
+  assert.deepEqual(Api.cleanKey({ header: 'Bad Header: x', value: 'abc' }), { header: 'Authorization', value: 'abc' });
+  assert.deepEqual(Api.cleanKey({ header: 'X-Key', value: 'a' + String.fromCharCode(10) + 'b' + String.fromCharCode(13) + String.fromCharCode(0) + 'c' }), { header: 'X-Key', value: 'abc' }, 'no line breaks or control characters in a header');
+  assert.equal(Api.cleanKey({ header: 'X-Key', value: '   ' }), null); assert.equal(Api.cleanKey(null), null); assert.equal(Api.cleanKey('abc'), null); assert.equal(Api.cleanKey({}), null);
+  assert.equal(Api.cleanKey({ value: 'x'.repeat(5000) }).value.length, 2000);
+});
+
+test('authFor: an Authorization key becomes a Bearer token unless it already names its scheme; another header is sent as it is', () => {
+  const key = (k) => Api.authFor({ source: 'custom', customBase: 'https://my.node/api/', keys: { custom: k } })['https://my.node/api'];
+  assert.deepEqual(key({ header: 'Authorization', value: 'tok123' }), { name: 'Authorization', value: 'Bearer tok123' });
+  assert.deepEqual(key({ header: 'authorization', value: 'Bearer tok123' }), { name: 'authorization', value: 'Bearer tok123' });
+  assert.deepEqual(key({ header: 'Authorization', value: 'Basic dXNlcjpwdw==' }), { name: 'Authorization', value: 'Basic dXNlcjpwdw==' });
+  assert.deepEqual(key({ header: 'X-API-Key', value: 'k' }), { name: 'X-API-Key', value: 'k' });
+  assert.deepEqual(Api.authFor({ source: 'custom', customBase: 'https://my.node/api', keys: {} }), {});
+  assert.deepEqual(Api.authFor({ source: 'custom', customBase: 'https://my.node/api' }), {});
+  assert.deepEqual(Api.authFor(null), {});
+});
+
+test('authFor: a key is only ever for the server it was saved for', () => {
+  const keys = { custom: { header: 'X-Key', value: 'mine' }, blockstream: { header: 'X-Key', value: 'bs' } };
+  assert.deepEqual(Api.authFor({ source: 'clearnet', fallback: true, keys }), { [PRESETS.blockstream.base]: { name: 'X-Key', value: 'bs' } }, 'the key of your own server is not sent to mempool.space or its backup');
+  assert.deepEqual(Api.authFor({ source: 'clearnet', fallback: false, keys }), {}, 'no backup, no key for it');
+  assert.deepEqual(Object.keys(Api.authFor({ source: 'custom', customBase: 'https://my.node/api', keys })), ['https://my.node/api'], 'and your own server has no backup to leak to');
+});
+
+test('a Client sends its key as a header to its own server only, never in the address, and the backup server never sees it', async () => {
+  const keys = { custom: { header: 'X-API-Key', value: 'SECRET-1' } };
+  const mine = 'https://my.node/api';
+  const f = spyFetch({ [mine]: () => 200 });
+  const c = new Client(quick({ base: mine, fetch: f, auth: Api.authFor({ source: 'custom', customBase: mine, keys }) }));
+  await c.get('/blocks/tip/height', true);
+  assert.equal(f.calls[0].headers['X-API-Key'], 'SECRET-1'); assert.equal(f.calls[0].headers.Accept, 'application/json, text/plain');
+  assert.ok(!f.calls[0].url.includes('SECRET-1'), 'the key is not in the address');
+  // the main server keeps failing: the backup answers, and receives only a key saved for the backup
+  const g = spyFetch({ [PRESETS.clearnet.base]: () => 500, [PRESETS.blockstream.base]: () => 200 });
+  const pair = Api.buildClient({ source: 'clearnet', fallback: true, keys: { clearnet: { header: 'X-Key', value: 'MAIN-KEY' }, blockstream: { header: 'X-Key', value: 'BS-KEY' } } }, {});
+  pair.fetchImpl = g; pair.backoffMs = 1; pair.delayMs = 0; pair.backup.delayMs = 0;
+  await pair.get('/blocks/tip/height', true);
+  const main = g.calls.filter((x) => x.base === PRESETS.clearnet.base), backup = g.calls.filter((x) => x.base === PRESETS.blockstream.base);
+  assert.ok(main.length >= 1 && backup.length >= 1);
+  assert.ok(main.every((x) => x.headers['X-Key'] === 'MAIN-KEY'), 'the main server gets its own key');
+  assert.ok(backup.every((x) => x.headers['X-Key'] === 'BS-KEY'), 'the backup gets only its own key');
+  assert.ok(g.calls.every((x) => !x.url.includes('KEY')));
+});
+
+test('a server that says 401 or 403 is reported as a refusal, not retried, and a rejected key is said to be rejected', async () => {
+  const f = spyFetch({ 'https://x/api': () => 401 });
+  const withKey = new Client(quick({ fetch: f, auth: { 'https://x/api': { name: 'Authorization', value: 'Bearer nope' } }, retries: 3 }));
+  await assert.rejects(withKey.get('/tx/' + 'a'.repeat(64)), (e) => e.kind === 'auth' && e.status === 401 && /the server rejected the key/.test(e.message));
+  assert.equal(f.calls.length, 1, 'asking again with the same key would change nothing');
+  const g = spyFetch({ 'https://x/api': () => 403 });
+  const none = new Client(quick({ fetch: g, keyHint: true }));
+  await assert.rejects(none.get('/tx/' + 'b'.repeat(64)), (e) => e.kind === 'auth' && e.status === 403 && /refused the request \(if it needs a key, add one under Data source\)/.test(e.message));
+  const h = spyFetch({ 'https://x/api': () => 403 });
+  await assert.rejects(new Client(quick({ fetch: h })).get('/tx/' + 'c'.repeat(64)), (e) => e.kind === 'auth' && /refused the request$/.test(e.message), 'no advice about a key for a public server');
+  const nf = spyFetch({ 'https://x/api': () => 404 });
+  await assert.rejects(new Client(quick({ fetch: nf })).get('/tx/' + 'd'.repeat(64)), (e) => e.kind === 'notfound', 'a missing transaction is still just missing');
+});
+
+test('the pace of your own server: faster by default, settable, and clamped; the public servers keep theirs', () => {
+  assert.deepEqual(Api.DEFAULT_PACE, { concurrency: 8, delayMs: 20 });
+  assert.ok(Api.DEFAULT_PACE.concurrency > PRESETS.custom.concurrency && Api.DEFAULT_PACE.delayMs < PRESETS.custom.delayMs);
+  assert.deepEqual(Api.cleanPace(null), Api.DEFAULT_PACE);
+  assert.deepEqual(Api.cleanPace({ concurrency: 0, delayMs: -5 }), { concurrency: 1, delayMs: 0 });
+  assert.deepEqual(Api.cleanPace({ concurrency: 500, delayMs: 99999 }), { concurrency: 32, delayMs: 2000 });
+  assert.deepEqual(Api.cleanPace({ concurrency: 'abc', delayMs: '40' }), { concurrency: 8, delayMs: 40 });
+  const own = Api.buildClient({ source: 'custom', customBase: 'https://my.node/api', pace: { concurrency: 16, delayMs: 5 } }, {});
+  assert.equal(own.concurrency, 16); assert.equal(own.delayMs, 5); assert.equal(own.keyHint, true);
+  const oldWay = Api.buildClient({ source: 'custom', customBase: 'https://my.node/api' }, {});
+  assert.equal(oldWay.concurrency, PRESETS.custom.concurrency, 'a caller that sets no pace gets what it always got');
+  const pub = Api.buildClient({ source: 'clearnet', pace: { concurrency: 30, delayMs: 0 } }, {});
+  assert.equal(pub.concurrency, PRESETS.clearnet.concurrency); assert.equal(pub.delayMs, PRESETS.clearnet.delayMs); assert.equal(pub.keyHint, false);
 });

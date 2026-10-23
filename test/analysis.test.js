@@ -445,3 +445,27 @@ test('a peel chain knows the edges the money travelled along and the edges of th
   assert.deepEqual(c.pay.map((e) => g.edges.get(e).amount), c.peeled.map((x) => x.amount));
   assert.deepEqual(c.passed.length, 5);
 });
+
+test('change: two outputs within 1% of each other are an even split, and only a reused address can name one', () => {
+  const g = new Graph();
+  const half = add(g, 1, [IN(90, 0, a('me'), 20371000, 'v0_p2wpkh')], [OUT(a('legacy'), 10185490, 'p2pkh'), OUT(a('mine'), 10185479, 'v0_p2wpkh')]);
+  assert.equal(An.guessChange(An.txView(g, half)), null, 'one output has the inputs\' address type, but an even split says nothing about change');
+  assert.equal(An.guessChange(An.txView(g, half), { known: (ad) => ad === a('legacy') }), null, 'nor does a known wallet on the other side');
+  const edge = add(g, 2, [IN(91, 0, a('me2'), 20000000, 'v0_p2wpkh')], [OUT(a('lg2'), 10000000, 'p2pkh'), OUT(a('mn2'), 9900000, 'v0_p2wpkh')]);
+  assert.equal(An.guessChange(An.txView(g, edge)), null, 'exactly 1% apart is still an even split');
+  const over = add(g, 3, [IN(92, 0, a('me3'), 20000000, 'v0_p2wpkh')], [OUT(a('lg3'), 10000000, 'p2pkh'), OUT(a('mn3'), 9899999, 'v0_p2wpkh')]);
+  assert.equal(An.guessChange(An.txView(g, over)).vout, 1, 'a hair more than 1% apart and the signs count again');
+  const reuse = add(g, 4, [IN(93, 0, a('me4'), 10000000, 'p2pkh')], [OUT(a('pay4'), 5000000, 'p2pkh'), OUT(a('me4'), 4999000, 'p2pkh')]);
+  const c = An.guessChange(An.txView(g, reuse));
+  assert.equal(c.vout, 1); assert.equal(c.confidence, 'high', 'paying itself back is still named, even when the halves are equal');
+});
+
+test('changeTitle and changeCaution: only a strong guess is "likely", and a weak one says to follow both outputs', () => {
+  assert.equal(An.changeTitle('high'), 'Likely change'); assert.equal(An.changeTitle('medium'), 'Possible change'); assert.equal(An.changeTitle('low'), 'Possible change');
+  assert.match(An.changeCaution({ confidence: 'high', reasons: ['x'] }), /not a certainty/);
+  const one = An.changeCaution({ confidence: 'medium', reasons: ['the only output of the same address type'] });
+  assert.match(one, /^Only one sign points to this output\./); assert.match(one, /follow both outputs/);
+  const two = An.changeCaution({ confidence: 'medium', reasons: ['a', 'b'] });
+  assert.ok(!/Only one sign/.test(two) && /follow both outputs/.test(two));
+  assert.match(An.changeCaution(null), /not a certainty/);
+});

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hopline Workspace</title>
+<link rel="icon" type="image/png" href="logo-96.png">
 <link rel="stylesheet" href="css/workspace.css">
 <script>
 // If something goes wrong while the page starts, say so on the page instead of leaving it blank. The usual cause is a browser that kept an old copy of one script.
@@ -20,7 +21,7 @@ window.addEventListener('error', function (e) {
 </head>
 <body>
 <header id="top">
-  <a class="brand" href="../index.html" title="Back to the start page">Hopline <span>workspace</span></a>
+  <a class="brand" href="../index.html" title="Back to the start page"><img class="logo" src="logo-96.png" alt="" width="26" height="26">Hopline <span>workspace</span></a>
   <form id="searchForm" autocomplete="off">
     <label class="sr" for="q">Transaction ID or address</label>
     <input id="q" type="text" placeholder="Transaction ID or address" spellcheck="false">
@@ -49,6 +50,7 @@ window.addEventListener('error', function (e) {
   <button type="button" id="btnFit" title="Fit everything in view (F)">Fit</button>
   <button type="button" id="btnRelayout" title="Recompute the layout and release dragged vertices">Re-layout</button>
   <button type="button" id="btnUndoLoad" disabled title="Nothing to undo: a load, an import or a removal can be taken back here">↶ Undo load</button>
+  <button type="button" id="btnRedoLoad" disabled aria-label="Redo load" title="Nothing to redo: Undo load can be taken back here">↷</button>
   <details class="menu" id="exportMenu">
     <summary>Export</summary>
     <div class="menu-body">
@@ -94,6 +96,21 @@ window.addEventListener('error', function (e) {
           <option value="custom">My own Esplora URL…</option>
         </select>
         <input id="customBase" type="url" placeholder="https://my-node.example/api" hidden>
+        <div id="customAuthRow" hidden>
+          <label for="srcKey">Key or token (optional)</label>
+          <input type="password" id="srcKey" autocomplete="off" spellcheck="false" placeholder="sent with every request to this server">
+          <label for="srcKeyHeader">Sent in the header</label>
+          <input type="text" id="srcKeyHeader" autocomplete="off" spellcheck="false" placeholder="Authorization">
+          <label class="check" title="Keep the key in this browser. Off: it is forgotten when the page is closed."><input type="checkbox" id="srcKeyRemember"> Remember on this computer</label>
+          <p class="hint" id="keyHint"></p>
+        </div>
+        <div id="customPaceRow" hidden>
+          <label for="paceConc">Requests at once <output id="paceConcOut"></output></label>
+          <input type="number" id="paceConc" min="1" max="32" step="1">
+          <label for="paceDelay">Pause between starts (ms)</label>
+          <input type="number" id="paceDelay" min="0" max="2000" step="10">
+          <p class="hint">The public servers are paced gently (4 at once, 150 ms apart). Your own can take more: 8 at once and 20 ms apart is the default. Lower these if it throttles you, and raise <i>Stop after this many transactions / requests</i> under Expansion limits for longer traces.</p>
+        </div>
         <div id="customPricesRow" hidden>
           <label for="customPrices">Fiat prices from</label>
           <select id="customPrices" title="A plain Esplora server has no price service: ask mempool.space for prices only, or nowhere">
@@ -334,6 +351,11 @@ window.addEventListener('error', function (e) {
         <input id="stepSize" type="number" min="1" max="50" value="5">
         <label class="check" title="When the time bar is narrowed, the arrows count and show only what falls inside it (what is outside would not be drawn anyway)"><input type="checkbox" id="arrowsInRange" checked> Arrows stay within the time bar's range</label>
         <label class="check" title="In a wallet's Transactions and in the list behind an arrow"><input type="checkbox" id="groupRows" checked> Group similar rows in the lists</label>
+        <label for="groupBy">Group rows by</label>
+        <select id="groupBy" title="How rows that look alike are folded together: by the wallet on the other side and by small amounts, or by the period they happened in (UTC)">
+          <option value="party">shared wallet and small amounts</option>
+          <option value="month">month</option><option value="week">week</option><option value="day">day</option><option value="year">year</option>
+        </select>
         <label for="dustSats">Small means under (sats)</label>
         <input id="dustSats" type="number" min="0" max="1000000000" value="10000" title="0 switches the small-amount groups off">
         <label for="capTx">Most transactions to load per expand</label>
@@ -369,15 +391,16 @@ window.addEventListener('error', function (e) {
         <p><b>The time axis</b> along the top of the Timeline layout and of the trace's time arrangements is a line with ticks and timestamps. Hover it to read the exact time under the pointer; hover a transaction and its exact time appears on the line. Inside a shortened (Compact) gap the time shown is only interpolated and is marked ≈. In the trace's Columns arrangement the line carries a timestamp over each transaction instead of a scale, since the columns are not time.</p>
         <p><b>Time line:</b> the scale shows the span of what is on screen; each dot is one transaction at its exact time (hover for the timestamp, click to select it; click a bar to select the transactions in it). Drag the two handles to show only a time window; <kbd>T</kbd> or the arrow folds the bar away.</p>
         <p><b>Backup server</b>: with <i>mempool.space</i> or <i>Blockstream.info</i> chosen, <i>If it keeps failing, use … instead</i> (on by default) lets the other one answer when the first throttles you (HTTP 429), fails or does not answer: a throttled request moves at once, other failures after one retry, and the failing server is left alone for about a minute. The message says when it switches, and each transaction keeps the server that actually sent it (the report lists both). The backup sees those look-ups too: turn the option off to keep everything on the one server. It is never used with Tor or your own server.</p>
-        <p><b>A wallet's transactions</b> in the details are told apart: <i>↓ in</i> (green), <i>↑ out</i> (orange) and <i>↔ self</i>, each with who is on the other side, the date and the amount. <i>All / In / Out</i> filter them, the order can be newest or largest first, hovering a row outlines it on the graph, and in the Trace layout <i>+ show</i> puts just that transaction on the trace. <b>Tick rows</b> (or <i>all listed</i>) to act on several at once: <i>Show on graph</i> and <i>As one vertex</i> in a trace, <i>Select on graph</i> elsewhere, and <i>Copy ids</i>. Change that came back to the wallet is netted off.</p>
-        <p><b>Time bar and arrows</b>: with the time bar narrowed (drag its ends), the arrows in the Trace layout count and show only what falls inside that range, because what is outside would not be drawn; the tip says how many more are outside, and a transaction whose time is unknown is kept. Switch it off under <i>Expansion limits</i>. In the arrow list, <i>show</i> narrows to <i>skip known services</i> or <i>only known or labelled</i> wallets, <i>unspent only</i> keeps outputs not spent yet (where that applies), and <i>Known or labelled first</i> is an order.</p>
-        <p><b>Group vertex</b> (Trace layout): several hidden neighbours of a vertex can stand on the trace as <b>one vertex</b> (a stack of cards). Make it from a group in a wallet's <i>Transactions</i> or in the arrow list (<i>◼ as one</i>, or <i>Ticked as one</i>). Select it to see every member; <i>Show the largest</i>, <i>Show all</i> and <i>Choose which…</i> put members on the trace; double-click shows the largest few. It is only a way of showing hidden vertices: it is not in the graph or the exports, and the report lists every member.</p>
-        <p><b>Grouping</b>: three or more rows with the same wallet on the other side, or three or more small ones (under the limit in <i>Expansion limits</i>), fold into one line in a wallet's <i>Transactions</i> and in the list behind an arrow: "12 transactions to bc1q… · 2022-03 → 2022-06 · 0.0001 to 0.002 BTC each". Click it to list them, copy their ids, or (in a trace) put the largest few or all of them on it; in the arrow list its box ticks them all. Nothing is hidden: every row stays one click away, and <i>Group similar rows</i> switches it off.</p>
+        <p><b>Key for your own server</b>: with <i>My own Esplora URL</i> chosen, an optional key or token is sent with every request to that server, in the header you name (<i>Authorization</i> by default). It never goes to another server, into an address, an export or a report, and is forgotten when the page closes unless you tick <i>Remember on this computer</i>; a server that refuses it (401 or 403) is reported as that. <i>Requests at once</i> and <i>Pause between starts</i> set the pace.</p>
+        <p><b>A wallet's transactions</b> in the details are told apart: <i>↓ in</i> (green), <i>↑ out</i> (orange) and <i>↔ self</i>, each with who is on the other side, the date and the amount. <i>All / In / Out</i> filter them, the order can be newest, oldest, largest or smallest first (or known or labelled first), <i>show</i> and <i>unspent only</i> narrow it as in the arrow list, hovering a row outlines it on the graph, and <i>+ show</i> puts just that transaction on the trace (in the other layouts, onto the graph). <b>Tick rows</b> (or <i>all listed</i>) to act on several at once: <i>Show on graph</i> and <i>As one vertex</i> in a trace, <i>Show on graph</i> and <i>Select on graph</i> elsewhere, and <i>Copy ids</i>. Change that came back to the wallet is netted off.</p>
+        <p><b>Time bar and arrows</b>: with the time bar narrowed (drag its ends), the arrows in the Trace layout count and show only what falls inside that range, because what is outside would not be drawn; the tip says how many more are outside, and a transaction whose time is unknown is kept. Switch it off under <i>Expansion limits</i>. In a trace you can also drag across the time line's graph to choose a stretch of time for the arrows alone (it hides nothing); the <i>×</i> on its chip clears it. In the arrow list, <i>show</i> narrows to <i>skip known services</i> or <i>only known or labelled</i> wallets, <i>unspent only</i> keeps outputs not spent yet (where that applies), and <i>Known or labelled first</i> is an order.</p>
+        <p><b>Group vertex</b> (Trace layout): several hidden neighbours of a vertex can stand on the trace as <b>one vertex</b> (a stack of cards). Make it from a group in a wallet's <i>Transactions</i> or in the arrow list (<i>◼ as one</i>, or <i>Ticked as one</i>). Select it to see every member; <i>Show the largest</i>, <i>Show all</i> and <i>Choose which…</i> put members on the trace; double-click shows the largest few. It is only a way of showing hidden vertices: it is not in the graph or the exports, and the report lists every member. A group can have a label, a tag and a note, and Undo after an auto-expand puts a vertex back in its group.</p>
+        <p><b>Grouping</b>: three or more rows with the same wallet on the other side, or three or more small ones (under the limit in <i>Expansion limits</i>), fold into one line in a wallet's <i>Transactions</i> and in the list behind an arrow: "12 transactions to bc1q… · 2022-03 → 2022-06 · 0.0001 to 0.002 BTC each". Click it to list them, copy their ids, or (in a trace) put the largest few or all of them on it; in the arrow list its box ticks them all. Nothing is hidden: every row stays one click away, and <i>Group similar rows</i> switches it off. <i>Group rows by</i> (Expansion limits) can fold by month, week, day or year instead.</p>
         <p><b>Copy</b>: every address and transaction id has a small copy icon beside it (in the details, the lists under it, the balances, the clusters, the Previous/Next list and the bar under the graph); the right-click menu has <i>Copy txid</i> / <i>Copy address</i>, and <kbd>Ctrl+C</kbd> on the graph copies the selected addresses and transaction ids, one per line (when no text is selected). With several selected, the details offer <i>Copy n addresses</i> and <i>Copy n transaction ids</i>.</p>
         <p><b>Find</b> (the field in the top bar: click it, or press <kbd>Ctrl</kbd>+<kbd>F</kbd> while the canvas is focused) searches what is already loaded, on screen or not: any part of an id or address, your label, tag and note, a block height, a name from the built-in list or a label pack, or a cluster such as <i>C3</i>. Several words must all match. <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Enter</kbd> goes to it (a vertex that is not shown is brought in: in a trace as another starting point, which Undo takes back), <kbd>Esc</kbd> closes. An id that is not loaded yet offers to add it.</p>
         <p><b>Undo and Redo</b>: <i>⟲ Undo</i> (<kbd>Ctrl</kbd>+<kbd>Z</kbd>) takes back the last step: in a trace a reveal, a hide, a group, an added starting point, a start over or a <i>Re-layout</i>; in the other layouts a hide or a Re-layout. <i>⟳ Redo</i> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> or <kbd>Ctrl</kbd>+<kbd>Y</kbd>) puts back what Undo took away; doing something new ends the chain. <i>Re-layout</i> places everything again and releases the vertices you dragged, and is one Undo step.</p>
         <p><b>Adding</b>: once something is open the top box says <i>Add</i>. In a trace what you add becomes another starting point; several ids or addresses can be pasted at once (up to 10). <kbd>Shift</kbd>+<kbd>Enter</kbd> or Shift-click starts over with it instead.</p>
-        <p><b>Undo load</b> (top bar) takes back the last thing that changed what is loaded: opening or expanding something, an auto-expand, an import, a removal or Clear, with the graph, the focus and the trace as they were. Use it when a very large wallet or transaction was loaded by mistake (a toast offers it too after a big load); press Cancel first if it is still loading. It keeps the last 10 changes in memory only, and a change too large to copy cannot be undone.</p>
+        <p><b>Undo load</b> (top bar) takes back the last thing that changed what is loaded: opening or expanding something, an auto-expand, an import, a removal or Clear, with the graph, the focus and the trace as they were. Use it when a very large wallet or transaction was loaded by mistake (a toast offers it too after a big load); press Cancel first if it is still loading. It keeps the last 10 changes in memory only, and a change too large to copy cannot be undone. <i>↷ Redo load</i> puts back what it took away, until something changes what is loaded.</p>
         <p><b>Balance:</b> a wallet's details show what the server says it holds now, with when it was read. <i>Load balance</i> reads just that (one request); select several wallets for a list of balances and their total, and <i>Load n balances</i> for the ones not read yet. <i>Received here</i> and <i>Sent from here</i> count only what is loaded in the graph.</p>
         <p><b>The investigation report</b> (Export menu) is one HTML file for what is on screen: a summary, the findings with their reasons, the transactions in time order with inputs and outputs, the wallets, the graph as a picture, where and when every transaction was fetched, and the method and limits. It embeds the evidence as data and states its SHA-256, so a reader can check the file was not changed afterwards (<code>tools/verify_report.py</code>).</p>
         <p><b>Label packs</b> (left panel) import lists of wallets and names from a CSV (<code>address,label,category,url,note</code>) or JSON file, such as an exchange's addresses, or OFAC's sanctions list (<code>SDN_XML.ZIP</code>, <code>SDN_ENHANCED.ZIP</code> or <code>SDN_ADVANCED.ZIP</code>), which is read directly. They appear as <i>known (pack name)</i> with a gold ring, stop an auto-expand like any known wallet, and can be switched off or removed. <i>Export</i> writes your own labels and tags in the same format to share with a colleague. A pack is someone else's claim, not a finding.</p>
@@ -441,13 +464,14 @@ window.addEventListener('error', function (e) {
         <span class="lbl">Time range</span>
         <span id="tbFrom" class="tb-date">—</span><span class="tb-dash">→</span><span id="tbTo" class="tb-date">—</span>
         <span id="tbInfo" class="hint"></span>
+        <span id="expandChip" class="expandchip" hidden><span id="expandChipText"></span><button type="button" id="expandChipClear" class="icon-only" aria-label="Clear the range the arrows reach" title="Clear the range the arrows reach">×</button></span>
         <span class="spacer"></span>
         <button type="button" id="tbPlay" title="Replay the graph growing through time">▶ Replay</button>
         <button type="button" id="tbReset">Reset</button>
         <button type="button" id="tbCollapse" class="collapse-btn" aria-expanded="true" aria-controls="tbBody" aria-label="Hide the time line" title="Hide the time line (T)">▾</button>
       </div>
       <div class="tb-body" id="tbBody">
-        <canvas id="hist" height="54" aria-label="Transactions over time: hover for exact times, click to select"></canvas>
+        <canvas id="hist" height="54" aria-label="Transactions over time: hover for exact times, click to select. In the Trace layout, drag to choose the range the arrows reach."></canvas>
         <div class="dual">
           <div class="dual-track"><div id="dualFill"></div></div>
           <input type="range" id="tFrom" min="0" max="1000" value="0" aria-label="Start of time range">

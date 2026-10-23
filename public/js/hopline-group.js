@@ -7,7 +7,8 @@
  *   party   at least `minSize` rows of the same direction share a wallet on the other side ("5 payments to bc1q..."). A row can
  *           name several wallets; the wallet shared by the most rows goes first, so each row lands in at most one group;
  *   small   at least `minSize` of the remaining rows of one direction are under `dustSats` ("12 small payments").
- * Everything else stays a row of its own. Both rules are plain counting: they say how many rows look alike, not what they mean.
+ * Or, with opts.by = 'day' | 'week' | 'month' | 'year', rows are grouped by the UTC calendar period they happened in instead ("9 payments in Apr 2022").
+ * Everything else stays a row of its own. The rules are plain counting: they say how many rows look alike, not what they mean.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -16,6 +17,30 @@
   'use strict';
 
   var DEFAULTS = { minSize: 3, dustSats: 10000 };
+  var BUCKETS = { day: 1, week: 1, month: 1, year: 1 };
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+  /** The UTC calendar period a time falls in, as text: "2022-04-15" (day), "2022-W15" (ISO week, Monday first), "2022-04" (month) or "2022" (year). */
+  function bucketOf(time, by) {
+    var d = new Date(time * 1000), y = d.getUTCFullYear(), m = d.getUTCMonth() + 1;
+    if (by === 'year') return String(y);
+    if (by === 'month') return y + '-' + pad2(m);
+    if (by === 'day') return y + '-' + pad2(m) + '-' + pad2(d.getUTCDate());
+    var t = new Date(Date.UTC(y, d.getUTCMonth(), d.getUTCDate()));
+    t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));                           // the Thursday of this week decides which year the week belongs to
+    var start = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return t.getUTCFullYear() + '-W' + pad2(Math.ceil(((t - start) / 86400000 + 1) / 7));
+  }
+  /** Is this text a period made by bucketOf? */
+  function isBucketKey(k) { return typeof k === 'string' && /^\d{4}(-W\d{2}|-\d{2}(-\d{2})?)?$/.test(k); }
+  /** A period for people: "Apr 2022", "week 15 of 2022", "2022-04-15", "2022". */
+  function bucketLabel(key) {
+    var m;
+    if ((m = /^(\d{4})-W(\d{2})$/.exec(key))) return 'week ' + Number(m[2]) + ' of ' + m[1];
+    if ((m = /^(\d{4})-(\d{2})$/.exec(key))) return (MONTHS[Number(m[2]) - 1] || m[2]) + ' ' + m[1];
+    return String(key);
+  }
 
   /** Numbers about a set of rows: { count, total, min, max, first, last } (first / last = earliest / latest time known, else null). */
   function stats(rows) {
@@ -28,13 +53,24 @@
   }
 
   /**
-   * The groups of a list: [{ key, kind: 'party' | 'small', dir, party (id or null), members: [rows] }], largest first.
-   * Members keep the order the rows came in. opts: { minSize (default 3), dustSats (default 10000; 0 = no small-amount groups) }.
+   * The groups of a list: [{ key, kind: 'party' | 'small' | 'time', dir, party (id or null), bucket (the period, for 'time'), members: [rows] }], largest first.
+   * Members keep the order the rows came in. opts: { minSize (default 3), dustSats (default 10000; 0 = no small-amount groups), by ('day' | 'week' | 'month' | 'year': group by period instead) }.
    */
   function make(rows, opts) {
     opts = opts || {};
     var minSize = Math.max(2, opts.minSize == null ? DEFAULTS.minSize : opts.minSize), dust = opts.dustSats == null ? DEFAULTS.dustSats : opts.dustSats;
     var left = rows.slice(), groups = [];
+    if (opts.by && BUCKETS[opts.by]) {                                                // by period: one group per direction and period with enough rows; a row with no date stays a row
+      var byPeriod = new Map();
+      rows.forEach(function (r) {
+        if (r.time == null) return;
+        var b = bucketOf(r.time, opts.by), k = r.dir + '|' + b, c = byPeriod.get(k);
+        if (!c) { c = { dir: r.dir, bucket: b, rows: [] }; byPeriod.set(k, c); }
+        c.rows.push(r);
+      });
+      byPeriod.forEach(function (c) { if (c.rows.length >= minSize) groups.push({ key: 'time|' + c.dir + '|' + c.bucket, kind: 'time', dir: c.dir, party: null, bucket: c.bucket, members: c.rows }); });
+      return groups.sort(function (a, b) { return b.members.length - a.members.length || (a.key < b.key ? -1 : 1); });
+    }
     function uniq(a) { var seen = {}, out = []; (a || []).forEach(function (x) { if (!seen[x]) { seen[x] = 1; out.push(x); } }); return out; }
 
     for (;;) {                                                                        // 1. the wallet shared by the most rows, again and again
@@ -113,5 +149,5 @@
   /** Is this the id of a group vertex? */
   function isGroupId(id) { return typeof id === 'string' && /^grp:[0-9]{1,9}$/.test(id); }
 
-  return { make: make, layout: layout, stats: stats, vertex: vertex, isGroupId: isGroupId, DEFAULTS: DEFAULTS };
+  return { make: make, layout: layout, stats: stats, vertex: vertex, isGroupId: isGroupId, bucketOf: bucketOf, bucketLabel: bucketLabel, isBucketKey: isBucketKey, BUCKETS: Object.keys(BUCKETS), DEFAULTS: DEFAULTS };
 }));

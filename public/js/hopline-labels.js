@@ -108,6 +108,7 @@
     if (t[0] === '{' || t[0] === '[') {
       var d; try { d = JSON.parse(t); } catch (e) { throw new Error('That looks like JSON but could not be read.'); }
       raws = fromJsonValue(d, meta);
+      if (d && typeof d === 'object' && !Array.isArray(d) && d.sanctions === true) meta.sanctions = true;           // a pack that says it is a sanctions list (the OFAC converter does)
     } else raws = fromCsv(t);
     var seen = new Set(), entries = [], skipped = { invalid: 0, otherChain: 0, empty: 0, duplicate: 0 }, truncated = false;
     for (var i = 0; i < raws.length; i++) {
@@ -118,7 +119,7 @@
       seen.add(r.entry.address); entries.push(r.entry);
     }
     if (!entries.length) throw new Error('No usable Bitcoin addresses with a label were found' + (skipped.otherChain ? ' (' + skipped.otherChain + ' were not Bitcoin addresses)' : '') + (skipped.invalid ? ' (' + skipped.invalid + ' failed the address checksum)' : '') + '.');
-    return { name: meta.name || 'Imported labels', source: meta.source, entries: entries, skipped: skipped, truncated: truncated };
+    return { name: meta.name || 'Imported labels', source: meta.source, sanctions: meta.sanctions === true, entries: entries, skipped: skipped, truncated: truncated };
   }
 
   // ---- your own labels, as a pack ------------------------------------------------------------------
@@ -155,7 +156,7 @@
         p = p && typeof p === 'object' ? p : {};
         var entries = (Array.isArray(p.entries) ? p.entries : []).filter(function (e) { return Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string'; })
           .map(function (e) { return { address: e[0], label: cleanText(e[1], MAX_LABEL), category: cleanText(e[2], MAX_CATEGORY), url: cleanUrl(e[3]), note: cleanText(e[4], MAX_NOTE) }; });
-        return { id: String(p.id || 'p' + i).slice(0, 40), name: cleanText(p.name, 80) || 'Labels', source: cleanText(p.source, 200), enabled: p.enabled !== false, entries: entries, stored: true };
+        return { id: String(p.id || 'p' + i).slice(0, 40), name: cleanText(p.name, 80) || 'Labels', source: cleanText(p.source, 200), enabled: p.enabled !== false, sanctions: p.sanctions === true, entries: entries, stored: true };
       });
     } catch (e) { return []; }
   }
@@ -164,18 +165,63 @@
    * The built-in list plus the enabled packs as one lookup { address: { label, pack?, category?, url?, note?, alt? } }.
    * The built-in name wins; a pack that names the same wallet differently is shown as "also listed as".
    */
-  function buildKnown(base, packs) {
+  function buildKnown(base, packs, own) {
     var out = Object.assign({}, base || {});
     (packs || []).forEach(function (p) {
       if (!p.enabled) return;
       p.entries.forEach(function (e) {
-        var cur = out[e.address];
-        if (!cur) out[e.address] = { label: e.label, pack: p.name, category: e.category || undefined, url: e.url || undefined, note: e.note || undefined };
-        else { cur = Object.assign({}, cur); cur.alt = (cur.alt || []).concat([e.label + ' (' + p.name + ')']).slice(0, 5); out[e.address] = cur; }
+        var cur = out[e.address], claim = { label: e.label, pack: p.name, category: e.category || '', url: e.url || '', note: e.note || '', sanctions: p.sanctions === true };
+        if (!cur) {
+          out[e.address] = { label: e.label, pack: p.name, category: e.category || undefined, url: e.url || undefined, note: e.note || undefined, claims: [claim] };
+          if (claim.sanctions) out[e.address].sanctions = true;
+        } else {
+          var first = cur.claims || [claimOf(cur)];
+          cur = Object.assign({}, cur);
+          cur.alt = (cur.alt || []).concat([e.label + ' (' + p.name + ')']).slice(0, 5);
+          cur.claims = first.concat([claim]);                                // every claim is kept in full; `alt` is the short text of the later ones
+          if (claim.sanctions) cur.sanctions = true;
+          out[e.address] = cur;
+        }
       });
+    });
+    (own || []).forEach(function (e) {                                       // what you wrote yourself is the first claim, and its name is the one shown
+      var cur = out[e.address], mine = { label: e.label, pack: OWN_PACK, category: e.category || '', url: '', note: e.note || '', sanctions: false, own: true };
+      if (!cur) { out[e.address] = { label: e.label, pack: OWN_PACK, category: e.category || undefined, note: e.note || undefined, claims: [mine] }; return; }
+      var claims = cur.claims || [claimOf(cur)];
+      cur = Object.assign({}, cur);
+      cur.alt = [cur.label + (cur.pack ? ' (' + cur.pack + ')' : '')].concat(cur.alt || []).slice(0, 5);
+      cur.label = e.label; cur.pack = OWN_PACK; cur.category = e.category || cur.category; cur.note = e.note || cur.note;
+      cur.claims = [mine].concat(claims);
+      out[e.address] = cur;
     });
     return out;
   }
 
-  return { FORMAT: FORMAT, MAX_ENTRIES: MAX_ENTRIES, parseStored: parseStored, buildKnown: buildKnown, parse: parse, fromGraph: fromGraph, toJson: toJson, toCsv: toCsv, cleanText: cleanText, cleanUrl: cleanUrl, clampEntry: clampEntry };
+  var OWN_PACK = 'Your labels';
+  /**
+   * Your own labels, tags and notes from a saved workspace (the text the workspace keeps in this browser) as entries { address, label, category (the tag), note }.
+   * Only wallets that carry a label, a tag or a note; every field is cleaned and every address checked. [] for anything that is not such a file.
+   */
+  function fromSession(text, limit) {
+    if (typeof text !== 'string' || !text || text.length > 60000000) return [];
+    var d; try { d = JSON.parse(text); } catch (e) { return []; }
+    if (!d || typeof d !== 'object' || !Array.isArray(d.nodes) || (d.format !== 'hopline-workspace' && d.format !== 'orion-workspace')) return [];
+    var out = [], max = limit || MAX_ENTRIES;
+    for (var i = 0; i < d.nodes.length && out.length < max; i++) {
+      var n = d.nodes[i];
+      if (!n || n.type !== 'addr' || typeof n.address !== 'string') continue;
+      var label = cleanText(n.label, MAX_LABEL), tag = cleanText(n.tag, 20), note = cleanText(n.note, MAX_NOTE);
+      if (!label && !tag && !note) continue;
+      var r = clampEntry({ address: n.address, label: label || tag || 'tagged', category: tag, url: '', note: note });
+      if (!r.error) out.push(r.entry);
+    }
+    return out;
+  }
+
+  /** One claim of a known entry as plain data: { label, pack ('' is the built-in list), category, url, note, sanctions }. */
+  function claimOf(k) { return { label: k.label, pack: k.pack || '', category: k.category || '', url: k.url || '', note: k.note || '', sanctions: k.sanctions === true }; }
+  /** Every claim a wallet has, first the one that names it, then the others (at least one for any known entry). */
+  function claimsOf(k) { return k ? (k.claims && k.claims.length ? k.claims : [claimOf(k)]) : []; }
+
+  return { FORMAT: FORMAT, MAX_ENTRIES: MAX_ENTRIES, OWN_PACK: OWN_PACK, parseStored: parseStored, buildKnown: buildKnown, fromSession: fromSession, claimsOf: claimsOf, parse: parse, fromGraph: fromGraph, toJson: toJson, toCsv: toCsv, cleanText: cleanText, cleanUrl: cleanUrl, clampEntry: clampEntry };
 }));

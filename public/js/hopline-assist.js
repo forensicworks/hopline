@@ -53,6 +53,14 @@
     max = max || MAX_TEXT;
     return t.length > max ? t.slice(0, max - 1) + '…' : t;
   }
+  /** What a wallet list says about a wallet, as plain data: the name, and whether a sanctions list is among the sources and what else lists it. */
+  function knownOf(k) {
+    if (!k) return null;
+    var out = { name: plainText(k.label || k.name), category: plainText(k.category, 60), source: plainText(k.source || k.pack || '', 120) };
+    if (k.sanctions === true) out.sanctions = true;
+    if (Array.isArray(k.alsoListedAs) && k.alsoListedAs.length) out.alsoListedAs = k.alsoListedAs.slice(0, 5).map(function (x) { return plainText(x, 200); });
+    return out;
+  }
   function when(t) { return t == null ? null : new Date(t * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'; }
   function btc(sats) { return sats == null ? null : Number((sats / 1e8).toFixed(8)); }
   function host(url) { return String(url || '').replace(/^https?:\/\//i, '').replace(/\/api\/?$/, '').replace(/\/+$/, ''); }
@@ -112,7 +120,7 @@
       if (!n.label && !n.tag && !n.note && !k) return;
       var cl = an.clusters.byAddr.get(n.id);
       noted.push({ address: n.address, label: plainText(n.label), tag: plainText(n.tag, 40), note: plainText(n.note, 400),
-                   known: k ? { name: plainText(k.label || k.name), category: plainText(k.category, 60), source: plainText(k.source || k.pack || '', 120) } : null, cluster: cl ? cl.label : '' });
+                   known: knownOf(k), cluster: cl ? cl.label : '' });
     });
     noted.sort(function (a, b) { return a.address < b.address ? -1 : a.address > b.address ? 1 : 0; });
     noted = cut(noted, CAPS.wallets, 'noted wallets', limits);
@@ -160,7 +168,7 @@
       graph.edgesOf(addr.id).forEach(function (e) { var t = e.source === addr.id ? e.target : e.source, tn = graph.nodes.get(t); if (tn && tn.type === 'tx') txs.push({ txid: tn.txid, time: tn.time == null ? null : tn.time, direction: e.source === addr.id ? 'spent in' : 'received in', sats: e.amount }); });
       txs.sort(function (a, b) { return (a.time == null ? 1e18 : a.time) - (b.time == null ? 1e18 : b.time) || (a.txid < b.txid ? -1 : 1); });
       return { type: 'wallet', id: addr.address, label: plainText(addr.label), tag: plainText(addr.tag, 40), note: plainText(addr.note, 400),
-               known: k ? { name: plainText(k.label || k.name), category: plainText(k.category, 60), source: plainText(k.source || k.pack || '', 120) } : null, cluster: cl ? cl.label : '',
+               known: knownOf(k), cluster: cl ? cl.label : '',
                transactions: txs.slice(0, 40), transactionsCount: txs.length };
     }
     return null;

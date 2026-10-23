@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hopline Wallet</title>
+<link rel="icon" type="image/png" href="logo-96.png">
 <link rel="stylesheet" href="css/wallet.css">
 <script>
 // If something goes wrong while the page starts, say so on the page instead of leaving it blank. The usual cause is a browser that kept an old copy of one script.
@@ -20,7 +21,7 @@ window.addEventListener('error', function (e) {
 </head>
 <body>
 <header id="top">
-  <a class="brand" href="../index.html" title="Back to the start page">Hopline <span>wallet</span></a>
+  <a class="brand" href="../index.html" title="Back to the start page"><img class="logo" src="logo-96.png" alt="" width="26" height="26">Hopline <span>wallet</span></a>
   <form id="searchForm" autocomplete="off">
     <label class="sr" for="q">Bitcoin address or transaction ID</label>
     <input id="q" type="text" placeholder="Bitcoin address (a transaction ID opens in the workspace)" spellcheck="false">
@@ -34,9 +35,11 @@ window.addEventListener('error', function (e) {
   <p id="message" role="status" hidden></p>
 
   <section id="head" hidden>
-    <h1>Address <span id="addr" class="mono" tabindex="0" title="Hover for a QR code"></span><button type="button" id="copyAddr" class="copybtn" title="Copy the address" aria-label="Copy the address"></button> <span id="addrLabel" class="chip" hidden></span></h1>
+    <h1>Address <span id="addr" class="mono" tabindex="0" title="Hover for a QR code"></span><button type="button" id="copyAddr" class="copybtn" title="Copy the address" aria-label="Copy the address"></button> <span id="addrLabel" class="chip" hidden></span> <span id="addrTag" class="chip dim" hidden></span></h1>
     <div id="qrfloat" hidden aria-hidden="true"></div>
     <p class="hint" id="addrNote"></p>
+    <p class="banner bad" id="sanctionBanner" role="status" hidden></p>
+    <div id="claims" hidden></div>
   </section>
 
   <section id="summary" hidden aria-label="Summary">
@@ -51,10 +54,45 @@ window.addEventListener('error', function (e) {
     </dl>
   </section>
 
+  <section id="chartSec" hidden aria-label="Balance over time">
+    <h2>Balance over time</h2>
+    <div class="chartwrap">
+      <canvas id="chart" tabindex="0" role="img" aria-label="Balance over time"></canvas>
+      <span id="chartDot" class="chartdot" hidden></span>
+      <div id="chartTip" class="charttip" hidden></div>
+    </div>
+    <p class="hint" id="chartText"></p>
+  </section>
+
   <section id="assocSec" hidden>
     <h2>Associations</h2>
-    <p class="hint">Labelled wallets that appear in the transactions loaded below: on the built-in list, or in a label list you loaded in the workspace. A name is somebody's claim, not proof.</p>
+    <p class="hint">Labelled wallets that appear in the transactions loaded below: the labels and tags you wrote in the workspace, the built-in list, or a label list you loaded there. A name is somebody's claim, not proof.</p>
     <div id="assoc"></div>
+  </section>
+
+  <section id="cpSec" hidden>
+    <h2>Biggest counterparties</h2>
+    <p class="hint">The wallets that moved the most Bitcoin next to this one in the loaded transactions: what they paid in and what they received, added together. Wallets that were spent together with this one are usually the same owner (see Whole wallet below). A name is somebody's claim, not proof.</p>
+    <div id="cp"></div>
+    <p class="hint" id="cpNote" hidden></p>
+    <button type="button" id="cpMore" hidden></button>
+  </section>
+
+  <section id="clusterSec" hidden>
+    <h2>Whole wallet</h2>
+    <p class="hint" id="clIntro"></p>
+    <p class="banner bad" id="clSanction" role="status" hidden></p>
+    <div id="clList"></div>
+    <div class="clbtns">
+      <button type="button" id="clMore" hidden></button>
+      <button type="button" id="clLook" title="Load the newest transactions of the wallets in this group, to see which others they were spent with">Look further</button>
+      <button type="button" id="clBalances" title="Ask the server for the balance of each wallet in this group">Read balances</button>
+      <button type="button" id="clCopy">Copy addresses</button>
+      <a id="clOpen" class="btn" href="workspace.html">Open in workspace &#8599;</a>
+    </div>
+    <div id="clBar" class="allbar" hidden role="status"><span id="clText"></span> <button type="button" id="clCancel">Cancel</button></div>
+    <p class="hint" id="clTotal" hidden></p>
+    <p class="hint">A guess, not proof. Wallets that sign one transaction together are usually one owner, but a CoinJoin, a PayJoin, a shared or custodial wallet or a multisig breaks that. Transactions that look like a CoinJoin are left out. Only transactions that were loaded are looked at.</p>
   </section>
 
   <section id="ledgerSec" hidden>
@@ -68,9 +106,30 @@ window.addEventListener('error', function (e) {
       <span class="spacer"></span>
       <span id="loaded" class="hint"></span>
       <button type="button" id="more">Load more</button>
+      <button type="button" id="loadAll" title="Load the rest of the history, a page at a time, up to the limit beside it">Load all</button>
+      <label class="capwrap" title="Stop after this many transactions"><span>up to</span> <input id="loadCap" type="number" min="25" max="50000" step="25" value="1000" aria-label="Most transactions to load"></label>
       <button type="button" id="csv" title="The loaded transactions, one line each">Download CSV</button>
+      <button type="button" id="csvAll" title="Load the rest of the history first (up to the limit), then download it">Load all and download</button>
+    </div>
+    <div id="allBar" class="allbar" hidden role="status"><span id="allText"></span> <button type="button" id="allCancel">Cancel</button></div>
+    <div class="ledgertools" id="ledgerTools">
+      <input id="fText" type="text" placeholder="Search addresses, names, transaction ids, blocks…" aria-label="Search the loaded transactions" spellcheck="false" autocomplete="off">
+      <label>from <input id="fFrom" type="date" aria-label="From date (UTC)"></label>
+      <label>to <input id="fTo" type="date" aria-label="To date (UTC)"></label>
+      <label>at least <input id="fMin" type="text" inputmode="decimal" size="7" placeholder="0" aria-label="Smallest amount, in BTC"> BTC</label>
+      <label>at most <input id="fMax" type="text" inputmode="decimal" size="7" aria-label="Largest amount, in BTC"> BTC</label>
+      <button type="button" id="fClear" hidden>Clear</button>
+      <span id="fCount" class="hint" role="status"></span>
+      <button type="button" id="pickShown" title="Tick the first transactions shown below, to start a trace from them">Tick shown</button>
+    </div>
+    <div class="fiatbar" id="fiatBar">
+      <label>Amounts in <select id="fiatCur"><option value="off">Bitcoin only</option></select></label>
+      <label>Show <select id="fiatShow"><option value="both">Bitcoin and the currency</option><option value="fiat">the currency only</option><option value="btc">Bitcoin only</option></select></label>
+      <label>Price <select id="fiatBasis"><option value="each">at each transaction's own time</option><option value="today">today</option></select></label>
+      <span id="fiatStatus" class="hint" role="status"></span>
     </div>
     <div id="ledger"></div>
+    <div id="pickBar" class="pickbar" hidden role="status"><span id="pickText"></span> <a id="pickGo" class="btn primary" href="workspace.html">Trace from here &#8599;</a> <button type="button" id="pickClear">Untick all</button></div>
   </section>
 </main>
 
@@ -81,6 +140,8 @@ window.addEventListener('error', function (e) {
 <script src="js/hopline-external.js"></script>
 <script src="js/hopline-model.js"></script>
 <script src="js/hopline-style.js"></script>
+<script src="js/hopline-analysis.js"></script>
+<script src="js/hopline-price.js"></script>
 <script src="js/hopline-api.js"></script>
 <script src="js/hopline-io.js"></script>
 <script src="js/hopline-labels.js"></script>

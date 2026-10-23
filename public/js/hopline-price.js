@@ -77,8 +77,49 @@
     return { price: json[currency], time: typeof json.time === 'number' ? json.time : null };
   }
 
+  /** A saved fiat choice, made safe: { currency ('off' or one of CURRENCIES), basis ('each' | 'ref' | 'today'), show ('btc' | 'both' | 'fiat'), ref: { txid, time } | null }. */
+  function cleanFiat(f) {
+    var out = { currency: 'off', basis: 'each', show: 'both', ref: null };
+    if (!f || typeof f !== 'object') return out;
+    if (f.currency === 'off' || CURRENCIES.indexOf(f.currency) >= 0) out.currency = f.currency;
+    if (f.basis === 'each' || f.basis === 'ref' || f.basis === 'today') out.basis = f.basis;
+    if (f.show === 'btc' || f.show === 'both' || f.show === 'fiat') out.show = f.show;
+    if (f.ref && typeof f.ref.txid === 'string' && /^[0-9a-f]{64}$/.test(f.ref.txid) && typeof f.ref.time === 'number' && isFinite(f.ref.time)) out.ref = { txid: f.ref.txid, time: f.ref.time };
+    return out;
+  }
+
   /** Satoshis -> currency units at `price` per BTC. */
   function convert(sats, price) { return sats / 1e8 * price; }
+
+  /**
+   * The price to use for something that happened at `time` (unix seconds; null = not confirmed yet), following the saved choice
+   * fiat = { currency, basis: 'each' | 'ref' | 'today', ref: { time } | null }.
+   * ctx = { books: { CURRENCY: PriceBook }, today: the /v1/prices reply | null, fmtTime(unix, withTime) -> text }.
+   * Returns { price, label, approx, note } or null when the prices are not loaded (yet).
+   */
+  function rateFor(fiat, time, ctx) {
+    if (!fiat || fiat.currency === 'off') return null;
+    var basis = fiat.basis, t = time;
+    if (basis === 'ref') { if (fiat.ref) t = fiat.ref.time; else basis = 'today'; }
+    if (basis === 'today' || t == null) {
+      var td = ctx.today ? parseToday(ctx.today, fiat.currency) : null; if (!td) return null;
+      var when = td.time ? ctx.fmtTime(td.time, false) : 'today';
+      return { price: td.price, label: 'today ' + when, approx: false, note: basis === 'today' ? 'today\'s price' : 'not confirmed yet, so today\'s price' };
+    }
+    var book = ctx.books && ctx.books[fiat.currency]; if (!book) return null;
+    var r = book.rateAt(t); if (!r) return null;
+    var note = r.derived ? 'USD price converted at today\'s exchange rate (no ' + fiat.currency + ' data that early)' : r.outside ? 'outside the price history, nearest point used'
+             : r.approx ? 'interpolated between price points ' + r.spanDays.toFixed(1) + ' days apart' : 'hourly/daily data';
+    return { price: r.price, label: ctx.fmtTime(t, false), approx: r.approx, note: note };
+  }
+
+  /** { value, text, title, approx, rate } for `sats` at `time`, or null (see rateFor). text carries "≈ " where the price is interpolated or derived. */
+  function amountOf(fiat, sats, time, ctx) {
+    if (sats == null) return null;
+    var r = rateFor(fiat, time, ctx); if (!r) return null;
+    var v = convert(sats, r.price), cur = fiat.currency;
+    return { value: v, text: (r.approx ? '≈ ' : '') + format(v, cur), approx: r.approx, rate: r, title: format(r.price, cur) + ' per BTC at ' + r.label + ' (' + r.note + ')' };
+  }
 
   /** "$1,234.56", "¥1,235", "< $0.01" for tiny values. */
   function format(value, currency) {
@@ -93,5 +134,5 @@
   /** A fixed-precision number for exports (never scientific notation). */
   function plain(value, currency) { return value == null || !isFinite(value) ? '' : value.toFixed(currency === 'JPY' ? 2 : 4); }
 
-  return { CURRENCIES: CURRENCIES, PriceBook: PriceBook, parseToday: parseToday, convert: convert, format: format, plain: plain, interpolate: interpolate, APPROX_SPAN: APPROX_SPAN };
+  return { CURRENCIES: CURRENCIES, PriceBook: PriceBook, parseToday: parseToday, convert: convert, cleanFiat: cleanFiat, rateFor: rateFor, amountOf: amountOf, format: format, plain: plain, interpolate: interpolate, APPROX_SPAN: APPROX_SPAN };
 }));

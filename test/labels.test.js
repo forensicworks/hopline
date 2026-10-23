@@ -100,5 +100,91 @@ test('parseStored reads the packs kept in the browser, caps them and survives da
   assert.equal(known['1BoatSLRHtKNngkdXEeobR76b53LETtpyT'], undefined, 'a pack that is switched off adds nothing');
   assert.equal(base['bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h'].alt, undefined, 'the base list is not changed');
   const fresh = Labels.buildKnown({}, [{ name: 'P', enabled: true, entries: [{ address: 'x', label: 'L', category: 'C', url: '', note: '' }] }]);
-  assert.deepEqual(fresh.x, { label: 'L', pack: 'P', category: 'C', url: undefined, note: undefined });
+  assert.deepEqual(fresh.x, { label: 'L', pack: 'P', category: 'C', url: undefined, note: undefined,
+                              claims: [{ label: 'L', pack: 'P', category: 'C', url: '', note: '', sanctions: false }] });
+});
+
+test('buildKnown keeps every claim a wallet has, in full, the built-in name first', () => {
+  const A = 'bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h';
+  const base = { [A]: { label: 'Built-in name', category: 'EXCH' } };
+  const packs = [
+    { name: 'List one', enabled: true, entries: [{ address: A, label: 'Name one', category: 'THREAT', url: 'https://example.org/1', note: 'first note' }] },
+    { name: 'List two', enabled: true, entries: [{ address: A, label: 'Name two', category: '', url: '', note: '' }, { address: 'only-two', label: 'Solo', category: '', url: '', note: '' }] },
+    { name: 'Off', enabled: false, entries: [{ address: A, label: 'Hidden', category: '', url: '', note: '' }] }
+  ];
+  const known = Labels.buildKnown(base, packs), k = known[A];
+  assert.equal(k.label, 'Built-in name');
+  assert.deepEqual(k.claims.map((c) => [c.label, c.pack]), [['Built-in name', ''], ['Name one', 'List one'], ['Name two', 'List two']], 'a switched-off pack adds no claim');
+  assert.equal(k.claims[1].category, 'THREAT'); assert.equal(k.claims[1].url, 'https://example.org/1'); assert.equal(k.claims[1].note, 'first note');
+  assert.deepEqual(k.alt, ['Name one (List one)', 'Name two (List two)'], 'the short text of the later claims stays as it was');
+  assert.equal(known['only-two'].claims.length, 1);
+  assert.equal(base[A].claims, undefined, 'the base list is not changed');
+});
+
+test('claimsOf: an entry with no claims list is one claim, and nothing is none', () => {
+  assert.deepEqual(Labels.claimsOf({ label: 'Built-in', category: 'EXCH' }), [{ label: 'Built-in', pack: '', category: 'EXCH', url: '', note: '', sanctions: false }]);
+  assert.deepEqual(Labels.claimsOf(null), []); assert.deepEqual(Labels.claimsOf(undefined), []);
+});
+
+test('a pack that says it is a sanctions list marks every wallet it names, and the mark survives saving and a second list', () => {
+  const text = JSON.stringify({ format: 'hopline-labels', version: 1, name: 'OFAC test', sanctions: true, labels: [{ address: '1BoatSLRHtKNngkdXEeobR76b53LETtpyT', label: 'X' }] });
+  const r = Labels.parse(text);
+  assert.equal(r.sanctions, true);
+  assert.equal(Labels.parse(JSON.stringify({ name: 'n', labels: [{ address: '1BoatSLRHtKNngkdXEeobR76b53LETtpyT', label: 'X' }] })).sanctions, false);
+  assert.equal(Labels.parse(JSON.stringify({ name: 'n', sanctions: 'yes', labels: [{ address: '1BoatSLRHtKNngkdXEeobR76b53LETtpyT', label: 'X' }] })).sanctions, false, 'only a real true counts');
+  const stored = Labels.parseStored(JSON.stringify([{ id: 'p1', name: 'OFAC test', enabled: true, sanctions: true, entries: [['1BoatSLRHtKNngkdXEeobR76b53LETtpyT', 'X']] }, { id: 'p2', name: 'Plain', enabled: true, entries: [['1BoatSLRHtKNngkdXEeobR76b53LETtpyT', 'Y']] }]));
+  assert.equal(stored[0].sanctions, true); assert.equal(stored[1].sanctions, false);
+  const A = '1BoatSLRHtKNngkdXEeobR76b53LETtpyT';
+  assert.equal(Labels.buildKnown({}, [stored[0]])[A].sanctions, true);
+  assert.equal(Labels.buildKnown({}, [stored[1]])[A].sanctions, undefined, 'no mark where no list says so');
+  const both = Labels.buildKnown({}, stored)[A];
+  assert.equal(both.sanctions, true, 'one sanctions claim among two is enough'); assert.deepEqual(both.claims.map((c) => c.sanctions), [true, false]);
+  const later = Labels.buildKnown({}, [stored[1], stored[0]])[A];
+  assert.equal(later.label, 'Y'); assert.equal(later.sanctions, true, 'also when the sanctions list comes second');
+});
+
+// ---- what you wrote yourself in the workspace --------------------------------------------------------------------------------------
+const MINE_A = '1BoatSLRHtKNngkdXEeobR76b53LETtpyT', MINE_B = 'bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h';
+const SESSION = (nodes, format) => JSON.stringify({ format: format || 'hopline-workspace', version: 1, nodes: nodes, edges: [] });
+
+test('fromSession: the labels, tags and notes you wrote on wallets, cleaned, and nothing else', () => {
+  const text = SESSION([
+    { id: 'addr:' + MINE_A, type: 'addr', address: MINE_A, label: 'My exchange', tag: 'EXCH', note: 'opened in 2021' },
+    { id: 'addr:' + MINE_B, type: 'addr', address: MINE_B, tag: 'THREAT' },                          // a tag alone is a name
+    { id: 'addr:1x', type: 'addr', address: '1JwSSubhmg6iPtRjtyqhUYYH7bZg3Lfy1T' },                    // nothing written: not listed
+    { id: 'tx:ab', type: 'tx', txid: 'ab'.repeat(32), label: 'a transaction label' },                  // a transaction is not a wallet
+    { id: 'addr:bad', type: 'addr', address: 'not-a-bitcoin-address', label: 'x' },                    // a bad address is dropped
+    null, { type: 'addr' }, { type: 'addr', address: 5, label: 'x' }
+  ]);
+  const e = Labels.fromSession(text);
+  assert.deepEqual(e.map((x) => [x.address, x.label, x.category, x.note]), [[MINE_A, 'My exchange', 'EXCH', 'opened in 2021'], [MINE_B, 'THREAT', 'THREAT', '']]);
+  assert.equal(Labels.fromSession(SESSION([{ type: 'addr', address: MINE_A, label: 'Old name' }], 'orion-workspace')).length, 1, 'a session saved before the rename is read too');
+});
+
+test('fromSession: anything that is not a saved workspace gives nothing, and the text is made safe', () => {
+  ['', null, undefined, 5, '{not json', '[]', '{"a":1}', JSON.stringify({ format: 'something-else', nodes: [] }), JSON.stringify({ format: 'hopline-workspace' }), 'x'.repeat(61000000)].forEach((t) => assert.deepEqual(Labels.fromSession(t), [], String(t).slice(0, 20)));
+  const evil = Labels.fromSession(SESSION([{ type: 'addr', address: MINE_A, label: '<img src=x onerror=1>' + 'y'.repeat(500), tag: 'T'.repeat(50), note: 'line1' + String.fromCharCode(10) + 'line2' + String.fromCharCode(0) }]))[0];
+  assert.ok(evil.label.startsWith('<img src=x') && evil.label.length <= 120, 'kept as text, cut to length'); assert.ok(evil.category.length <= 20);
+  assert.ok(!/[\u0000-\u001f]/.test(evil.note), 'no control characters');
+  assert.equal(Labels.fromSession(SESSION([{ type: 'addr', address: MINE_A, label: 'a' }, { type: 'addr', address: MINE_B, label: 'b' }]), 1).length, 1, 'a limit is kept');
+});
+
+test('buildKnown with your own entries: your name is shown, and the other names are still there as claims', () => {
+  const base = { [MINE_B]: { label: 'Built-in name', category: 'EXCH' } };
+  const packs = [{ name: 'Case list', enabled: true, entries: [{ address: MINE_B, label: 'Pack name', category: '', url: '', note: '' }, { address: MINE_A, label: 'Pack only', category: '', url: '', note: '' }] }];
+  const own = [{ address: MINE_B, label: 'Mine', category: 'THREAT', note: 'my note' }, { address: 'bc1qonlymine', label: 'Only mine', category: '', note: '' }];
+  const k = Labels.buildKnown(base, packs, own);
+  assert.equal(k[MINE_B].label, 'Mine'); assert.equal(k[MINE_B].pack, 'Your labels'); assert.equal(k[MINE_B].category, 'THREAT'); assert.equal(k[MINE_B].note, 'my note');
+  assert.deepEqual(k[MINE_B].claims.map((c) => [c.label, c.pack]), [['Mine', 'Your labels'], ['Built-in name', ''], ['Pack name', 'Case list']], 'yours first, then the others in their order');
+  assert.equal(k[MINE_B].claims[0].own, true); assert.deepEqual(k[MINE_B].alt, ['Built-in name', 'Pack name (Case list)'], 'the names it replaced are listed as "also listed as"');
+  assert.equal(k['bc1qonlymine'].label, 'Only mine'); assert.equal(k['bc1qonlymine'].claims.length, 1);
+  assert.equal(k[MINE_A].label, 'Pack only', 'a wallet you did not label keeps its name');
+  assert.equal(base[MINE_B].claims, undefined, 'the built-in list is not changed');
+  assert.equal(Labels.buildKnown(base, packs)[MINE_B].label, 'Built-in name', 'no entries of your own: as before');
+});
+
+test('buildKnown with your own entries keeps a sanctions mark that a list put on the wallet', () => {
+  const packs = [{ name: 'OFAC', enabled: true, sanctions: true, entries: [{ address: MINE_A, label: 'Listed person', category: 'SDN', url: '', note: '' }] }];
+  const k = Labels.buildKnown({}, packs, [{ address: MINE_A, label: 'My name for it', category: '', note: '' }])[MINE_A];
+  assert.equal(k.label, 'My name for it'); assert.equal(k.sanctions, true); assert.deepEqual(k.claims.map((c) => c.sanctions), [false, true]);
 });

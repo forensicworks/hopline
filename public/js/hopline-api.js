@@ -24,12 +24,53 @@
     custom:     { label: 'My own Esplora URL',                 base: '',                              concurrency: 4, delayMs: 150, timeoutMs: 30000, retries: 3, prices: null }
   };
 
+  // ---- a key for a server, and the pace for your own ---------------------------------------------------------
+  var DEFAULT_PACE = { concurrency: 8, delayMs: 20 };                          // your own server can take more than the public ones (4 at once, 150 ms apart)
+  function clampInt(v, lo, hi, dflt) { var n = Math.round(Number(v)); return isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt; }
+  /** { concurrency, delayMs } for your own server: requests at once (1 to 32) and the pause between starts (0 to 2000 ms). */
+  function cleanPace(p) { p = p && typeof p === 'object' ? p : {}; return { concurrency: clampInt(p.concurrency, 1, 32, DEFAULT_PACE.concurrency), delayMs: clampInt(p.delayMs, 0, 2000, DEFAULT_PACE.delayMs) }; }
+  /** { header, value } for a key, or null when there is none. The header name is letters, digits and hyphens; the value has no control characters. */
+  function cleanKey(k) {
+    if (!k || typeof k !== 'object') return null;
+    var value = String(k.value == null ? '' : k.value).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 2000);
+    if (!value) return null;
+    var header = String(k.header == null ? '' : k.header).trim();
+    return { header: /^[A-Za-z0-9-]{1,40}$/.test(header) ? header : 'Authorization', value: value };
+  }
+  /** The header to send: an Authorization key without a scheme is a Bearer token. */
+  function keyHeader(k) {
+    var v = k.value;
+    if (/^authorization$/i.test(k.header) && !/^(bearer|basic|token)\s/i.test(v)) v = 'Bearer ' + v;
+    return { name: k.header, value: v };
+  }
+  /**
+   * The keys to send, by server: { base: { name, value } }, for a saved choice { source, customBase, fallback, keys: { source: { header, value } } }.
+   * A key goes only to the server it was saved for: the backup server never gets the key of the main one.
+   */
+  function authFor(p) {
+    p = p || {}; var out = {}, keys = p.keys && typeof p.keys === 'object' ? p.keys : {};
+    function add(id, b) { var k = cleanKey(keys[id]); if (k && b) out[String(b).replace(/\/+$/, '')] = keyHeader(k); }
+    add(p.source, sourceBase(p));
+    var bk = backupFor(p); if (bk) add(p.source === 'clearnet' ? 'blockstream' : 'clearnet', bk.base);
+    return out;
+  }
+
   function hostOf(base) { return String(base).replace(/^https?:[/][/]/i, '').split('/')[0]; }
 
   /** The API base of a saved choice { source: 'clearnet' | 'tor' | 'blockstream' | 'custom', customBase }. */
   function sourceBase(p) {
     p = p || {};
     return p.source === 'custom' ? String(p.customBase || '').trim() : (PRESETS[p.source] || PRESETS.clearnet).base;
+  }
+  /** Where the price endpoints are for a saved choice { source, customBase, customPrices ('server' | 'mempool' | 'off') }, or null when there are none. */
+  function priceBaseFor(p) {
+    p = p || {};
+    var preset = PRESETS[p.source] || PRESETS.custom;
+    if (preset.prices) return preset.prices;
+    if (p.customPrices === 'off') return null;
+    if (p.customPrices === 'mempool') return PRESETS.clearnet.prices;                          // a plain Esplora has no price service: only the currency and the dates go to mempool.space
+    var b = String(p.customBase || '').trim();
+    return /^https?:\/\//i.test(b) ? b : null;
   }
   /** The other public server to fall back to, when the choice allows it: never for Tor (that would leave Tor) or your own server. */
   function backupFor(p) {
@@ -44,8 +85,10 @@
   function buildClient(p, extra) {
     p = p || {}; extra = extra || {};
     var preset = PRESETS[p.source] || (p.source === 'custom' ? PRESETS.custom : PRESETS.clearnet), bk = backupFor(p);
+    var pace = p.source === 'custom' && p.pace ? cleanPace(p.pace) : preset;                    // your own server: the pace you set; the public ones keep theirs
     return new Client({
-      base: sourceBase(p), concurrency: preset.concurrency, delayMs: preset.delayMs, timeoutMs: preset.timeoutMs, retries: preset.retries,
+      base: sourceBase(p), concurrency: pace.concurrency, delayMs: pace.delayMs, timeoutMs: preset.timeoutMs, retries: preset.retries,
+      auth: authFor(p), keyHint: p.source === 'custom',
       backup: bk ? { base: bk.base, concurrency: bk.concurrency, delayMs: bk.delayMs } : null,
       onRequest: extra.onRequest, onSwitch: extra.onSwitch, onRestore: extra.onRestore, maxRequests: extra.maxRequests
     });
@@ -70,6 +113,8 @@
     opts = opts || {};
     this.base = String(opts.base || PRESETS.clearnet.base).replace(/\/+$/, '');
     this.concurrency = Math.max(1, opts.concurrency || 4);
+    this.auth = opts.auth && typeof opts.auth === 'object' ? opts.auth : {};              // { base: { name, value } }: sent only to that server
+    this.keyHint = !!opts.keyHint;
     this.delayMs = opts.delayMs == null ? 150 : opts.delayMs;
     this.timeoutMs = opts.timeoutMs || 20000;
     this.retries = opts.retries == null ? 3 : opts.retries;
@@ -144,10 +189,15 @@
     var ctl = typeof AbortController === 'function' ? new AbortController() : null;
     var timer = null, timedOut = false;
     if (ctl) { this.controllers.add(ctl); timer = setTimeout(function () { timedOut = true; ctl.abort(); }, this.timeoutMs); }
-    var p = this.fetchImpl(base + path, ctl ? { signal: ctl.signal, headers: { 'Accept': 'application/json, text/plain' } } : {})
+    var key = this.auth[base], headers = { 'Accept': 'application/json, text/plain' };
+    if (key) headers[key.name] = key.value;
+    var p = this.fetchImpl(base + path, ctl ? { signal: ctl.signal, headers: headers } : { headers: headers })
       .then(function (res) {
         if (!res.ok) {
           var err = ApiError('HTTP ' + res.status + ' for ' + path, res.status === 429 ? 'rate' : (res.status >= 500 ? 'server' : 'http'), res.status);
+          if (res.status === 401 || res.status === 403) {                          // not retried: asking again with the same key will not change the answer
+            err = ApiError('HTTP ' + res.status + ' for ' + path + ': ' + (key ? 'the server rejected the key' : 'the server refused the request' + (self.keyHint ? ' (if it needs a key, add one under Data source)' : '')), 'auth', res.status);
+          }
           err.retryAfter = Number(res.headers && res.headers.get && res.headers.get('retry-after')) || 0;
           if (res.status === 400 || res.status === 404) err.kind = 'notfound';
           throw err;
@@ -483,5 +533,5 @@
     return this.expandAddress(q.value, opts).then(function (r) { r.kind = 'addr'; r.id = ID.addr(q.value); return r; });
   };
 
-  return { Client: Client, Explorer: Explorer, PRESETS: PRESETS, ONION: ONION, buildClient: buildClient, sourceBase: sourceBase, backupFor: backupFor, hostOf: hostOf, isTxid: isTxid, normaliseQuery: normaliseQuery, checkQuery: checkQuery, ApiError: ApiError };
+  return { Client: Client, Explorer: Explorer, PRESETS: PRESETS, ONION: ONION, buildClient: buildClient, priceBaseFor: priceBaseFor, authFor: authFor, cleanKey: cleanKey, cleanPace: cleanPace, DEFAULT_PACE: DEFAULT_PACE, sourceBase: sourceBase, backupFor: backupFor, hostOf: hostOf, isTxid: isTxid, normaliseQuery: normaliseQuery, checkQuery: checkQuery, ApiError: ApiError };
 }));

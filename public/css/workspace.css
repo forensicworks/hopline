@@ -38,7 +38,9 @@ textarea { resize: vertical; min-height: 64px; }
 #top { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .brand { font-weight: 700; font-size: 18px; color: var(--text); text-decoration: none; letter-spacing: 0.3px; }
 .brand span { color: var(--accent); font-weight: 400; }
-#searchForm { display: flex; gap: 6px; flex: 1 1 360px; max-width: 640px; }
+.brand { display: inline-flex; align-items: center; gap: 8px; }
+.brand .logo { border-radius: 6px; flex: none; }
+#searchForm { display: flex; gap: 6px; flex: 1 1 230px; max-width: 640px; }                /* room for the logo, Redo and the Find field on one row at 1366 px; it grows into what is left */
 #searchForm input { flex: 1; font-family: Consolas, "Courier New", monospace; font-size: 13px; }
 
 .navgroup { display: flex; gap: 3px; }
@@ -400,3 +402,32 @@ body.canvas-full #top, body.canvas-full #side, body.canvas-full #sideTab, body.c
 #fullBtn[aria-pressed="true"] .exit { display: inline; }
 #fullBtn { display: flex; align-items: center; justify-content: center; }
 #fullBtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+/* a wallet on a sanctions list, and every claim a wallet has */
+.tag.danger { border-color: #ff4d4f; color: #ff9a9a; }
+.claims .hint b { color: var(--text); }
+.claims .claimnote { color: var(--dim); }
+
+/* a key for your own server */
+#customAuthRow, #customPaceRow { margin-top: 4px; }
+#customAuthRow label:not(.check), #customPaceRow label { margin-top: 6px; }
+
+/* the wallet's Transactions list: the same choices as the arrow list */
+.walletfilters { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 4px 0; font-size: 12px; }
+.walletfilters select { width: auto; font-size: 12px; padding: 2px 6px; }
+.walletfilters .hint { margin: 0; }
+
+/* more of a wallet's history, from the lists */
+.choosermore, .moreHistory { display: flex; align-items: center; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
+.choosermore button, .moreHistory button { padding: 3px 10px; font-size: 12px; }
+.moreHistory .hint { margin: 0; }
+
+/* the range the arrows reach, drawn on the time line */
+.expandchip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #ffb347; color: #ffb347; border-radius: 12px; padding: 0 4px 0 9px; font-size: 12px; }
+.expandchip[hidden] { display: none; }
+.expandchip button { padding: 0 6px; line-height: 1.3; }
+
+#legend .groupitem .tagsw { font-size: 14px; }
+
+.walletgroup select { width: auto; font-size: 11.5px; padding: 1px 4px; margin-left: 4px; }
+.toolrow select[aria-label="Group rows by"] { width: auto; font-size: 11.5px; padding: 1px 4px; margin-left: 4px; }

@@ -6,6 +6,7 @@ answered from the public-chain fixtures in test/fixtures, so the tests are deter
 import json
 import pathlib
 import re
+import time
 
 import pytest
 from playwright.sync_api import sync_playwright
@@ -65,6 +66,8 @@ class Mock:
         self.delay_ms = 0
 
     def handle(self, route):
+        if self.delay_ms:
+            time.sleep(self.delay_ms / 1000)                                          # a slow server: for the tests of progress and cancel
         m = re.match(r"^(https?://[^/]+)/api(/.*)$", route.request.url)
         host, path = m.group(1), m.group(2)
         self.requests.append((host, path))

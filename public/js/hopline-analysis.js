@@ -17,6 +17,7 @@
   'use strict';
 
   var ID = Model.ID;
+  var EVEN_SPLIT = 0.01;                                // two outputs this close (as a share of the bigger) are an even split
 
   var DEFAULTS = {
     consolidation: { minIn: 5, maxOut: 2 },             // many inputs gathered into one or two outputs
@@ -148,6 +149,8 @@
    *    20  it is smaller than every input (a wallet would not have added the extra inputs to pay it)
    *    15/30  its spender has this transaction's wallet fingerprint and the other output's spender does not (15 when it is a common default)
    * The best output needs to lead the next by enough to be named, so close calls give null.
+   * A transaction with two outputs within 1% of each other looks like two payments, not a payment and its change: only the first signal
+   * (the wallet paid itself back) can name one then, because the others cannot tell an even split from a payment to a wallet of another kind.
    * opts.known(address) -> true for a wallet that is labelled or tagged.
    */
   function guessChange(v, opts) {
@@ -161,19 +164,21 @@
     var reused = []; outs.forEach(function (o, i) { if (o.address && inAddr.has(o.address)) reused.push(i); });
     if (reused.length === 1) vote(reused[0], 100, 'its address is also one of the inputs: the wallet paid itself back', true);
 
-    var types = new Set(); v.inputs.forEach(function (i) { if (i.scriptType) types.add(i.scriptType); });
+    var bigger = outs.length === 2 ? Math.max(outs[0].amount, outs[1].amount) : 0;
+    var evenSplit = bigger > 0 && Math.abs(outs[0].amount - outs[1].amount) <= bigger * EVEN_SPLIT;
+    var types = new Set(); if (!evenSplit) v.inputs.forEach(function (i) { if (i.scriptType) types.add(i.scriptType); });
     if (types.size === 1) {
       var t = Array.from(types)[0], same = [], other = 0;
       outs.forEach(function (o, i) { if (o.scriptType === t) same.push(i); else if (o.scriptType) other++; });
       if (same.length === 1 && other >= 1) vote(same[0], 40, 'the only output of the same address type as the inputs (' + t + ')');
     }
 
-    if (opts && typeof opts.known === 'function') {
+    if (!evenSplit && opts && typeof opts.known === 'function') {
       var knownIdx = []; outs.forEach(function (o, i) { if (o.address && opts.known(o.address)) knownIdx.push(i); });
       if (knownIdx.length === 1) outs.forEach(function (o, i) { if (i !== knownIdx[0]) vote(i, 35, 'the other output pays a known or tagged wallet'); });
     }
 
-    if (v.graph) {                                                                      // the next spender of an output looks like it came from the same wallet software, the other does not
+    if (v.graph && !evenSplit) {                                                        // the next spender of an output looks like it came from the same wallet software, the other does not
       var fp = fingerprint(v.node), same = [], differ = [];
       if (fp) outs.forEach(function (o, i) {
         if (!o.spender) return;
@@ -185,9 +190,9 @@
 
     var zeros = outs.map(function (o) { return trailingZeros(o.amount); }), roundIdx = [];
     zeros.forEach(function (z, i) { if (z >= 4) roundIdx.push(i); });
-    if (roundIdx.length === 1) outs.forEach(function (o, i) { if (i !== roundIdx[0] && zeros[i] <= 2) vote(i, 30, 'the other output is a round amount (' + fmtSat(outs[roundIdx[0]].amount) + ' sat) and this one is not'); });
+    if (roundIdx.length === 1 && !evenSplit) outs.forEach(function (o, i) { if (i !== roundIdx[0] && zeros[i] <= 2) vote(i, 30, 'the other output is a round amount (' + fmtSat(outs[roundIdx[0]].amount) + ' sat) and this one is not'); });
 
-    if (v.inputs.length >= 2) {
+    if (v.inputs.length >= 2 && !evenSplit) {
       var minIn = Math.min.apply(null, v.inputs.map(function (i) { return i.amount; })), small = [];
       outs.forEach(function (o, i) { if (o.amount < minIn) small.push(i); });
       if (small.length === 1 && small.length < outs.length) vote(small[0], 20, 'smaller than every input: a wallet would not have added the extra inputs just to pay it');
@@ -199,6 +204,14 @@
     if (!confidence) return null;
     var o = outs[order[0]];
     return { vout: o.vout, id: o.id, edgeId: o.edgeId, address: o.address, amount: o.amount, confidence: confidence, score: top.score, reasons: top.reasons.slice() };
+  }
+
+  /** What a guess is called: only a strong one is "likely"; the rest are "possible". */
+  function changeTitle(confidence) { return confidence === 'high' ? 'Likely change' : 'Possible change'; }
+  /** The sentence that goes with a guess, so a reader does not take it for a finding: a lead needs both outputs followed, and one sign alone is said to be one. */
+  function changeCaution(change) {
+    if (!change || change.confidence === 'high') return 'A guess from the evidence above, not a certainty.';
+    return (change.reasons && change.reasons.length === 1 ? 'Only one sign points to this output. ' : '') + 'Treat this as a lead to check, not as the change: follow both outputs before relying on it.';
   }
 
   // ---- peel chains ----------------------------------------------------------------------------------
@@ -386,7 +399,7 @@
   }
 
   return {
-    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, coinjoinLike: coinjoinLike, guessChange: guessChange,
+    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
     peelStep: peelStep, peelChains: peelChains, clusters: clusters, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
   };
 }));

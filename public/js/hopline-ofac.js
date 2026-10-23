@@ -275,7 +275,7 @@
     });
     if (!labels.length) throw fail('No Bitcoin addresses found: is this the SDN list?');
     var today = opts.today || new Date(opts.now != null ? opts.now : Date.now()).toISOString().slice(0, 10);
-    var pack = { format: 'hopline-labels', version: 1, name: 'OFAC SDN list (Bitcoin)',
+    var pack = { format: 'hopline-labels', version: 1, name: 'OFAC SDN list (Bitcoin)', sanctions: true,
                  source: 'U.S. Treasury OFAC SDN list (' + lay.file + (date ? ', dated ' + date : '') + '), converted ' + today,
                  created: new Date(opts.now != null ? opts.now : Date.now()).toISOString(), labels: labels };
     var info = { layout: name, date: date, entries: r.entries, withAddress: uids.size, read: r.records.length, expected: r.expected, warning: '' };

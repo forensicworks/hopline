@@ -166,7 +166,7 @@ def test_outside_a_trace_the_bar_selects_the_ticked_transactions_on_the_graph(fp
     fpage.uncheck("#focusOn"); settle(fpage)
     fpage.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(fpage)
     tick(fpage, 106, 107)
-    assert buttons(fpage) == ["Select on graph", "Copy ids", "Clear"], "no trace actions where there is no trace"
+    assert buttons(fpage) == ["Show on graph (2)", "Select on graph", "Copy ids", "Clear"], "no trace actions where there is no trace (and no 'As one vertex': a group lives in a trace)"
     fpage.click("#inspBody .walletpick >> text=Select on graph"); settle(fpage)
     assert set(fpage.evaluate("() => [...window.__hopline.state.selected]")) == {"tx:" + tid(106), "tx:" + tid(107)}
     assert "2 selected" in fpage.inner_text("#inspBody")

@@ -107,3 +107,41 @@ test('parseToday reads /v1/prices and refuses a missing currency', () => {
   assert.equal(P.parseToday({ USD: -1 }, 'USD'), null);
   assert.deepEqual(P.CURRENCIES, ['USD', 'EUR', 'GBP', 'CAD', 'CHF', 'AUD', 'JPY']);
 });
+
+// ---- the rules both pages use to price an amount --------------------------------------------------------------------------------------------
+const CTX = (extra) => Object.assign({ books: {}, today: null, fmtTime: (t) => 'T' + t }, extra);
+const DAILY = { prices: [{ time: 2000000, USD: 30000, EUR: 28000 }, { time: 1913600, USD: 20000, EUR: 18000 }, { time: 1827200, USD: 10000, EUR: 9000 }], exchangeRates: { USDEUR: 0.9 } };
+const BOOK = () => ({ EUR: new P.PriceBook(DAILY, 'EUR') });
+const WEEKLY = { prices: [{ time: 3000000, USD: 30000, EUR: 28000 }, { time: 2395200, USD: 10000, EUR: 9000 }], exchangeRates: { USDEUR: 0.9 } };
+
+test('rateFor: nothing without a currency or without prices, today\'s price for "today" and for something not confirmed yet', () => {
+  assert.equal(P.rateFor({ currency: 'off', basis: 'each' }, 1913600, CTX()), null); assert.equal(P.rateFor(null, 1, CTX()), null);
+  assert.equal(P.rateFor({ currency: 'EUR', basis: 'each' }, 1913600, CTX()), null, 'no price history loaded yet');
+  const ctx = CTX({ today: { time: 2100000, EUR: 40000 }, books: BOOK() });
+  const today = P.rateFor({ currency: 'EUR', basis: 'today' }, 1913600, ctx);
+  assert.deepEqual([today.price, today.approx, today.note], [40000, false, 'today\'s price']); assert.equal(today.label, 'today T2100000');
+  const pending = P.rateFor({ currency: 'EUR', basis: 'each' }, null, ctx);
+  assert.deepEqual([pending.price, pending.note], [40000, 'not confirmed yet, so today\'s price']);
+  assert.equal(P.rateFor({ currency: 'EUR', basis: 'today' }, 1, CTX({ books: BOOK() })), null, 'today\'s price is not loaded');
+});
+
+test('rateFor: the price at the time, interpolated, with the note that says how good it is', () => {
+  const ctx = CTX({ books: BOOK() }), fiat = { currency: 'EUR', basis: 'each' };
+  const exact = P.rateFor(fiat, 1913600, ctx);
+  assert.equal(exact.price, 18000); assert.equal(exact.label, 'T1913600'); assert.equal(exact.approx, false); assert.equal(exact.note, 'hourly/daily data');
+  const weekly = CTX({ books: { EUR: new P.PriceBook(WEEKLY, 'EUR') } }), mid = P.rateFor(fiat, 2697600, weekly);
+  assert.equal(mid.price, 18500); assert.equal(mid.approx, true); assert.equal(mid.note, 'interpolated between price points 7.0 days apart');
+});
+
+test('amountOf: the value, its text with the ≈ sign only where the price is rough, and the tip that explains it', () => {
+  const ctx = CTX({ books: BOOK(), today: { time: 2100000, EUR: 40000 } }), fiat = { currency: 'EUR', basis: 'each' };
+  const a = P.amountOf(fiat, 50000000, 1913600, ctx);
+  assert.equal(a.value, 9000); assert.equal(a.text, '€9,000.00'); assert.equal(a.approx, false); assert.match(a.title, /€18,000\.00 per BTC at T1913600 \(hourly\/daily data\)/);
+  const rough = P.amountOf(fiat, 100000000, 1870400, ctx);                                // halfway between two points: interpolated
+  assert.equal(rough.value, 13500); assert.equal(rough.approx, false);
+  const early = P.amountOf(fiat, 100000000, 100, ctx);                                      // before the series: the USD price at today's rate, flagged
+  assert.equal(early.approx, true); assert.ok(early.text.startsWith('≈ ')); assert.match(early.title, /USD price converted at today's exchange rate \(no EUR data that early\)/);
+  assert.equal(P.amountOf(fiat, null, 1913600, ctx), null); assert.equal(P.amountOf(fiat, 5, 1913600, CTX()), null);
+  assert.equal(P.amountOf({ currency: 'EUR', basis: 'ref', ref: { time: 1827200 } }, 100000000, 1913600, ctx).value, 9000, 'at a reference moment every amount uses its price');
+  assert.equal(P.amountOf({ currency: 'EUR', basis: 'ref', ref: null }, 100000000, 1913600, ctx).value, 40000, 'a reference that is not set is today\'s price');
+});

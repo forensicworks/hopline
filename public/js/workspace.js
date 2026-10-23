@@ -11,7 +11,7 @@
   var KNOWN_BASE = window.HOPLINE_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
-  var SAVE_KEY = 'hopline.workspace.v1', PREF_KEY = 'hopline.prefs.v1', TOKEN_KEY = 'hopline.ext.token', PACKS_KEY = 'hopline.packs.v1';
+  var SAVE_KEY = 'hopline.workspace.v1', PREF_KEY = 'hopline.prefs.v1', TOKEN_KEY = 'hopline.ext.token', PACKS_KEY = 'hopline.packs.v1', KEYS_KEY = 'hopline.keys.v1';
   var ARRANGE = { columns: 1, flow: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 };
   var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SIZES = { auto: 1, area: 1, log: 1 }, SCALES = { compact: 1, proportional: 1 };
 
@@ -47,14 +47,14 @@
   var state = {
     graph: new M.Graph(), layout: 'trace', colorBy: 'type', sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
     keep: new Set(), pinned: new Map(), selected: new Set(), selectedEdge: null,
-    source: 'clearnet', fallback: true, customBase: '', capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: true,
+    source: 'clearnet', fallback: true, customBase: '', keys: {}, keyRemember: false, pace: { concurrency: 8, delayMs: 20 }, capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: true,
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
     trace: emptyTrace(),
-    undoLoads: [], analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
+    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: 'columns', boxMode: false,
-    stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, dustSats: 10000, walletView: { dir: 'all', sort: 'new', more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
+    stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -99,7 +99,7 @@
     retire(state.priceClient, 'price'); state.priceClient = null;
     var base = priceBase();
     if (!base) return;
-    state.priceClient = new A.Client({ base: base, concurrency: 2, delayMs: 300, timeoutMs: state.source === 'tor' ? 120000 : 40000, retries: 2 });
+    state.priceClient = new A.Client({ base: base, concurrency: 2, delayMs: 300, timeoutMs: state.source === 'tor' ? 120000 : 40000, retries: 2, auth: A.authFor(state) });
   }
 
   function updateReqStats() {
@@ -140,6 +140,23 @@
     tor: 'Needs Tor Browser (it routes .onion addresses). In an ordinary browser this will not connect. Slower on purpose: 2 requests at a time, 0.8 s apart, 60 s timeout.',
     custom: 'Any Esplora-compatible API, for example your own mempool/electrs. The server must allow cross-origin requests (CORS).'
   };
+  /** The keys are kept in this browser only when you ask for that, apart from everything else (never in the saved session, an export or a report). */
+  function loadKeys() {
+    try {
+      var d = JSON.parse(store.get(KEYS_KEY) || '{}'), out = {};
+      Object.keys(d || {}).forEach(function (id) { if (A.PRESETS[id]) { var k = A.cleanKey(d[id]); if (k) out[id] = k; } });
+      state.keys = out;
+    } catch (e) { state.keys = {}; }
+  }
+  function saveKeys() {
+    if (state.keyRemember && Object.keys(state.keys).length) store.set(KEYS_KEY, JSON.stringify(state.keys)); else store.del(KEYS_KEY);
+  }
+  function keyUrlNote() {
+    var b = state.customBase.trim();
+    if (state.source !== 'custom' || !state.keys.custom) return '';
+    if (/^http:\/\//i.test(b) && !/^http:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])([:/]|$)/i.test(b)) return ' This address is http, not https: anyone on the network between you and the server can read the key.';
+    return '';
+  }
   function applySourceUi() {
     $('source').value = state.source;
     var partner = state.source === 'clearnet' ? A.PRESETS.blockstream : state.source === 'blockstream' ? A.PRESETS.clearnet : null;
@@ -147,18 +164,15 @@
     if (partner) $('fallbackName').textContent = hostOf(partner.base);
     $('customBase').hidden = state.source !== 'custom'; $('customPricesRow').hidden = state.source !== 'custom'; $('customPrices').value = state.customPrices;
     $('customBase').value = state.customBase;
+    $('customAuthRow').hidden = state.source !== 'custom'; $('customPaceRow').hidden = state.source !== 'custom';
+    var ck = state.keys.custom || { header: '', value: '' };
+    $('srcKey').value = ck.value; $('srcKeyHeader').value = ck.header || ''; $('srcKeyRemember').checked = state.keyRemember;
+    $('keyHint').textContent = 'Sent only to this server, never put in a web address, an export, a report or the saved session. A browser sends a key as a header, so your server has to allow that header from this page (CORS: Access-Control-Allow-Headers).' + keyUrlNote();
+    $('paceConc').value = state.pace.concurrency; $('paceDelay').value = state.pace.delayMs; $('paceConcOut').textContent = state.pace.concurrency;
     $('sourceHint').textContent = SOURCE_HINT[state.source] + (backupPreset() ? ' If it keeps failing, ' + hostOf(backupPreset().base) + ' answers instead for about a minute (it then sees those look-ups too).' : '');
     $('testResult').textContent = ''; $('testResult').className = '';
   }
-  function cleanFiat(f) {
-    var out = { currency: 'off', basis: 'each', show: 'both', ref: null };
-    if (!f || typeof f !== 'object') return out;
-    if (f.currency === 'off' || PR.CURRENCIES.indexOf(f.currency) >= 0) out.currency = f.currency;
-    if (f.basis === 'each' || f.basis === 'ref' || f.basis === 'today') out.basis = f.basis;
-    if (f.show === 'btc' || f.show === 'both' || f.show === 'fiat') out.show = f.show;
-    if (f.ref && typeof f.ref.txid === 'string' && /^[0-9a-f]{64}$/.test(f.ref.txid) && typeof f.ref.time === 'number' && isFinite(f.ref.time)) out.ref = { txid: f.ref.txid, time: f.ref.time };
-    return out;
-  }
+  function cleanFiat(f) { return PR.cleanFiat(f); }
 
   var AUTO_FOLLOW = { all: 1, largest: 1, change: 1, peel: 1 };
   function cleanAuto(a) {
@@ -177,7 +191,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -187,9 +201,11 @@
       state.fallback = p.fallback !== false;
       if (p.stepMode === 'ask' || p.stepMode === 'batch' || p.stepMode === 'all') state.stepMode = p.stepMode;
       state.stepSize = num(p.stepSize, 1, 50, 5); state.arrowsInRange = p.arrowsInRange !== false;
-      state.groupRows = p.groupRows !== false; state.dustSats = num(p.dustSats, 0, 1000000000, 10000);
+      state.groupRows = p.groupRows !== false; state.groupBy = cleanGroupBy(p.groupBy); state.dustSats = num(p.dustSats, 0, 1000000000, 10000);
       if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old' || p.chooseSort === 'known') state.chooseSort = p.chooseSort;
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
+      state.keyRemember = p.keyRemember === true; state.pace = A.cleanPace(p.pace);
+      if (state.keyRemember) loadKeys();
       state.capTx = num(p.capTx, 1, 500, 25); state.capReq = num(p.capReq, 1, 1000, 80); state.capPages = num(p.capPages, 1, 20, 2);
       state.showLabels = p.showLabels !== false;
       state.persist = p.persist !== false;
@@ -261,13 +277,26 @@
     if (text.length > UNDO_BUDGET) return { title: title, tooBig: true };
     return { title: title, graph: text, nodes: g.nodes.size, keep: Array.from(state.keep), focus: state.focus, trace: traceData(), traceUndo: clone(state.trace.undo || []), hidden: Array.from(state.hidden), hideUndo: clone(state.hideUndo) };
   }
+  /** Keep a list of snapshots within the depth and the memory budget (the oldest go first). */
+  function trimSnapshots(list) {
+    while (list.length > UNDO_DEPTH) list.shift();
+    var total = 0;
+    for (var i = list.length - 1; i >= 0; i--) { total += (list[i].graph || '').length; if (total > UNDO_BUDGET) { list.splice(0, i + 1); break; } }
+  }
   function pushUndoLoad(snap, info) {
     if (!snap) return;
-    snap.info = info; state.undoLoads.push(snap);
-    while (state.undoLoads.length > UNDO_DEPTH) state.undoLoads.shift();
-    var total = 0;
-    for (var i = state.undoLoads.length - 1; i >= 0; i--) { total += (state.undoLoads[i].graph || '').length; if (total > UNDO_BUDGET) { state.undoLoads.splice(0, i + 1); break; } }
+    snap.info = info; state.undoLoads.push(snap); state.redoLoads = [];                         // a new change: what was undone can no longer be redone
+    trimSnapshots(state.undoLoads);
     updateUndoLoad();
+  }
+  /** What a Redo would overwrite: the size of the graph and what you wrote on it. If it differs from the moment of the Undo, the Redo is dropped rather than lose that. */
+  function graphSig() {
+    var g = state.graph, marked = 0, chars = 0, flags = 0;
+    g.nodes.forEach(function (n) { if (n.label || n.tag || n.note) { marked++; chars += String(n.label || '').length + String(n.tag || '').length + String(n.note || '').length; } if (n.noCluster) flags++; });
+    return g.nodes.size + '/' + g.edges.size + '/' + marked + '/' + chars + '/' + flags;
+  }
+  function redoStillValid() {
+    if (state.redoLoads.length && state.redoSig !== graphSig()) { state.redoLoads = []; updateUndoLoad(); }
   }
   function updateUndoLoad() {
     var b = $('btnUndoLoad'), top = state.undoLoads[state.undoLoads.length - 1];
@@ -276,12 +305,14 @@
     b.title = !top ? 'Nothing to undo: a load, an import or a removal can be taken back here'
       : top.tooBig ? 'Too large to undo (no copy was kept): ' + top.title
       : 'Undo: ' + top.title + (top.info ? ' (' + top.info + ')' : '') + ' — back to ' + plural(top.nodes, 'vertex', 'vertices');
+    var rb = $('btnRedoLoad'), next = state.redoLoads[state.redoLoads.length - 1];
+    rb.disabled = !next || state.busy;
+    rb.title = !next ? 'Nothing to redo: Undo load can be taken back here, until you change something else'
+      : 'Redo: ' + next.title + (next.info ? ' (' + next.info + ')' : '') + ' — ' + plural(next.nodes, 'vertex', 'vertices') + ' again';
+    rb.setAttribute('aria-label', next ? 'Redo load: ' + next.title : 'Redo load');
   }
-  function undoLoad() {
-    if (state.busy) { toast('Wait for the current action to finish, or press Cancel first.', true); return; }
-    var s = state.undoLoads.pop();
-    if (!s) return;
-    if (s.tooBig) { toast('That change was too large to keep a copy of, so it cannot be undone. Remove the vertices you do not want instead.', true); updateUndoLoad(); return; }
+  /** Put a kept copy back: the graph, and what depends on it (what you kept, hid, focused and traced). Used by Undo and Redo. */
+  function restoreSnapshot(s) {
     stopPlay(); $('tooltip').hidden = true;
     setGraph(M.Graph.fromData(JSON.parse(s.graph)));
     state.keep = new Set(s.keep); state.hidden = new Set(s.hidden); state.hideUndo = s.hideUndo; state.hideRedo = [];
@@ -289,8 +320,29 @@
     if (s.trace && loadTraceData(s.trace)) { state.trace.undo = s.traceUndo; traceSanitize(); } else state.trace = emptyTrace();
     if (traceOn() && !state.trace.seed && state.graph.nodes.size) { state.layout = 'flow'; setSeg('layoutSeg', 'data-layout', 'flow'); document.body.classList.remove('trace-on'); updateScaleRow(); }
     state.selected = new Set(); state.selectedEdge = null; state.pinned = new Map();
+    state.redoSig = graphSig();
     state.graph.refreshDerived(); afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); scheduleSave(); updateUndoLoad();
-    toast('Undid: ' + s.title + '. Back to ' + plural(s.nodes, 'vertex', 'vertices') + '.');
+  }
+  function undoLoad() {
+    if (state.busy) { toast('Wait for the current action to finish, or press Cancel first.', true); return; }
+    var s = state.undoLoads.pop();
+    if (!s) return;
+    if (s.tooBig) { toast('That change was too large to keep a copy of, so it cannot be undone. Remove the vertices you do not want instead.', true); updateUndoLoad(); return; }
+    var now = snapshotGraph(s.title);                                                          // how it is now: what Redo puts back
+    if (now && !now.tooBig) { now.title = s.title; now.info = s.info; state.redoLoads.push(now); trimSnapshots(state.redoLoads); } else state.redoLoads = [];
+    restoreSnapshot(s);
+    toast('Undid: ' + s.title + '. Back to ' + plural(s.nodes, 'vertex', 'vertices') + '.', false, state.redoLoads.length ? { text: 'Redo', fn: redoLoad } : null);
+  }
+  /** Put back what Undo load took away (as it was at that moment; Undo load brings the other way again). */
+  function redoLoad() {
+    if (state.busy) { toast('Wait for the current action to finish, or press Cancel first.', true); return; }
+    redoStillValid();
+    var r = state.redoLoads.pop();
+    if (!r) { toast('Nothing to redo: you changed the workspace after undoing, and Redo would lose that.', true); return; }
+    var now = snapshotGraph(r.title);
+    if (now && !now.tooBig) { now.title = r.title; now.info = r.info; state.undoLoads.push(now); trimSnapshots(state.undoLoads); }
+    restoreSnapshot(r);
+    toast('Redid: ' + r.title + '. ' + plural(r.nodes, 'vertex', 'vertices') + ' again.', false, { text: 'Undo', fn: undoLoad });
   }
 
   function openQuery(raw, o) {
@@ -353,7 +405,13 @@
   function loaderFor(id) {
     var kind = id.slice(0, id.indexOf(':')), val = id.slice(id.indexOf(':') + 1);
     if (kind === 'tx') return { title: 'Open ' + S.shortId(val, 8), fn: function () { return state.explorer.loadTx(val); }, done: function (n) { return !!(n && n.loaded); } };
-    if (kind === 'addr') return { title: 'Open ' + S.shortId(val, 8), fn: function () { return state.explorer.expandAddress(val, { pages: state.capPages, cap: state.capPages * 25 }); }, done: function (n) { return !!(n && n.txCount != null); } };
+    if (kind === 'addr') return { title: 'Open ' + S.shortId(val, 8), fn: function () {
+      return state.explorer.expandAddress(val, { pages: state.capPages, cap: state.capPages * 25 }).then(function (r) {          // remember whether there is more history than was loaded
+        var node = state.graph.nodes.get(id);
+        if (node && r) { node.histNext = r.last || null; node.histDone = !r.last && !r.truncated && !(r.errors && r.errors.length); }
+        return r;
+      });
+    }, done: function (n) { return !!(n && n.txCount != null); } };
     return null;
   }
 
@@ -487,9 +545,9 @@
       if (mark && T.seeds.indexOf(id) < 0) { T.seeds.push(id); traceRecord({ type: 'seed', id: id, added: false }); syncSeed(); }
       return false;
     }
-    var b = traceBox();
+    var b = traceBox(); unfoldLog = [];
     traceUnfold(id); T.shown.add(id); T.pos.set(id, { x: b.cx, y: b.bottom + 150 }); T.seeds.push(id);
-    traceRecord({ type: 'seed', id: id, added: true }); syncSeed();
+    traceRecord({ type: 'seed', id: id, added: true, unfolded: unfoldLog }); unfoldLog = null; syncSeed();
     return true;
   }
 
@@ -507,6 +565,7 @@
 
   /** The time bar's window as { from, to } while the arrows are to stay inside it and it is narrowed; null otherwise. */
   function traceRange() {
+    if (state.expandRange) return { from: state.expandRange.from, to: state.expandRange.to };       // a range drawn on purpose beats the preference below
     if (!state.arrowsInRange) return null;
     var f = state.filter;
     return f.timeFrom == null && f.timeTo == null ? null : { from: f.timeFrom, to: f.timeTo };
@@ -535,8 +594,8 @@
       var click = !h.known || h.known <= N || state.stepMode === 'all' ? ' Shift-click to choose which.'
                 : state.stepMode === 'ask' ? ' Click to choose which: the top ' + N + ' come ticked.' : ' Click shows the largest ' + N + '; click again for the next.';
       var tip = h.known ? 'Show ' + h.known + ' ' + what + (h.unknown ? ' (more may exist: ' + (n.type === 'addr' ? 'the wallet\'s history is not fully loaded' : 'this transaction is not loaded') + ')' : '') + '.' + click
-                        : h.outside && !h.unknown ? 'Nothing inside the time bar\'s range.' : 'Look for ' + what + ' (loads data)';
-      if (h.outside) tip += ' ' + h.outside + ' more fall outside the time bar\'s range.';
+                        : h.outside && !h.unknown ? 'Nothing inside ' + rangeWhat() + '.' : 'Look for ' + what + ' (loads data)';
+      if (h.outside) tip += ' ' + h.outside + ' more fall outside ' + rangeWhat() + '.';
       return { label: label, known: h.known, tip: tip };
     }
     return { left: one('prev'), right: one('next') };
@@ -565,7 +624,7 @@
     var n = state.graph.nodes.get(id), dir = side === 'left' ? 'prev' : 'next', s = trSummary(id, dir);
     if (!n || !s.count) return '';
     var noun = n.type === 'addr' ? plural(s.count, 'transaction') : dir === 'next' ? plural(s.count, 'output') : plural(s.count, 'input');
-    return '\n' + noun + ' · ' + summaryText(s);
+    return '\n' + noun + ' · ' + summaryText(s) + (n.type === 'addr' && n.histNext && !n.histDone ? '\nMore of its history is not loaded: Shift-click the arrow for the list, which can load it.' : '');
   }
 
   function traceNote(n) {
@@ -648,8 +707,9 @@
         var p = TR.plan(g, trShown(id, dir), id, dir, opts), rev = TR.revealed(p, id, dir);
         if (rev.length) {
           TR.place(T.pos, id, dir, p).forEach(function (v, k) { T.pos.set(k, v); });
+          unfoldLog = [];
           rev.forEach(function (x) { traceUnfold(x.id); T.shown.add(x.id); T.prov.set(x.id, { via: x.via, dir: x.dir }); revealedIds.push(x.id); });
-          traceRecord({ type: 'reveal', ids: revealedIds.slice() });
+          traceRecord({ type: 'reveal', ids: revealedIds.slice(), unfolded: unfoldLog }); unfoldLog = null;
         }
         combined = combined || { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] };
         combined.added = revealedIds.length;
@@ -660,7 +720,7 @@
       if (asked) { traceChoose(id, dir, o.at); return false; }
       if (!revealedIds.length) {
         var hh = trHidden(id, dir);
-        if (!r.failed) toast(!hh.known && hh.outside ? 'Nothing inside the time bar\'s range: ' + hh.outside + ' more fall outside it (widen the range, or switch off "Arrows stay within the time bar" under Expansion limits).' : ST.emptyReason(g, id, dir, { viaWallets: true }));
+        if (!r.failed) toast(!hh.known && hh.outside ? (state.expandRange ? 'Nothing inside the range you drew on the time line: ' + hh.outside + ' more fall outside it (draw another range, or clear it with the × beside the time line).' : 'Nothing inside the time bar\'s range: ' + hh.outside + ' more fall outside it (widen the range, or switch off "Arrows stay within the time bar" under Expansion limits).') : ST.emptyReason(g, id, dir, { viaWallets: true }));
         return false;
       }
       traceChanged(revealedIds, false);
@@ -685,7 +745,13 @@
     var noun = n.type === 'addr' ? 'transaction' : dir === 'next' ? 'output' : 'input';
     var m = $('ctxMenu'); m.textContent = ''; m.classList.add('choosing'); closeStepMenu(); $('tooltip').hidden = true;
     m.appendChild(el('div', { 'class': 'ctxhead', text: (grp ? 'Choose from the group · ' : 'Choose what to show ' + (dir === 'next' ? '▶' : '◀') + ' · ') + rows.length + ' hidden' }));
-    m.appendChild(el('div', { 'class': 'chooserinfo', text: summaryText(sm) + (h.outside ? ' · ' + h.outside + ' more fall outside the time bar\'s range and are not listed' : '') }));
+    m.appendChild(el('div', { 'class': 'chooserinfo', text: summaryText(sm) + (h.outside ? ' · ' + h.outside + ' more fall outside ' + rangeWhat() + ' and are not listed' : '') }));
+    if (!grp && n.type === 'addr' && !n.histDone && (n.histNext || n.txCount == null)) {            // the wallet has more history than is loaded: the list can fetch it
+      m.appendChild(el('div', { 'class': 'choosermore' }, [
+        el('button', { type: 'button', 'class': 'loadmore', text: 'Load more history', title: 'Fetch the next ' + plural(state.capPages * 25, 'transaction') + ' of this wallet, then open this list again',
+                       onclick: function () { closeCtx(); loadMoreHistory(id).then(function () { traceChoose(id, dir, at, opts); }); } }),
+        el('span', { 'class': 'chooserinfo', text: n.txCount != null ? fmtInt(n.txCount) + ' on chain, not all loaded' : 'not fully loaded' })]));
+    }
     var sortSel = el('select', { 'aria-label': 'Order' }, [el('option', { value: 'big', text: 'Largest first' }), el('option', { value: 'small', text: 'Smallest first' }), el('option', { value: 'new', text: 'Newest first' }), el('option', { value: 'old', text: 'Oldest first' }), el('option', { value: 'known', text: 'Known or labelled first' })]);
     sortSel.value = state.chooseSort;                                                  // the order you used last time
     var minIn = el('input', { type: 'text', inputmode: 'decimal', placeholder: '0', size: '6', 'aria-label': 'Smallest amount, in BTC' });
@@ -697,7 +763,7 @@
     var unspentChk = el('input', { type: 'checkbox', 'aria-label': 'Unspent only' });
     m.appendChild(el('div', { 'class': 'choosertools' }, [el('div', { 'class': 'toolrow' }, [sortSel, el('label', {}, ['at least ', minIn, ' BTC'])]), el('div', { 'class': 'toolrow' }, [el('label', {}, ['from ', fromIn]), el('label', {}, ['to ', toIn]), info]),
       el('div', { 'class': 'toolrow' }, [el('label', {}, ['show ', knownSel]), el('label', { 'class': 'unspentopt', title: 'Only where the output between the two is still unspent' }, [unspentChk, ' unspent only'])]),
-      grp ? null : el('div', { 'class': 'toolrow' }, [el('label', { title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts' }, [groupChk, ' Group similar rows'])])]));
+      grp ? null : el('div', { 'class': 'toolrow' }, [el('label', { title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts, or the same month, week, day or year' }, [groupChk, ' Group similar rows']), groupBySelect(render)])]));
     var list = el('div', { 'class': 'chooser' }), openG = new Set(), heads = [], grp0 = grp;                         // grp0: inside a group's own list nothing is folded again
     var items = rows.map(function (r) {
       var t = stepRowText(r), parties = n.type === 'addr' && r.type === 'tx' ? partiesOf(r.id, dir === 'next' ? 'out' : 'in', id) : null;
@@ -754,14 +820,14 @@
       var st = grp.stats, open = openG.has(grp.key), vis = grp.members.filter(function (x) { return x.item.ok; });
       var wrap = el('div', { 'class': 'choosergroup' });
       grp.members.forEach(function (x) { x.item.row.hidden = !x.item.ok; });
-      var what = grp.kind === 'party' ? plural(st.count, noun) + (grp.dir === 'in' ? ' from ' : ' to ') + focusLabel(grp.party) : plural(st.count, 'small ' + noun) + ' (each under ' + S.fmtBtc(state.dustSats) + ' BTC)';
+      var what = groupWhat(grp, noun, st);
       var range = dateRange(st.first, st.last, ' → ');
       var sub = [range, S.fmtBtc(st.min) + ' to ' + S.fmtBtc(st.max) + ' BTC each', vis.length < st.count ? vis.length + ' of ' + st.count + ' match' : ''].filter(Boolean).join(' · ');
       var hcb = el('input', { type: 'checkbox', 'aria-label': 'Tick all: ' + what });
       heads.push({ g: grp, cb: hcb });
       hcb.addEventListener('change', function () { vis.forEach(function (x) { x.item.cb.checked = hcb.checked; }); ticks(); });
       var asOne = grp0 ? null : el('button', { type: 'button', 'class': 'groupone', text: '◼ as one', title: 'Show these ' + vis.length + ' as ONE vertex on the trace (one click shows them one by one later)',
-                                               onclick: function () { var ids = vis.map(function (x) { return x.item.r.id; }); closeCtx(); traceMakeGroup(id, dir, ids, { kind: grp.kind, party: grp.party }); } });
+                                               onclick: function () { var ids = vis.map(function (x) { return x.item.r.id; }); closeCtx(); traceMakeGroup(id, dir, ids, { kind: grp.kind, party: grp.party, bucket: grp.bucket }); } });
       var fold = el('button', { type: 'button', 'class': 'groupfold', 'aria-expanded': String(open), text: open ? '▾' : '▸', title: open ? 'Fold them' : 'List them one by one',
                                 onclick: function () { if (openG.has(grp.key)) openG.delete(grp.key); else openG.add(grp.key); render(); } });
       wrap.appendChild(el('div', { 'class': 'chooserrow grouphead' }, [hcb, el('span', { 'class': 'what' }, [what, el('small', { text: sub })]),
@@ -777,7 +843,7 @@
       order.forEach(function (it) { it.ok = matches(it); if (!it.ok) it.cb.checked = false; else ok++; });
       list.textContent = ''; heads = [];
       var flat = order.map(function (it) { return it.g; });
-      var lay = state.groupRows && !grp ? GR.layout(flat, GR.make(flat, { minSize: 3, dustSats: state.dustSats })) : flat.map(function (x) { return { type: 'row', row: x }; });          // inside a group's own list nothing is folded again
+      var lay = state.groupRows && !grp ? GR.layout(flat, GR.make(flat, { minSize: 3, dustSats: state.dustSats, by: state.groupBy })) : flat.map(function (x) { return { type: 'row', row: x }; });          // inside a group's own list nothing is folded again
       lay.forEach(function (x) {
         if (x.type === 'row') { x.row.item.row.hidden = !x.row.item.ok; list.appendChild(x.row.item.row); }
         else list.appendChild(groupBlock(x.group));
@@ -812,9 +878,30 @@
   // ---- groups: several hidden neighbours shown as ONE vertex on the trace -----------------------------
   // A group is a view device: it lives in the trace (and the saved session), is drawn on the canvas, and is never written into the graph,
   // so the exports, the analysis and the report's evidence see only what is on the chain. Its members stay hidden until you show them.
-  function groupSpecClone(g) { return { id: g.id, anchor: g.anchor, dir: g.dir, kind: g.kind, party: g.party || null, members: g.members.slice() }; }
+  function groupSpecClone(g) {
+    var c = { id: g.id, anchor: g.anchor, dir: g.dir, kind: g.kind, party: g.party || null, members: g.members.slice() };
+    ['bucket', 'label', 'note', 'tag', 'color', 'shape'].forEach(function (k) { if (g[k]) c[k] = g[k]; });           // its period and what you wrote on it stay with it (Undo, Hide)
+    return c;
+  }
 
   /** The members of a group as rows { id, type, amount, time, unspent }, largest first (members that are no longer neighbours of the anchor are left out). */
+  /** The "group by" choice as a small select (the same one in the wallet's list, the list behind an arrow and Expansion limits). */
+  function groupBySelect(onChange) {
+    var s = el('select', { 'aria-label': 'Group rows by', title: 'How rows that look alike are folded together' }, [
+      el('option', { value: 'party', text: 'by wallet and small amounts' }), el('option', { value: 'month', text: 'by month' }), el('option', { value: 'week', text: 'by week' }),
+      el('option', { value: 'day', text: 'by day' }), el('option', { value: 'year', text: 'by year' })]);
+    s.value = state.groupBy;
+    s.addEventListener('change', function () { state.groupBy = cleanGroupBy(s.value); $('groupBy').value = state.groupBy; savePrefs(); onChange(); });
+    return s;
+  }
+  function cleanGroupBy(v) { return v === 'party' || GR.BUCKETS.indexOf(v) >= 0 ? v : 'party'; }
+  /** What a group of rows is called: "6 transactions to bc1q…", "12 small transactions (each under …)", "9 transactions in Apr 2022". */
+  function groupWhat(g, noun, st) {
+    if (g.kind === 'time') return plural(st.count, noun) + ' in ' + GR.bucketLabel(g.bucket) + (g.dir === 'in' ? ' (in)' : g.dir === 'out' ? ' (out)' : '');
+    if (g.kind === 'party') return plural(st.count, noun) + (g.dir === 'in' ? ' from ' : ' to ') + focusLabel(g.party);
+    return plural(st.count, 'small ' + noun) + ' (each under ' + S.fmtBtc(state.dustSats) + ' BTC)';
+  }
+
   function groupRows(grp) {
     var nb = TR.neighbours(state.graph, grp.anchor, grp.dir), rows = [];
     grp.members.forEach(function (id) { var r = nb.get(id); if (r) rows.push(r); });
@@ -824,6 +911,7 @@
   function groupText(grp, anchorType, count) {
     var noun = anchorType === 'addr' ? plural(count, 'transaction') : grp.dir === 'next' ? plural(count, 'output') : plural(count, 'input');
     if (grp.kind === 'party' && grp.party) return noun + (grp.dir === 'prev' ? ' from ' : ' to ') + focusLabel(grp.party);
+    if (grp.kind === 'time' && grp.bucket) return noun + ' in ' + GR.bucketLabel(grp.bucket);
     return noun + (grp.kind === 'small' ? ' (small)' : '');
   }
   /** The vertex and the edge that stand for a group on the canvas; null when its anchor is gone or none of its members is left. */
@@ -832,6 +920,7 @@
     var rows = groupRows(grp); if (!rows.length) return null;
     var v = GR.vertex(grp, a.type, rows);
     v.node.groupText = groupText(grp, a.type, rows.length);
+    ['label', 'note', 'tag', 'color', 'shape'].forEach(function (k) { if (grp[k]) v.node[k] = grp[k]; });
     return v;
   }
   /** The graph as the canvas draws it: the real one, plus a vertex and an edge for each group in the trace. The real graph is not touched. */
@@ -862,12 +951,14 @@
       if (grp.members.length < 2) traceDropGroup(gid);
     });
   }
+  var unfoldLog = null;                                                          // while a step that shows vertices is made: the groups they left, as they were, so Undo can fold them back
   /** A vertex that is about to be shown for real leaves any group it was folded into. */
   function traceUnfold(id) {
     var T = state.trace;
     Array.from(T.groups.keys()).forEach(function (gid) {
       var grp = T.groups.get(gid), i = grp.members.indexOf(id);
       if (i < 0) return;
+      if (unfoldLog && !unfoldLog.some(function (u) { return u.before.id === gid; })) { var gp = T.pos.get(gid); unfoldLog.push({ before: groupSpecClone(grp), pos: gp ? { x: gp.x, y: gp.y } : null, prov: T.prov.get(gid) || null }); }
       grp.members.splice(i, 1);
       if (grp.members.length < 2) traceDropGroup(gid);
     });
@@ -885,7 +976,9 @@
     ids.forEach(function (id) { if (nb.has(id) && !T.shown.has(id) && !taken.has(id) && members.indexOf(id) < 0) members.push(id); });
     if (members.length < 2) { toast('A group needs at least two vertices that are not shown yet.'); return null; }
     var id = 'grp:' + (++T.seq);
-    T.groups.set(id, { id: id, anchor: anchor, dir: dir, kind: spec.kind === 'party' || spec.kind === 'small' ? spec.kind : 'picked', party: spec.party || null, members: members });
+    var made = { id: id, anchor: anchor, dir: dir, kind: spec.kind === 'party' || spec.kind === 'small' || (spec.kind === 'time' && GR.isBucketKey(spec.bucket)) ? spec.kind : 'picked', party: spec.party || null, members: members };
+    if (made.kind === 'time') made.bucket = spec.bucket;
+    T.groups.set(id, made);
     TR.place(T.pos, anchor, dir, { primary: [{ id: id }], secondary: [] }).forEach(function (v, k) { T.pos.set(k, v); });
     T.prov.set(id, { via: anchor, dir: dir });
     traceRecord({ type: 'group', id: id });
@@ -967,6 +1060,15 @@
     var T = state.trace, last = T.undo.pop();
     if (!last) return false;
     var back = [], fit = false, ok = true, direct = false;
+    /** The groups a step had taken vertices out of, as they were before it (only where their anchor is still on the trace). */
+    function refold(list) {
+      (list || []).forEach(function (u) {
+        var S0 = state.trace; if (!S0.shown.has(u.before.anchor)) return;
+        S0.groups.set(u.before.id, groupSpecClone(u.before));
+        if (u.pos) S0.pos.set(u.before.id, u.pos); if (u.prov) S0.prov.set(u.before.id, u.prov);
+        back.push(u.before.id);
+      });
+    }
     if (last.type === 'restart') {                                                 // the trace as it was before "Reset to start" / "Start over", with its own steps
       var keepUndo = last.snap.undo;
       if (loadTraceData(last.snap.data)) { state.trace.undo = keepUndo; T = state.trace; traceSanitize(); T = state.trace; back = Array.from(T.shown); fit = true; }
@@ -994,12 +1096,12 @@
       });
     } else if (last.type === 'seed') {
       T.seeds = T.seeds.filter(function (s) { return s !== last.id; });
-      if (last.added) traceDrop(last.id);
+      if (last.added) { traceDrop(last.id); refold(last.unfolded); }
     } else if (last.type === 'layout') {                                           // a Re-layout: every vertex goes back to where it was
       if (last.pos) { last.pos.forEach(function (a) { if (T.shown.has(a[0]) || T.groups.has(a[0])) T.pos.set(a[0], { x: a[1], y: a[2] }); }); fit = true; }
       else if (last.arr === state.arrange) { posSnapRestore(last.snap); direct = true; }
       else { toast('That Re-layout was in another arrangement: nothing to take back here.'); ok = false; }
-    } else last.ids.forEach(traceDrop);
+    } else { last.ids.forEach(traceDrop); refold(last.unfolded); }
     if (!T.seeds.length && T.shown.size) T.seeds = [Array.from(T.shown)[0]];
     syncSeed(); syncSelection();
     if (direct) { refresh({}); updateTraceUi(); } else traceChanged(back, fit);
@@ -1114,7 +1216,9 @@
     T.prov.forEach(function (p, id) { if (T.shown.has(id)) prov[id] = [p.via, p.dir]; });
     var out = { seed: T.seed, seeds: T.seeds.slice(), shown: Array.from(T.shown), pos: pos, prov: prov };
     if (T.groups.size) {                                                           // groups are saved by what they stand for; their vertex and edge are rebuilt from the graph
-      out.groups = Array.from(T.groups.values()).map(function (g) { var p = T.pos.get(g.id); return { id: g.id, anchor: g.anchor, dir: g.dir, kind: g.kind, party: g.party, members: g.members.slice(), pos: p ? [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] : null }; });
+      out.groups = Array.from(T.groups.values()).map(function (g) { var p = T.pos.get(g.id); var o = { id: g.id, anchor: g.anchor, dir: g.dir, kind: g.kind, party: g.party, members: g.members.slice(), pos: p ? [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] : null };
+        ['bucket', 'label', 'note', 'tag', 'color', 'shape'].forEach(function (k) { if (g[k]) o[k] = g[k]; });
+        return o; });
       out.seq = T.seq;
     }
     return out;
@@ -1141,8 +1245,13 @@
       if (!anchor || !shown.has(anchor) || (x.dir !== 'next' && x.dir !== 'prev') || !Array.isArray(x.members)) return;
       var members = x.members.slice(0, 5000).filter(function (m) { return typeof m === 'string' && NV.isId(m); }).map(canonicalId);
       if (members.length < 2) return;
-      T.groups.set(x.id, { id: x.id, anchor: anchor, dir: x.dir, kind: x.kind === 'party' || x.kind === 'small' ? x.kind : 'picked',
-                           party: typeof x.party === 'string' && NV.isId(x.party) ? canonicalId(x.party) : null, members: members });
+      var spec = { id: x.id, anchor: anchor, dir: x.dir, kind: x.kind === 'party' || x.kind === 'small' || (x.kind === 'time' && GR.isBucketKey(x.bucket)) ? x.kind : 'picked',
+                   party: typeof x.party === 'string' && NV.isId(x.party) ? canonicalId(x.party) : null, members: members };
+      var lab = typeof x.label === 'string' ? LB.cleanText(x.label, 120) : '', nt = typeof x.note === 'string' ? x.note.slice(0, 4000) : '';
+      if (spec.kind === 'time') spec.bucket = x.bucket;
+      if (lab) spec.label = lab; if (nt) spec.note = nt;
+      ['tag', 'color', 'shape'].forEach(function (k) { if (typeof x[k] === 'string') spec[k] = x[k]; }); TG.sanitize(spec);                    // only valid tags, colours and shapes ever reach a canvas
+      T.groups.set(x.id, spec);
       var gp = Array.isArray(x.pos) && x.pos.length === 2 && isFinite(x.pos[0]) && isFinite(x.pos[1]) && Math.abs(x.pos[0]) < 1e6 && Math.abs(x.pos[1]) < 1e6 ? { x: x.pos[0], y: x.pos[1] } : null, ap = pos.get(anchor) || { x: 0, y: 0 };
       T.pos.set(x.id, gp || { x: ap.x + (x.dir === 'next' ? 200 : -200), y: ap.y });
       T.prov.set(x.id, { via: anchor, dir: x.dir });
@@ -1272,20 +1381,26 @@
     }
   }
 
+  /** More of a wallet's history (the next pages after what is loaded). Resolves when it is done; the details panel is drawn again. */
+  function loadMoreHistory(id) {
+    var n = state.graph.nodes.get(id);
+    if (!n || n.type !== 'addr') return Promise.resolve(null);
+    var more = n.histNext;
+    return run((more ? 'More history of ' : 'History of ') + S.shortId(n.address, 8), function () {
+      return state.explorer.expandAddress(n.address, { pages: state.capPages, cap: state.capPages * 25, after: more || undefined }).then(function (r) {
+        var node = state.graph.nodes.get(id);
+        if (node) { node.histNext = r.last || null; node.histDone = !r.last && !r.truncated && !(r.errors && r.errors.length); }
+        return r;
+      });
+    }).then(function (r) { showInspector(); return r; });
+  }
   function expandNode(id, direction) {
     var n = state.graph.nodes.get(id); if (!n) return;
     if (n.type === 'tx') {
       var dirLabel = direction === 'forward' ? 'spenders' : direction === 'backward' ? 'funding transactions' : 'both directions';
       run('Expand ' + S.shortId(n.txid, 6) + ' (' + dirLabel + ')', function () { return state.explorer.expandTx(n.txid, direction || 'both', state.capTx); });
     } else if (n.type === 'addr') {
-      var more = n.histNext;
-      run((more ? 'More history of ' : 'History of ') + S.shortId(n.address, 8), function () {
-        return state.explorer.expandAddress(n.address, { pages: state.capPages, cap: state.capPages * 25, after: more || undefined }).then(function (r) {
-          var node = state.graph.nodes.get(id);
-          if (node) { node.histNext = r.last || null; node.histDone = !r.last && !r.truncated && !(r.errors && r.errors.length); }
-          return r;
-        });
-      }).then(function () { showInspector(); });
+      loadMoreHistory(id);
     } else {
       toast('Nothing to expand here: this is a ' + (n.type === 'coinbase' ? 'coinbase (newly created coins)' : n.type === 'data' ? 'OP_RETURN data output' : 'non-standard output') + '.');
     }
@@ -1704,31 +1819,11 @@
    * The price to use for something that happened at `time` (unix seconds; null = not confirmed yet), following the
    * chosen basis. Returns {price, label, approx, note} or null when the prices are not loaded (yet).
    */
-  function fiatRate(time) {
-    var f = state.fiat;
-    if (f.currency === 'off') return null;
-    var basis = f.basis, t = time;
-    if (basis === 'ref') { if (f.ref) t = f.ref.time; else basis = 'today'; }
-    if (basis === 'today' || t == null) {
-      var td = todayRate(); if (!td) return null;
-      var when = td.time ? S.fmtTime(td.time, false) : 'today';
-      return { price: td.price, label: 'today ' + when, approx: false, note: basis === 'today' ? "today's price" : 'not confirmed yet, so today\'s price' };
-    }
-    var book = state.books[f.currency]; if (!book) return null;
-    var r = book.rateAt(t); if (!r) return null;
-    var note = r.derived ? 'USD price converted at today\'s exchange rate (no ' + f.currency + ' data that early)' : r.outside ? 'outside the price history, nearest point used'
-             : r.approx ? 'interpolated between price points ' + r.spanDays.toFixed(1) + ' days apart' : 'hourly/daily data';
-    return { price: r.price, label: S.fmtTime(t, false), approx: r.approx, note: note };
-  }
+  function fiatCtx() { return { books: state.books, today: state.today, fmtTime: S.fmtTime }; }
+  function fiatRate(time) { return PR.rateFor(state.fiat, time, fiatCtx()); }
 
   /** {value, text, title, approx, rate} for `sats` at `time`, or null. */
-  function fiatOf(sats, time) {
-    if (sats == null) return null;
-    var r = fiatRate(time); if (!r) return null;
-    var v = PR.convert(sats, r.price), cur = state.fiat.currency;
-    return { value: v, text: (r.approx ? '≈ ' : '') + PR.format(v, cur), approx: r.approx, rate: r,
-             title: PR.format(r.price, cur) + ' per BTC at ' + r.label + ' (' + r.note + ')' };
-  }
+  function fiatOf(sats, time) { return PR.amountOf(state.fiat, sats, time, fiatCtx()); }
   /** The moment an edge's amount is worth: its transaction's time; for a transaction not loaded yet, when its output was spent. */
   function edgeMoment(e) {
     var t = F.edgeTime(state.graph, e);
@@ -1873,8 +1968,8 @@
   var DEFAULT_SHAPE_OF = { tx: 'square', coinbase: 'diamond', data: 'hexagon' };
 
   /** Tag, colour and shape for one vertex, or for every selected vertex at once. */
-  function tagControls(ids) {
-    var g = state.graph, nodes = ids.map(function (id) { return g.nodes.get(id); }).filter(Boolean), first = nodes[0] || {};
+  function tagControls(ids, getNode) {
+    var g = state.graph, get = getNode || function (id) { return g.nodes.get(id); }, nodes = ids.map(get).filter(Boolean), first = nodes[0] || {};
     var sel = el('select', { id: 'fTag', 'aria-label': 'Tag' });
     sel.appendChild(el('option', { value: '', text: 'No tag' }));
     TG.PRESETS.forEach(function (p) { sel.appendChild(el('option', { value: p.id, text: p.id + ' — ' + p.name })); });
@@ -1891,7 +1986,7 @@
     var swatches = el('div', { 'class': 'swatches', role: 'group', 'aria-label': 'Quick colours' });
 
     function sync() {
-      var n = g.nodes.get(ids[0]) || {};
+      var n = get(ids[0]) || {};
       var c = n.color || (TG.preset(n.tag) || {}).color;
       color.value = c || '#8d7f8d'; shapeSel.value = n.shape || '';
       preview.textContent = SHAPE_GLYPH[n.shape || DEFAULT_SHAPE_OF[n.type] || 'circle'];
@@ -1899,7 +1994,7 @@
       Array.prototype.forEach.call(swatches.children, function (b) { b.setAttribute('aria-pressed', String(!!c && b.getAttribute('data-color') === c)); });
     }
     function apply(fields, keepStyle) {
-      ids.forEach(function (id) { var nd = g.nodes.get(id); if (nd) TG.apply(nd, fields, keepStyle); });
+      ids.forEach(function (id) { var nd = get(id); if (nd) TG.apply(nd, fields, keepStyle); });
       sync(); refresh(); scheduleSave();
     }
     TG.COLORS.forEach(function (c) {
@@ -2218,13 +2313,34 @@
    * Change that came back to the same wallet is netted off, so a payment with change reads as one 'out' for what really left.
    * Row: { id, txid, time, recv, sent, dir, mixed, amount }.
    */
+  /**
+   * Outside the Trace layout: bring transactions onto the graph. What you hid is shown again (Undo hides it again), and the Focus view is
+   * switched off when it is what keeps them out. The selection is left alone. Nothing happens to what a filter or the time bar hides.
+   */
+  function showOnGraph(ids) {
+    ids = ids.filter(function (id) { return state.graph.nodes.has(id); });
+    if (!ids.length || traceOn()) return;
+    var said = [], visible = function () { return renderer.data ? renderer.data.visible.nodes : new Set(); };
+    if (showIds(ids)) said.push('showed what you had hidden');
+    if (ids.some(function (id) { return !visible().has(id); }) && state.focusOn) {
+      state.focusOn = false; $('focusOn').checked = false; afterGraphChange({ fit: false });
+      if (ids.some(function (id) { return visible().has(id); })) { said.push('switched the Focus view off'); savePrefs(); }
+      else { state.focusOn = true; $('focusOn').checked = true; afterGraphChange({ fit: false }); }          // the Focus view was not the reason: leave it as it was
+    }
+    var on = ids.filter(function (id) { return visible().has(id); });
+    if (!on.length) { toast('A filter or the time bar keeps ' + (ids.length === 1 ? 'it' : 'them') + ' off the screen (see Filters and the time range).', true); return; }
+    renderer.ensureVisible(on);
+    var left = ids.length - on.length;
+    toast(plural(on.length, 'transaction') + ' on the graph' + (said.length ? ' (' + said.join(' and ') + ')' : '') + (left ? '; ' + left + ' stay off it because of a filter or the time bar' : '') + '.');
+  }
+
   function walletRows(n) {
     var g = state.graph, byTx = new Map(), rows = [];
     g.edgesOf(n.id).forEach(function (e) {
       var received = e.kind === 'out' && e.target === n.id, spent = e.kind === 'in' && e.source === n.id;
       if (!received && !spent) return;
-      var r = byTx.get(e.txid) || { recv: 0, sent: 0 };
-      if (received) r.recv += e.amount; else r.sent += e.amount;
+      var r = byTx.get(e.txid) || { recv: 0, sent: 0, keep: 0, unsure: false };
+      if (received) { r.recv += e.amount; if (e.spent === false) r.keep += e.amount; else if (e.spent !== true) r.unsure = true; } else r.sent += e.amount;      // keep: what is still unspent here
       byTx.set(e.txid, r);
     });
     byTx.forEach(function (r, txid) {
@@ -2232,7 +2348,8 @@
       var dir = !r.sent ? 'in' : !r.recv ? 'out' : net > 0 ? 'in' : net < 0 ? 'out' : 'self';
       var party = partiesOf(id, dir === 'in' ? 'in' : 'out', n.id);                                          // who is on the other side; null while the transaction is not loaded
       if (mixed && dir === 'out' && party && !party.names.length) dir = 'self';                              // every output came back to the wallet: it only moved money to itself
-      rows.push({ id: id, txid: txid, party: party, parties: party ? party.ids : [], time: t ? t.time : null, pending: !!t && t.confirmed === false, unloaded: !!t && t.loaded === false, recv: r.recv, sent: r.sent, dir: dir, mixed: mixed, amount: dir === 'self' ? r.sent : mixed ? Math.abs(net) : (dir === 'in' ? r.recv : r.sent) });
+      var lv = (party ? party.ids : []).map(knownLevel);
+      rows.push({ id: id, txid: txid, unspent: r.recv ? (r.unsure ? null : r.keep > 0) : false, level: lv.reduce(function (a, b) { return Math.max(a, b); }, 0), service: lv.indexOf(1) >= 0, party: party, parties: party ? party.ids : [], time: t ? t.time : null, pending: !!t && t.confirmed === false, unloaded: !!t && t.loaded === false, recv: r.recv, sent: r.sent, dir: dir, mixed: mixed, amount: dir === 'self' ? r.sent : mixed ? Math.abs(net) : (dir === 'in' ? r.recv : r.sent) });
     });
     return rows;
   }
@@ -2253,7 +2370,28 @@
     function total(list) { return list.reduce(function (t, r) { return t + r.amount; }, 0); }
     function when(r) { return r.pending ? Infinity : r.time == null ? -Infinity : r.time; }                       // unconfirmed is the newest; a transaction not loaded yet has no date: last
     function byTime(a, b) { var ta = when(a), tb = when(b); return ta === tb ? (b.amount - a.amount) : (tb > ta ? 1 : -1); }
-    function onTrace(r) { return !traceOn() || state.trace.shown.has(r.id); }
+    function onTrace(r) { return traceOn() ? state.trace.shown.has(r.id) : !renderer || !renderer.data || renderer.data.visible.nodes.has(r.id); }       // on the trace, or (elsewhere) on the screen
+    function canShow(r) { return !traceOn() && !onTrace(r); }                                                // not on the screen: it can be brought in
+    /** The same choices as the arrow list: which wallets are on the other side, only coins still unspent here, and five orders. */
+    var canUnspent = rows.some(function (r) { return r.recv > 0 && r.unspent !== null; });                       // some payment in has a known spent / unspent state
+    function matches(r) {
+      if (V.who === 'skip' && r.service) return false;
+      if (V.who === 'only' && r.level < 1) return false;
+      if (canUnspent && V.unspent && r.unspent !== true) return false;
+      return true;
+    }
+    function orderFn(k) {
+      function byAmt(a, b) { return b.amount - a.amount || (a.id < b.id ? -1 : 1); }
+      if (k === 'big') return byAmt;
+      if (k === 'small') return function (a, b) { return a.amount - b.amount || (a.id < b.id ? -1 : 1); };
+      if (k === 'known') return function (a, b) { return (b.level - a.level) || byAmt(a, b); };                  // labelled by you, then known, then the rest, each largest first
+      if (k === 'old') return function (a, b) {
+        var ta = a.pending ? Infinity : a.time, tb = b.pending ? Infinity : b.time;
+        if (ta == null || tb == null) return (ta == null ? 1 : 0) - (tb == null ? 1 : 0) || byAmt(a, b);               // a transaction with no date comes last in either order
+        return (ta - tb) || byAmt(a, b);
+      };
+      return byTime;
+    }
     function canPut(r) { return traceOn() && state.trace.shown.has(n.id) && !state.trace.shown.has(r.id); }
     /** Put these transactions on the trace: the ones the wallet spent in come forward, the ones that paid it come from behind. */
     function putOnTrace(list) {
@@ -2268,7 +2406,7 @@
     function putAsGroup(g, list) {
       ['next', 'prev'].forEach(function (d) {
         var m = list.filter(function (r) { return canPut(r) && (r.sent > 0 ? 'next' : 'prev') === d; });
-        if (m.length >= 2) traceMakeGroup(n.id, d, m.map(function (r) { return r.id; }), { kind: g.kind, party: g.party });
+        if (m.length >= 2) traceMakeGroup(n.id, d, m.map(function (r) { return r.id; }), { kind: g.kind, party: g.party, bucket: g.bucket });
         else if (m.length === 1) putOnTrace(m);
       });
     }
@@ -2300,6 +2438,10 @@
         pickActs.appendChild(btn('As one vertex', fresh.length > 1 ? 'Put these on the trace as ONE vertex (it can be opened later)' : 'Needs at least two that are not on the trace yet',
           function () { clearTicks(fresh); putAsGroup({ kind: 'picked', party: null }, fresh); }, fresh.length < 2));
       } else if (!traceOn()) {
+        var off = list.filter(canShow);
+        pickActs.appendChild(btn('Show on graph (' + k + ')', off.length ? plural(off.length, 'of these is', 'of these are') + ' not on screen: ' + (off.length === 1 ? 'it is' : 'they are') + ' brought in (shown again if you hid ' + (off.length === 1 ? 'it' : 'them') + ', or the Focus view is switched off), and the view moves to take them in'
+                                                                  : 'They are all on screen: the view moves to take them in',
+          function () { showOnGraph(list.map(function (r) { return r.id; })); }, false));
         pickActs.appendChild(btn('Select on graph', 'Select these transactions on the graph (the ones that are on screen)', function () { selectIds(list.map(function (r) { return r.id; }), 'the ticked transactions'); }, false));
       }
       pickActs.appendChild(btn('Copy ids', 'One transaction id per line', function () { copy(list.map(function (r) { return r.txid; }).join(NL), plural(k, 'transaction id')); }, false));
@@ -2316,6 +2458,7 @@
       var line = el('button', { type: 'button', 'class': 'linkrow ' + r.dir, title: r.id + (fx ? ' · ' + fx.text : ''), onclick: function () { navigate(r.id); } }, kids);
       var parts = [tickBox([r.id], 'Tick this transaction'), line];
       if (canPut(r)) parts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ show', title: 'Put this transaction on the trace', onclick: function (ev) { ev.stopPropagation(); putOnTrace([r]); } }));
+      else if (canShow(r)) parts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ show', title: 'Bring this transaction onto the graph (shown again if you hid it, or the Focus view is switched off)', onclick: function (ev) { ev.stopPropagation(); showOnGraph([r.id]); } }));
       parts.push(copyBtn(r.txid, 'transaction id'));
       var wrap = el('div', { 'class': 'rowcopy tickable' + (onTrace(r) ? '' : ' off') }, parts);
       wrap.addEventListener('mouseenter', function () { if (renderer) renderer.setHighlight(r.id); });
@@ -2324,8 +2467,7 @@
     }
     function groupEl(g) {
       var st = g.stats, open = V.open.has(g.key), sign = g.dir === 'in' ? '+' : g.dir === 'out' ? '−' : '';
-      var what = g.kind === 'party' ? plural(st.count, 'transaction') + (g.dir === 'in' ? ' from ' : ' to ') + focusLabel(g.party)
-                                    : plural(st.count, 'small transaction') + ' (each under ' + S.fmtBtc(state.dustSats) + ' BTC)';
+      var what = groupWhat(g, 'transaction', st);
       var range = dateRange(st.first, st.last, ' → ');
       var each = S.fmtBtc(st.min) + ' to ' + S.fmtBtc(st.max) + ' BTC each';
       var head = el('button', { type: 'button', 'class': 'linkrow groupbtn ' + g.dir, 'aria-expanded': String(open), title: each + '. Click to ' + (open ? 'fold them' : 'list them'),
@@ -2352,8 +2494,9 @@
     function draw() {
       if (renderer) renderer.setHighlight(null);
       box.textContent = ''; tickers = [];
-      var want = rows.filter(function (r) { return V.dir === 'all' || r.dir === V.dir; });
-      want.sort(V.sort === 'big' ? function (a, b) { return b.amount - a.amount || (a.id < b.id ? -1 : 1); } : byTime);
+      var inDir = rows.filter(function (r) { return V.dir === 'all' || r.dir === V.dir; });
+      var want = inDir.filter(matches);
+      want.sort(orderFn(V.sort));
       wantSet = new Set(want.map(function (r) { return r.id; }));
       box.appendChild(el('span', { 'class': 'lbl', text: 'Transactions (' + rows.length + ')' }));
       box.appendChild(el('div', { 'class': 'walletsum', title: 'Per transaction: what the wallet received minus what it spent in it, so change that came back is netted off' },
@@ -2361,23 +2504,38 @@
       var seg = el('div', { 'class': 'seg walletseg', role: 'radiogroup', 'aria-label': 'Which transactions' }, [['all', 'All ' + rows.length], ['in', '↓ In ' + inRows.length], ['out', '↑ Out ' + outRows.length]].map(function (x) {
         return el('button', { type: 'button', role: 'radio', 'data-dir': x[0], 'aria-checked': String(V.dir === x[0]), text: x[1], onclick: function () { V.dir = x[0]; V.more = 40; draw(); } });
       }));
-      var sortSel = el('select', { 'aria-label': 'Order', title: 'Order' }, [el('option', { value: 'new', text: 'Newest first' }), el('option', { value: 'big', text: 'Largest first' })]);
+      var sortSel = el('select', { 'aria-label': 'Order', title: 'Order' }, [el('option', { value: 'new', text: 'Newest first' }), el('option', { value: 'old', text: 'Oldest first' }), el('option', { value: 'big', text: 'Largest first' }),
+                                                                              el('option', { value: 'small', text: 'Smallest first' }), el('option', { value: 'known', text: 'Known or labelled first' })]);
       sortSel.value = V.sort; sortSel.addEventListener('change', function () { V.sort = sortSel.value; draw(); });
       box.appendChild(el('div', { 'class': 'walletbar' }, [seg, sortSel]));
+      var whoSel = el('select', { 'aria-label': 'Which wallets', title: 'Known = on the built-in list or a label list you loaded (exchanges, services); labelled = a label or tag you gave it. This looks at the wallet on the other side of each transaction.' },
+                      [el('option', { value: 'any', text: 'any wallet' }), el('option', { value: 'skip', text: 'skip known services' }), el('option', { value: 'only', text: 'only known or labelled' })]);
+      whoSel.value = V.who; whoSel.addEventListener('change', function () { V.who = whoSel.value; V.more = 40; draw(); });
+      var unspChk = el('input', { type: 'checkbox', 'aria-label': 'Unspent only' }); unspChk.checked = V.unspent;
+      unspChk.addEventListener('change', function () { V.unspent = unspChk.checked; V.more = 40; draw(); });
+      var unknownSpend = V.unspent ? inDir.filter(function (r) { return r.recv > 0 && r.unspent === null; }).length : 0;                    // loading what spent them (Spenders) tells
+      var cutInfo = want.length < inDir.length ? el('span', { 'class': 'hint', text: want.length + ' of ' + inDir.length + ' listed' + (unknownSpend ? ' · ' + plural(unknownSpend, 'payment') + ' with no spend information left out' : '') }) : null;
+      box.appendChild(el('div', { 'class': 'walletfilters' }, [el('label', {}, ['show ', whoSel]),
+                                                               canUnspent ? el('label', { 'class': 'unspentopt', title: 'Only transactions where this wallet was paid and has not spent that money yet. It is known where the spending transaction is loaded, or where the transactions were opened one by one: a payment with no information is left out.' }, [unspChk, ' unspent only']) : null, cutInfo]));
       var chk = el('input', { type: 'checkbox', 'aria-label': 'Group similar rows' });
       chk.checked = state.groupRows;
       chk.addEventListener('change', function () { state.groupRows = chk.checked; $('groupRows').checked = chk.checked; savePrefs(); draw(); });
-      box.appendChild(el('label', { 'class': 'check walletgroup', title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts (the limit is under Expansion limits)' }, [chk, ' Group similar rows']));
+      box.appendChild(el('div', { 'class': 'walletgroup' }, [el('label', { 'class': 'check', title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts (the limit is under Expansion limits), or the same month, week, day or year' }, [chk, ' Group similar rows']), groupBySelect(draw)]));
       var master = tickBox(want.map(function (r) { return r.id; }), 'Tick every listed transaction (' + want.length + ')');
       pickInfo = el('span', { 'class': 'pickcount' }); pickActs = el('span', { 'class': 'pickacts' });
       bar = el('div', { 'class': 'walletpick' }, [el('label', { title: 'Tick or untick every listed transaction, including the ones inside a group' }, [master, ' all listed']), pickInfo, pickActs]);
       box.appendChild(bar);
-      var items = state.groupRows ? GR.layout(want, GR.make(want, { minSize: 3, dustSats: state.dustSats })) : want.map(function (r) { return { type: 'row', row: r }; });
+      var items = state.groupRows ? GR.layout(want, GR.make(want, { minSize: 3, dustSats: state.dustSats, by: state.groupBy })) : want.map(function (r) { return { type: 'row', row: r }; });
       var list = el('div', { 'class': 'linkrows' });
       items.slice(0, V.more).forEach(function (it) { list.appendChild(it.type === 'row' ? rowEl(it.row) : groupEl(it.group)); });
       if (items.length > V.more) list.appendChild(el('button', { type: 'button', 'class': 'moreRows', text: 'Show ' + Math.min(40, items.length - V.more) + ' more (' + (items.length - V.more) + ' not listed)', onclick: function () { V.more += 40; draw(); } }));
       if (!items.length) list.appendChild(el('div', { 'class': 'hint', text: 'None of these.' }));
       box.appendChild(list);
+      if (n.type === 'addr' && !n.histDone && (n.histNext || n.txCount == null)) {                              // there is more of this wallet's history than is listed
+        box.appendChild(el('div', { 'class': 'moreHistory' }, [
+          el('button', { type: 'button', 'class': 'loadmore', text: 'Load more history', title: 'Fetch the next ' + plural(state.capPages * 25, 'transaction') + ' of this wallet', onclick: function () { loadMoreHistory(n.id); } }),
+          el('span', { 'class': 'hint', text: n.txCount != null ? fmtInt(n.txCount) + ' on chain, ' + plural(rows.length, 'transaction') + ' listed' : 'its history may not be fully loaded' })]));
+      }
       syncTicks();
     }
     draw();
@@ -2419,12 +2577,32 @@
   }
 
   /** The details of a selected group vertex: what it stands for, and how to show some or all of it. */
+  /** Your label, tag, colour and notes for a group vertex: kept with the group in the trace (and the saved session), never written into the graph. */
+  function groupAnnotateBox(gid) {
+    var T = state.trace;
+    function spec() { return T.groups.get(gid); }
+    var lab = el('input', { type: 'text', id: 'fLabel', maxlength: '120', placeholder: 'Your label (shown on the graph)' });
+    var note = el('textarea', { id: 'fNote', maxlength: '4000', placeholder: 'Notes' });
+    lab.value = spec().label || ''; note.value = spec().note || '';
+    function apply() {
+      var g = spec(); if (!g) return;
+      var l = LB.cleanText(lab.value, 120), nt = String(note.value).slice(0, 4000);
+      if (l) g.label = l; else delete g.label;
+      if (nt) g.note = nt; else delete g.note;
+      refresh(); scheduleSave();
+    }
+    lab.addEventListener('input', apply); note.addEventListener('input', apply);
+    return el('div', { 'class': 'insp-section' }, [el('label', { 'for': 'fLabel', 'class': 'lbl', text: 'Label' }), lab, tagControls([gid], function (id) { return T.groups.get(id); }),
+                                                  el('label', { 'for': 'fNote', 'class': 'lbl', text: 'Notes' }), note]);
+  }
+
   function showGroup(gid, box) {
     var T = state.trace, grp = T.groups.get(gid), gn = groupNodeOf(gid), g = state.graph;
     if (!grp || !gn) { $('inspector').hidden = true; return; }
     var anchor = g.nodes.get(grp.anchor), rows = groupRows(grp), st = GR.stats(rows), N = state.stepSize;
     var noun = anchor.type === 'addr' ? 'transaction' : grp.dir === 'next' ? 'output' : 'input';
     box.appendChild(el('h3', {}, [el('span', { 'class': 'kind', text: 'Group' }), el('span', { text: gn.groupText })]));
+    box.appendChild(groupAnnotateBox(gid));
     var dl = el('dl', { 'class': 'kv' });
     kv(dl, 'Stands for', plural(st.count, noun) + ', not shown yet');
     kv(dl, 'Total', S.fmtBtc(st.total) + ' BTC');
@@ -2432,6 +2610,7 @@
     kv(dl, 'Dates', dateRange(st.first, st.last));
     kv(dl, grp.dir === 'next' ? (anchor.type === 'addr' ? 'Spent from' : 'Outputs of') : (anchor.type === 'addr' ? 'Paid' : 'Inputs of'), focusLabel(grp.anchor));
     if (grp.kind === 'party' && grp.party) kv(dl, grp.dir === 'prev' ? 'Paid by' : 'Paid to', focusLabel(grp.party));
+    if (grp.kind === 'time' && grp.bucket) kv(dl, 'Period', GR.bucketLabel(grp.bucket) + ' (UTC)');
     box.appendChild(dl);
     var acts = [];
     if (rows.length > N) acts.push(el('button', { type: 'button', text: 'Show the largest ' + N, title: 'Put the largest ' + N + ' on the trace; the rest stay in the group', onclick: function () { traceExpandGroup(gid, { limit: N }); } }));
@@ -2521,9 +2700,21 @@
         var tags = el('div', {}, [el('span', { 'class': 'tag known', text: 'known: ' + known.label + (known.pack ? ' (' + known.pack + ')' : '') })]);
         if (known.category) tags.appendChild(el('span', { 'class': 'tag', text: known.category }));
         (known.alt || []).forEach(function (a) { tags.appendChild(el('span', { 'class': 'tag', text: 'also listed as: ' + a })); });
+        if (known.sanctions) tags.appendChild(el('span', { 'class': 'tag danger', text: 'on a sanctions list: ' + LB.claimsOf(known).filter(function (c) { return c.sanctions; }).map(function (c) { return c.pack; }).join(', ') }));
         if (known.note) tags.appendChild(el('p', { 'class': 'hint', text: known.note }));
         if (known.url && LB.cleanUrl(known.url)) tags.appendChild(el('a', { href: known.url, target: '_blank', rel: 'noopener noreferrer', text: 'source ↗' }));
         box.appendChild(tags);
+        var claims = LB.claimsOf(known);
+        if (claims.length > 1) {                                                         // a wallet on two lists: every claim, with its own source, category and note
+          var cl = el('div', { 'class': 'insp-section claims' }, [el('span', { 'class': 'lbl', text: 'Listed by ' + claims.length + ' sources' })]);
+          claims.forEach(function (c) {
+            var row = el('p', { 'class': 'hint' }, [el('b', { text: c.label }), ' · ' + (c.pack || 'built-in list') + (c.category ? ' · ' + c.category : '') + (c.sanctions ? ' · sanctions list' : '')]);
+            if (c.note) row.appendChild(el('span', { 'class': 'claimnote', text: ' ' + c.note }));
+            if (c.url && LB.cleanUrl(c.url)) { row.appendChild(document.createTextNode(' ')); row.appendChild(el('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', text: 'source ↗' })); }
+            cl.appendChild(row);
+          });
+          box.appendChild(cl);
+        }
       }
       kv(dl, 'Script type', n.scriptType);
       kvf(dl, 'Received here', S.fmtBtc(n.received) + ' BTC (in this graph)', fiatSum(n, true));
@@ -2658,7 +2849,7 @@
         if (n.loaded) { line('Value', mixText(S.fmtBtc(n.valueOut) + ' BTC', fiatOf(n.valueOut, n.time)) + ' · ' + n.nIn + ' in / ' + n.nOut + ' out'); } else line('', 'Not loaded: double-click to load');
         var ar = n.loaded ? analysis().tx.get(n.id) : null;
         if (ar && ar.flags.length) line('Pattern', ar.flags.map(function (f) { return f.short; }).join(', '));
-        if (ar && ar.change && AN.rank(ar.change.confidence) >= 2) line('Likely change', 'output ' + ar.change.vout + ' (' + ar.change.confidence + ' confidence)');
+        if (ar && ar.change && AN.rank(ar.change.confidence) >= 2) line(AN.changeTitle(ar.change.confidence), 'output ' + ar.change.vout + ' (' + ar.change.confidence + ' confidence)');
       } else if (n.type === 'addr') {
         line('Address', S.shortId(n.address, 12)); if (KNOWN[n.address]) line('Known', KNOWN[n.address].label);
         line('Type', n.scriptType); line('Received', mixText(S.fmtBtc(n.received) + ' BTC', fiatSum(n, true))); line('First seen', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
@@ -2691,7 +2882,7 @@
     state.knownVersion++;
   }
   function savePacks() {
-    var text = JSON.stringify(state.packs.map(function (p) { return { id: p.id, name: p.name, source: p.source, enabled: p.enabled, entries: p.entries.map(function (e) { return [e.address, e.label, e.category, e.url, e.note]; }) }; }));
+    var text = JSON.stringify(state.packs.map(function (p) { return { id: p.id, name: p.name, source: p.source, enabled: p.enabled, sanctions: p.sanctions === true ? true : undefined, entries: p.entries.map(function (e) { return [e.address, e.label, e.category, e.url, e.note]; }) }; }));
     state.packs.forEach(function (p) { p.stored = true; });
     if (text.length > PACK_STORE_LIMIT || !store.set(PACKS_KEY, text)) {
       store.del(PACKS_KEY); state.packs.forEach(function (p) { p.stored = false; });
@@ -2716,7 +2907,7 @@
       cb.addEventListener('change', function () { p.enabled = cb.checked; rebuildKnown(); savePacks(); refresh(); showInspector(true); renderPacks(); });
       var hits = packMatches(p);
       box.appendChild(el('div', { 'class': 'packrow' }, [cb,
-        el('span', { 'class': 'packname', title: p.source || p.name }, [p.name, el('small', { text: fmtInt(p.entries.length) + ' wallets' + (hits ? ' · ' + hits + ' on screen or loaded' : '') + (p.stored === false ? ' · not kept in this browser' : '') })]),
+        el('span', { 'class': 'packname', title: p.source || p.name }, [p.name, el('small', { text: fmtInt(p.entries.length) + ' wallets' + (p.sanctions ? ' · sanctions list' : '') + (hits ? ' · ' + hits + ' on screen or loaded' : '') + (p.stored === false ? ' · not kept in this browser' : '') })]),
         el('button', { type: 'button', title: 'Remove this pack', 'aria-label': 'Remove ' + p.name, onclick: function () { removePack(p.id); } , text: '×' })]));
     });
     $('packHint').textContent = state.packs.length ? '' : 'No packs imported yet.';
@@ -2730,7 +2921,7 @@
     try { r = LB.parse(text, String(filename || 'Imported labels').replace(/\.(csv|json|txt)$/i, '')); } catch (e) { toast('Import failed: ' + e.message, true); return; }
     var replaced = state.packs.filter(function (p) { return p.name === r.name; }).length;
     state.packs = state.packs.filter(function (p) { return p.name !== r.name; }).slice(0, 19);
-    var pack = { id: 'p' + Date.now().toString(36), name: r.name, source: r.source, enabled: true, entries: r.entries, stored: true, index: new Set(r.entries.map(function (e) { return e.address; })) };
+    var pack = { id: 'p' + Date.now().toString(36), name: r.name, source: r.source, enabled: true, sanctions: r.sanctions === true, entries: r.entries, stored: true, index: new Set(r.entries.map(function (e) { return e.address; })) };
     state.packs.push(pack);
     rebuildKnown(); savePacks(); renderPacks(); refresh(); showInspector(true);
     var s = r.skipped, left = [];
@@ -2958,7 +3149,7 @@
              model: typeof a.model === 'string' ? a.model.replace(/[^\w.:\/@+\-]/g, '').slice(0, 100) : '', rows: num(a.rows, 5, 400, 60) };
   }
   var ai = { busy: null, focus: null };                                                  // busy: the controller of a question in flight
-  function assistKnown(a) { var k = KNOWN[a]; return k ? { label: k.label, category: k.category, source: k.pack || k.source || 'built-in list' } : null; }
+  function assistKnown(a) { var k = KNOWN[a]; return k ? { label: k.label, category: k.category, source: k.pack || k.source || 'built-in list', sanctions: k.sanctions === true, alsoListedAs: k.alt || [] } : null; }
   function assistSummary() { return AS.summary(state.graph, analysis(), { generated: new Date().toISOString(), title: LB.cleanText($('reportTitle').value, 120), known: assistKnown }); }
 
   /** The prompt for the chosen task, or null (with a message) when it cannot be made. */
@@ -3137,13 +3328,13 @@
       parts.push(s);
     }
     if (ch) {
-      var s2 = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Likely change' })]);
+      var s2 = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: AN.changeTitle(ch.confidence) })]);
       s2.appendChild(el('p', { 'class': 'hint' }, [el('b', { text: 'Output ' + ch.vout + (ch.address ? ' → ' + S.shortId(ch.address, 8) : '') }), ' · ' + amountText(ch.amount, n.time) + ' · ' + ch.confidence + ' confidence']));
       var ul = el('ul', { 'class': 'reasons' }); ch.reasons.forEach(function (x) { ul.appendChild(el('li', { text: x })); }); s2.appendChild(ul);
       s2.appendChild(el('div', { 'class': 'insp-actions' }, [
         el('button', { type: 'button', text: 'Select that output', onclick: function () { selectIds([ch.id], 'outputs'); } }),
         el('button', { type: 'button', text: 'Follow the change ▶▶', title: 'Auto-expand forward along this output only', onclick: function () { autoExpand(n.id, { dir: 'next', follow: 'change' }); } })]));
-      s2.appendChild(el('p', { 'class': 'hint', text: 'A guess from the evidence above, not a certainty.' }));
+      s2.appendChild(el('p', { 'class': 'hint', text: AN.changeCaution(ch) }));
       parts.push(s2);
     } else if (v && v.complete && !v.coinbase && AN.payOuts(v).length >= 2) {
       parts.push(el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Likely change' }), el('p', { 'class': 'hint', text: 'None named: the evidence does not single out one output.' })]));
@@ -3238,6 +3429,7 @@
   /** In the Trace layout: show what the walk loaded, placed in columns beside the vertex it came from. Returns the ids shown. */
   function traceRevealWalk(startId, dir, w, steps) {
     var g = state.graph, T = state.trace, revealed = [], loadedAt = new Set();
+    unfoldLog = [];
     w.levels.forEach(function (l) { l.forEach(function (t) { loadedAt.add(t); }); });
     function put(parentId, ids) {
       var fresh = []; ids.forEach(function (id) { if (g.nodes.has(id) && !T.shown.has(id) && fresh.indexOf(id) < 0) fresh.push(id); });
@@ -3252,6 +3444,7 @@
       put(tx, st.res.items.map(function (it) { return it.id; }));
       st.res.items.forEach(function (it) { if (it.followed && it.spender && loadedAt.has(it.spender)) put(it.id, [ID.tx(it.spender)]); });
     });
+    revealed.unfolded = unfoldLog; unfoldLog = null;
     return revealed;
   }
 
@@ -3323,7 +3516,7 @@
       var steps = walkSteps(walk, dir, sopts), msg = autoMessage(walk, steps, dir, o), shownNow = 0;
       if (traceOn()) {
         var T = state.trace, rev = traceRevealWalk(id, dir, walk, steps);
-        if (rev.length) { traceRecord({ type: 'reveal', ids: rev.slice() }); traceChanged(rev, false); shownNow = rev.length; msg += ' ' + plural(rev.length, 'vertex', 'vertices') + ' shown (Ctrl+Z takes them back).'; }
+        if (rev.length) { traceRecord({ type: 'reveal', ids: rev.slice(), unfolded: rev.unfolded }); traceChanged(rev, false); shownNow = rev.length; msg += ' ' + plural(rev.length, 'vertex', 'vertices') + ' shown (Ctrl+Z takes them back).'; }
       } else if (state.focusOn && walk.loadedNew) {
         state.focusOn = false; $('focusOn').checked = false; savePrefs(); afterGraphChange({ fit: true });                // a focus view shows at most 3 steps: show the whole path
         msg += ' The Focus view was switched off so the whole path shows.';
@@ -3353,7 +3546,7 @@
     renderer.fitPad = traceOn() ? 120 : 60;                                  // a trace needs room for the expand handles beside the outer vertices
     renderer.insets.bottom = state.focus && g.nodes.has(state.focus) && !traceOn() ? Math.max(84, $('stepbar').offsetHeight + 22) : 0;       // keep the graph clear of the step bar
     analysis();                                                              // the canvas hooks below read the cached result
-    applyChain();
+    applyChain(); redoStillValid();
     var structural = scope();
     var style = S.makeStyle(g, structural, { colorBy: state.colorBy, sizeBy: effectiveSizeBy() });
     function radiusOf(id) { var nd = g.nodes.get(id); return nd ? style.nodeRadius(nd) : 0; }       // how big a shape is drawn: the force layout leaves room for it
@@ -3422,8 +3615,9 @@
     } else lg.items.forEach(function (i) { box.appendChild(legendItem(i.color, i.label)); });
     box.appendChild(el('div', { 'class': 'item', text: 'Edge width = amount · dashed = unspent output' }));
     box.appendChild(el('div', { 'class': 'item', text: effectiveSizeBy() === 'area' ? 'Shape size = value (area proportional to the amount)' : 'Shape size = value (compact scale: sizes differ little)' }));
-    if (state.analysis.change && state.an && state.an.changeEdges.size) box.appendChild(legendItem(AN.COLORS.change, 'amber edge = likely change (a guess)'));
-    var tags = TG.summarise(Array.from(state.graph.nodes.values()));
+    if (state.analysis.change && state.an && state.an.changeEdges.size) box.appendChild(legendItem(AN.COLORS.change, 'amber edge = possible or likely change (a guess)'));
+    if (traceOn() && state.trace.groups.size) box.appendChild(el('div', { 'class': 'item groupitem' }, [el('span', { 'class': 'tagsw', text: '▤' }), el('span', { text: 'Stack = several vertices folded into one group (click it to open them)' })]));
+    var tags = TG.summarise(Array.from(state.graph.nodes.values()).concat(traceOn() ? Array.from(state.trace.groups.values()) : []));
     if (tags.length) {
       box.appendChild(el('div', { 'class': 'item', style: 'margin-top:6px;color:var(--text)', text: 'Tags (click to select them)' }));
       tags.forEach(function (t) {
@@ -3436,6 +3630,7 @@
   }
   function selectTag(tag) {
     var ids = Array.from(state.graph.nodes.values()).filter(function (n) { return n.tag === tag; }).map(function (n) { return n.id; });
+    if (traceOn()) state.trace.groups.forEach(function (gr, gid) { if (gr.tag === tag) ids.push(gid); });
     state.selected = new Set(ids); state.selectedEdge = null; syncSelection();
     toast(ids.length + ' vertices tagged ' + tag + ' selected.');
   }
@@ -3510,6 +3705,48 @@
     var a = on ? Number($('tFrom').value) / 10 : 0, z = on ? Number($('tTo').value) / 10 : 100;
     var fill = $('dualFill'); fill.style.left = a + '%'; fill.style.width = Math.max(0, z - a) + '%';
   }
+  // ---- a range for the arrows alone --------------------------------------------------------------
+  // In the Trace layout, dragging across the time line chooses the stretch of time the arrows (and their lists) reach. It hides nothing:
+  // the time bar's own window is the one that filters. A click without a drag still selects the transactions under it.
+  var tbDrag = null;                                                                       // { x0, x1, moved } while the pointer is down on the time line
+  function timeFromX(x, w) { var b = state.tb; return Math.round(b.min + Math.max(0, Math.min(1, (x - TB_PAD) / (w - 2 * TB_PAD))) * (b.max - b.min)); }
+  function cleanRange(r) {
+    if (!r || typeof r !== 'object' || typeof r.from !== 'number' || typeof r.to !== 'number' || !isFinite(r.from) || !isFinite(r.to) || r.from >= r.to) return null;
+    return { from: Math.round(r.from), to: Math.round(r.to) };
+  }
+  function syncExpandChip() {
+    var r = state.expandRange, chip = $('expandChip');
+    chip.hidden = !r;
+    if (r) $('expandChipText').textContent = 'Arrows reach ' + S.fmtTime(r.from, false) + ' → ' + S.fmtTime(r.to, false);
+  }
+  function setExpandRange(from, to) {
+    var b = state.tb, span = b && b.max != null ? b.max - b.min : 0;
+    if (!span || to - from < Math.max(1, span / 150)) return;                                // a wobble of the hand, not a range
+    state.expandRange = cleanRange({ from: Math.max(b.min, from), to: Math.min(b.max, to) });
+    syncExpandChip(); drawHistogram(); refresh(); showInspector(true); scheduleSave();
+  }
+  function clearExpandRange() {
+    if (!state.expandRange) return;
+    state.expandRange = null; syncExpandChip(); drawHistogram(); refresh(); showInspector(true); scheduleSave();
+  }
+  /** The words for the window the arrows are held to: the time bar's, or the stretch you dragged. */
+  function rangeWhat() { return state.expandRange ? 'the range you drew on the time line' : 'the time bar\'s range'; }
+  function onTimeDown(e) {
+    if (e.button !== 0 || !traceOn() || !timebarEnabled() || !state.tbGeom) return;
+    var r = $('hist').getBoundingClientRect();
+    tbDrag = { x0: e.clientX - r.left, x1: e.clientX - r.left, moved: false };
+    try { $('hist').setPointerCapture(e.pointerId); } catch (x) { /* the drag still works while the pointer stays over the line */ }
+  }
+  function onTimeUp(e) {
+    if (!tbDrag) return;
+    var d = tbDrag, w = state.tbGeom ? state.tbGeom.w : 0; tbDrag = null;
+    try { $('hist').releasePointerCapture(e.pointerId); } catch (x) { /* not held */ }
+    if (!d.moved) { drawHistogram(); return; }
+    state.tbSuppress = true; setTimeout(function () { state.tbSuppress = false; }, 0);      // the click that follows a drag is not a selection
+    if (w) setExpandRange(timeFromX(Math.min(d.x0, d.x1), w), timeFromX(Math.max(d.x0, d.x1), w));
+    else drawHistogram();
+  }
+
   function onTimeSlider(which) {
     if (!timebarEnabled()) return;
     var a = Number($('tFrom').value), z = Number($('tTo').value);
@@ -3551,7 +3788,13 @@
       ctx.fillStyle = inside ? '#aee7f8' : '#5a4a5a';
       var bh = Math.max(3, (c / max) * (barsH - 6)); ctx.fillRect(TB_PAD + i * bw, barsH - bh, Math.max(1, bw - 1), bh);
     });
-    ctx.strokeStyle = 'rgba(242,242,242,0.28)'; ctx.beginPath(); ctx.moveTo(TB_PAD, barsH + 0.5); ctx.lineTo(w - TB_PAD, barsH + 0.5); ctx.stroke();
+    var band = tbDrag && tbDrag.moved ? { from: timeFromX(Math.min(tbDrag.x0, tbDrag.x1), w), to: timeFromX(Math.max(tbDrag.x0, tbDrag.x1), w) } : state.expandRange;
+    if (band) {                                                                   // the stretch of time the arrows reach (amber: the time bar's own window is the blue one)
+      var bx0 = timeX(band.from, w), bx1 = timeX(band.to, w), bwid = Math.max(2, bx1 - bx0);
+      ctx.fillStyle = 'rgba(255,179,71,0.20)'; ctx.fillRect(bx0, 0, bwid, barsH + 4);
+      ctx.strokeStyle = '#ffb347'; ctx.lineWidth = 1.5; ctx.strokeRect(bx0 + 0.5, 0.5, bwid, barsH + 3);
+    }
+    ctx.strokeStyle = 'rgba(242,242,242,0.28)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(TB_PAD, barsH + 0.5); ctx.lineTo(w - TB_PAD, barsH + 0.5); ctx.stroke();
     if (txs.length <= 300) txs.forEach(function (t) {                             // one dot per transaction, at its exact time
       var x = timeX(t.time, w), inside = t.time >= from && t.time <= to;
       ctx.beginPath(); ctx.arc(x, barsH + 0.5, 3, 0, Math.PI * 2); ctx.fillStyle = inside ? '#ffffff' : '#7a6a7a'; ctx.fill();
@@ -3607,10 +3850,17 @@
   }
 
   function onTimeHover(e) {
-    var r = $('hist').getBoundingClientRect(); state.tbHover = { x: e.clientX - r.left }; drawHistogram(); showTimeTip(e);
+    var r = $('hist').getBoundingClientRect(), x = e.clientX - r.left;
+    if (tbDrag) {
+      tbDrag.x1 = x;
+      if (!tbDrag.moved && Math.abs(tbDrag.x1 - tbDrag.x0) > 5) { tbDrag.moved = true; $('tooltip').hidden = true; }
+      if (tbDrag.moved) { state.tbHover = null; drawHistogram(); return; }
+    }
+    state.tbHover = { x: x }; drawHistogram(); showTimeTip(e);
   }
   function onTimeLeave() { state.tbHover = null; $('tooltip').hidden = true; drawHistogram(); }
   function onTimeClick(e) {
+    if (state.tbSuppress) { state.tbSuppress = false; return; }
     var r = $('hist').getBoundingClientRect(), hit = timeHit(e.clientX - r.left);
     if (!hit) return;
     var ids = (hit.dots.length ? hit.dots : hit.inBin).map(function (t) { return t.id; });
@@ -3632,7 +3882,7 @@
   }
 
   function resetTime() {
-    stopPlay(); state.filter.timeFrom = null; state.filter.timeTo = null;
+    stopPlay(); state.filter.timeFrom = null; state.filter.timeTo = null; state.expandRange = null; syncExpandChip();
     $('tFrom').value = 0; $('tTo').value = 1000; syncTimeLabels(); drawHistogram(); refresh(); scheduleSave();
   }
   function stopPlay() { if (state.playTimer) { clearInterval(state.playTimer); state.playTimer = null; } $('tbPlay').textContent = '▶ Replay'; }
@@ -3683,7 +3933,7 @@
   }
 
   // ---- export / import ------------------------------------------------------------------------
-  function viewState() { return { sizeBy: state.sizeBy, trace: traceData(), arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, source: state.source === 'custom' ? 'clearnet' : state.source }; }
+  function viewState() { return { sizeBy: state.sizeBy, trace: traceData(), arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, expandRange: state.expandRange, source: state.source === 'custom' ? 'clearnet' : state.source }; }
 
   function download(name, text, mime) {
     var blob = new Blob([text], { type: mime }), a = el('a', { href: URL.createObjectURL(blob), download: name });
@@ -3716,7 +3966,7 @@
   function reportGroup(grp) {
     var gn = groupNodeOf(grp.id), rows = groupRows(grp); if (!gn || !rows.length) return null;
     var st = GR.stats(rows);
-    return { id: grp.id, text: gn.groupText, anchor: grp.anchor, dir: grp.dir, kind: grp.kind, party: grp.party, count: st.count, total: st.total, min: st.min, max: st.max, first: st.first, last: st.last,
+    return { id: grp.id, text: gn.groupText, label: grp.label || '', tag: grp.tag || '', note: grp.note || '', anchor: grp.anchor, dir: grp.dir, kind: grp.kind, party: grp.party, count: st.count, total: st.total, min: st.min, max: st.max, first: st.first, last: st.last,
              members: rows.slice(0, 5000).map(function (r) { return { id: r.id, amount: r.amount, time: r.time }; }) };
   }
 
@@ -3759,12 +4009,29 @@
     }, function (e) { toast('The report could not be made: ' + (e && e.message ? e.message : e), true); return false; });
   }
 
+  /**
+   * The visible part of a trace, plus what its group vertices stand for: each group's members and the edges that join them to the vertex the group
+   * hangs from. Without them the saved groups would be dropped when the file is opened again (a group needs its members to be a group).
+   */
+  function withGroupMembers(vis) {
+    var out = { nodes: new Set(vis.nodes), edges: new Set(vis.edges) }, g = state.graph;
+    state.trace.groups.forEach(function (grp) {
+      grp.members.forEach(function (m) {
+        if (!g.nodes.has(m)) return;
+        out.nodes.add(m);
+        g.edgesOf(m).forEach(function (e) { if (e.source === grp.anchor || e.target === grp.anchor) out.edges.add(e.id); });
+      });
+    });
+    return out;
+  }
+
   function doExport(kind) {
     var g = state.graph;
     if (!g.nodes.size) { toast('Nothing to export yet.', true); return; }
     if (kind === 'report') { $('exportMenu').open = false; doReport(); return; }
     g.refreshDerived();
     var only = $('exportVisible').checked ? F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()) : null;
+    if (only && kind === 'json' && traceOn()) only = withGroupMembers(only);
     var name = 'hopline-' + stamp();
     if (fiatOn() && !fiatLoaded() && (kind === 'csv-edges' || kind === 'graphml')) toast('Prices are not loaded, so the fiat columns are empty.', true);
     if (kind === 'json') download(name + '.json', IO.toJson(g, { only: only, view: viewState(), source: sourceBase() }), 'application/json');
@@ -3799,6 +4066,7 @@
       d.hiddenScriptTypes = Array.isArray(f.hiddenScriptTypes) ? f.hiddenScriptTypes.filter(function (s) { return typeof s === 'string'; }).slice(0, 30) : [];
       state.filter = d; syncFilterControls();
     }
+    state.expandRange = cleanRange(v.expandRange); syncExpandChip();
   }
   function syncFilterControls() {
     var f = state.filter;
@@ -3827,7 +4095,7 @@
     if (state.graph.nodes.size) pushUndoLoad(snapshotGraph('Clear'), 'cleared ' + plural(state.graph.nodes.size, 'vertex', 'vertices'));
     stopPlay(); state.client.abort(); state.client.resume();
     setGraph(new M.Graph()); state.keep = new Set(); state.pinned = new Map(); state.selected = new Set(); state.selectedEdge = null;
-    state.filter.timeFrom = null; state.filter.timeTo = null;
+    state.filter.timeFrom = null; state.filter.timeTo = null; state.expandRange = null; syncExpandChip();
     state.focus = null; state.nav.reset();
     state.trace = emptyTrace(); state.hidden = new Set(); state.hideUndo = []; state.hideRedo = []; state.arrange = 'columns';
     try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the old hash stays, harmless */ }
@@ -3888,7 +4156,7 @@
     });
     loadPrefs();
     makeClient();
-    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
+    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets;
@@ -3997,7 +4265,7 @@
     });
     $('depth').addEventListener('change', function () { state.hops = num(this.value, 1, 3, 2); savePrefs(); afterGraphChange({ fit: true }); scheduleSave(); });
     $('btnFit').addEventListener('click', function () { renderer.fit(); });
-    $('btnUndoLoad').addEventListener('click', undoLoad);
+    $('btnUndoLoad').addEventListener('click', undoLoad); $('btnRedoLoad').addEventListener('click', redoLoad);
     $('btnRelayout').addEventListener('click', function () { if (traceOn()) { traceTidy(); return; } relayoutAll(); });
     $('traceUndo').addEventListener('click', undoLast);
     $('traceRedo').addEventListener('click', redoLast);
@@ -4046,13 +4314,23 @@
     // source
     $('source').addEventListener('change', function () { state.source = this.value; applySourceUi(); makeClient(); savePrefs(); });
     $('fallbackOn').addEventListener('change', function () { state.fallback = this.checked; applySourceUi(); makeClient(); savePrefs(); });
-    $('customBase').addEventListener('change', function () { state.customBase = this.value.trim(); makeClient(); savePrefs(); });
+    $('customBase').addEventListener('change', function () { state.customBase = this.value.trim(); makeClient(); savePrefs(); applySourceUi(); });
+    function setKey() {
+      var k = A.cleanKey({ header: $('srcKeyHeader').value, value: $('srcKey').value });
+      if (k) state.keys.custom = k; else delete state.keys.custom;
+      saveKeys(); makeClient(); makePriceClient(); applySourceUi();
+    }
+    $('srcKey').addEventListener('change', setKey); $('srcKeyHeader').addEventListener('change', setKey);
+    $('srcKeyRemember').addEventListener('change', function () { state.keyRemember = this.checked; saveKeys(); savePrefs(); });
+    function setPace() { state.pace = A.cleanPace({ concurrency: $('paceConc').value, delayMs: $('paceDelay').value }); makeClient(); savePrefs(); applySourceUi(); }
+    $('paceConc').addEventListener('change', setPace); $('paceDelay').addEventListener('change', setPace);
+    $('paceConc').addEventListener('input', function () { $('paceConcOut').textContent = this.value; });
     $('customPrices').addEventListener('change', function () { state.customPrices = this.value; state.books = {}; state.today = null; makePriceClient(); savePrefs(); if (fiatOn()) ensurePrices(); else syncFiatUi(); });
     $('testSource').addEventListener('click', function () {
       var out = $('testResult'), t0 = performance.now();
       if (state.source === 'custom' && !/^https?:\/\//i.test(state.customBase.trim())) { out.textContent = 'Enter a URL first.'; out.className = 'bad'; return; }
       out.textContent = 'Testing…'; out.className = '';
-      var probe = new A.Client({ base: sourceBase(), timeoutMs: A.PRESETS[state.source].timeoutMs, retries: 0, delayMs: 0 });
+      var probe = new A.Client({ base: sourceBase(), timeoutMs: A.PRESETS[state.source].timeoutMs, retries: 0, delayMs: 0, auth: A.authFor(state), keyHint: state.source === 'custom' });
       probe.tipHeight().then(function (h) { out.textContent = 'OK: chain height ' + fmtInt(h) + ' in ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s'; out.className = 'ok'; },
         function (e) { out.textContent = 'Failed: ' + e.message + (state.source === 'tor' ? ' (open this page in Tor Browser)' : ''); out.className = 'bad'; });
     });
@@ -4076,6 +4354,7 @@
     });
     $('arrowsInRange').addEventListener('change', function () { state.arrowsInRange = this.checked; savePrefs(); renderer.dirty = true; showInspector(true); });
     $('groupRows').addEventListener('change', function () { state.groupRows = this.checked; savePrefs(); showInspector(true); });
+    $('groupBy').addEventListener('change', function () { state.groupBy = cleanGroupBy(this.value); savePrefs(); showInspector(true); });
     $('dustSats').addEventListener('change', function () { state.dustSats = num(this.value, 0, 1000000000, 10000); this.value = state.dustSats; savePrefs(); showInspector(true); });
     $('stepMode').addEventListener('change', function () { state.stepMode = this.value; savePrefs(); renderer.dirty = true; });
     $('stepSize').addEventListener('change', function () { state.stepSize = num(this.value, 1, 50, 5); this.value = state.stepSize; savePrefs(); renderer.dirty = true; });
@@ -4092,6 +4371,8 @@
     $('tbReset').addEventListener('click', resetTime);
     $('tbCollapse').addEventListener('click', function () { setTbCollapsed(!state.tbCollapsed); });
     $('hist').addEventListener('pointermove', onTimeHover);
+    $('hist').addEventListener('pointerdown', onTimeDown); $('hist').addEventListener('pointerup', onTimeUp); $('hist').addEventListener('pointercancel', onTimeUp);
+    $('expandChipClear').addEventListener('click', clearExpandRange);
     $('hist').addEventListener('pointerleave', onTimeLeave);
     $('hist').addEventListener('click', onTimeClick);
     $('tbPlay').addEventListener('click', togglePlay);

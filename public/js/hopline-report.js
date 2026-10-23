@@ -50,6 +50,8 @@
     if (n.label) parts.push(n.label);
     var k = model.known && n.address ? model.known(n.address) : null;
     if (k && k.label && k.label !== n.label) parts.push('known: ' + k.label + (k.pack ? ' (' + k.pack + ')' : ''));
+    if (k) (k.alt || []).forEach(function (a) { parts.push('also listed as: ' + a); });
+    if (k && k.sanctions) parts.push('ON A SANCTIONS LIST (as the pack says)');
     if (n.tag) parts.push('tag ' + n.tag);
     return parts.join(' · ');
   }
@@ -93,11 +95,12 @@
     es.outs.slice(0, MAX_ROWS).forEach(function (e) {
       var isChange = a.change && a.change.edgeId === e.id;
       var spent = e.spent === true ? 'spent by <code>' + esc(e.spentBy ? e.spentBy.txid.slice(0, 12) + '…' : '?') + '</code>' : e.spent === false ? 'unspent' : 'spending unknown';
-      h += '<tr class="' + (isChange ? 'chg' : '') + '"><td>' + vertexText(model, nodes, e.target) + '<div class="hint">' + spent + (isChange ? ' · <b>likely change</b> (' + esc(a.change.confidence) + ' confidence)' : '') + '</div></td><td class="num">' + amountCell(model, e.amount, n.time) + '</td></tr>';
+      h += '<tr class="' + (isChange ? 'chg' : '') + '"><td>' + vertexText(model, nodes, e.target) + '<div class="hint">' + spent + (isChange ? ' · <b>' + (a.change.confidence === 'high' ? 'likely' : 'possible') + ' change</b> (' + esc(a.change.confidence) + ' confidence)' : '') + '</div></td><td class="num">' + amountCell(model, e.amount, n.time) + '</td></tr>';
     });
     if (es.outs.length > MAX_ROWS) h += '<tr><td colspan="2" class="hint">… and ' + (es.outs.length - MAX_ROWS) + ' more</td></tr>';
     h += '</table></div>';
-    if (a.change) h += '<p><b>Likely change:</b> output ' + esc(a.change.vout) + ' (a guess, ' + esc(a.change.confidence) + ' confidence). Reasons:</p><ul class="reasons">' + a.change.reasons.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul>';
+    if (a.change) h += '<p><b>' + (a.change.confidence === 'high' ? 'Likely' : 'Possible') + ' change:</b> output ' + esc(a.change.vout) + ' (a guess, ' + esc(a.change.confidence) + ' confidence). Reasons:</p><ul class="reasons">' + a.change.reasons.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul>'
+      + (a.change.confidence === 'high' ? '' : '<p class="hint">' + (a.change.reasons.length === 1 ? 'Only one sign points to this output. ' : '') + 'Treat it as a lead to check, not as the change: both outputs should be followed before relying on it.</p>');
     if (a.chain && !a.flags.some(function (f) { return f.kind === 'peel'; })) h += '<p class="hint">Step ' + esc(a.chain.step) + ' of ' + esc(a.chain.of) + ' in the possible peel chain ' + esc(a.chain.label) + '.</p>';
     if (n.fingerprintText) h += '<p class="fp">Wallet habits: ' + esc(n.fingerprintText) + '</p>';
     h += '<p class="hint">Retrieved ' + (n.fetchedAt != null ? esc(t(n.fetchedAt)) + (n.source ? ' from ' + esc(host(n.source)) : '') : 'at an unknown time (loaded before provenance was recorded, or imported)')
@@ -187,7 +190,7 @@
     if (model.groups && model.groups.length) {                                 // vertices on the screen that stood for several others: say what, and list every one of them
       h.push('<h2>Groups shown as one vertex</h2><p class="hint">On the screen each of these was a single vertex standing for several transactions or outputs that were not drawn one by one. They are listed here in full: none was left out.</p>');
       model.groups.forEach(function (g) {
-        h.push('<h3>' + esc(g.text) + '</h3><p class="hint">' + plural(g.count, 'member') + ' · ' + esc(Style.fmtBtc(g.total)) + ' BTC in total (each ' + esc(Style.fmtBtc(g.min)) + ' to ' + esc(Style.fmtBtc(g.max)) + ') · '
+        h.push('<h3>' + esc(g.label ? g.label + ' (' + g.text + ')' : g.text) + '</h3>' + (g.tag || g.note ? '<p>' + (g.tag ? '<span class="chip">' + esc(g.tag) + '</span> ' : '') + esc(g.note || '') + '</p>' : '') + '<p class="hint">' + plural(g.count, 'member') + ' · ' + esc(Style.fmtBtc(g.total)) + ' BTC in total (each ' + esc(Style.fmtBtc(g.min)) + ' to ' + esc(Style.fmtBtc(g.max)) + ') · '
           + (g.first == null ? 'times unknown' : esc(t(g.first)) + (g.last !== g.first ? ' to ' + esc(t(g.last)) : '')) + ' · ' + (g.dir === 'next' ? 'forward from' : 'behind') + ' <code>' + esc(String(g.anchor).replace(/^(tx|addr):/, '')) + '</code></p>'
           + '<table><tr><th>Member</th><th>Amount</th><th>Time</th></tr>');
         g.members.slice(0, MAX_TX).forEach(function (m) { h.push('<tr><td><code>' + esc(String(m.id).replace(/^(tx|addr):/, '')) + '</code></td><td class="num">' + amountCell(model, m.amount, m.time) + '</td><td>' + esc(t(m.time)) + '</td></tr>'); });
@@ -211,7 +214,7 @@
     h.push('<h2>Method and limits</h2><ul>'
       + '<li><b>Data:</b> transactions, amounts, times and spending status were read from the source named in the summary at the retrieval times shown. "Unspent" means unspent when its status was last checked, not now. A wallet\'s <i>Received</i> and <i>Sent</i> count only the transactions in this report; its <i>Balance</i> is what the server reported for the whole address at the time shown, and is not read for every wallet.</li>'
       + '<li><b>Patterns</b> are rules over the loaded transactions: consolidation (5 or more inputs into 1 or 2 outputs), batch payment (up to 3 inputs, 6 or more outputs), CoinJoin-like (3 or more input wallets and several outputs of exactly the same value), peel chain (4 or more linked one-input, two-output transactions whose small output is at most half the large one).</li>'
-      + '<li><b>Likely change</b> weighs: the output address is also an input; the only output of the same address type as the inputs; a round payment amount; the other output paying a known or tagged wallet; an output smaller than every input; the spender having the same wallet habits. Each reason is listed beside the finding. Close calls are not named.</li>'
+      + '<li><b>Likely change</b> weighs: the output address is also an input; the only output of the same address type as the inputs; a round payment amount; the other output paying a known or tagged wallet; an output smaller than every input; the spender having the same wallet habits. Each reason is listed beside the finding. Close calls are not named, and neither are two outputs within 1% of each other unless one address is also an input (an even split looks like two payments). Only a strong guess is called likely; the rest are called possible, and a lead to follow from both outputs.</li>'
       + '<li><b>Clusters</b> use the common-input rule (inputs spent together share an owner). A CoinJoin, a PayJoin or a shared wallet can break it.</li>'
       + '<li>Only loaded transactions can be analysed; loading more can add, change or remove a finding. Names from label packs are third-party claims, shown with the pack they came from.</li>'
       + (model.fiatNote ? '<li><b>Fiat values</b> are indicative: ' + esc(model.fiatNote) + ' Quote an exchange\'s price for the exact moment where it matters.</li>' : '') + '</ul>');

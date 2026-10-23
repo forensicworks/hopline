@@ -442,3 +442,24 @@ def test_exports_carry_patterns_clusters_and_the_change_guess(fpage, mock, tmp_p
     assert "likely_change" in h
     flagged = {r[0]: r[h.index("likely_change")] for r in rows[1:] if r[h.index("likely_change")]}
     assert flagged == {"out:%s:1" % tid(40): "high"}
+
+
+def test_an_even_split_is_not_called_change(fpage, mock):
+    """Two halves of 203.7 BTC to two kinds of address: one matches the inputs' type, but that says nothing about change."""
+    tx(mock, 70, [IN(95, 0, "src", 20371000)], [OUT("half1", 10185490, "p2pkh"), OUT("half2", 10185479)])
+    open_query(fpage, tid(70))
+    assert an(fpage)["change"] == {}
+    assert "none named" in low(fpage, "#inspBody")
+
+
+def test_a_guess_on_one_sign_is_called_possible_and_says_to_follow_both_outputs(fpage, mock):
+    tx(mock, 71, [IN(96, 0, "src2", 100000)], [OUT("legacy", 61234, "p2pkh"), OUT("mine", 38000)])
+    open_query(fpage, tid(71))
+    edge = "out:%s:1" % tid(71)
+    assert an(fpage)["change"] == {edge: "medium"}
+    insp = low(fpage, "#inspBody")
+    assert "possible change" in insp and "likely change" not in insp and "medium confidence" in insp
+    assert "only one sign points to this output" in insp and "follow both outputs" in insp
+    label = fpage.evaluate("(id) => window.__hopline.renderer.data.edgeLabel(window.__hopline.state.graph.edges.get(id))", edge)
+    assert "change?" in label and "likely" not in label
+    assert "possible or likely change" in low(fpage, "#legend")

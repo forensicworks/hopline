@@ -118,3 +118,59 @@ test('isGroupId only accepts the ids groups are given', () => {
   assert.equal(G.isGroupId('grp:1'), true); assert.equal(G.isGroupId('grp:123456789'), true);
   ['grp:', 'grp:x', 'tx:abc', 'grp:1234567890', 'grpe:grp:1', '', null, undefined, 5].forEach((x) => assert.equal(G.isGroupId(x), false, String(x)));
 });
+
+// ---- grouping by the period rows happened in ------------------------------------------------------------------------------
+const utc = (y, m, d, h = 0, mi = 0, s = 0) => Math.floor(Date.UTC(y, m - 1, d, h, mi, s) / 1000);
+
+test('bucketOf: the UTC day, ISO week, month and year of a time, with the edges where they are easy to get wrong', () => {
+  const t = 1650000000;                                                              // 2022-04-15 05:20:00 UTC, a Friday
+  assert.equal(G.bucketOf(t, 'day'), '2022-04-15'); assert.equal(G.bucketOf(t, 'week'), '2022-W15');
+  assert.equal(G.bucketOf(t, 'month'), '2022-04'); assert.equal(G.bucketOf(t, 'year'), '2022');
+  assert.equal(G.bucketOf(utc(2022, 4, 30, 23, 59, 59), 'month'), '2022-04'); assert.equal(G.bucketOf(utc(2022, 5, 1), 'month'), '2022-05', 'the midnight is UTC, not local');
+  assert.equal(G.bucketOf(utc(2021, 1, 1), 'week'), '2020-W53', 'the first days of January can belong to the last week of the year before');
+  assert.equal(G.bucketOf(utc(2024, 12, 30), 'week'), '2025-W01', 'and the last days of December to the first week of the next');
+  assert.equal(G.bucketOf(utc(2024, 12, 29), 'week'), '2024-W52', 'Sunday ends a week; Monday starts the next');
+  assert.equal(G.bucketOf(utc(2022, 1, 3), 'week'), '2022-W01'); assert.equal(G.bucketOf(utc(2022, 1, 2), 'week'), '2021-W52');
+  assert.equal(G.bucketOf(0, 'day'), '1970-01-01'); assert.equal(G.bucketOf(utc(2009, 1, 3), 'year'), '2009');
+});
+
+test('bucketLabel and isBucketKey: for people, and for checking what a saved file says', () => {
+  assert.equal(G.bucketLabel('2022-04'), 'Apr 2022'); assert.equal(G.bucketLabel('2022-W15'), 'week 15 of 2022'); assert.equal(G.bucketLabel('2022-04-15'), '2022-04-15'); assert.equal(G.bucketLabel('2022'), '2022');
+  ['2022', '2022-04', '2022-04-15', '2022-W15'].forEach((k) => assert.equal(G.isBucketKey(k), true, k));
+  ['', '22-04', '2022-4', '2022-W1', '2022-04-15x', '<b>2022</b>', null, 5, '2022-W15-1'].forEach((k) => assert.equal(G.isBucketKey(k), false, String(k)));
+  assert.deepEqual(G.BUCKETS.slice().sort(), ['day', 'month', 'week', 'year']);
+});
+
+test('make by month: a group for each direction and month with enough rows, the rest stay rows', () => {
+  const rows = [];
+  const add = (n, dir, y, m, id) => { for (let i = 0; i < n; i++) rows.push({ id: id + i, dir, amount: 1000 + i, time: utc(y, m, 1 + i), parties: ['addr:p' + id + i] }); };
+  add(4, 'out', 2022, 3, 'a'); add(3, 'out', 2022, 4, 'b'); add(2, 'out', 2022, 5, 'c'); add(3, 'in', 2022, 4, 'd');
+  rows.push({ id: 'noDate', dir: 'out', amount: 5, time: null, parties: [] });
+  const groups = G.make(rows, { by: 'month' });
+  assert.deepEqual(groups.map((g) => [g.key, g.members.length]), [['time|out|2022-03', 4], ['time|in|2022-04', 3], ['time|out|2022-04', 3]], 'the biggest first; two in May is not enough');
+  assert.ok(groups.every((g) => g.kind === 'time' && g.party === null && /^2022-0[34]$/.test(g.bucket)));
+  assert.ok(groups.every((g) => g.members.every((r) => G.bucketOf(r.time, 'month') === g.bucket && r.dir === g.dir)));
+  const used = new Set(groups.flatMap((g) => g.members.map((r) => r.id)));
+  assert.ok(!used.has('noDate') && !used.has('c0'), 'a row with no date, and a month with too few, are not folded');
+  assert.equal(G.make(rows, { by: 'month', minSize: 2 }).length, 4, 'minSize still decides how many make a group');
+});
+
+test('make by period: week, day and year work the same way, an unknown period falls back to the usual grouping', () => {
+  const rows = Array.from({ length: 6 }, (_, i) => ({ id: 'r' + i, dir: 'out', amount: 50, time: utc(2022, 4, 11 + i, 12), parties: ['addr:same'] }));      // Mon 11 .. Sat 16 April
+  assert.deepEqual(G.make(rows, { by: 'week' }).map((g) => [g.bucket, g.members.length]), [['2022-W15', 6]]);
+  assert.equal(G.make(rows, { by: 'day' }).length, 0, 'one a day is not a group');
+  assert.deepEqual(G.make(rows, { by: 'year' }).map((g) => [g.bucket, g.members.length]), [['2022', 6]]);
+  assert.equal(G.make(rows, { by: 'fortnight' })[0].kind, 'party', 'an unknown period is ignored');
+  assert.equal(G.make(rows, {})[0].kind, 'party'); assert.equal(G.make(rows, { by: 'party' })[0].kind, 'party');
+  const split = rows.slice(); split[5] = Object.assign({}, rows[5], { time: utc(2022, 4, 17, 12) });         // Sunday: still week 15
+  assert.equal(G.make(split, { by: 'week' })[0].members.length, 6);
+  split[5] = Object.assign({}, rows[5], { time: utc(2022, 4, 18, 0, 0, 1) });                                    // Monday 00:00:01: week 16
+  assert.deepEqual(G.make(split, { by: 'week' }).map((g) => [g.bucket, g.members.length]), [['2022-W15', 5]]);
+});
+
+test('layout and stats work on groups made by period like on any other', () => {
+  const rows = [3, 1, 2].map((i) => ({ id: 'x' + i, dir: 'in', amount: 100 * i, time: utc(2022, 6, i), parties: [] }));
+  const items = G.layout(rows, G.make(rows, { by: 'month' }));
+  assert.equal(items.length, 1); assert.equal(items[0].group.stats.count, 3); assert.equal(items[0].group.stats.total, 600);
+  assert.deepEqual(items[0].group.members.map((r) => r.id), ['x3', 'x1', 'x2'], 'members in the order the list shows them');
+});
