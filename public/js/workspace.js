@@ -12,7 +12,7 @@
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
   var SAVE_KEY = 'hopline.workspace.v1', PREF_KEY = 'hopline.prefs.v1', TOKEN_KEY = 'hopline.ext.token', PACKS_KEY = 'hopline.packs.v1', KEYS_KEY = 'hopline.keys.v1';
-  var ARRANGE = { columns: 1, flow: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 };
+  var ARRANGE = { columns: 1, flow: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 }, DEFAULT_ARRANGE = 'timeforce';
   var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SIZES = { auto: 1, area: 1, log: 1 }, SCALES = { compact: 1, proportional: 1 };
 
   function $(id) { return document.getElementById(id); }
@@ -50,10 +50,10 @@
     source: 'clearnet', fallback: true, customBase: '', keys: {}, keyRemember: false, pace: { concurrency: 8, delayMs: 20 }, capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: true,
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
-    sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
+    rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
     trace: emptyTrace(),
     undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
-    hidden: new Set(), hideUndo: [], hideRedo: [], arrange: 'columns', boxMode: false,
+    hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
     stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
@@ -1599,6 +1599,17 @@
   }
 
   // ---- how a trace is arranged: columns you build, or spread over time / by force / by time and amount ----
+  /** Where x is time a transaction may only be dragged up and down (Shift frees it); wallets, coinbase, data outputs and groups have no time of their own and move freely. */
+  function lockedToTime(id) {
+    if (!timeScaleOn()) return false;
+    var n = state.graph.nodes.get(id);
+    return !!n && n.type === 'tx';
+  }
+  var MOVE_HINT = 'Dragging moves a transaction up and down only, so it stays at its time. Hold Shift to move it sideways too.';
+  function moveHint(id) {                                                                  // said once per visit when a transaction is clicked; the details panel says it every time
+    if (state.moveHinted || !lockedToTime(id)) return;
+    state.moveHinted = true; toast(MOVE_HINT);
+  }
   function timeScaleOn() { return state.layout === 'timeline' || (traceOn() && !!TIME_ARR[state.arrange]); }           // x IS time: a real axis, with its scale choice
   /** Columns in a trace: x is not time, but the transactions on screen have times, so the line over them carries their timestamps. */
   function marksOn() {
@@ -1696,13 +1707,15 @@
     findReset(); findClose(); findGo(r.id);
   }
   /** Select the vertex and bring it into view. One that is loaded but not on screen is brought in: in a trace it is added as another starting point (Undo takes it back), elsewhere it is un-hidden or the focus moves to it. */
-  function findGo(id) {
+  /** Select a vertex and bring it into view (adding it first when it is not there). `keep`: from the Findings, so the right-hand panel stays on them. */
+  function findGo(id, keep) {
     if (!state.graph.nodes.has(id)) return;
-    function show() { setSel([id]); renderer.centerOn(id); }
+    function show() { if (keep) holdRight++; try { setSel([id]); } finally { if (keep) holdRight--; } renderer.centerOn(id); renderer.pulse([id]); }
     if (findIsShown(id)) { show(); return; }
     if (!traceOn() && state.hidden.has(id)) { showIds([id]); if (findIsShown(id)) { show(); return; } }
     navigate(id).then(function (ok) {
       if (ok === false) return;
+      if (keep) { state.rightTab = 'findings'; showInspector(true); }
       if (findIsShown(id)) { show(); if (traceOn()) toast('Added to the trace as another starting point (Ctrl+Z takes it back).'); }
       else toast('It is loaded but not on screen: a filter or the time bar hides it (see Filters and the time range).', true);
     });
@@ -1718,6 +1731,7 @@
   function selectOnly(id) { state.selected = id ? new Set([id]) : new Set(); state.selectedEdge = null; syncSelection(); }
   function syncSelection() {
     renderer.setSelection(Array.from(state.selected)); renderer.selectedEdge = state.selectedEdge;
+    if (!holdRight && (state.selected.size || state.selectedEdge)) state.rightTab = 'details';
     showInspector(); updateTraceUi(); updateAutoUi(); detMarkSel();
   }
 
@@ -2635,7 +2649,9 @@
   }
 
   function renderInspector(soft) {
-    var box = $('inspBody'), insp = $('inspector'), g = state.graph;
+    var box = $('inspBody'), insp = $('inspector'), g = state.graph, view = syncRightPanel();
+    if (view === 'none') { insp.hidden = true; return; }
+    if (view === 'findings') { insp.hidden = false; return; }
     if (soft && box.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && state.selected.size === 1) return;   // user is typing
     box.textContent = '';
     var gsel = traceOn() ? Array.from(state.selected).filter(function (id) { return state.trace.groups.has(id); }) : [];
@@ -2680,6 +2696,7 @@
         if (n.fetchedAt != null) kv(dl, 'Fetched', S.fmtTimeFull(n.fetchedAt) + (n.source ? ' from ' + n.source.replace(/^https?:\/\//i, '').replace(/\/api\/?$/, '') : ''));
       }
       box.appendChild(dl);
+      if (lockedToTime(n.id)) box.appendChild(el('p', { 'class': 'hint movehint', text: MOVE_HINT }));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), refBtn(n)]));
       var ta = traceActions(n); if (ta) box.appendChild(ta);
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
@@ -2773,8 +2790,9 @@
     on = !!on; if (on === fullScr.on) return;
     fullScr.on = on;
     document.body.classList.toggle('canvas-full', on);
+    if (!on) setFullSide(false);
     var b = $('fullBtn'); b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Leave full screen' : 'Full screen');
-    b.title = on ? 'Leave full screen (M or Esc)' : 'Full screen (M): the graph alone. Esc or this button leaves it.';
+    b.title = on ? 'Leave full screen (M or Esc)' : 'Full screen (M): the graph alone. Its Controls button (or C) opens the left panel over it. Esc or this button leaves it.';
     var de = document.documentElement;
     try {
       if (on) { var rq = de.requestFullscreen || de.webkitRequestFullscreen; var p = rq && rq.call(de); if (p && p.catch) p.catch(function () { /* the page is cleared anyway */ }); }
@@ -2782,8 +2800,21 @@
     } catch (e) { /* no full screen API: the cleared page is what there is */ }
     renderer.resize(); if (renderer.autoFit) renderer.fit(); drawHistogram();
   }
+  /** In full screen the left panel (Controls) is a drawer over the graph: it opens from its button or C, and Esc closes it before it leaves full screen. */
+  function fullSideOpen() { return document.body.classList.contains('full-side-open'); }
+  function setFullSide(open) {
+    open = !!open && fullScr.on;
+    if (open === fullSideOpen()) return;
+    var hadFocus = $('side').contains(document.activeElement);
+    document.body.classList.toggle('full-side-open', open);
+    $('fullControls').setAttribute('aria-expanded', String(open));
+    if (open) { var first = $('side').querySelector('summary, button, input, select'); if (first) first.focus(); }
+    else if (hadFocus) $('fullControls').focus();
+  }
   function wireFullScreen() {
     $('fullBtn').addEventListener('click', function () { setFullScreen(!fullScr.on); });
+    $('fullControls').addEventListener('click', function () { setFullSide(!fullSideOpen()); });
+    $('side').addEventListener('keydown', function (e) { if (e.key === 'Escape' && fullSideOpen()) { e.preventDefault(); e.stopPropagation(); setFullSide(false); } });       // also from inside a field of the drawer
     function left() { if (fullScr.on && !document.fullscreenElement && !document.webkitFullscreenElement) setFullScreen(false); }       // the browser's own Esc or F11 ended it
     document.addEventListener('fullscreenchange', left); document.addEventListener('webkitfullscreenchange', left);
   }
@@ -2793,8 +2824,9 @@
     var has = !$('inspector').hidden, tab = $('inspTab');
     tab.hidden = !(state.inspCollapsed && has);
     if (!tab.hidden) {
-      var id = Array.from(state.selected)[0], n = id && state.graph.nodes.get(id);
-      $('inspTabText').textContent = state.selected.size > 1 ? state.selected.size + ' selected' : n ? focusLabel(id) : 'Details';
+      var id = Array.from(state.selected)[0], n = id && state.graph.nodes.get(id), fv = rightView() === 'findings';
+      $('inspTabText').textContent = fv ? 'Findings (' + state.findTotal + ')' : state.selected.size > 1 ? state.selected.size + ' selected' : n ? focusLabel(id) : 'Details';
+      tab.title = fv ? 'Show the findings (D)' : 'Show details (D)';
     }
   }
 
@@ -2993,7 +3025,7 @@
     var vis = renderer.data ? renderer.data.visible.nodes : null;
     var show = vis ? ids.filter(function (id) { return vis.has(id); }) : ids.slice();
     if (!show.length) { toast('None of the ' + what + ' is on screen (the layout or a filter hides them).'); return; }
-    state.selected = new Set(show); state.selectedEdge = null; syncSelection(); renderer.ensureVisible(show);
+    state.selected = new Set(show); state.selectedEdge = null; holdRight++; syncSelection(); holdRight--; renderer.ensureVisible(show); renderer.pulse(show);
     if (show.length < ids.length) toast(show.length + ' of ' + ids.length + ' ' + what + ' are on screen; the rest are hidden by the layout or a filter.');
   }
   function setNoCluster(txId, on) {
@@ -3039,7 +3071,7 @@
     list.textContent = '';
     rows.slice(0, DET_ROWS).forEach(function (r) {
       var tag = el('span', { 'class': 'flagtag', text: r.short + (r.chain ? ' · ' + r.chain : '') }); tag.style.color = r.color;
-      var b = el('button', { type: 'button', 'class': 'detrow' + (state.selected.has(r.id) ? ' on' : ''), 'data-id': r.id, title: 'Select it and bring it into view', onclick: function () { findGo(r.id); } }, [
+      var b = el('button', { type: 'button', 'class': 'detrow' + (state.selected.has(r.id) ? ' on' : ''), 'data-id': r.id, title: 'Select it and bring it into view', onclick: function () { findKeep(r.id); } }, [
         el('span', { 'class': 'dethead' }, [el('span', { 'class': 'dettime', text: S.fmtTime(r.time) }), el('span', { 'class': 'dettx mono', text: S.shortId(r.txid, 5) })]),
         el('span', { 'class': 'detwhy' }, [tag, r.reason])
       ]);
@@ -3277,7 +3309,104 @@
 
   /** The Analysis panel: what was found, as lists that select the vertices involved. */
   var findingsFor = null;
+  // ---- what was found, in one strip over the graph ----------------------------------------------------------------------
+  var FIND_NAME = { coinjoin: 'COINJOIN?', consolidation: 'CONSOL', batch: 'BATCH', peel: 'PEEL' };
+  /**
+   * The findings as chips, most important first: [{ key, text, count, ids, color, bad, what, title }]. They count what is loaded and found (the switches under Analysis only
+   * decide what is drawn on the graph), and a click selects the vertices they count. Wallets on a sanctions list come first; known wallets are listed last and are not a finding.
+   */
+  function findingChips() {
+    var an = analysis(), out = [], sanc = [], known = [], byKind = {};
+    state.graph.nodes.forEach(function (n) {
+      if (n.type !== 'addr' || !KNOWN[n.address]) return;
+      known.push(n.id); if (KNOWN[n.address].sanctions) sanc.push(n.id);
+    });
+    function add(key, text, ids, color, what, title, bad) { if (ids.length) out.push({ key: key, text: text, count: ids.length, ids: ids, color: color, bad: !!bad, what: what, title: title }); }
+    add('sanctions', 'Sanctions', sanc, '#ff4d4f', 'wallets on a sanctions list', 'Wallets on a sanctions list (a list\'s claim: open its source before relying on it). Click to select them.', true);
+    {
+      an.tx.forEach(function (r, id) { r.flags.forEach(function (f) { (byKind[f.kind] = byKind[f.kind] || { f: f, ids: [] }).ids.push(id); }); });
+      ['coinjoin', 'consolidation', 'batch'].forEach(function (k) {
+        if (byKind[k]) add(k, FIND_NAME[k], byKind[k].ids, byKind[k].f.color, FIND_NAME[k] + ' transactions', plural(byKind[k].ids.length, 'transaction') + ' flagged ' + FIND_NAME[k] + '. Click to select them.');
+      });
+      if (byKind.peel && an.chains.length) {
+        var pids = []; an.chains.forEach(function (c) { c.ids.forEach(function (id) { if (pids.indexOf(id) < 0) pids.push(id); }); });
+        var chainCount = an.chains.length;
+        out.push({ key: 'peel', text: 'PEEL', count: chainCount, ids: pids, color: byKind.peel.f.color, bad: false, what: 'transactions of the possible peel chains',
+                   title: plural(chainCount, 'possible peel chain') + ' (' + plural(pids.length, 'transaction') + '). Click to select them.' });
+      }
+    }
+    {
+      var caddrs = []; an.clusters.list.forEach(function (c) { c.addrs.forEach(function (a) { if (caddrs.indexOf(a) < 0) caddrs.push(a); }); });
+      if (an.clusters.list.length) out.push({ key: 'clusters', text: 'Clusters', count: an.clusters.list.length, ids: caddrs, color: '#8fd3ff', bad: false, what: 'addresses spent together',
+                                             title: plural(an.clusters.list.length, 'address cluster') + ' (wallets spent together, so probably one owner). Click to select their addresses.' });
+    }
+    {
+      var chg = []; an.tx.forEach(function (r) { if (r.change && r.change.id) chg.push(r.change.id); });
+      add('change', 'Change guesses', chg, AN.COLORS.change, 'outputs guessed to be change', plural(chg.length, 'output') + ' guessed to be change. These are guesses, not findings: follow both outputs. Click to select them.');
+    }
+    add('known', 'Known wallets', known, '#f2c94c', 'known wallets', plural(known.length, 'wallet') + ' on the built-in list or a label list (a name is a claim, not proof). Click to select them.');
+    return out;
+  }
+  var findSig = null;
+  function updateFindStrip() {
+    var box = $('findStrip'), chips = state.graph.nodes.size ? findingChips() : [];
+    var sig = chips.map(function (c) { return c.key + ':' + c.count; }).join('|');
+    var total = 0; chips.forEach(function (c) { if (c.key !== 'known') total += c.count; });
+    $('anCount').textContent = total ? '(' + total + ')' : ''; $('findCount').textContent = total ? '(' + total + ')' : '';
+    var was = state.findTotal, forced = state.findForce; state.findTotal = total; if (!chips.length) state.findForce = false;
+    if (was !== total || forced !== state.findForce) showInspector(true);                // the panel appears when there is something to show in it, and goes when there is not
+    if (sig === findSig) return;
+    findSig = sig; box.textContent = '';
+    box.hidden = !chips.length;
+    chips.forEach(function (c) {
+      var dot = el('span', { 'class': 'dot' }); dot.style.background = c.color;
+      box.appendChild(el('button', { type: 'button', 'class': 'findchip' + (c.bad ? ' bad' : ''), 'data-key': c.key, title: c.title, 'aria-label': c.count + ' ' + c.text + ': ' + c.title,
+                                     onclick: function () { var now = findingChips().filter(function (x) { return x.key === c.key; })[0]; if (now) { selectIds(now.ids, now.what); openFindings(now.key); } } }, [dot, c.text, el('b', { text: String(c.count) })]));
+    });
+    if (chips.length) box.appendChild(el('button', { type: 'button', 'class': 'findchip more', 'data-key': 'details', title: 'Open the Findings panel on the right: every finding listed, and the Detections list', onclick: function () { openFindings(); }, text: 'Findings ▸' }));
+  }
+  // ---- the right-hand panel: Details of what is selected, and Findings --------------------------------------------------------------------
+  var holdRight = 0;                                                                     // while the Findings act on the graph (select, go to), a selection does not switch the panel to Details
+  function detailsAvailable() {
+    var g = state.graph;
+    if (state.selected.size === 1 && traceOn() && state.trace.groups.has(Array.from(state.selected)[0])) return true;
+    if (Array.from(state.selected).some(function (id) { return g.nodes.has(id); })) return true;
+    return !!(state.selectedEdge && g.edges.has(state.selectedEdge));
+  }
+  function findingsAvailable() { return state.findTotal > 0 || state.findForce; }
+  /** What the panel shows: 'details', 'findings' or 'none'. With both available it shows the tab last chosen. */
+  function rightView() {
+    var d = detailsAvailable(), f = findingsAvailable();
+    if (d && f) return state.rightTab === 'findings' ? 'findings' : 'details';
+    return d ? 'details' : f ? 'findings' : 'none';
+  }
+  function syncRightPanel() {
+    var view = rightView(), both = detailsAvailable() && findingsAvailable();
+    if (view !== 'none') state.rightTab = view;
+    $('rpTabs').hidden = !both; $('findTitle').hidden = both;
+    $('inspBody').hidden = view !== 'details'; $('findPane').hidden = view !== 'findings';
+    ['Details', 'Findings'].forEach(function (name) {
+      var on = (name === 'Details') === (view === 'details'), b = $('tab' + name);
+      b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1;
+    });
+    var n = state.selected.size; $('tabDetails').textContent = n > 1 ? 'Details · ' + n : 'Details';
+    return view;
+  }
+  function setRightTab(tab) { state.rightTab = tab === 'findings' ? 'findings' : 'details'; showInspector(); }
+  /** Show the Findings (from a chip, the left panel or a key): open the panel if it was folded, and bring one group of findings into view. */
+  function openFindings(key) {
+    state.findForce = true; state.rightTab = 'findings';
+    if (state.inspCollapsed) setInspCollapsed(false);
+    showInspector(true);
+    var g = key ? $('anFindings').querySelector('[data-group="' + String(key).replace(/[^a-z]/g, '') + '"]') : null;      // the key is one of our own words
+    if (g) { g.scrollIntoView({ block: 'start' }); g.classList.add('flash'); setTimeout(function () { g.classList.remove('flash'); }, 1600); }
+    else $('inspector').scrollTop = 0;
+  }
+  /** Go to a vertex from the Findings: select it and bring it into view without the panel turning to Details. */
+  function findKeep(id) { findGo(id, true); }
+
   function updateFindings() {
+    updateFindStrip();
     var box = $('anFindings');
     if (!state.graph.nodes.size) { box.textContent = ''; findingsFor = null; detRefresh(); return; }
     var an = analysis(), byKind = {}, kinds, loaded = 0;
@@ -3288,15 +3417,28 @@
     kinds = Object.keys(byKind);
     function row(left, amt, title, fn, copyText, copyWhat) { var b = el('button', { type: 'button', 'class': 'linkrow', title: title, onclick: fn }, [left, el('span', { 'class': 'amt', text: amt })]); return copyText ? withCopy(b, copyText, copyWhat) : b; }
     function more(list, shown) { if (list.length > shown) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (list.length - shown) + ' more' })); }
+    function head(text, key) { return el('span', { 'class': 'lbl', text: text, 'data-group': key }); }
+    function walletRow(n) {
+      var k = KNOWN[n.address];
+      return row(el('span', { 'class': 'rowtext' }, [k.label, el('small', { 'class': 'mono', text: S.shortId(n.address, 6) })]), k.pack || 'built-in list', 'Select it and bring it into view', function () { findKeep(n.id); });
+    }
+    var sanc = [], known = [];
+    state.graph.nodes.forEach(function (n) { if (n.type === 'addr' && KNOWN[n.address]) { known.push(n); if (KNOWN[n.address].sanctions) sanc.push(n); } });
+    if (sanc.length) {
+      box.appendChild(head('Sanctions', 'sanctions'));
+      sanc.slice(0, 30).forEach(function (n) { box.appendChild(walletRow(n)); }); more(sanc, 30);
+      box.appendChild(el('p', { 'class': 'hint', text: 'A listing is that list\'s claim: select the wallet and open its source before relying on it.' }));
+    }
     if (kinds.length) {
-      box.appendChild(el('span', { 'class': 'lbl', text: 'Patterns' }));
+      box.appendChild(head('Patterns', 'patterns'));
       kinds.forEach(function (k) {
         var e = byKind[k], tag = el('span', { 'class': 'flagtag', text: FLAG_NAME[k] }); tag.style.color = e.f.color;
-        box.appendChild(row(tag, String(e.ids.length), 'Select these ' + e.ids.length + ' transactions', function () { selectIds(e.ids, FLAG_NAME[k] + ' transactions'); }));
+        var pr = row(tag, String(e.ids.length), 'Select these ' + e.ids.length + ' transactions', function () { holdRight++; selectIds(e.ids, FLAG_NAME[k] + ' transactions'); holdRight--; });
+        pr.setAttribute('data-group', k); box.appendChild(pr);
       });
     }
     if (an.chains.length) {
-      box.appendChild(el('span', { 'class': 'lbl', text: 'Possible peel chains' }));
+      box.appendChild(head('Possible peel chains', 'peel'));
       an.chains.slice(0, 6).forEach(function (ch) {
         box.appendChild(row(el('span', { text: ch.label + ' · ' + ch.ids.length + ' transactions' }), 'peeled ' + S.fmtBtc(ch.totalPeeled), 'Select the ' + ch.ids.length + ' transactions of this chain', function () { selectIds(ch.ids, 'transactions of ' + ch.label); }, ch.ids.map(plainId).join(NL), plural(ch.ids.length, 'transaction id')));
       });
@@ -3305,12 +3447,28 @@
     }
     var cl = an.clusters.list;
     if (cl.length) {
-      box.appendChild(el('span', { 'class': 'lbl', text: 'Address clusters' }));
+      box.appendChild(head('Address clusters', 'clusters'));
       cl.slice(0, 6).forEach(function (c) {
         var sw = el('span', { 'class': 'sw' }); sw.style.color = clusterColorOf(c);
         box.appendChild(row(el('span', { 'class': 'rowtext' }, [sw, ' ' + c.label + ' · ' + c.size + ' addresses']), c.txs.length + ' tx', 'Select the addresses of this cluster (they were spent together in ' + c.txs.length + ' transaction' + (c.txs.length === 1 ? '' : 's') + ')', function () { selectIds(c.addrs, 'addresses of ' + c.label); }, c.addrs.map(plainId).join(NL), plural(c.addrs.length, 'address', 'addresses')));
       });
       more(cl, 6);
+    }
+    {
+      var chg = []; an.tx.forEach(function (r, id) { if (r.change) chg.push({ id: id, c: r.change }); });
+      if (chg.length) {
+        box.appendChild(head('Change guesses', 'change'));
+        chg.slice(0, 30).forEach(function (x) {
+          box.appendChild(row(el('span', { 'class': 'rowtext' }, ['tx ', el('span', { 'class': 'mono', text: S.shortId(x.id.slice(3), 5) }), ' → output ' + x.c.vout]), x.c.confidence, 'Select the transaction and bring it into view: its details give the reasons', function () { findKeep(x.id); }));
+        });
+        more(chg, 30);
+        box.appendChild(el('p', { 'class': 'hint', text: 'Guesses from the shape of each transaction, not findings: follow both outputs before relying on one.' }));
+      }
+    }
+    if (known.length) {
+      box.appendChild(head('Known wallets', 'known'));
+      known.slice(0, 30).forEach(function (n) { box.appendChild(walletRow(n)); }); more(known, 30);
+      box.appendChild(el('p', { 'class': 'hint', text: 'On the built-in list or a label list you loaded. A name is somebody\'s claim, not proof.' }));
     }
     var sk = an.clusters.skipped;
     if (sk.coinjoin || sk.excluded) box.appendChild(el('p', { 'class': 'hint', text: (sk.coinjoin ? sk.coinjoin + ' CoinJoin-like transaction' + (sk.coinjoin === 1 ? '' : 's') : '') + (sk.coinjoin && sk.excluded ? ' and ' : '') + (sk.excluded ? sk.excluded + ' you excluded' : '') + ' not used to link addresses.' }));
@@ -3578,7 +3736,7 @@
       renderer.setPositions(state.layoutRes.pos, !!o.instant || !renderer.cur.size);
     }
     var visible = F.computeVisible(g, f, state.keep, focusOpt(), traceOnly(), hiddenOpt());
-    renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, axis: timeScaleOn() && state.layoutRes ? state.layoutRes.axis : marksOn() ? { mode: 'marks' } : null,
+    renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, lockX: lockedToTime, axis: timeScaleOn() && state.layoutRes ? state.layoutRes.axis : marksOn() ? { mode: 'marks' } : null,
                        range: { from: f.timeFrom, to: f.timeTo }, showLabels: state.showLabels, focusId: focusOpt() ? state.focus : null,
                        edgeLabel: state.edgeLabels ? edgeLabelFor : null,
                        handles: traceOn() ? handlesFor : null, handleMore: traceOn() ? handleSummary : null, seedIds: traceOn() ? new Set(state.trace.seeds) : null, noDim: traceOn(), labelAll: traceOn(), nodeNote: traceOn() ? traceNote : null,
@@ -4097,7 +4255,7 @@
     setGraph(new M.Graph()); state.keep = new Set(); state.pinned = new Map(); state.selected = new Set(); state.selectedEdge = null;
     state.filter.timeFrom = null; state.filter.timeTo = null; state.expandRange = null; syncExpandChip();
     state.focus = null; state.nav.reset();
-    state.trace = emptyTrace(); state.hidden = new Set(); state.hideUndo = []; state.hideRedo = []; state.arrange = 'columns';
+    state.trace = emptyTrace(); state.hidden = new Set(); state.hideUndo = []; state.hideRedo = []; state.arrange = DEFAULT_ARRANGE;
     try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the old hash stays, harmless */ }
     renderer.cur = new Map(); renderer.target = new Map(); renderer.anim = null;
     afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); store.del(SAVE_KEY); log('Workspace cleared');
@@ -4139,7 +4297,7 @@
       onSelect: function (id, additive) {
         if (!id) { state.selected = new Set(); state.selectedEdge = null; }
         else if (additive) { if (state.selected.has(id)) state.selected.delete(id); else state.selected.add(id); state.selectedEdge = null; }
-        else { state.selected = new Set([id]); state.selectedEdge = null; }
+        else { state.selected = new Set([id]); state.selectedEdge = null; moveHint(id); }
         syncSelection();
       },
       onSelectEdge: function (id) {
@@ -4247,7 +4405,7 @@
     $('stepLoad').addEventListener('click', function () { if (state.focus) expandNode(state.focus); });
     $('viaWallets').addEventListener('change', function () { state.viaWallets = this.checked; savePrefs(); renderStepBar(); });
     document.addEventListener('click', function (e) { if (!$('stepMenu').hidden && !$('stepbar').contains(e.target)) closeStepMenu(); });
-    $('sideCollapse').addEventListener('click', function () { setSideCollapsed(true); });
+    $('sideCollapse').addEventListener('click', function () { if (fullScr.on) setFullSide(false); else setSideCollapsed(true); });          // in full screen « closes the drawer and leaves the saved choice alone
     $('sideTab').addEventListener('click', function () { setSideCollapsed(false); });
     $('inspCollapse').addEventListener('click', function () { setInspCollapsed(true); });
     $('inspTab').addEventListener('click', function () { setInspCollapsed(false); });
@@ -4309,7 +4467,17 @@
       clearTimer = setTimeout(function () { delete b.dataset.armed; b.textContent = 'Clear'; }, 3000);
     });
     $('btnSide').addEventListener('click', function () { document.body.classList.toggle('side-open'); });
-    $('inspClose').addEventListener('click', function () { state.selected = new Set(); state.selectedEdge = null; syncSelection(); });
+    $('inspClose').addEventListener('click', function () {
+      if (rightView() === 'findings') { setInspCollapsed(true); return; }
+      state.selected = new Set(); state.selectedEdge = null; syncSelection();
+    });
+    $('tabDetails').addEventListener('click', function () { setRightTab('details'); });
+    $('tabFindings').addEventListener('click', function () { setRightTab('findings'); });
+    $('rpTabs').addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault(); var next = e.key === 'ArrowRight' ? 'findings' : 'details'; setRightTab(next); $(next === 'findings' ? 'tabFindings' : 'tabDetails').focus();
+    });
+    $('anOpenFindings').addEventListener('click', function () { openFindings(); });
 
     // source
     $('source').addEventListener('change', function () { state.source = this.value; applySourceUi(); makeClient(); savePrefs(); });
@@ -4386,7 +4554,7 @@
       if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); selectAllVisible(); return; }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) { if (copySelection()) e.preventDefault(); return; }
       if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selected.size) { e.preventDefault(); if (e.shiftKey) deleteIds(Array.from(state.selected)); else hideSelected(); } }
-      else if (e.key === 'Escape') { if (!$('stepMenu').hidden) closeStepMenu(); else if (state.boxMode) setBoxMode(false); else if (fullScr.on) setFullScreen(false); else { state.selected = new Set(); state.selectedEdge = null; syncSelection(); } }
+      else if (e.key === 'Escape') { if (!$('stepMenu').hidden) closeStepMenu(); else if (state.boxMode) setBoxMode(false); else if (fullSideOpen()) setFullSide(false); else if (fullScr.on) setFullScreen(false); else { state.selected = new Set(); state.selectedEdge = null; syncSelection(); } }
       else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
         var id = state.selected.size ? Array.from(state.selected)[0] : state.focus;
         if (id && state.graph.nodes.has(id)) { e.preventDefault(); openCtx(id, null, clientPosOf(id)); }
@@ -4398,7 +4566,7 @@
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && e.target === $('cv')) { e.preventDefault(); setFullScreen(false); findOpen(); }
       else if (mod) { /* a shortcut with Ctrl, Alt or Cmd held belongs to the browser */ }
       else if (e.key === 'b' || e.key === 'B') { setBoxMode(!state.boxMode); }
-      else if (e.key === 'c' || e.key === 'C') { setSideCollapsed(!state.sideCollapsed); }
+      else if (e.key === 'c' || e.key === 'C') { if (fullScr.on) setFullSide(!fullSideOpen()); else setSideCollapsed(!state.sideCollapsed); }
       else if (e.key === 'd' || e.key === 'D') { setInspCollapsed(!state.inspCollapsed); }
       else if (e.key === 't' || e.key === 'T') { setTbCollapsed(!state.tbCollapsed); }
       else if (e.key === 'f' || e.key === 'F') { renderer.fit(); }
@@ -4428,6 +4596,6 @@
     window.__booted = true;                                                    // the page started: the start-up error banner stays out of the way from here
   }
 
-  window.__hopline = { state: state, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, importPack: importPack, undoLoad: undoLoad, traceExpand: traceExpand, traceMakeGroup: traceMakeGroup, traceExpandGroup: traceExpandGroup, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
+  window.__hopline = { state: state, openFindings: openFindings, refresh: refresh, afterGraphChange: afterGraphChange, navigate: navigate, drawHistogram: drawHistogram, timeX: timeX, analysis: analysis, autoExpand: autoExpand, importPack: importPack, undoLoad: undoLoad, traceExpand: traceExpand, traceMakeGroup: traceMakeGroup, traceExpandGroup: traceExpandGroup, traceStart: traceStart, traceHideIds: traceHideIds, hideIds: hideIds, showIds: showIds, setSel: setSel, selectAllVisible: selectAllVisible, setArrange: setArrange, fiatOf: fiatOf, openCtx: openCtx, lookupArkham: lookupArkham, renderStepBar: renderStepBar, stepClick: stepClick, get renderer() { return renderer; } };   // read by the end-to-end tests
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }());

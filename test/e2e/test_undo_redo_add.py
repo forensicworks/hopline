@@ -45,6 +45,7 @@ def drag(page, node_id, dx, dy):
 
 def build_scene(page):
     open_query(page, NORMAL["txid"])
+    page.select_option("#traceArrange", "columns"); settle(page)                       # these tests were written around Columns; a trace starts in Timeline + force
     click_handle(page, NORMAL_ID, "right")
     click_handle(page, ROBINHOOD, "right")
 

@@ -92,7 +92,7 @@ def test_the_force_layout_leaves_room_for_the_shapes(fpage, mock):
 
 def test_a_trace_arranged_by_force_gets_proportional_sizes_under_auto(fpage, mock):
     chain(fpage, mock, hops=3)
-    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     assert max(r for r, _ in sizes(fpage).values()) <= 16.01
     fpage.select_option("#traceArrange", "force"); idle(fpage); settle(fpage)
     assert "area proportional" in legend(fpage)

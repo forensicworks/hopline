@@ -371,7 +371,7 @@ def test_delete_hides_the_selection_and_shift_delete_removes_it(page):
     click_node(page, NORMAL_ID)
     page.keyboard.press("Delete")
     assert counts(page)["nodes"] == 7 and counts(page)["vnodes"] < 7, "hidden, not deleted: still loaded"
-    assert page.is_hidden("#inspector")
+    assert page.is_hidden("#inspBody"), "nothing selected: no details (the panel may still show the findings)"
     page.keyboard.press("Control+z"); settle(page)
     assert counts(page)["vnodes"] == 7
     page.evaluate("(id) => window.__hopline.setSel([id])", NORMAL_ID); settle(page)      # (selected directly: a mouse click can land mid-refit when the machine is busy)

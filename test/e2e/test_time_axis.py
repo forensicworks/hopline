@@ -32,7 +32,7 @@ def chain(fpage, mock, length=8, hops=6, late=True, trace=False):
                                                         {"spent": True, "txid": tid(13), "vin": 0, "status": {"confirmed": True, "block_time": 1650000000 + 13 * 600}}]
     open_query(fpage, tid(10))
     if trace:
-        fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+        fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     fpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: %d, follow: 'all' })" % hops, "tx:" + tid(10)); idle(fpage); settle(fpage)
     fpage.click("#inspClose"); settle(fpage)
 
@@ -193,7 +193,7 @@ def test_the_ticks_follow_the_transactions_when_you_move_them(fpage, mock):
 def test_no_line_when_the_trace_shows_no_transaction_and_none_outside_a_trace(fpage, mock):
     from conftest import ADDRESS
     open_query(fpage, ADDRESS)
-    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     assert fpage.evaluate("() => [...window.__hopline.renderer.data.visible.nodes].every(id => id.startsWith('addr:'))")
     assert fpage.evaluate("() => window.__hopline.renderer.data.axis") is None and not fpage.evaluate("() => document.body.classList.contains('axis-on')")
     chain(fpage, mock, late=False, hops=3, trace=False)

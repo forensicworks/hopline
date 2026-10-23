@@ -25,6 +25,13 @@ def scene(fpage, mock, n=6):
     fpage.uncheck("#focusOn"); settle(fpage)
 
 
+def fold_panel(page):
+    """The findings panel opens by itself when something is found and takes room from the canvas; these tests measure zoom on the whole canvas."""
+    if page.is_visible("#inspCollapse"):
+        page.click("#inspCollapse")
+    settle(page)
+
+
 def zoom(page, k):
     page.evaluate("(k) => { const r = window.__hopline.renderer; r.zoomBy(k / r.view.k); }", k)
     page.wait_for_timeout(120)
@@ -62,6 +69,7 @@ def test_a_peel_chain_is_named_after_where_it_starts_and_its_steps_share_one_col
 
 def test_zoomed_out_the_flags_are_dots_and_zoomed_in_they_are_text(fpage, mock):
     scene(fpage, mock)
+    fold_panel(fpage)
     fpage.evaluate("() => window.__hopline.setSel([])")                                      # the selected vertex keeps its text; nothing else does
     zoom(fpage, 0.12)
     far = drawn(fpage)
@@ -92,6 +100,7 @@ def test_the_vertex_you_point_at_or_select_names_its_peel_chain_even_when_zoomed
 
 def test_each_kind_can_be_switched_off_and_the_choice_is_remembered(fpage, mock):
     scene(fpage, mock)
+    fold_panel(fpage)
     fpage.evaluate("() => window.__hopline.setSel([])")
     zoom(fpage, 0.6)
     assert any(x["t"].startswith("PEEL") for x in flag_texts(drawn(fpage)))
@@ -109,6 +118,7 @@ def test_each_kind_can_be_switched_off_and_the_choice_is_remembered(fpage, mock)
 
 def test_switching_the_flags_off_altogether_still_lists_what_was_found(fpage, mock):
     scene(fpage, mock)
+    fold_panel(fpage)
     fpage.evaluate("() => { document.getElementById('anFlags').closest('details').open = true; }")
     fpage.uncheck("#anFlags"); fpage.wait_for_timeout(150)
     d = drawn(fpage)

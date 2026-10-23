@@ -67,7 +67,7 @@ def test_the_details_panel_collapses_to_a_tab_that_names_the_selection(fpage):
     # nothing selected: no tab at all
     fpage.click("#inspCollapse"); fpage.click("#inspClose") if fpage.is_visible("#inspClose") else fpage.keyboard.press("Escape")
     fpage.keyboard.press("Escape")
-    assert fpage.is_hidden("#inspTab")
+    assert fpage.is_visible("#inspTab") and "Findings (1)" in fpage.inner_text("#inspTab"), "nothing selected: the tab names what is left, the findings (a change guess here)"
 
 
 def test_keyboard_toggles_and_the_choice_is_remembered(fpage):

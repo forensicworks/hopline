@@ -23,7 +23,7 @@ def no_js_errors(errors):
 def start(page, mock):
     busy_wallet(mock)
     open_query(page, W)
-    page.click("#layoutSeg [data-layout=trace]"); settle(page)
+    page.click("#layoutSeg [data-layout=trace]"); page.select_option("#traceArrange", "columns"); settle(page)
     page.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(page)
 
 
@@ -239,7 +239,7 @@ def test_many_small_outputs_of_a_transaction_can_be_one_vertex(fpage, mock):
                                   "vin": [{"txid": "cd" * 32, "vout": 0, "is_coinbase": False, "prevout": {"scriptpubkey_address": "bc1qsrc", "scriptpubkey_type": "v0_p2wpkh", "value": 9000000}}], "vout": outs}
     mock.routes["/tx/" + txid + "/outspends"] = [{"spent": False} for _ in outs]
     open_query(fpage, txid)
-    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     click_handle(fpage, "tx:" + txid, "right"); idle(fpage)
     fpage.locator("#ctxMenu .grouphead .groupone").click(); idle(fpage); settle(fpage)
     g = groups(fpage)
@@ -296,7 +296,7 @@ def test_other_arrangements_and_layouts_cope_with_a_group(fpage, mock):
     fpage.click("#layoutSeg [data-layout=flow]"); settle(fpage)
     assert GID not in shown(fpage), "outside the trace layout the graph is just the graph"
     assert len(groups(fpage)) == 1
-    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     assert GID in shown(fpage)
 
 

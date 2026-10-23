@@ -22,7 +22,7 @@ def start(page, mock, trace=True):
     busy_wallet(mock)
     open_query(page, W)
     if trace:
-        page.click("#layoutSeg [data-layout=trace]"); settle(page)
+        page.click("#layoutSeg [data-layout=trace]"); page.select_option("#traceArrange", "columns"); settle(page)
         page.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(page)
 
 

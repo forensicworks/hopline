@@ -78,6 +78,7 @@
     this.handleRects = [];                    // expand handles drawn this frame (trace layout): {id, dir, x, y, w, h, tip}
     this.autoFit = false;                     // true while the view is the result of fit(): it is then refitted when the canvas changes size
     this.selected = new Set();
+    this.beacon = null;                       // { ids, t0, ms }: vertices that say "here" for a few seconds (a breathing glow and a ring that spreads), see pulse()
     this.boxMode = false;                     // true: dragging the background draws a box that selects what it covers (Shift-drag does it either way)
     this.box = null;                          // the box being drawn: {x0, y0, x1, y1} in canvas pixels
     this.dirty = true;
@@ -116,7 +117,7 @@
 
   Renderer.prototype.invalidate = function () { this.dirty = true; };
 
-  /** d = { graph, visible, style, known, axis, range:{from,to}, showLabels } */
+  /** d = { graph, visible, style, known, axis, range:{from,to}, showLabels, lockX(id) -> true for a vertex that may only be dragged up and down (Shift frees it) } */
   Renderer.prototype.setData = function (d) { this.data = d; if (!d || !d.axis) this.axisPointer = null; this.dirty = true; };
 
   Renderer.prototype.setSelection = function (ids) { this.selected = new Set(ids || []); this.dirty = true; };
@@ -275,7 +276,7 @@
     try { this.canvas.setPointerCapture(e.pointerId); } catch (x) { /* synthetic events */ }
     if (hnd) { this.drag = { handle: hnd, start: pt, moved: false, shift: e.shiftKey || e.altKey }; return; }
     var h = this._pick(pt);
-    this.drag = { id: h.node, edge: h.edge, start: pt, last: pt, moved: false, view0: { x: this.view.x, y: this.view.y }, shift: e.shiftKey || e.ctrlKey || e.metaKey, box: !h.node && (e.shiftKey || this.boxMode) };
+    this.drag = { id: h.node, x0: h.node && this.cur.get(h.node) ? this.cur.get(h.node).x : null, edge: h.edge, start: pt, last: pt, moved: false, view0: { x: this.view.x, y: this.view.y }, shift: e.shiftKey || e.ctrlKey || e.metaKey, box: !h.node && (e.shiftKey || this.boxMode) };
   };
 
   Renderer.prototype._move = function (e) {
@@ -296,9 +297,11 @@
     if (!d.id) this.autoFit = false;                                  // the user is panning
     if (d.id) {
       var w = this._toWorld(pt), p = this.cur.get(d.id);
-      if (p) { p.x = w.x; p.y = w.y; }
-      var t = this.target.get(d.id); if (t) { t.x = w.x; t.y = w.y; }
-      this.canvas.style.cursor = 'grabbing';
+      var up = d.x0 != null && !e.shiftKey && this.data && typeof this.data.lockX === 'function' && this.data.lockX(d.id);      // x means time: only up and down, unless Shift is held
+      var nx = up ? d.x0 : w.x;
+      if (p) { p.x = nx; p.y = w.y; }
+      var t = this.target.get(d.id); if (t) { t.x = nx; t.y = w.y; }
+      this.canvas.style.cursor = up ? 'ns-resize' : 'grabbing';
     } else {
       this.view.x = d.view0.x + (pt.x - d.start.x); this.view.y = d.view0.y + (pt.y - d.start.y);
       this.canvas.style.cursor = 'grabbing';
@@ -342,9 +345,56 @@
       if (t >= 1) { this.anim = null; this.target = new Map(); }
       this.dirty = true;
     }
+    if (this.beacon) {                                                       // a pulse is running: draw it every frame, and stop it when its time is up
+      if (nowMs() - this.beacon.t0 > this.beacon.ms) { this.beacon = null; this.dirty = true; }
+      else if (!reducedMotion()) this.dirty = true;
+    }
     if (!this.dirty) return;
     this.dirty = false;
     this.draw();
+  };
+
+  function nowMs() { return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now(); }
+  function reducedMotion() { try { return !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { return false; } }
+
+  /**
+   * Say "here" about these vertices for a few seconds, so one can be found in a crowded graph: a glow that breathes and a ring that spreads out from each,
+   * drawn on top of everything and never smaller than a few pixels, so a vertex that is tiny at this zoom is still a beacon. With "reduce motion" set in the
+   * system the ring and the glow stand still. At most 300 vertices; none clears it.
+   */
+  Renderer.prototype.pulse = function (ids, ms) {
+    var list = Array.from(ids || []).slice(0, 300);
+    this.beacon = list.length ? { ids: list, t0: nowMs(), ms: ms || 3600 } : null;
+    this.dirty = true;
+  };
+
+  Renderer.prototype._drawBeacon = function () {
+    var b = this.beacon, d = this.data; if (!b || !d) return;
+    var t = nowMs() - b.t0, moving = !reducedMotion();
+    var env = moving ? Math.max(0, Math.min(1, t / 180, (b.ms - t) / 500)) : 1;                  // eases in and out; standing still it is simply there until its time is up
+    var ctx = this.ctx, s = this._scale(), self = this, many = b.ids.length > 40, TAU = Math.PI * 2;
+    var p = moving ? (t % 1200) / 1200 : 0.3;
+    var breath = moving ? 0.5 + 0.5 * Math.sin(p * TAU - Math.PI / 2) : 0.5;
+    ctx.save(); ctx.setLineDash([]);
+    b.ids.forEach(function (id) {
+      if (!d.visible.nodes.has(id)) return;
+      var n = d.graph.nodes.get(id), c = self.cur.get(id); if (!n || !c) return;
+      var P = self._toScreen(c), r = Math.max(d.style.nodeRadius(n) * s, 6);
+      if (P.x < -70 || P.y < -70 || P.x > self.w + 70 || P.y > self.h + 70) return;
+      if (!many) {                                                                                // the breathing glow
+        var gr = r + 14 + 8 * breath, grad = ctx.createRadialGradient(P.x, P.y, r * 0.5, P.x, P.y, gr);
+        grad.addColorStop(0, 'rgba(255,210,63,' + (0.5 * env).toFixed(3) + ')'); grad.addColorStop(1, 'rgba(255,210,63,0)');
+        ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(P.x, P.y, gr, 0, TAU); ctx.fill();
+      }
+      [0, 0.5].slice(0, many || !moving ? 1 : 2).forEach(function (off) {                          // rings that spread out and fade
+        var q = (p + off) % 1, rr = r + 5 + q * 36;
+        ctx.beginPath(); ctx.arc(P.x, P.y, rr, 0, TAU);
+        ctx.lineWidth = 1 + 2.5 * (1 - q); ctx.strokeStyle = 'rgba(255,236,150,' + (Math.min(1, (moving ? 1 - q : 0.85)) * 0.95 * env).toFixed(3) + ')'; ctx.stroke();
+      });
+      ctx.beginPath(); ctx.arc(P.x, P.y, r + 5, 0, TAU);                                          // a steady bright ring close around it
+      ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(255,255,255,' + env.toFixed(3) + ')'; ctx.stroke();
+    });
+    ctx.restore();
   };
 
   function neighbourhood(graph, ids) {
@@ -603,6 +653,7 @@
       });
       ctx.textBaseline = 'alphabetic';
     }
+    if (this.beacon) this._drawBeacon();
     if (d.axis) this._drawAxisReadout(d, s);
     if (this.box) {                                                        // the selection box
       var bx = Math.min(this.box.x0, this.box.x1), by = Math.min(this.box.y0, this.box.y1), bw = Math.abs(this.box.x1 - this.box.x0), bh = Math.abs(this.box.y1 - this.box.y0);

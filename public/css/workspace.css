@@ -271,6 +271,15 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 
 #stage { flex: 1; position: relative; min-width: 0; background: var(--bg); }
 #cv { position: absolute; inset: 0 0 var(--tb) 0; width: 100%; height: calc(100% - var(--tb)); display: block; cursor: grab; }
+/* what was found: chips over the graph, above the counts; a click selects what they count */
+#findStrip { position: absolute; left: 10px; bottom: calc(var(--tb) + 86px); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: calc(100% - 130px); z-index: 4; }
+.findchip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12px; border-radius: 12px; background: rgba(28, 20, 29, 0.94); border: 1px solid var(--line); color: var(--text); cursor: pointer; }
+.findchip:hover, .findchip:focus-visible { border-color: var(--accent); }
+.findchip .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.findchip b { font-variant-numeric: tabular-nums; }
+.findchip.bad { border-color: #ff4d4f; color: #ff9a9a; background: rgba(60, 20, 24, 0.94); }
+.findchip.more { color: var(--accent); }
+#anCount, #detCount { font-weight: 400; color: var(--dim); }
 #hud { position: absolute; bottom: calc(var(--tb) + 58px); left: 10px; font-size: 12px; color: var(--dim); background: rgba(28,20,29,0.78); padding: 3px 8px; border-radius: 4px; pointer-events: none; }
 #zoomBtns { position: absolute; right: 12px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
 #zoomBtns button { width: 32px; height: 32px; padding: 0; font-size: 18px; line-height: 1; }
@@ -360,8 +369,17 @@ dl.kv dt { color: var(--dim); } dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 #findFoot { font-size: 11px; color: var(--dim); padding: 6px 4px 0; }
 
 /* Detections: every pattern found, oldest first */
-#side #detSection { border-bottom: 0; margin-top: 8px; }
-#side #detSection > summary { padding: 6px 0; font-size: 13px; }
+#detSection { border-bottom: 0; margin-top: 8px; }
+#detSection > summary { padding: 6px 0; font-size: 13px; font-weight: 700; cursor: pointer; }
+#findTitle { margin: 0 24px 2px 0; font-size: 16px; }
+.rptabs { display: flex; gap: 4px; margin: 0 52px 10px 0; }
+.rptabs[hidden] { display: none; }
+.rptabs button { padding: 3px 10px; font-size: 12.5px; border-radius: 12px; }
+.rptabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 700; border-color: var(--accent); }
+.rptabs output { font-weight: 400; }
+#findPane .lbl.flash, #findPane .linkrow.flash { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+#findPane .linkrow small { color: var(--dim); font-size: 11px; margin-left: 6px; }
+#anOpenFindings { margin-top: 6px; }
 #detCount { color: var(--accent); font-weight: normal; margin-left: 4px; }
 #detKinds { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
 #detKinds button { padding: 2px 8px; font-size: 11.5px; border-radius: 12px; }
@@ -396,7 +414,13 @@ body.trace-on #chainChip { top: 112px; }                              /* the tra
 .hint.ok { color: #6be675; }
 
 /* Full screen: the graph alone (the details panel still opens when something is selected) */
-body.canvas-full #top, body.canvas-full #side, body.canvas-full #sideTab, body.canvas-full #trail, body.canvas-full #restore, body.canvas-full #log { display: none !important; }
+body.canvas-full #top, body.canvas-full #sideTab, body.canvas-full #trail, body.canvas-full #restore, body.canvas-full #log { display: none !important; }
+/* the Controls stay one button away: the left panel slides over the graph and goes back with Esc */
+.full-only { display: none; }
+body.canvas-full .full-only { display: inline-flex; align-items: center; justify-content: center; }
+body.canvas-full #side { display: block !important; position: absolute; z-index: 26; top: 0; bottom: 0; left: 0; width: min(300px, 88vw); transform: translateX(-100%); visibility: hidden; transition: transform 0.15s, visibility 0s 0.15s; }
+body.canvas-full.full-side-open #side { transform: none; visibility: visible; transition: transform 0.15s; box-shadow: 4px 0 18px rgba(0, 0, 0, 0.55); }
+@media (prefers-reduced-motion: reduce) { body.canvas-full #side, body.canvas-full.full-side-open #side { transition: none; } }
 #fullBtn .exit { display: none; }
 #fullBtn[aria-pressed="true"] .enter { display: none; }
 #fullBtn[aria-pressed="true"] .exit { display: inline; }

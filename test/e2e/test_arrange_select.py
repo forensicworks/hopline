@@ -49,11 +49,13 @@ def kind(id_):
     return id_.split(":")[0]
 
 
-def traced(fpage, mock, length=8, hops=4):
-    """A trace of a peel chain: transactions 10.. with the wallets they paid, shown."""
+def traced(fpage, mock, length=8, hops=4, arrangement="columns"):
+    """A trace of a peel chain: transactions 10.. with the wallets they paid, shown. Most tests were written around Columns; arrangement=None leaves the one a trace starts in."""
     peel_chain(mock, length)
     open_query(fpage, tid(10))
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    if arrangement:
+        fpage.select_option("#traceArrange", arrangement); settle(fpage)
     fpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: %d, follow: 'all' })" % hops, "tx:" + tid(10)); idle(fpage); settle(fpage)
     return sorted(shown(fpage))
 
@@ -87,11 +89,14 @@ def box_for(page, take):
 
 
 # ---------------------------------------------------------------- arranging a trace
-def test_the_arrange_menu_belongs_to_a_trace_and_columns_is_where_it_starts(fpage):
+def test_the_arrange_menu_belongs_to_a_trace_and_timeline_plus_force_is_where_it_starts(fpage):
     open_query(fpage, NORMAL["txid"])
     assert fpage.is_hidden("#traceArrange") and fpage.is_hidden("#traceReset")
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
-    assert fpage.is_visible("#traceArrange") and fpage.input_value("#traceArrange") == "columns"
+    assert fpage.is_visible("#traceArrange") and fpage.input_value("#traceArrange") == "timeforce"
+    assert fpage.is_visible("#scaleRow"), "x is time, so the time scale choice matters"
+    assert fpage.evaluate("() => window.__hopline.renderer.data.axis.mode") != "marks", "a real scale along the top"
+    fpage.select_option("#traceArrange", "columns"); settle(fpage)
     assert fpage.is_hidden("#scaleRow"), "the time scale choice only matters once time is on an axis"
     assert fpage.evaluate("() => window.__hopline.renderer.data.axis.mode") == "marks", "Columns is not a time scale, but its transactions carry timestamps along the top"
 

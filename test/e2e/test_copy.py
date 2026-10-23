@@ -3,7 +3,7 @@ import pytest
 
 from chains import addr, consolidation, tid
 from conftest import ADDRESS, NORMAL
-from helpers import click_node, idle, open_query, settle, toast_text, xy
+from helpers import click_node, idle, open_query, settle, show_findings, toast_text, xy
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
 OUT_ADDRS = [o["scriptpubkey_address"] for o in NORMAL["vout"]]
@@ -217,6 +217,7 @@ def test_the_rows_in_the_analysis_findings_copy_all_the_ids_of_a_chain_and_a_clu
     open_query(fpage, tid(10))
     capture(fpage)
     fpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: 5, follow: 'largest' })", "tx:" + tid(10)); idle(fpage); settle(fpage)
+    show_findings(fpage)
     row = fpage.locator("#anFindings .rowcopy:has(.linkrow[title^='Select the 6 transactions'])")
     assert row.count() == 1, fpage.inner_text("#anFindings")
     row.locator(".copybtn").click()

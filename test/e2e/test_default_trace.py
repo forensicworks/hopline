@@ -33,6 +33,7 @@ def positions(page):
 def build_scene(page):
     """The scene of the README screenshot: the first transaction traced forward, then the wallets it pays and funds."""
     open_query(page, NORMAL["txid"])
+    page.select_option("#traceArrange", "columns"); settle(page)                          # the scene was built in Columns; a trace starts in Timeline + force
     click_handle(page, NORMAL_ID, "right")
     click_handle(page, ROBINHOOD, "right")
     click_handle(page, "addr:" + ADDRESS, "right")

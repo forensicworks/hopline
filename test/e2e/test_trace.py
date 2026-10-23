@@ -54,7 +54,7 @@ def click_handle(page, id_, dir_, shift=False):
 
 def start_trace(page, query=NORMAL["txid"]):
     open_query(page, query)
-    page.click("#layoutSeg [data-layout=trace]")
+    page.click("#layoutSeg [data-layout=trace]"); page.select_option("#traceArrange", "columns")
     settle(page)
 
 
@@ -183,7 +183,7 @@ def test_a_long_list_is_shown_in_batches_with_a_counter(fpage, mock):
     mock.routes["/tx/" + txid + "/outspends"] = [{"spent": False} for _ in outs]
     open_query(fpage, txid)
     fpage.evaluate("() => { window.__hopline.state.capTx = 10; window.__hopline.state.stepMode = 'all'; }")       # the old behaviour: everything up to the limit per click
-    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     assert handle(fpage, "tx:" + txid, "right")["label"] == "40"
     click_handle(fpage, "tx:" + txid, "right"); idle(fpage)
     assert len(shown(fpage)) == 11 and handle(fpage, "tx:" + txid, "right")["label"] == "30"
@@ -197,7 +197,7 @@ def test_a_long_list_is_shown_in_batches_with_a_counter(fpage, mock):
 
 def test_starting_from_a_wallet_shows_counts_taken_from_its_history(fpage):
     open_query(fpage, ADDRESS)
-    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     me = "addr:" + ADDRESS
     assert shown(fpage) == {me}
     left, right = handle(fpage, me, "left"), handle(fpage, me, "right")
@@ -211,7 +211,7 @@ def test_starting_from_a_wallet_shows_counts_taken_from_its_history(fpage):
 def test_nothing_further_is_explained_not_ignored(fpage, mock):
     open_query(fpage, COINBASE["txid"])
     fpage.evaluate("() => { window.__hopline.state.stepMode = 'all'; }")                  # this is about what is said when there is nothing to show, not about asking
-    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     cb = "cb:" + COINBASE["txid"]
     click_handle(fpage, "tx:" + COINBASE["txid"], "left"); idle(fpage)
     assert cb in shown(fpage)
@@ -275,7 +275,7 @@ def test_switching_layouts_keeps_the_trace_and_shows_everything_in_the_others(fp
     assert len(shown(fpage)) > len(traced) and fpage.is_visible("#traceBar"), "the selection tools stay"
     assert fpage.is_hidden("#traceArrange") and fpage.is_hidden("#traceReset"), "but the trace-only parts of the bar go"
     assert fpage.is_enabled("#focusOn")
-    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     assert shown(fpage) == traced
 
 
@@ -464,7 +464,7 @@ def many_outputs(mock, n=40):
 def test_shift_click_on_a_handle_lets_you_choose_which_to_show(fpage, mock):
     tx, outs = many_outputs(mock)
     open_query(fpage, tx[3:])
-    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     click_handle(fpage, tx, "right", shift=True)
     assert fpage.is_visible("#ctxMenu .chooser")
     boxes = fpage.locator("#ctxMenu .chooser input[type=checkbox]")
@@ -484,7 +484,7 @@ def test_shift_click_on_a_handle_lets_you_choose_which_to_show(fpage, mock):
 def test_the_chooser_works_from_the_menu_and_can_be_cancelled(fpage, mock):
     tx, outs = many_outputs(mock, 12)
     open_query(fpage, tx[3:])
-    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    fpage.click("#layoutSeg [data-layout=trace]"); fpage.select_option("#traceArrange", "columns"); settle(fpage)
     p = xy(fpage, tx); fpage.mouse.click(p["x"], p["y"], button="right")
     fpage.click("#ctxMenu >> text=Choose what to show ▶…")
     assert fpage.is_visible("#ctxMenu .chooser")

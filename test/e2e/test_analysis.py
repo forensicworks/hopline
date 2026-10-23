@@ -6,7 +6,7 @@ import pytest
 
 from chains import IN, OUT, addr, coinjoin, consolidation, peel_chain, reuse_change, tid, tx, unclear_change
 from conftest import shot
-from helpers import click_node, idle, open_query, settle, toast_text, xy
+from helpers import click_node, idle, open_query, settle, show_findings, toast_text, xy
 
 AMBER = "#ff9f43"
 
@@ -69,7 +69,7 @@ def auto(page, **kw):
 
 
 def go_trace(page):
-    page.click("#layoutSeg [data-layout=trace]")
+    page.click("#layoutSeg [data-layout=trace]"); page.select_option("#traceArrange", "columns")
     settle(page)
 
 
@@ -155,6 +155,7 @@ def test_addresses_spent_together_form_a_cluster_with_rings_a_list_and_details(f
     colours = {fpage.evaluate("(id) => window.__hopline.renderer.data.clusterColor(id)", m) for m in members}
     assert len(colours) == 1 and None not in colours, "one colour for the whole cluster"
     assert fpage.evaluate("(id) => window.__hopline.renderer.data.clusterColor(id)", "addr:" + addr("sink")) is None
+    show_findings(fpage)
     assert "c1 · 6 addresses" in low(fpage, "#anFindings")
     fpage.click("#anFindings button:has-text('C1')"); settle(fpage)
     assert set(fpage.evaluate("() => [...window.__hopline.state.selected]")) == set(members)

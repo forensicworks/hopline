@@ -1,6 +1,11 @@
 """Small helpers shared by the workspace end-to-end tests."""
 
 
+def show_findings(page):
+    """The right-hand panel has two views when something is selected (Details and Findings): turn it to the Findings, opening it if it was folded."""
+    page.evaluate("() => window.__hopline.openFindings()")
+
+
 def idle(page, timeout=15000):
     """Wait until no action is running and the layout animation has finished."""
     page.wait_for_function("() => !window.__hopline.state.busy && !window.__hopline.renderer.anim", timeout=timeout)

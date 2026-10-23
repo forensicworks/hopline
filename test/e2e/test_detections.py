@@ -4,7 +4,7 @@ import time
 import pytest
 
 from chains import peel_chain, tid
-from helpers import idle, open_query, settle
+from helpers import idle, open_query, settle, show_findings
 from test_pattern_flags import CHAIN_LABEL, scene
 from test_trace import shown
 
@@ -16,6 +16,7 @@ def no_js_errors(errors):
 
 
 def open_list(page):
+    show_findings(page)
     page.evaluate("() => { document.getElementById('anSection').open = true; document.getElementById('detSection').open = true; }")
     page.wait_for_selector("#detList .detrow")
 
@@ -87,6 +88,7 @@ def test_every_peel_chain_is_listed_not_only_the_first_six(fpage, mock):
     chains = an.split("possible peel chains")[1].split("address clusters")[0]
     assert "all 8 chains in the detections list" in chains and "… and" not in chains, "the short list says where the rest is"
     assert chains.count(" · 4 transactions") == 6, "six are shown there"
+    show_findings(fpage)
     fpage.click("#anFindings button:has-text('All 8 chains')")
     assert fpage.evaluate("() => document.getElementById('detSection').open")
     fpage.wait_for_selector("#detList .detrow")
@@ -176,10 +178,12 @@ def test_the_list_follows_the_workspace(fpage, mock):
     fpage.wait_for_timeout(100)
     assert rows(fpage) == [] and "Load transactions" in fpage.inner_text("#detFoot") and fpage.inner_text("#detCount") == ""
     scene(fpage, mock)
+    show_findings(fpage)
     fpage.wait_for_selector("#detList .detrow")
     assert len(rows(fpage)) == 8 and "(8)" in fpage.inner_text("#detCount")
     delete(fpage, "tx:" + tid(30))
     assert len(rows(fpage)) == 7 and [c["text"] for c in chips(fpage)] == ["All 7", "PEEL 6", "COINJOIN? 1"], "a kind that is gone loses its button"
+    show_findings(fpage)
     fpage.click("#detKinds button:has-text('COINJOIN')")
     delete(fpage, "tx:" + tid(50))
     assert chips(fpage)[0]["on"] and len(rows(fpage)) == 6, "when the chosen kind is gone the list goes back to All"
