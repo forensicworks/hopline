@@ -361,6 +361,7 @@ window.addEventListener('error', function (e) {
       <div class="sec">
         <label class="check"><input type="checkbox" id="persist" checked> Keep this session in this browser</label>
         <p class="hint">Saves the graph with your labels and notes in the browser's local storage, unencrypted, so a reload does not lose work. Untick it on a shared machine; unticking deletes what was saved. Export is always explicit.</p>
+        <p class="hint" data-counter hidden>This site counts visits: which page is opened and which features are used, by name only. Addresses, transaction IDs, labels and notes are never part of it, no cookies are set, and a browser that sends Do Not Track is not counted.</p>
       </div>
     </details>
 
@@ -441,7 +442,7 @@ window.addEventListener('error', function (e) {
       <h2>Follow the money</h2>
       <p>Paste a transaction id or an address above.</p>
       <p><button type="button" id="sample" class="primary">Try a sample transaction</button> <button type="button" id="emptyImport">Open a workspace file</button></p>
-      <p class="hint">Everything runs in your browser. The only network traffic is to the data source you choose.</p>
+      <p class="hint">Everything runs in your browser. Look-ups go to the data source you choose.</p>
     </div>
     <div id="chainChip" hidden role="status"><span id="chainChipName"></span><span id="chainChipText"></span><button type="button" id="chainChipClear" class="icon-only" aria-label="Clear the chain highlight" title="Clear the highlight">×</button></div>
     <div id="tooltip" role="tooltip" hidden></div>
@@ -501,6 +502,7 @@ window.addEventListener('error', function (e) {
 
 <details id="log"><summary>Activity log <span id="logCount"></span></summary><ul id="logList"></ul></details>
 
+<script src="config.js"></script>
 <script src="js/hopline-address.js"></script>
 <script src="js/hopline-tags.js"></script>
 <script src="js/hopline-external.js"></script>
@@ -524,6 +526,7 @@ window.addEventListener('error', function (e) {
 <script src="js/hopline-report.js"></script>
 <script src="js/hopline-nav.js"></script>
 <script src="data/known-addresses.js"></script>
+<script src="js/hopline-stats.js"></script>
 <script src="js/workspace.js"></script>
 </body>
 </html>

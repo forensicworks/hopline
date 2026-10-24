@@ -247,8 +247,8 @@ def test_a_mistyped_search_says_what_is_wrong_and_stays_put(wpage):
 
 def test_without_a_question_it_asks_for_an_address(wpage):
     wpage.goto(WALLET_URL)
-    wpage.wait_for_function("() => document.getElementById('message').textContent.length > 0")
-    assert "Enter a Bitcoin address" in wpage.inner_text("#message") and wpage.is_hidden("#head")
+    wpage.wait_for_selector("#empty:not([hidden])")
+    assert "Paste a Bitcoin address" in wpage.inner_text("#empty") and wpage.is_hidden("#head") and wpage.is_hidden("#message")
 
 
 def test_when_mempool_space_throttles_blockstream_answers_and_the_page_says_where_it_got_the_data(wpage, mock):

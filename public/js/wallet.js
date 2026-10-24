@@ -80,6 +80,7 @@
     b.appendChild(copyIcon());
     return b;
   }
+  var SAMPLE = 'bc1qq2euq8pw950klpjcawuy4uj39ym43hs6cfsegq';                       // the wallet "Try a sample wallet" opens: a real one with a short history
   function walletHref(a) { return 'wallet.html?q=' + encodeURIComponent(a); }
   function explorerOrigin() {
     if (choice.source === 'tor') return A.ONION.replace(/\/api$/, '');
@@ -684,6 +685,7 @@
   }
 
   function csv() {
+    if (window.HoplineStats) window.HoplineStats.hit('wallet-csv');
     var cur = state.fiat.currency, opts = {};
     if (fiatOn()) opts = { currency: cur, fiat: function (sats, time) { var x = fx(sats, time); return x ? { value: PR.plain(x.value, cur), price: String(Math.round(x.rate.price * 100) / 100) } : null; } };
     var blob = new Blob([String.fromCharCode(0xFEFF) + W.csv(state.led.rows, opts)], { type: 'text/csv;charset=utf-8' });
@@ -718,7 +720,12 @@
     var addr = $('addr');
     addr.addEventListener('mouseenter', showQR); addr.addEventListener('mouseleave', hideQR); addr.addEventListener('focus', showQR); addr.addEventListener('blur', hideQR);
     var q = qs.get('q');
-    if (!q) { message('Enter a Bitcoin address above.'); return; }
+    $('sample').addEventListener('click', function () {
+      var stats = window.HoplineStats, go = function () { window.location.href = walletHref(SAMPLE); };
+      if (stats && stats.enabled) { stats.hit('sample-wallet'); setTimeout(go, 150); }                 // a page that is left at once may cancel the count that was just sent
+      else go();
+    });
+    if (!q) { $('empty').hidden = false; return; }
     $('q').value = q;
     var c = A.checkQuery(q);
     if (!c.ok) { message(c.message, true); return; }

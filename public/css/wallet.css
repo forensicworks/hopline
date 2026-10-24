@@ -52,6 +52,9 @@ h2 { font-size: 16px; margin: 22px 0 6px; }
 .copybtn.done { color: #6be675; border-color: #6be675; }
 #qrfloat { position: fixed; right: 16px; top: 70px; background: #fff; padding: 8px; border-radius: 6px; z-index: 10; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6); }
 
+#empty { max-width: 440px; margin: 56px auto; padding: 0 8px; text-align: center; }
+#empty h2 { margin: 0 0 8px; font-weight: 600; }
+#empty p { margin: 8px 0; }
 #message { margin: 12px 0; padding: 9px 12px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 5px; background: var(--panel); }
 #message.bad { border-left-color: var(--danger); color: var(--danger); }
 #message button { margin-left: 10px; }

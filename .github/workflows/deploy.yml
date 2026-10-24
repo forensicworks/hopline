@@ -1,0 +1,54 @@
+# Publishes the site to Cloudflare Pages on every push to master, after the tests pass. Only the folder tools/build_site.py writes is uploaded
+# (Direct Upload): index.html, public/, LICENSE and NOTICE. Cloudflare never reads this repository.
+#
+# First create the Pages project once (Workers & Pages > Create > Pages > Upload assets, or `npx wrangler pages project create hopline
+# --production-branch master`), with the name given in PAGES_PROJECT below.
+#
+# Needs (Settings > Secrets and variables > Actions):
+#   secret   CLOUDFLARE_API_TOKEN   a Custom Token with Account > Cloudflare Pages > Edit, limited to your account
+#   secret   CLOUDFLARE_ACCOUNT_ID  the account id shown in the Cloudflare dashboard
+#   variable GOATCOUNTER_CODE       optional: your GoatCounter site code; left empty, visits are not counted
+name: Deploy site
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  deployments: write
+
+env:
+  PAGES_PROJECT: hopline        # the name of the Pages project: its address is https://<name>.pages.dev
+  PAGES_BRANCH: master          # must be the project's production branch, or the upload is only a preview
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Unit tests
+        run: node --test test/*.test.js
+
+      - name: Tool tests
+        run: python3 -m pip install --quiet pytest && python3 -m pytest test/tools -q
+
+      - name: Build the site folder
+        env:
+          GOATCOUNTER_CODE: ${{ vars.GOATCOUNTER_CODE }}
+        run: python3 tools/build_site.py --out site --stats-code "$GOATCOUNTER_CODE" --version "${GITHUB_SHA::7}"
+
+      - name: Upload to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          command: pages deploy site --project-name=${{ env.PAGES_PROJECT }} --branch=${{ env.PAGES_BRANCH }} --commit-hash=${{ github.sha }}

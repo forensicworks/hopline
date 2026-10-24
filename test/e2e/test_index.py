@@ -60,7 +60,8 @@ def test_the_two_cards_open_the_two_pages(ipage):
     assert hrefs == ["public/workspace.html", "public/wallet.html"]
     ipage.click(".card:has-text('Wallet overview')")
     ipage.wait_for_url("**/public/wallet.html")
-    assert "Enter a Bitcoin address" in ipage.inner_text("#message")
+    ipage.wait_for_selector("#empty:not([hidden])")
+    assert "Paste a Bitcoin address" in ipage.inner_text("#empty")
 
 
 def test_the_brand_link_in_both_pages_comes_back_here(ctx, ipage):

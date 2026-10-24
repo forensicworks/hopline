@@ -23,6 +23,9 @@
     blockstream:{ label: 'Blockstream.info',                   base: 'https://blockstream.info/api',  concurrency: 3, delayMs: 250, timeoutMs: 25000, retries: 3, prices: MEMPOOL },
     custom:     { label: 'My own Esplora URL',                 base: '',                              concurrency: 4, delayMs: 150, timeoutMs: 30000, retries: 3, prices: null }
   };
+  // A published copy (public/config.js: hosted) does not offer Tor: an .onion address cannot be reached from an https page in an ordinary browser.
+  // Every place that checks a saved or requested source against PRESETS then treats "tor" as unknown and uses mempool.space.
+  if (typeof self !== 'undefined' && self.HOPLINE_CONFIG && self.HOPLINE_CONFIG.hosted) delete PRESETS.tor;
 
   // ---- a key for a server, and the pace for your own ---------------------------------------------------------
   var DEFAULT_PACE = { concurrency: 8, delayMs: 20 };                          // your own server can take more than the public ones (4 at once, 150 ms apart)

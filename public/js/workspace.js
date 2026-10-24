@@ -13,6 +13,8 @@
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
   var SAVE_KEY = 'hopline.workspace.v1', PREF_KEY = 'hopline.prefs.v1', TOKEN_KEY = 'hopline.ext.token', PACKS_KEY = 'hopline.packs.v1', KEYS_KEY = 'hopline.keys.v1';
   var ARRANGE = { columns: 1, flow: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 }, DEFAULT_ARRANGE = 'columns';
+  var HOSTED = !!(window.HOPLINE_CONFIG && window.HOPLINE_CONFIG.hosted);                 // a published copy: see public/config.js
+  function stat(name) { if (window.HoplineStats) window.HoplineStats.hit(name); }          // counts that a feature was used, by name only (public/js/hopline-stats.js)
   var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SIZES = { auto: 1, area: 1, log: 1 }, SCALES = { compact: 1, proportional: 1 };
 
   function $(id) { return document.getElementById(id); }
@@ -47,7 +49,7 @@
   var state = {
     graph: new M.Graph(), layout: 'trace', colorBy: 'type', sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
     keep: new Set(), pinned: new Map(), selected: new Set(), selectedEdge: null,
-    source: 'clearnet', fallback: true, customBase: '', keys: {}, keyRemember: false, pace: { concurrency: 8, delayMs: 20 }, capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: true,
+    source: 'clearnet', fallback: true, customBase: '', keys: {}, keyRemember: false, pace: { concurrency: 8, delayMs: 20 }, capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: !HOSTED,
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
@@ -208,7 +210,7 @@
       if (state.keyRemember) loadKeys();
       state.capTx = num(p.capTx, 1, 500, 25); state.capReq = num(p.capReq, 1, 1000, 80); state.capPages = num(p.capPages, 1, 20, 2);
       state.showLabels = p.showLabels !== false;
-      state.persist = p.persist !== false;
+      state.persist = typeof p.persist === 'boolean' ? p.persist : !HOSTED;                  // on a published copy the session is kept only when the visitor ticks it
       state.focusOn = p.focusOn !== false; state.hops = num(p.hops, 1, 3, 2);
       state.fiat = cleanFiat(p.fiat);
       state.sideCollapsed = p.sideCollapsed === true; state.inspCollapsed = p.inspCollapsed === true; state.tbCollapsed = p.tbCollapsed === true;
@@ -509,6 +511,7 @@
   /** Begin again from one vertex: only it is shown. */
   function traceStart(id) {
     var T = state.trace;
+    stat('trace-start');
     T.seed = id; T.seeds = [id]; T.shown = new Set([id]); T.pos = new Map([[id, { x: 0, y: 0 }]]); T.prov = new Map(); T.undo = []; T.redo = []; T.groups = new Map(); T.seq = 0;
     state.keep.add(id);
   }
@@ -2954,7 +2957,7 @@
     var replaced = state.packs.filter(function (p) { return p.name === r.name; }).length;
     state.packs = state.packs.filter(function (p) { return p.name !== r.name; }).slice(0, 19);
     var pack = { id: 'p' + Date.now().toString(36), name: r.name, source: r.source, enabled: true, sanctions: r.sanctions === true, entries: r.entries, stored: true, index: new Set(r.entries.map(function (e) { return e.address; })) };
-    state.packs.push(pack);
+    state.packs.push(pack); stat('labels-imported');
     rebuildKnown(); savePacks(); renderPacks(); refresh(); showInspector(true);
     var s = r.skipped, left = [];
     if (s.invalid) left.push(s.invalid + ' failed the address checksum');
@@ -3648,6 +3651,7 @@
     if (!n || (n.type !== 'tx' && n.type !== 'addr')) { toast('Select a transaction or a wallet to expand from.'); return Promise.resolve(false); }
     if (traceOn() && !state.trace.shown.has(id)) { toast('That vertex is not on screen: show it first.'); return Promise.resolve(false); }
     var dir = o.dir === 'prev' ? 'prev' : 'next', sopts = successorOpts(o), walk = null;
+    stat('auto-follow');
     var title = 'Auto-expand ' + (dir === 'next' ? 'forward' : 'backward') + ' from ' + S.shortId(n.type === 'tx' ? n.txid : n.address, 6);
     return run(title, function () {
       var ex = state.explorer, total = { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] };
@@ -4160,7 +4164,7 @@
                   known: function (a) { return KNOWN[a] || null; }, fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {
-      download('hopline-report-' + stamp() + '.html', r.html, 'text/html;charset=utf-8');
+      download('hopline-report-' + stamp() + '.html', r.html, 'text/html;charset=utf-8'); stat('report');
       toast('Report written: ' + plural(loadedTx, 'transaction') + ', ' + plural(base.edges.length, 'movement') + '. SHA-256 of its evidence: ' + r.hash.slice(0, 16) + '…', false);
       log('Report SHA-256 ' + r.hash);
       return true;
@@ -4187,7 +4191,7 @@
     var g = state.graph;
     if (!g.nodes.size) { toast('Nothing to export yet.', true); return; }
     if (kind === 'report') { $('exportMenu').open = false; doReport(); return; }
-    g.refreshDerived();
+    g.refreshDerived(); stat('export-' + kind);
     var only = $('exportVisible').checked ? F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()) : null;
     if (only && kind === 'json' && traceOn()) only = withGroupMembers(only);
     var name = 'hopline-' + stamp();
@@ -4312,6 +4316,7 @@
       onBox: function (ids, additive) { setSel(additive ? Array.from(state.selected).concat(ids) : ids); },
       onExpand: function (id) { if (traceOn() && state.trace.groups.has(id)) traceExpandGroup(id, { limit: state.stepSize }); else if (traceOn()) traceExpand(id, 'next'); else if (state.focusOn) navigate(id); else expandNode(id, 'both'); }
     });
+    if (!A.PRESETS.tor) { var torOpt = document.querySelector('#source option[value="tor"]'); if (torOpt) torOpt.remove(); }          // a published copy does not offer Tor
     loadPrefs();
     makeClient();
     $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
@@ -4449,7 +4454,7 @@
     wireFullScreen();
     $('zoomOut').addEventListener('click', function () { renderer.zoomBy(1 / 1.3); });
     $('cancel').addEventListener('click', function () { state.client.abort(); });
-    $('sample').addEventListener('click', function () { $('q').value = SAMPLE; openQuery(SAMPLE); });
+    $('sample').addEventListener('click', function () { stat('sample'); $('q').value = SAMPLE; openQuery(SAMPLE); });
     $('emptyImport').addEventListener('click', function () { $('fileImport').click(); });
     $('btnImport').addEventListener('click', function () { $('fileImport').click(); });
     $('fileImport').addEventListener('change', function () {

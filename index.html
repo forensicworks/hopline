@@ -28,7 +28,7 @@
 <body>
 <main>
   <h1><img class="logo" src="public/logo-96.png" alt="" width="44" height="44">Hopline <span>— Bitcoin investigation tools</span></h1>
-  <p class="lead">Follow money through the chain in your browser. Nothing is installed and nothing is stored on a server: the pages ask a public block explorer API (or your own) and keep your work on your machine.</p>
+  <p class="lead">Follow money through the chain in your browser. Nothing is installed and none of your work is stored on a server: the pages ask a public block explorer API (or your own) and keep your work on your machine.</p>
   <form id="go" autocomplete="off">
     <label class="sr" for="q">Bitcoin address or transaction ID</label>
     <input id="q" type="text" placeholder="Bitcoin address or transaction ID" spellcheck="false" autofocus>
@@ -40,7 +40,10 @@
     <a class="card" href="public/wallet.html"><h2>Wallet overview</h2><p>One address as a ledger: balance, totals, every transaction with its inputs and outputs, the labelled wallets it dealt with, and a CSV download.</p></a>
   </div>
   <p class="hint">A transaction ID opens in the workspace, an address as a wallet overview. Working name; it will change.</p>
+  <p class="hint" data-counter hidden>This site counts visits: which page is opened and which features are used, by name only. Addresses, transaction IDs, labels and notes are never part of it, no cookies are set, and a browser that sends Do Not Track is not counted. Counting is done by <a href="https://www.goatcounter.com" target="_blank" rel="noopener noreferrer">GoatCounter</a>.</p>
 </main>
+<script src="public/config.js"></script>
+<script src="public/js/hopline-stats.js"></script>
 <script>
 (function () {
   var form = document.getElementById('go'), q = document.getElementById('q'), err = document.getElementById('err');

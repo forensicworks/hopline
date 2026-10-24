@@ -9,3 +9,7 @@ test/e2e/shots/
 /SDN*.xml
 /SDN*.zip
 /ofac*.json
+
+# the folder tools/build_site.py writes for publishing, and wrangler's scratch folder
+/site/
+.wrangler/
