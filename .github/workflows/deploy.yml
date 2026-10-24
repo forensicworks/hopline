@@ -8,6 +8,7 @@
 #   secret   CLOUDFLARE_API_TOKEN   a Custom Token with Account > Cloudflare Pages > Edit, limited to your account
 #   secret   CLOUDFLARE_ACCOUNT_ID  the account id shown in the Cloudflare dashboard
 #   variable GOATCOUNTER_CODE       optional: your GoatCounter site code; left empty, visits are not counted
+#   variable PAGES_BRANCH           optional: the Pages project's production branch, if it is not master
 name: Deploy site
 
 on:
@@ -25,7 +26,7 @@ permissions:
 
 env:
   PAGES_PROJECT: hopline        # the name of the Pages project: its address is https://<name>.pages.dev
-  PAGES_BRANCH: master          # must be the project's production branch, or the upload is only a preview
+  PAGES_BRANCH: ${{ vars.PAGES_BRANCH || 'master' }}    # must be the project's production branch, or the upload is only a preview (the variable PAGES_BRANCH changes it)
 
 jobs:
   deploy:
@@ -51,4 +52,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          command: pages deploy site --project-name=${{ env.PAGES_PROJECT }} --branch=${{ env.PAGES_BRANCH }} --commit-hash=${{ github.sha }}
+          command: pages deploy site --project-name=${{ env.PAGES_PROJECT }} --branch=${{ env.PAGES_BRANCH }} --commit-hash=${{ github.sha }} --commit-dirty=true

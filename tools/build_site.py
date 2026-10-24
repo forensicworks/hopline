@@ -11,6 +11,7 @@ What the published copy differs in (everything else is the source, byte for byte
     with old scripts (static hosts let browsers keep files for minutes);
   * a _headers file (read by Cloudflare and Netlify, ignored elsewhere): no referrer is sent from the pages, content types are not guessed, and
     the pages cannot be shown inside another site's frame;
+  * a 404.html, so an address that does not exist is a 404 (Cloudflare Pages otherwise answers it with the landing page and status 200);
   * a .nojekyll file, so GitHub Pages serves the folder as it is.
 
 The output folder is emptied first, except a .git folder (so it can be a checkout of the repository that serves the site). It will not empty
@@ -33,6 +34,12 @@ HEADERS = """/*
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
   Content-Security-Policy: frame-ancestors 'none'
+"""
+NOT_FOUND = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not found - Hopline</title>
+<style>body{font:16px Calibri,Arial,sans-serif;background:#18121a;color:#eee;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+main{text-align:center;padding:16px}a{color:#aee7f8}</style></head>
+<body><main><h1>Not found</h1><p>There is no page at this address.</p><p><a href="/">Back to Hopline</a></p></main></body></html>
 """
 LOCAL_URL = re.compile(r'((?:src|href)=")((?:public/)?(?:config\.js|(?:js|css|data|lib)/[^"?#]+\.(?:js|css)))(")')
 
@@ -87,6 +94,8 @@ def build(out, stats_code=None, stats_endpoint=None, version=None):
                 f.write(html)
     with open(os.path.join(out, "_headers"), "w", encoding="utf-8", newline="\n") as f:
         f.write(HEADERS)
+    with open(os.path.join(out, "404.html"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(NOT_FOUND)
     open(os.path.join(out, ".nojekyll"), "w").close()
     return {"out": os.path.realpath(out), "stats": endpoint, "version": version}
 

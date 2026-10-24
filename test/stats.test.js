@@ -18,6 +18,8 @@ test('a page is counted under one of three fixed names, whatever its address say
   assert.equal(S.pagePath('/hopline/'), '/');
   assert.equal(S.pagePath('/hopline/public/wallet.html'), '/wallet');
   assert.equal(S.pagePath('/C:/Users/x/public/workspace.html'), '/workspace');
+  assert.equal(S.pagePath('/public/wallet'), '/wallet', 'a host that serves pages without .html');
+  assert.equal(S.pagePath('/public/workspace'), '/workspace'); assert.equal(S.pagePath('/index'), '/');
   assert.equal(S.pagePath('/hopline/public/other.html'), null);
   assert.equal(S.pagePath('/hopline/public/wallet.html/bc1qsecret'), null, 'an address-looking tail is not a page');
   assert.equal(S.pagePath('/constructor'), null); assert.equal(S.pagePath('/__proto__'), null);

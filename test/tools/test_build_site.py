@@ -18,7 +18,7 @@ def test_only_the_pages_are_published_and_the_copy_is_marked_hosted(tmp_path):
     out = tmp_path / "site"
     build_site.build(str(out))
     names = {p.name for p in out.iterdir()}
-    assert names == {"index.html", "LICENSE", "NOTICE", "public", ".nojekyll", "_headers"}, names
+    assert names == {"index.html", "LICENSE", "NOTICE", "public", ".nojekyll", "_headers", "404.html"}, names
     assert (out / "public" / "js" / "workspace.js").is_file() and (out / "public" / "workspace.html").is_file() and (out / "public" / "data" / "known-addresses.js").is_file()
     cfg = text(out / "public" / "config.js")
     assert '"hosted": true' in cfg and "stats" not in cfg, "no counting unless asked"

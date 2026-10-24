@@ -13,7 +13,7 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var PAGES = { '': '/', 'index.html': '/', 'wallet.html': '/wallet', 'workspace.html': '/workspace' };
+  var PAGES = { '': '/', 'index': '/', 'index.html': '/', 'wallet': '/wallet', 'wallet.html': '/wallet', 'workspace': '/workspace', 'workspace.html': '/workspace' };   // hosts that hide ".html" are covered
   var EVENT = /^[a-z][a-z0-9-]{0,39}$/;
 
   /** The counting address from the settings, or null: https only, and a plain path (no query, no hash, no credentials). */
