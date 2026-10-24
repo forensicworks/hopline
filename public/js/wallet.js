@@ -123,13 +123,13 @@
 
   function drawSummary() {
     var s = W.summary(state.stats), led = state.led, t = led.totals;
-    $('sBalance').textContent = ''; $('sBalance').appendChild(document.createTextNode(btc(s.balance)));
-    if (fiatOn()) { var bx = PR.amountOf({ currency: state.fiat.currency, basis: 'today' }, s.balance, null, fiatCtx()); if (bx) $('sBalance').appendChild(el('small', { text: bx.text + ' at today\'s price', title: bx.title })); }
-    $('sReceived').textContent = btc(s.received);
-    $('sSent').textContent = btc(s.sent);
+    setAmount($('sBalance'), s.balance, fxNow(s.balance), 'at today\'s price');
+    var rv = fxTotal(s.received, 'recv'), sn = fxTotal(s.sent, 'sent');
+    setAmount($('sReceived'), s.received, rv && rv.x, rv && rv.note);
+    setAmount($('sSent'), s.sent, sn && sn.x, sn && sn.note);
     var pend = $('sPending'); pend.textContent = '';
     if (!s.pendingCount) pend.textContent = 'none';
-    else { pend.appendChild(document.createTextNode(plural(s.pendingCount, 'transaction'))); pend.appendChild(el('small', { text: (s.pendingNet >= 0 ? '+' : '−') + btc(Math.abs(s.pendingNet)) + ' when confirmed' })); }
+    else { pend.appendChild(document.createTextNode(plural(s.pendingCount, 'transaction'))); pend.appendChild(el('small', { text: (s.pendingNet >= 0 ? '+' : '−') + amt(Math.abs(s.pendingNet), null) + ' when confirmed' })); }
     var c = $('sCount'); c.textContent = '';
     c.appendChild(document.createTextNode(String(s.txCount) + ' on chain'));
     c.appendChild(el('small', { text: state.txs.length + ' loaded' + (state.done ? ' (all)' : '') }));
@@ -140,12 +140,12 @@
 
   function drawAssoc() {
     var box = $('assoc'); box.textContent = '';
-    var list = state.led.assoc;
+    var list = state.led.assoc, fv = fxByWallet(new Set(list.map(function (a) { return a.address; })));
     $('assocSec').hidden = !list.length;
     list.forEach(function (a) {
-      var nums = [];
-      if (a.asInput) nums.push('paid in ' + btc(a.asInput));
-      if (a.asOutput) nums.push('received ' + btc(a.asOutput));
+      var nums = [], f = fv.get(a.address);
+      if (a.asInput) nums.push('paid in ' + mix(a.asInput, f && fxValue(f.inV, f.approx)));
+      if (a.asOutput) nums.push('received ' + mix(a.asOutput, f && fxValue(f.outV, f.approx)));
       var row = el('div', { 'class': 'assocrow' }, [el('span', { 'class': 'lbl', text: a.label }), a.category ? el('span', { 'class': 'chip dim', text: a.category }) : null, a.pack ? el('span', { 'class': 'chip dim', text: a.pack }) : null, a.sanctions ? el('span', { 'class': 'chip bad', text: 'sanctions list' }) : null,
         el('a', { 'class': 'mono', href: walletHref(a.address), text: a.address }), el('span', { 'class': 'nums', text: plural(a.txs, 'transaction') + ' · ' + nums.join(' · ') })]);
       box.appendChild(row);
@@ -215,11 +215,70 @@
   function fiatCtx() { return { books: state.books, today: state.today, fmtTime: S.fmtTime }; }
   function fiatOn() { return state.fiat.currency !== 'off'; }
   function fx(sats, time) { return fiatOn() ? PR.amountOf(state.fiat, sats, time, fiatCtx()) : null; }
-  /** An amount as text following the choice: Bitcoin, Bitcoin and the currency, or the currency alone (Bitcoin where the price is not there). */
-  function amt(sats, time) {
-    var b = btc(sats), x = fx(sats, time), mode = state.fiat.show;
+  /** What a holding is worth now, whatever price moment was chosen: a balance is valued at today's price. */
+  function fxNow(sats) { return fiatOn() ? PR.amountOf({ currency: state.fiat.currency, basis: 'today' }, sats, null, fiatCtx()) : null; }
+  /** The value of a sum of amounts that each have their own moment, as { value, approx, text, title }; fn(add) calls add(sats, time) for each. Null when a price is missing. */
+  function fxSum(fn) {
+    var cur = state.fiat.currency, ctx = fiatCtx(), sum = 0, approx = false, ok = true;
+    fn(function (sats, time) {
+      if (!ok || !sats) return;
+      var r = PR.rateFor(state.fiat, time, ctx); if (!r) { ok = false; return; }
+      sum += PR.convert(sats, r.price); approx = approx || r.approx;
+    });
+    return ok ? sumResult(sum, approx) : null;
+  }
+  function sumResult(sum, approx) {
+    var b = state.fiat.basis;
+    return { value: sum, approx: approx, text: (approx ? '≈ ' : '') + PR.format(sum, state.fiat.currency),
+             title: b === 'today' ? 'Each amount converted at today\'s price' : b === 'ref' ? 'Each amount converted at the price of the moment chosen in the workspace' : 'Each amount converted at the price of its own transaction, then added up' };
+  }
+  /** What the loaded transactions moved with each of the wallets in `wanted`: Map(address -> { inV (what they paid in), outV (what they received), approx }), in the currency. Empty when prices are missing. */
+  function fxByWallet(wanted) {
+    var out = new Map(); if (!fiatOn() || !wanted.size) return out;
+    var ctx = fiatCtx(), ok = true;
+    state.led.rows.forEach(function (r) {
+      if (!ok) return;
+      var rate = PR.rateFor(state.fiat, r.time, ctx); if (!rate) { ok = false; return; }
+      function add(x, key) {
+        if (!x.address || !wanted.has(x.address)) return;
+        var e = out.get(x.address); if (!e) { e = { inV: 0, outV: 0, approx: false }; out.set(x.address, e); }
+        e[key] += PR.convert(x.value, rate.price); e.approx = e.approx || rate.approx;
+      }
+      r.inputs.forEach(function (x) { add(x, 'inV'); }); r.outputs.forEach(function (x) { add(x, 'outV'); });
+    });
+    return ok ? out : new Map();
+  }
+  /** A value in the currency as an amount object, for what was added up by hand: { text, title, approx }. */
+  function fxValue(value, approx) { return value == null ? null : sumResult(value, approx); }
+  /** An amount as text following the choice: Bitcoin, Bitcoin and the currency, or the currency alone (Bitcoin where the price is not there). x is what fx() gave, or null. */
+  function mix(sats, x) {
+    var b = btc(sats), mode = state.fiat.show;
     if (!x) return b;
     return mode === 'fiat' ? x.text : mode === 'both' ? b + ' · ' + x.text : b;
+  }
+  function amt(sats, time) { return mix(sats, fx(sats, time)); }
+  /** One of the summary figures: Bitcoin with the currency under it, the currency alone with the note under it, or Bitcoin alone. `note` says which price was used when that is not the amount's own moment. */
+  function setAmount(box, sats, x, note) {
+    var mode = x ? state.fiat.show : 'btc';
+    box.textContent = ''; box.title = x ? x.title : '';
+    if (mode !== 'fiat') box.appendChild(document.createTextNode(btc(sats)));
+    if (mode === 'both') box.appendChild(el('small', { text: x.text + (note ? ' ' + note : '') }));
+    else if (mode === 'fiat') { box.appendChild(document.createTextNode(x.text)); if (note) box.appendChild(el('small', { text: note })); }
+  }
+  /**
+   * The value of everything the wallet ever received or sent. That has no single moment: a fixed price (today, or the moment chosen in the workspace) converts the total as it is;
+   * "each transaction's own time" adds up the transactions one by one, which is the whole history only when all of it is loaded. Until then today's price stands in, and says so.
+   * Returns { x, note } or null.
+   */
+  function fxTotal(sats, key) {
+    if (!fiatOn()) return null;
+    var f = state.fiat;
+    if (f.basis === 'each') {
+      if (historyComplete()) { var s = fxSum(function (add) { state.led.rows.forEach(function (r) { if (r.confirmed) add(r[key], r.time); }); }); return s ? { x: s, note: '' } : null; }
+      var n = fxNow(sats); if (!n) return null;
+      return { x: { text: n.text, approx: n.approx, title: n.title + '. Load the whole history to price each transaction at its own time.' }, note: 'at today\'s price' };
+    }
+    var y = fx(sats, null); return y ? { x: y, note: f.basis === 'today' ? 'at today\'s price' : '' } : null;
   }
   /** The same as a small element that says, on hover, which price it used. */
   function amtEl(sats, time, cls) {
@@ -288,8 +347,8 @@
     if (!s.points.length) return;
     var P = s.points, t0 = P[0].time, t1 = P[P.length - 1].time;
     if (t1 <= t0) t1 = t0 + 86400;                                                     // all in one moment: give it a day's width
-    var lo = Math.min(0, s.start.balance), hi = Math.max(0, s.start.balance), low = s.start.balance, high = s.start.balance;
-    P.forEach(function (p) { lo = Math.min(lo, p.balance); hi = Math.max(hi, p.balance); low = Math.min(low, p.balance); high = Math.max(high, p.balance); });
+    var lo = Math.min(0, s.start.balance), hi = Math.max(0, s.start.balance), low = s.start.balance, high = s.start.balance, lowAt = s.start.time, highAt = s.start.time;
+    P.forEach(function (p) { lo = Math.min(lo, p.balance); hi = Math.max(hi, p.balance); if (p.balance < low) { low = p.balance; lowAt = p.time; } if (p.balance > high) { high = p.balance; highAt = p.time; } });
     if (hi === lo) hi = lo + 1;
     var w = Math.max(280, Math.floor(cv.clientWidth || (cv.parentNode && cv.parentNode.clientWidth) || 640)), h = chart.h, dpr = window.devicePixelRatio || 1;
     chart.w = w;
@@ -319,7 +378,7 @@
     chart.pts = P.map(function (p) { return { x: X(p.time), y: Y(p.balance), p: p }; });
     if (P.length <= 150) { g.fillStyle = accent; chart.pts.forEach(function (q) { g.beginPath(); g.arc(q.x, q.y, 2.2, 0, 6.2832); g.fill(); }); }
     var note = historyComplete() ? '' : ' Only part of the history is loaded: the balance before it is worked back from today\'s balance. Load all for the whole picture.';
-    var text = 'The balance after each of the ' + fmtInt(P.length) + ' confirmed transactions loaded, from ' + S.fmtTime(t0, false) + ' to ' + S.fmtTime(P[P.length - 1].time, false) + '. Highest ' + btc(high) + ', lowest ' + btc(low) + '. Hover for a transaction, click it to find it below.' + note;
+    var text = 'The balance after each of the ' + fmtInt(P.length) + ' confirmed transactions loaded, from ' + S.fmtTime(t0, false) + ' to ' + S.fmtTime(P[P.length - 1].time, false) + '. Highest ' + amt(high, highAt) + ', lowest ' + amt(low, lowAt) + '. Hover for a transaction, click it to find it below.' + note;
     $('chartText').textContent = text; cv.setAttribute('aria-label', 'Balance over time. ' + text);
   }
   function chartNearest(clientX) {
@@ -336,7 +395,7 @@
     tip.textContent = '';
     tip.appendChild(el('b', { text: S.fmtTimeFull(p.time) }));
     tip.appendChild(el('div', { text: 'Balance after: ' + amt(p.balance, p.time) }));
-    tip.appendChild(el('div', { 'class': p.net >= 0 ? 'up' : 'down', text: (p.net >= 0 ? '+' : '−') + btc(Math.abs(p.net)) }));
+    tip.appendChild(el('div', { 'class': p.net >= 0 ? 'up' : 'down', text: (p.net >= 0 ? '+' : '−') + amt(Math.abs(p.net), p.time) }));
     tip.appendChild(el('div', { 'class': 'mono small', text: S.shortId(p.txid, 8) + (p.height != null ? ' · block ' + p.height : '') }));
     tip.hidden = false; dot.hidden = false;
     dot.style.left = q.x + 'px'; dot.style.top = q.y + 'px';
@@ -386,10 +445,11 @@
     box.textContent = ''; more.hidden = true; note.hidden = true; $('cpSec').hidden = !list.length;
     if (!list.length) return;
     var top = list[0].volume || 1, n = Math.min(state.cpShown, list.length, CP_MAX);
+    var fv = fxByWallet(new Set(list.slice(0, n).map(function (c) { return c.address; })));
     list.slice(0, n).forEach(function (c, i) {
-      var nums = [plural(c.txs, 'transaction')];
-      if (c.asInput) nums.push('paid in ' + btc(c.asInput));
-      if (c.asOutput) nums.push('received ' + btc(c.asOutput));
+      var nums = [plural(c.txs, 'transaction')], f = fv.get(c.address);
+      if (c.asInput) nums.push('paid in ' + mix(c.asInput, f && fxValue(f.inV, f.approx)));
+      if (c.asOutput) nums.push('received ' + mix(c.asOutput, f && fxValue(f.outV, f.approx)));
       var bar = el('span', { 'class': 'bar', 'aria-hidden': 'true' }), fillBar = el('i'); fillBar.style.width = Math.max(2, Math.round(c.volume / top * 100)) + '%'; bar.appendChild(fillBar);
       box.appendChild(el('div', { 'class': 'cprow' + (c.sanctions ? ' sanctioned' : ''), 'data-address': c.address }, [
         el('span', { 'class': 'rank', text: String(i + 1) }),
@@ -397,7 +457,7 @@
                                          c.pack ? el('span', { 'class': 'chip dim', text: c.pack }) : null, c.sanctions ? el('span', { 'class': 'chip bad', text: 'sanctions list' }) : null,
                                          el('a', { 'class': 'mono', href: walletHref(c.address), text: c.address })]),
         el('span', { 'class': 'nums', text: nums.join(' · ') }),
-        el('span', { 'class': 'vol', text: btc(c.volume) }), bar,
+        el('span', { 'class': 'vol', text: mix(c.volume, f && fxValue(f.inV + f.outV, f.approx)) }), bar,
         el('button', { type: 'button', 'class': 'findbtn', text: 'Transactions', title: 'Show only the loaded transactions that involve this wallet', onclick: function () { findAddress(c.address); } })]));
     });
     if (list.length > n && n < CP_MAX) {
@@ -466,13 +526,13 @@
         k ? el('span', { 'class': 'lbl', title: nameTip(k), text: k.label }) : null, k && k.category ? el('span', { 'class': 'chip dim', text: k.category }) : null, k && k.sanctions ? el('span', { 'class': 'chip bad', text: 'sanctions list' }) : null,
         i === 0 ? el('span', { 'class': 'mono', text: a }) : el('a', { 'class': 'mono', href: walletHref(a), text: a }),
         cl.looked.has(a) ? el('span', { 'class': 'hint', text: 'newest transactions loaded' }) : null,
-        b != null ? el('span', { 'class': 'nums', text: btc(b) }) : null]));
+        b != null ? el('span', { 'class': 'nums', title: (fxNow(b) || {}).title || '', text: mix(b, fxNow(b)) }) : null]));
     });
     var more = $('clMore'); more.hidden = n <= cl.shown;
     if (n > cl.shown) more.textContent = 'Show ' + Math.min(50, n - cl.shown) + ' more (' + fmtInt(n - cl.shown) + ' not shown)';
     var withBal = members.filter(function (a) { return a === state.addr || cl.bal.has(a); }), tot = $('clTotal');
     tot.hidden = withBal.length < 2 || n === 1;
-    if (!tot.hidden) tot.textContent = 'Together the ' + withBal.length + ' wallets read hold ' + btc(withBal.reduce(function (s, a) { return s + (a === state.addr ? W.summary(state.stats).balance : cl.bal.get(a)); }, 0)) + (withBal.length < n ? ' (' + fmtInt(n - withBal.length) + ' not read yet)' : '') + '.';
+    if (!tot.hidden) { var held = withBal.reduce(function (s, a) { return s + (a === state.addr ? W.summary(state.stats).balance : cl.bal.get(a)); }, 0); tot.textContent = 'Together the ' + withBal.length + ' wallets read hold ' + mix(held, fxNow(held)) + (fiatOn() && fxNow(held) ? ' (at today\'s price)' : '') + (withBal.length < n ? ' (' + fmtInt(n - withBal.length) + ' not read yet)' : '') + '.'; }
     var busy = cl.running || state.busy, alone = n === 1;
     $('clLook').disabled = busy || alone; $('clBalances').disabled = busy || alone; $('clCopy').disabled = alone;
     $('clLook').hidden = alone; $('clBalances').hidden = alone; $('clCopy').hidden = alone; $('clOpen').hidden = alone;

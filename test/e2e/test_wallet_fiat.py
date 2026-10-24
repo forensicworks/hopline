@@ -6,8 +6,11 @@ import re
 
 import pytest
 
-from conftest import ADDRESS, ADDR_TXS, HIST, PRICES_NOW
+from chains import IN, OUT, tx
+from conftest import ADDRESS, ADDR_TXS, HIST, PRICES_NOW, fx
 from test_fiat_sources import price_at
+from test_wallet_analysis import ring
+from test_wallet_history import history
 from test_wallet_page import WALLET_URL, cards, goto, wpage  # noqa: F401  (the fixture is used by name)
 
 
@@ -156,3 +159,103 @@ def test_with_no_price_service_at_all_it_says_so(ctx, wpage):
           {"source": "custom", "customBase": "https://my-node.example/api", "customPrices": "off", "fallback": False})
     goto(wpage)
     wpage.wait_for_function("() => /Prices need a mempool-compatible server/.test(document.getElementById('fiatStatus').textContent)")
+
+
+# ---- every Bitcoin figure on the page has its value in the currency ---------------------------------------------------------------------------
+
+def dollars(text):
+    """Every amount in dollars in a piece of text, in order."""
+    return [float(m.replace(",", "")) for m in re.findall(r"\$([\d,]+\.\d+)", text)]
+
+
+def btc_parts(text):
+    return [float(m) for m in re.findall(r"(\d+\.\d{8}) BTC", text)]
+
+
+def test_the_totals_received_and_sent_are_converted_and_the_balance_is_valued_at_todays_price(ctx, wpage):
+    prefs(ctx, {"currency": "USD", "basis": "today", "show": "both", "ref": None})
+    goto(wpage); wait_prices(wpage)
+    for sel in ("#sReceived", "#sSent"):
+        text = wpage.inner_text(sel)
+        assert "0.01555415 BTC" in text and "at today's price" in text, text
+        assert abs(dollars(text)[0] - 1555415 / 1e8 * PRICES_NOW["USD"]) < 0.02
+    assert "$0.00" in wpage.inner_text("#sBalance") and "at today's price" in wpage.inner_text("#sBalance")
+
+
+def test_each_transaction_priced_at_its_own_time_is_added_up_for_the_totals_once_the_whole_history_is_loaded(ctx, wpage):
+    prefs(ctx, {"currency": "USD", "basis": "each", "show": "fiat", "ref": None})
+    goto(wpage); wait_prices(wpage)
+    recv = sum(sum(o["value"] for o in t["vout"] if o.get("scriptpubkey_address") == ADDRESS) * price_at(t["status"]["block_time"]) / 1e8 for t in ADDR_TXS)
+    sent = sum(sum(v["prevout"]["value"] for v in t["vin"] if (v.get("prevout") or {}).get("scriptpubkey_address") == ADDRESS) * price_at(t["status"]["block_time"]) / 1e8 for t in ADDR_TXS)
+    got_r, got_s = wpage.inner_text("#sReceived"), wpage.inner_text("#sSent")
+    assert "BTC" not in got_r and "today" not in got_r, "the currency alone, at each transaction's own price"
+    assert abs(dollars(got_r)[0] - recv) < 0.05 * max(1, len(ADDR_TXS)), (got_r, recv)
+    assert abs(dollars(got_s)[0] - sent) < 0.05 * max(1, len(ADDR_TXS)), (got_s, sent)
+    assert "its own transaction" in wpage.get_attribute("#sReceived", "title")
+    wpage.select_option("#fiatShow", "btc")
+    assert "$" not in wpage.inner_text("#sReceived") and "0.01555415 BTC" in wpage.inner_text("#sReceived")
+
+
+def test_while_only_part_of_the_history_is_loaded_the_totals_use_todays_price_and_say_so(ctx, wpage, mock):
+    prefs(ctx, {"currency": "USD", "basis": "each", "show": "both", "ref": None})
+    history(mock, 60)
+    goto(wpage); wait_prices(wpage)
+    text = wpage.inner_text("#sReceived")
+    assert "at today's price" in text and "$" in text, text
+    assert "Load the whole history" in wpage.get_attribute("#sReceived", "title")
+
+
+def test_pending_and_the_chart_follow_the_currency(ctx, wpage, mock):
+    prefs(ctx, {"currency": "USD", "basis": "today", "show": "both", "ref": None})
+    o = OUT("x", 7000000); o["scriptpubkey_address"] = ADDRESS
+    t = tx(mock, 77, [IN(9, 0, "payer", 9000000)], [o])
+    mock.routes["/tx/" + t[3:]]["status"] = {"confirmed": False}
+    mock.routes["/address/" + ADDRESS + "/txs"] = [mock.routes["/tx/" + t[3:]]] + ADDR_TXS
+    st = dict(fx("address_stats.json")); st["mempool_stats"] = {"funded_txo_count": 1, "funded_txo_sum": 7000000, "spent_txo_count": 0, "spent_txo_sum": 0, "tx_count": 1}
+    mock.routes["/address/" + ADDRESS] = st
+    goto(wpage); wait_prices(wpage)
+    pend = wpage.inner_text("#sPending")
+    assert "+0.07000000 BTC" in pend and abs(dollars(pend)[0] - 0.07 * PRICES_NOW["USD"]) < 0.02, pend
+    chart = wpage.inner_text("#chartText")
+    assert "Highest" in chart and len(dollars(chart)) == 2 and len(btc_parts(chart)) == 2, chart
+
+
+def test_the_wallets_it_dealt_with_show_what_they_moved_in_the_currency(ctx, wpage):
+    prefs(ctx, {"currency": "USD", "basis": "today", "show": "both", "ref": None})
+    goto(wpage); wait_prices(wpage)
+    assert wpage.locator("#cp .cprow").count() > 0 and wpage.locator("#assoc .assocrow").count() > 0
+    for sel in ("#cp .cprow .vol", "#cp .cprow .nums", "#assoc .assocrow .nums"):
+        for text in wpage.eval_on_selector_all(sel, "els => els.map(e => e.textContent)"):
+            b, d = btc_parts(text), dollars(text)
+            assert len(b) == len(d) and b, (sel, text)
+            for x, y in zip(b, d):
+                assert abs(y - x * PRICES_NOW["USD"]) <= 0.02 + 1e-9 * y, (sel, text)
+    wpage.select_option("#fiatShow", "btc")
+    assert all("$" not in v for v in wpage.eval_on_selector_all("#cp .cprow .vol", "els => els.map(e => e.textContent)"))
+
+
+def test_the_whole_wallet_balances_are_valued_at_todays_price(ctx, wpage, mock):
+    prefs(ctx, {"currency": "USD", "basis": "each", "show": "both", "ref": None})
+    ring(mock)
+    goto(wpage); wait_prices(wpage)
+    wpage.click("#clLook"); wpage.wait_for_function("() => /Looked at/.test(document.getElementById('message').textContent)", timeout=30000)
+    wpage.click("#clBalances"); wpage.wait_for_function("() => /Read 3 balances/.test(document.getElementById('message').textContent)", timeout=30000)
+    rows = wpage.eval_on_selector_all("#clList .clrow .nums", "els => els.map(e => e.textContent)")
+    assert len(rows) == 4
+    for text, sats in zip(rows, (50000, 5000, 7000, 9000)):
+        assert btc_parts(text) == [sats / 1e8] and abs(dollars(text)[0] - sats / 1e8 * PRICES_NOW["USD"]) < 0.02, text
+    total = wpage.inner_text("#clTotal")
+    assert "0.00071000 BTC" in total and "at today's price" in total and abs(dollars(total)[0] - 0.00071 * PRICES_NOW["USD"]) < 0.02, total
+
+
+def test_without_a_currency_none_of_these_figures_change(wpage):
+    goto(wpage)
+    for sel in ("#sBalance", "#sReceived", "#sSent", "#chartText", "#cp", "#assoc"):
+        assert "$" not in wpage.inner_text(sel) and "at today" not in wpage.inner_text(sel), sel
+    assert wpage.inner_text("#sReceived") == "0.01555415 BTC"
+
+
+def test_the_currency_choice_sits_above_the_figures_it_changes(wpage):
+    goto(wpage)
+    top = wpage.evaluate("() => { const b = document.getElementById('fiatBar').getBoundingClientRect(), k = document.getElementById('sBalance').getBoundingClientRect(); return b.bottom <= k.top; }")
+    assert top and wpage.is_visible("#fiatCur")

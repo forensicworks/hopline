@@ -43,6 +43,12 @@ window.addEventListener('error', function (e) {
   </section>
 
   <section id="summary" hidden aria-label="Summary">
+    <div class="fiatbar" id="fiatBar">
+      <label>Amounts in <select id="fiatCur"><option value="off">Bitcoin only</option></select></label>
+      <label>Show <select id="fiatShow"><option value="both">Bitcoin and the currency</option><option value="fiat">the currency only</option><option value="btc">Bitcoin only</option></select></label>
+      <label>Price <select id="fiatBasis"><option value="each">at each transaction's own time</option><option value="today">today</option></select></label>
+      <span id="fiatStatus" class="hint" role="status"></span>
+    </div>
     <dl class="kv">
       <div><dt>Balance</dt><dd id="sBalance"></dd></div>
       <div><dt>Total received</dt><dd id="sReceived"></dd></div>
@@ -121,12 +127,6 @@ window.addEventListener('error', function (e) {
       <button type="button" id="fClear" hidden>Clear</button>
       <span id="fCount" class="hint" role="status"></span>
       <button type="button" id="pickShown" title="Tick the first transactions shown below, to start a trace from them">Tick shown</button>
-    </div>
-    <div class="fiatbar" id="fiatBar">
-      <label>Amounts in <select id="fiatCur"><option value="off">Bitcoin only</option></select></label>
-      <label>Show <select id="fiatShow"><option value="both">Bitcoin and the currency</option><option value="fiat">the currency only</option><option value="btc">Bitcoin only</option></select></label>
-      <label>Price <select id="fiatBasis"><option value="each">at each transaction's own time</option><option value="today">today</option></select></label>
-      <span id="fiatStatus" class="hint" role="status"></span>
     </div>
     <div id="ledger"></div>
     <div id="pickBar" class="pickbar" hidden role="status"><span id="pickText"></span> <a id="pickGo" class="btn primary" href="workspace.html">Trace from here &#8599;</a> <button type="button" id="pickClear">Untick all</button></div>
