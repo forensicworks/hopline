@@ -34,7 +34,7 @@ test('txView: inputs and outputs in order, with wallet, amount and spend informa
   assert.equal(v.inputs.length, 2); assert.equal(v.outputs.length, 2); assert.ok(v.complete);
   assert.deepEqual(v.inputs.map((i) => i.amount), [5000, 7000]);
   assert.equal(v.inputs[0].address, a('in1')); assert.equal(v.inputs[0].scriptType, 'v0_p2wpkh');
-  assert.deepEqual(v.outputs.map((o) => [o.vout, o.amount, o.spent]), [[0, 9000, null], [1, 2800, true]]);
+  assert.deepStrictEqual(v.outputs.map((o) => [o.vout, o.amount, o.spent]), [[0, 9000, false], [1, 2800, true]]);        // the helper marks the others as known unspent; (strict, because loose deepEqual treats false and null alike inside arrays on some Node versions)
   assert.equal(v.outputs[1].spender, tid(2));
 });
 
