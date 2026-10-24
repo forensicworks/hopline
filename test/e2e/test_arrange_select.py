@@ -89,16 +89,16 @@ def box_for(page, take):
 
 
 # ---------------------------------------------------------------- arranging a trace
-def test_the_arrange_menu_belongs_to_a_trace_and_timeline_plus_force_is_where_it_starts(fpage):
+def test_the_arrange_menu_belongs_to_a_trace_and_columns_is_where_it_starts(fpage):
     open_query(fpage, NORMAL["txid"])
     assert fpage.is_hidden("#traceArrange") and fpage.is_hidden("#traceReset")
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
-    assert fpage.is_visible("#traceArrange") and fpage.input_value("#traceArrange") == "timeforce"
-    assert fpage.is_visible("#scaleRow"), "x is time, so the time scale choice matters"
-    assert fpage.evaluate("() => window.__hopline.renderer.data.axis.mode") != "marks", "a real scale along the top"
-    fpage.select_option("#traceArrange", "columns"); settle(fpage)
+    assert fpage.is_visible("#traceArrange") and fpage.input_value("#traceArrange") == "columns"
     assert fpage.is_hidden("#scaleRow"), "the time scale choice only matters once time is on an axis"
     assert fpage.evaluate("() => window.__hopline.renderer.data.axis.mode") == "marks", "Columns is not a time scale, but its transactions carry timestamps along the top"
+    fpage.select_option("#traceArrange", "timeforce"); settle(fpage)
+    assert fpage.is_visible("#scaleRow"), "x is time, so the time scale choice matters"
+    assert fpage.evaluate("() => window.__hopline.renderer.data.axis.mode") != "marks", "a real scale along the top"
 
 
 def test_timeline_places_the_traced_vertices_by_time_and_nothing_is_added_or_lost(fpage, mock):
