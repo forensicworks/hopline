@@ -106,7 +106,7 @@ test('the shipped files are what the list says they are', () => {
   const index = Packs.cleanIndex(win.HOPLINE_PACK_INDEX);
   assert.equal(index.length, win.HOPLINE_PACK_INDEX.length, 'every entry of the list is well-formed');
   index.forEach((e) => {
-    const text = fs.readFileSync(path.join(dir, e.file), 'utf8');
+    const text = fs.readFileSync(path.join(dir, e.file), 'utf8').replace(/\r\n/g, '\n');           // as written, even where a checkout turned the line endings into Windows ones
     assert.equal(crypto.createHash('sha256').update(text).digest('hex').slice(0, 10), e.version, e.id + ': the version is the file\'s hash, so the file was not edited by hand');
     new Function('window', text)(win);
     const r = Labels.fromObject(win.HOPLINE_PACKS[e.id], e.name);

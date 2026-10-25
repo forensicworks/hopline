@@ -1,0 +1,3 @@
+# The pack files are written by tools/build_packs.py and hashed (the list says which version of each file the page asks for):
+# keep their line endings exactly as written, on every platform.
+public/packs/*.js text eol=lf
