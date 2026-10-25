@@ -19,7 +19,7 @@ def test_each_page_links_to_the_source_and_the_licence_safely(ctx, errors, name)
     p.goto(PAGES[name])
     links = p.eval_on_selector_all("a[href^='%s']" % REPO, "els => els.map(e => [e.getAttribute('href'), e.getAttribute('target'), e.getAttribute('rel'), e.textContent.trim()])")
     hrefs = [l[0] for l in links]
-    assert REPO in hrefs and REPO + "/blob/master/LICENSE" in hrefs, hrefs
+    assert REPO in hrefs and REPO + "/wiki" in hrefs and REPO + "/blob/master/LICENSE" in hrefs, hrefs
     for href, target, rel, text in links:
         assert target == "_blank" and rel == "noopener noreferrer", (href, target, rel)
         assert text, "a link with words"
