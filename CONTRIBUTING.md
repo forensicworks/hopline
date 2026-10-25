@@ -4,9 +4,10 @@ Thank you for looking. Hopline is a small tool for following Bitcoin through the
 
 ## Before you start
 
+- **A bug or a question:** open an issue. Say what you did, what you expected and what happened, and include the transaction id or address if it is public data.
 - **Small fixes:** just open a pull request.
-- **Anything bigger:** open a draft pull request that describes the idea first, so we can agree on it before you spend days on it. (Issues are switched off for now.)
-- **A security problem:** do not use a pull request. See [SECURITY.md](SECURITY.md).
+- **Anything bigger:** open an issue that describes the idea first, so we can agree on it before you spend days on it. A draft pull request works too.
+- **A security problem:** do not use an issue or a pull request. See [SECURITY.md](SECURITY.md).
 - **Real case data never belongs here.** No client names, no engagement data, no reports or screenshots from real work. Use public chain data (the fixtures in `test/fixtures` are public transactions) or invent addresses.
 
 ## What decides whether something is merged
@@ -34,7 +35,7 @@ When you push to `master`, a workflow runs the unit and tool tests before anythi
 - **Layout.** `public/js/hopline-*.js` are small modules. The ones without the DOM (model, filter, layout, analysis, ...) have unit tests in `test/`; `workspace.js` and `wallet.js` are the pages' own code; browser tests live in `test/e2e`.
 - **Style.** Match the code around yours: plain `var` JavaScript in the existing module wrapper, and comments that say why, not what.
 - **Tests.** A fix comes with a test that fails without it, and a new feature with tests for what it promises. Please do not reformat code you are not changing.
-- **Docs.** If you change what a page does, change the README or the in-app help in the same pull request.
+- **Docs.** If you change what a page does, change the README or the in-app help in the same pull request. The longer documentation lives in the [wiki](https://github.com/forensicworks/hopline/wiki), which only the maintainers can edit: open an issue for a correction.
 
 ## Wallet names
 
