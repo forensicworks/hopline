@@ -3245,11 +3245,11 @@
     fetch(req.url, req.init).then(function (r) {
       return r.text().then(function (body) {
         if (!r.ok) throw new Error('The model server answered ' + r.status + ': ' + AS.plainText(body, 200));
-        return AS.parseChat(body);
+        return { text: AS.parseChat(body), cut: AS.chatFinish(body).truncated };
       });
-    }).then(function (text) {
-      $('aiText').value = text;
-      aiNoteSet('Written by ' + model + ' at ' + new Date().toISOString().slice(11, 16) + ' UTC. It is a draft by a model, not evidence.');
+    }).then(function (a) {
+      $('aiText').value = a.cut ? a.text + '\n\n[Cut off: the model stopped before it finished.]' : a.text;                  // the marker travels with the text if it is copied
+      aiNoteSet('Written by ' + model + ' at ' + new Date().toISOString().slice(11, 16) + ' UTC. It is a draft by a model, not evidence.' + (a.cut ? ' ' + AS.CUT_OFF : ''), a.cut);
       aiCheckNow();
     }, function (e) {
       aiNoteSet(aiErrorText(e, ep.base), !(e && e.name === 'AbortError'));

@@ -273,3 +273,23 @@ test('parseChat: the text of a reply, and a clear message for every way it can g
   assert.throws(() => As.parseChat({ choices: [{ message: { content: '  ' } }] }), /no text/);
   assert.throws(() => As.parseChat(null), /no text/);
 });
+
+test('chatFinish: says when the model ran out of room, and never throws', () => {
+  const reply = (finish) => ({ choices: [{ message: { content: 'Hi' }, finish_reason: finish }] });
+  assert.deepEqual(As.chatFinish(reply('length')), { reason: 'length', truncated: true });
+  assert.equal(As.chatFinish(reply('max_tokens')).truncated, true);
+  assert.deepEqual(As.chatFinish(reply('stop')), { reason: 'stop', truncated: false });
+  assert.deepEqual(As.chatFinish({ choices: [{ message: { content: 'Hi' } }] }), { reason: null, truncated: false }, 'a server that says nothing is not accused');
+  assert.equal(As.chatFinish(JSON.stringify(reply('length'))).truncated, true);
+  for (const bad of ['<html>', null, undefined, 5, {}, { choices: [] }, { choices: [{ finish_reason: 7 }] }]) assert.deepEqual(As.chatFinish(bad), { reason: null, truncated: false }, String(bad));
+  assert.match(As.CUT_OFF, /ran out of room/); assert.match(As.CUT_OFF, /num_ctx/);
+});
+
+test('prompt: every task carries the rule to account for every input and output, and an explain asks for the list first', () => {
+  const s = scene(), m = sum(s), f = As.focus(s.g, s.an, 'tx:' + tid(12));
+  for (const task of ['triage', 'narrative', 'challenge']) assert.match(As.prompt(m, task).system, /account for every input and every output/, task);
+  const p = As.prompt(m, 'explain', { focus: f });
+  assert.match(p.system, /account for every input and every output/); assert.match(p.system, /two outputs, never one transfer/); assert.match(p.system, /not complete/);
+  assert.match(p.user, /^TASK: Explain the FOCUS/); assert.match(p.user, /begin with a list of every input and every output/);
+  assert.equal(p.user.split(String.fromCharCode(10)).filter((l) => l.startsWith('TASK:')).length, 1, 'still one task line');
+});

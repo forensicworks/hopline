@@ -332,3 +332,31 @@ def test_the_check_of_an_explanation_counts_the_ids_of_the_focus_as_evidence(fpa
     fpage.fill("#aiText", "It pays %s." % out_addr); fpage.click("#aiCheck")
     assert "Every id it cites is in the workspace" in result(fpage)
     assert "in the evidence" in result(fpage)
+
+
+def test_a_reply_that_ran_out_of_room_is_marked_as_cut_off_and_still_checked(fpage, mock):
+    scene(fpage, mock)
+    answer = "The chain starts at %s and then" % tid(10)
+    cut = chat(answer); cut["choices"][0]["finish_reason"] = "length"
+    model_server(fpage, cut)
+    set_model(fpage); fpage.click("#aiAsk")
+    fpage.wait_for_function("() => document.getElementById('aiText').value !== ''")
+    text = fpage.input_value("#aiText")
+    assert text.startswith(answer) and text.rstrip().endswith("[Cut off: the model stopped before it finished.]"), "the marker travels with the text"
+    note = fpage.inner_text("#aiNote")
+    assert "Written by llama3.1" in note and "ran out of room" in note and "num_ctx" in note
+    assert "bad" in (fpage.get_attribute("#aiNote", "class") or "")
+    fpage.wait_for_function("() => document.getElementById('aiResult').innerText.includes('Every id it cites')")
+    assert fpage.inner_text("#aiAsk") == "Ask the local model" and fpage.is_enabled("#aiAsk")
+
+
+def test_a_reply_that_finished_normally_has_no_cut_off_marker(fpage, mock):
+    scene(fpage, mock)
+    answer = "The chain starts at %s." % tid(10)
+    done = chat(answer); done["choices"][0]["finish_reason"] = "stop"
+    model_server(fpage, done)
+    set_model(fpage); fpage.click("#aiAsk")
+    fpage.wait_for_function("() => document.getElementById('aiText').value !== ''")
+    assert fpage.input_value("#aiText") == answer
+    note = fpage.inner_text("#aiNote")
+    assert "ran out of room" not in note and "bad" not in (fpage.get_attribute("#aiNote", "class") or "")
