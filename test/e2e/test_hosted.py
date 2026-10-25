@@ -134,19 +134,19 @@ def test_the_wallet_page_and_the_landing_page_are_counted_and_say_so(ctx, wpage,
     wpage.click("#csv"); wpage.wait_for_timeout(500)
     got = names(hits)
     assert got[0] == "/wallet" and "wallet-csv" in got, got
-    assert wpage.is_visible("#foot [data-counter]")
+    assert wpage.is_visible(".counterbar")
     assert ADDRESS not in " ".join(h["url"] for h in hits)
     n0 = len(hits)
     home = new_page(ctx, errors, INDEX_URL); home.wait_for_timeout(500)
     assert names(hits[n0:]) == ["/"]
-    assert home.is_visible("p[data-counter]") and "GoatCounter" in home.inner_text("p[data-counter]") and "Do Not Track" in home.inner_text("p[data-counter]")
+    assert home.is_visible(".counterbar") and "GoatCounter" in home.inner_text(".counterbar") and "Do Not Track" in home.inner_text(".counterbar")
 
 
 def test_the_landing_page_no_longer_claims_that_nothing_is_stored_on_a_server(ctx, errors):
     home = new_page(ctx, errors, INDEX_URL)
     text = home.inner_text(".lead")
     assert "none of your work is stored on a server" in text and "nothing is stored on a server" not in text
-    assert home.is_hidden("p[data-counter]"), "and with no counter there is no note about one"
+    assert home.is_hidden(".counterbar"), "and with no counter there is no note about one"
 
 
 def test_a_browser_that_says_do_not_track_is_not_counted_and_no_note_appears(ctx, errors, hits):
@@ -154,7 +154,7 @@ def test_a_browser_that_says_do_not_track_is_not_counted_and_no_note_appears(ctx
     p = new_page(ctx, errors, PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
     open_query(p, NORMAL["txid"]); idle(p)
     home = new_page(ctx, errors, INDEX_URL); home.wait_for_timeout(500)
-    assert hits == [] and home.is_hidden("p[data-counter]")
+    assert hits == [] and home.is_hidden(".counterbar")
 
 
 @pytest.mark.parametrize("endpoint", [None, "http://stats.example/count", "https://stats.example/count?site=1", "https://user@stats.example/count"])
@@ -173,3 +173,24 @@ def test_trying_the_sample_wallet_is_counted_by_name_before_the_page_moves_on(ct
     got = names(hits)
     assert got[0] == "/wallet" and "sample-wallet" in got, got
     assert SAMPLE not in " ".join(h["url"] for h in hits) and all(SHAPE.match(h["url"]) for h in hits)
+
+
+def test_every_page_shows_the_visit_counter_banner_when_it_counts(ctx, errors, hits):
+    settings(ctx)
+    for name, url in (("start page", INDEX_URL), ("wallet page", WALLET_URL), ("workspace", PAGE_URL)):
+        p = new_page(ctx, errors, url); p.wait_for_timeout(600)
+        bar = p.locator(".counterbar")
+        assert bar.count() == 1 and bar.is_visible(), name
+        text = bar.inner_text()
+        assert "Visit counter" in text and "GoatCounter" in text and "Do Not Track" in text and "never addresses" in text, (name, text)
+        links = bar.locator("a").evaluate_all("els => els.map((e) => [e.getAttribute('href'), e.getAttribute('rel'), e.getAttribute('target')])")
+        assert ["https://www.goatcounter.com", "noopener noreferrer", "_blank"] in links, (name, links)
+        assert ["https://github.com/forensicworks/hopline/wiki/Publishing-a-copy", "noopener noreferrer", "_blank"] in links, (name, links)
+        p.close()
+
+
+def test_without_counting_no_page_shows_the_banner(ctx, errors):
+    for name, url in (("start page", INDEX_URL), ("wallet page", WALLET_URL), ("workspace", PAGE_URL)):
+        p = new_page(ctx, errors, url); p.wait_for_timeout(500)
+        assert p.locator(".counterbar").count() == 1 and p.locator(".counterbar").is_hidden(), name
+        p.close()
