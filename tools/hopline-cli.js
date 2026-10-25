@@ -10,7 +10,8 @@
  *   node tools/hopline-cli.js check      workspace.json answer.txt         which ids an answer cites that are not in the evidence (exit code 1 if any)
  *
  * workspace.json is a file made by Export > JSON in the workspace (use - to read it from standard input; for check, answer.txt can be - too).
- * Options: --known <file> (the wallet list to use; default is public/data/known-addresses.js), --no-known, --generated <ISO time>, --compact.
+ * Options: --known <file> (the wallet list to use; default is public/data/known-addresses.js), --packs <folder> (the packs the site ships that are on as shipped, the OFAC list;
+ * default is public/packs), --with <id,id> (also use these shipped packs, e.g. ransomwhere), --no-packs, --no-known (no names from either), --generated <ISO time>, --compact.
  * It reads files and prints; it never opens a connection. Exit codes: 0 done, 1 check found ids that are not in the evidence, 2 could not run.
  * The shape of the JSON is described in docs/interface.md.
  */
@@ -18,6 +19,7 @@
 var fs = require('fs'), path = require('path');
 var JS = path.join(__dirname, '..', 'public', 'js');
 var IO = require(path.join(JS, 'hopline-io.js')), AN = require(path.join(JS, 'hopline-analysis.js')), DT = require(path.join(JS, 'hopline-detections.js')), AS = require(path.join(JS, 'hopline-assist.js'));
+var LB = require(path.join(JS, 'hopline-labels.js')), PK = require(path.join(JS, 'hopline-packs.js'));
 
 function fail(msg, code) { process.stderr.write('hopline: ' + msg + '\n'); process.exit(code || 2); }
 
@@ -33,18 +35,18 @@ function usage() {
     '                                                     the text to give an assistant (T: triage, narrative, explain, challenge)',
     '  check      <workspace.json> <answer.txt>          the ids an answer cites, and which are not in the evidence (exit code 1 if any)',
     '',
-    'A file name of - reads standard input. Options: --known <file>, --no-known, --generated <ISO time>, --compact.',
+    'A file name of - reads standard input. Options: --known <file>, --packs <folder>, --with <id,id>, --no-packs, --no-known, --generated <ISO time>, --compact.',
     'The workspace file is Export > JSON from the workspace. The JSON shapes are in docs/interface.md.'
   ].join('\n');
 }
 
 function parseArgs(argv) {
-  var out = { _: [], flags: {} }, valued = { '--kind': 1, '--chain': 1, '--task': 1, '--focus': 1, '--max-rows': 1, '--known': 1, '--generated': 1 };
+  var out = { _: [], flags: {} }, valued = { '--kind': 1, '--chain': 1, '--task': 1, '--focus': 1, '--max-rows': 1, '--known': 1, '--packs': 1, '--with': 1, '--generated': 1 };
   for (var i = 0; i < argv.length; i++) {
     var a = argv[i];
     if (a === '-' || a.slice(0, 2) !== '--') { out._.push(a); continue; }
     if (valued[a]) { if (i + 1 >= argv.length) fail('Option ' + a + ' needs a value.'); out.flags[a.slice(2)] = argv[++i]; }
-    else if (a === '--no-known' || a === '--compact' || a === '--json' || a === '--help') out.flags[a.slice(2)] = true;
+    else if (a === '--no-known' || a === '--no-packs' || a === '--compact' || a === '--json' || a === '--help') out.flags[a.slice(2)] = true;
     else fail('Unknown option ' + a + '. Try: node tools/hopline-cli.js help');
   }
   return out;
@@ -62,6 +64,22 @@ function loadKnown(file) {
   try { return JSON.parse(text.slice(from, to + 1)); } catch (e) { fail('The wallet list "' + file + '" is not valid JSON inside: ' + e.message); }
 }
 
+/** The packs the site ships that are on as shipped (the OFAC list), and any named in `extra`: packs/index.js and each pack's file are data files, read as JSON and never run. [] when the folder has none. */
+function loadPacks(dir, asked, extra) {
+  var idx = path.join(dir, 'index.js');
+  if (!fs.existsSync(idx)) { if (asked) fail('There is no pack list in "' + dir + '" (expected index.js).'); return []; }
+  var text = readText(idx, 'pack list'), at = text.indexOf('HOPLINE_PACK_INDEX'), from = text.indexOf('[', at), to = text.lastIndexOf(']'), list;
+  if (at < 0 || from < 0 || to < from) fail('The pack list "' + idx + '" is not in the expected form (window.HOPLINE_PACK_INDEX = [ ... ]).');
+  try { list = PK.cleanIndex(JSON.parse(text.slice(from, to + 1))); } catch (e) { fail('The pack list "' + idx + '" is not valid JSON inside: ' + e.message); }
+  extra.forEach(function (id) { if (!list.some(function (e) { return e.id === id; })) fail('No pack named "' + id + '" in "' + dir + '". Those there: ' + list.map(function (e) { return e.id; }).join(', ') + '.'); });
+  return list.filter(function (e) { return e.defaultOn || extra.indexOf(e.id) >= 0; }).map(function (e) {
+    var file = path.join(dir, e.file), t = readText(file, 'pack'), at2 = t.indexOf('"] = '), a = t.indexOf('{', at2), b = t.lastIndexOf('}'), r;
+    if (at2 < 0 || a < 0 || b < a) fail('The pack "' + file + '" is not in the expected form.');
+    try { r = LB.fromObject(JSON.parse(t.slice(a, b + 1)), e.name); } catch (err) { fail('The pack "' + file + '" cannot be read: ' + err.message); }
+    return Object.assign({}, e, { enabled: true, loaded: true, entries: r.entries, sanctions: r.sanctions, asOf: r.asOf || e.asOf });
+  });
+}
+
 function load(args) {
   var file = args._[1];
   if (!file) fail('Name the workspace file (or - for standard input).');
@@ -72,6 +90,8 @@ function load(args) {
   if (!args.flags['no-known']) {
     var kf = args.flags.known || path.join(__dirname, '..', 'public', 'data', 'known-addresses.js');
     if (args.flags.known || fs.existsSync(kf)) known = loadKnown(kf);
+    var packs = args.flags['no-packs'] ? [] : loadPacks(args.flags.packs || path.join(__dirname, '..', 'public', 'packs'), !!args.flags.packs, String(args.flags.with || '').split(',').filter(Boolean));
+    if (packs.length) known = LB.buildKnown(known || {}, packs);
   }
   var knownFn = known ? function (a) { return Object.prototype.hasOwnProperty.call(known, a) ? known[a] : null; } : null;
   var an = AN.analyse(loaded.graph, { known: function (a) { var n = loaded.graph.nodes.get('addr:' + a); return !!(n && (n.label || n.tag)) || !!(knownFn && knownFn(a)); } });

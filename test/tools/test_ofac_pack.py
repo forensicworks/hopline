@@ -2,6 +2,7 @@
 import io
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import zipfile
@@ -15,6 +16,18 @@ BECH = "bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h"      # real addresses with v
 LEGACY = "325gSHHe7UGvzEc9kGx43VqPboXUVwa26i"
 ETH = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
 NS = "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/XML"
+
+
+def valid_address(i):
+    """The i-th of as many valid mainnet addresses (base58, version 0) as a test needs."""
+    import hashlib
+    raw = bytes([0]) + hashlib.sha256(b"hopline test address %d" % i).digest()[:20]
+    raw += hashlib.sha256(hashlib.sha256(raw).digest()).digest()[:4]
+    n, out = int.from_bytes(raw, "big"), ""
+    while n:
+        n, r = divmod(n, 58)
+        out = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"[r] + out
+    return "1" + out
 
 
 def entry(uid, last, first=None, programs=(), ids=()):
@@ -109,13 +122,16 @@ def test_the_browser_converter_gives_exactly_the_same_pack(tmp_path):
     r, out = pack_from(tmp_path, sdn_xml(ENTRIES))
     assert r.returncode == 0, r.stderr
     js = ("const O = require(process.argv[1]); const xml = require('fs').readFileSync(process.argv[2], 'utf8');"
-          "const r = O.convertXml(xml, { today: '2000-01-01' }); console.log(JSON.stringify({ name: r.pack.name, labels: r.pack.labels }));")
+          "const r = O.convertXml(xml, { today: '2000-01-01' }); const p = r.pack;"
+          "console.log(JSON.stringify({ name: p.name, labels: p.labels, about: [p.licence, p.attribution, p.asOf, p.sourceUrl, p.sanctions] }));")
     n = subprocess.run(["node", "-e", js, str(ROOT / "public" / "js" / "hopline-ofac.js"), str(tmp_path / "SDN.XML")], capture_output=True, text=True, timeout=60)
     if n.returncode != 0 and "not found" in (n.stderr or "").lower():
         pytest.skip("node is not available")
     assert n.returncode == 0, n.stderr
     browser, tool = json.loads(n.stdout), json.loads(out.read_text(encoding="utf-8"))
     assert browser["name"] == tool["name"] and browser["labels"] == tool["labels"]
+    assert browser["about"] == [tool["licence"], tool["attribution"], tool["asOf"], tool["sourceUrl"], tool["sanctions"]], "and says the same about where it came from"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", tool["asOf"]) and tool["licence"].startswith("Public domain")
 
 
 def test_hoplines_own_importer_accepts_the_result(tmp_path):
@@ -203,13 +219,16 @@ def test_the_browser_converter_gives_the_same_pack_for_each_layout(tmp_path, lay
     r, out = fixture_pack(tmp_path, layout)
     assert r.returncode == 0, r.stderr
     js = ("const O = require(process.argv[1]); const xml = require('fs').readFileSync(process.argv[2], 'utf8');"
-          "const r = O.convertXml(xml, { today: '2000-01-01' }); console.log(JSON.stringify({ name: r.pack.name, labels: r.pack.labels }));")
+          "const r = O.convertXml(xml, { today: '2000-01-01' }); const p = r.pack;"
+          "console.log(JSON.stringify({ name: p.name, labels: p.labels, about: [p.licence, p.attribution, p.asOf, p.sourceUrl, p.sanctions] }));")
     n = subprocess.run(["node", "-e", js, str(ROOT / "public" / "js" / "hopline-ofac.js"), str(tmp_path / ("sdn_" + layout + ".xml"))], capture_output=True, text=True, timeout=60)
     if n.returncode != 0 and "not found" in (n.stderr or "").lower():
         pytest.skip("node is not available")
     assert n.returncode == 0, n.stderr
     browser, tool = json.loads(n.stdout), json.loads(out.read_text(encoding="utf-8"))
     assert browser["name"] == tool["name"] and browser["labels"] == tool["labels"]
+    assert browser["about"] == [tool["licence"], tool["attribution"], tool["asOf"], tool["sourceUrl"], tool["sanctions"]], "and says the same about where it came from"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", tool["asOf"]) and tool["licence"].startswith("Public domain")
 
 
 @pytest.mark.parametrize("layout,tag", [("enhanced", "value"), ("advanced", "VersionDetail")])

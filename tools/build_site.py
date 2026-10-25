@@ -43,7 +43,7 @@ main{text-align:center;padding:16px}a{color:#aee7f8}</style></head>
 <body><main><h1>Not found</h1><p>There is no page at this address.</p><p><a href="@BASE@">Back to Hopline</a></p></main></body></html>
 """
 BASE_PATH = re.compile(r"^/((?!\.+/)[A-Za-z0-9._-]+/)*$")
-LOCAL_URL = re.compile(r'((?:src|href)=")((?:public/)?(?:config\.js|(?:js|css|data|lib)/[^"?#]+\.(?:js|css)))(")')
+LOCAL_URL = re.compile(r'((?:src|href)=")((?:public/)?(?:config\.js|(?:js|css|data|lib|packs)/[^"?#]+\.(?:js|css)))(")')
 
 
 def config_js(stats_endpoint):

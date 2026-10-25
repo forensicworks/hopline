@@ -10,3 +10,17 @@ This product includes work by others:
   service wallets (public/data/known-addresses.js) and the early history of the repository.
 * qrcode.js ("QRCode for JavaScript") by davidshimjs, MIT License, https://github.com/davidshimjs/qrcodejs
   (public/lib/qrcode.js).
+* The Ransomwhere dataset (version 1.1.0, 27 October 2024) by Jack Cable and contributors, CC BY 4.0
+  (https://creativecommons.org/licenses/by/4.0/), https://doi.org/10.5281/zenodo.13999026. Hopline ships it as an optional label
+  pack (public/packs/ransomwhere.js). Changes made: the addresses and ransomware families are converted to Hopline's label pack
+  format, each address's recorded payments are summarised in a note, and the addresses are sorted. Nothing else is changed.
+* The mining pools list at github.com/mempool/mining-pools (used by mempool.space), MIT License, Copyright (c) 2019 btc.com and
+  contributors. Hopline ships the pools' reward addresses as an optional label pack (public/packs/mining-pools.js, which starts with
+  the licence text). Changes made: the pool names and addresses are converted to Hopline's label pack format, and testnet addresses
+  are left out.
+* The UK Sanctions List, published by the Foreign, Commonwealth & Development Office
+  (https://www.gov.uk/government/publications/the-uk-sanctions-list). Contains public sector information licensed under the Open
+  Government Licence v3.0 (https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/). Hopline ships the Bitcoin
+  addresses written in the text of its entries as a label pack (public/packs/uk-sanctions.js). Changes made: the addresses are found in
+  the free text of the entries and checked, and each is labelled with the name of its entry; nothing else of the list is kept.
+* The U.S. Treasury OFAC SDN list (public domain, a U.S. government work), shipped as a label pack (public/packs/ofac-sdn.js).

@@ -17,7 +17,7 @@ node tools/hopline-cli.js prompt     workspace.json --task triage [--focus <ref>
 node tools/hopline-cli.js check      workspace.json answer.txt
 ```
 
-Options: `--known <file>` (the wallet list to name wallets with; the default is `public/data/known-addresses.js`, which is read as data and never run), `--no-known`, `--generated <ISO time>` (to make the output repeatable), `--compact` (one line of JSON).
+Options: `--known <file>` (the wallet list to name wallets with; the default is `public/data/known-addresses.js`, which is read as data and never run), `--packs <folder>` (the packs the site ships that are on as shipped, which is the OFAC sanctions list; the default is `public/packs`, read as data and never run), `--with <id,id>` (also use these shipped packs that are off as shipped, such as `ransomwhere`), `--no-packs`, `--no-known` (no names from either list), `--generated <ISO time>` (to make the output repeatable), `--compact` (one line of JSON).
 
 Exit codes: `0` done, `1` `check` found an id that is not in the evidence, `2` it could not run (the message is on standard error).
 

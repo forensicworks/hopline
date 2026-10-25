@@ -33,6 +33,7 @@ window.addEventListener('error', function (e) {
 </header>
 
 <main id="page">
+  <p class="banner bad" id="packWarn" role="alert" hidden></p>
   <p id="message" role="status" hidden></p>
 
   <div id="empty" hidden>
@@ -81,7 +82,7 @@ window.addEventListener('error', function (e) {
 
   <section id="assocSec" hidden>
     <h2>Associations</h2>
-    <p class="hint">Labelled wallets that appear in the transactions loaded below: the labels and tags you wrote in the workspace, the built-in list, or a label list you loaded there. A name is somebody's claim, not proof.</p>
+    <p class="hint">Labelled wallets that appear in the transactions loaded below: the labels and tags you wrote in the workspace, the built-in list, the lists that come with the page (the OFAC sanctions list is on unless you switch it off in the workspace, and others such as Ransomwhere when you switch them on there), or a label list you loaded there. A name is somebody's claim, not proof.</p>
     <div id="assoc"></div>
   </section>
 
@@ -156,6 +157,8 @@ window.addEventListener('error', function (e) {
 <script src="js/hopline-api.js"></script>
 <script src="js/hopline-io.js"></script>
 <script src="js/hopline-labels.js"></script>
+<script src="packs/index.js"></script>
+<script src="js/hopline-packs.js"></script>
 <script src="js/hopline-wallet.js"></script>
 <script src="data/known-addresses.js"></script>
 <script src="lib/qrcode.js"></script>

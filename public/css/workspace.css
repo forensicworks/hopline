@@ -228,6 +228,7 @@ body.trace-on #stepbar { display: none !important; }
 .packrow .packname { flex: 1; overflow-wrap: anywhere; }
 .packrow .packname small { display: block; color: var(--dim); }
 .packrow button { padding: 1px 7px; }
+.packrow a { font-size: 11px; white-space: nowrap; }
 .reasons li { margin: 1px 0; }
 .menu { position: relative; }
 .menu summary { list-style: none; cursor: pointer; padding: 5px 12px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); }

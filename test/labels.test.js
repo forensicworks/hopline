@@ -121,6 +121,47 @@ test('buildKnown keeps every claim a wallet has, in full, the built-in name firs
   assert.equal(base[A].claims, undefined, 'the base list is not changed');
 });
 
+test('a pack can say where it came from: licence, who to credit, the date of its data and a link; each is cleaned, and none is needed', () => {
+  const pack = (extra) => JSON.stringify(Object.assign({ format: 'hopline-labels', name: 'P', labels: [{ address: BECH, label: 'X' }] }, extra));
+  const p = Labels.parse(pack({ licence: 'CC BY 4.0', attribution: 'Somebody\nElse', asOf: '2026-10-21', sourceUrl: 'https://example.org/data' }));
+  assert.deepEqual([p.licence, p.attribution, p.asOf, p.sourceUrl], ['CC BY 4.0', 'Somebody Else', '2026-10-21', 'https://example.org/data']);
+  assert.equal(Labels.parse(pack({ license: 'MIT' })).licence, 'MIT', 'the American spelling is understood');
+  const bad = Labels.parse(pack({ licence: 'x'.repeat(300), asOf: '2026-02-31', sourceUrl: 'javascript:alert(1)', attribution: 5 }));
+  assert.equal(bad.licence.length, 80); assert.equal(bad.asOf, '', 'not a real date'); assert.equal(bad.sourceUrl, ''); assert.equal(bad.attribution, '');
+  const none = Labels.parse(pack({}));
+  assert.deepEqual([none.licence, none.attribution, none.asOf, none.sourceUrl], ['', '', '', '']);
+  assert.deepEqual([Labels.parse(BECH + ',X\n').licence, Labels.parse(JSON.stringify([[BECH, 'X']])).asOf], ['', ''], 'a CSV or a bare list has none');
+});
+
+test('cleanDate accepts only a real calendar date written YYYY-MM-DD', () => {
+  assert.equal(Labels.cleanDate('2026-10-21'), '2026-10-21'); assert.equal(Labels.cleanDate(' 2024-02-29 '), '2024-02-29');
+  ['2025-02-29', '2026-13-01', '21/10/2026', '2026-1-1', '', null, 20261021, '2026-10-21T00:00:00Z'].forEach((v) => assert.equal(Labels.cleanDate(v), '', String(v)));
+});
+
+test('fromObject reads a pack that is already a value exactly as parse reads its text', () => {
+  const d = { format: 'hopline-labels', name: 'Shipped', sanctions: true, licence: 'Public domain', asOf: '2026-10-21', labels: [{ address: BECH, label: 'A', category: 'C' }, { address: 'junk', label: 'B' }] };
+  const a = Labels.fromObject(d, 'fallback'), b = Labels.parse(JSON.stringify(d), 'fallback');
+  assert.deepEqual(a, b); assert.equal(a.name, 'Shipped'); assert.equal(a.sanctions, true); assert.equal(Labels.fromObject({ labels: [{ address: BECH, label: 'A' }] }, 'fallback').name, 'fallback');
+  assert.throws(() => Labels.fromObject({ labels: [] }), /No usable/);
+});
+
+test('a pack\'s date reaches the claims, and the saved copy keeps what the pack said about itself', () => {
+  const k = Labels.buildKnown({}, [{ name: 'Dated', enabled: true, asOf: '2026-10-21', entries: [{ address: BECH, label: 'A' }] }, { name: 'Undated', enabled: true, entries: [{ address: LEGACY, label: 'B' }] }]);
+  assert.equal(k[BECH].claims[0].asOf, '2026-10-21'); assert.equal('asOf' in k[LEGACY].claims[0], false, 'no date, no key');
+  const [s] = Labels.parseStored(JSON.stringify([{ id: 'p', name: 'N', licence: 'CC BY 4.0', attribution: 'A', asOf: '2026-10-21', sourceUrl: 'https://example.org/', entries: [[BECH, 'A']] }]));
+  assert.deepEqual([s.licence, s.attribution, s.asOf, s.sourceUrl], ['CC BY 4.0', 'A', '2026-10-21', 'https://example.org/']);
+  assert.equal(Labels.parseStored(JSON.stringify([{ id: 'p', name: 'N', asOf: 'x', entries: [] }]))[0].asOf, '');
+});
+
+test('a claim that has no link of its own uses the page its pack data came from', () => {
+  const entries = [{ address: BECH, label: 'A', category: '', url: '', note: '' }, { address: LEGACY, label: 'B', category: '', url: 'https://example.org/own', note: '' }];
+  const k = Labels.buildKnown({}, [{ name: 'P', enabled: true, sourceUrl: 'https://example.org/data', entries }]);
+  assert.equal(k[BECH].url, 'https://example.org/data'); assert.equal(k[BECH].claims[0].url, 'https://example.org/data');
+  assert.equal(k[LEGACY].url, 'https://example.org/own', 'its own link wins');
+  const none = Labels.buildKnown({}, [{ name: 'P', enabled: true, entries }]);
+  assert.equal(none[BECH].url, undefined); assert.equal(none[BECH].claims[0].url, '');
+});
+
 test('claimsOf: an entry with no claims list is one claim, and nothing is none', () => {
   assert.deepEqual(Labels.claimsOf({ label: 'Built-in', category: 'EXCH' }), [{ label: 'Built-in', pack: '', category: 'EXCH', url: '', note: '', sanctions: false }]);
   assert.deepEqual(Labels.claimsOf(null), []); assert.deepEqual(Labels.claimsOf(undefined), []);

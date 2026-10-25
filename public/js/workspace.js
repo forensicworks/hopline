@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, OF = HoplineOfac, FD = HoplineFind, DT = HoplineDetections, AS = HoplineAssist, RP = HoplineReport, balanceOf = M.balanceOf;
+  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, OF = HoplineOfac, PK = HoplinePacks, FD = HoplineFind, DT = HoplineDetections, AS = HoplineAssist, RP = HoplineReport, balanceOf = M.balanceOf;
   var ID = M.ID;
   var KNOWN_BASE = window.HOPLINE_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
@@ -54,7 +54,7 @@
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true,
     trace: emptyTrace(),
-    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
+    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
     stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
@@ -193,7 +193,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -206,7 +206,7 @@
       state.groupRows = p.groupRows !== false; state.groupBy = cleanGroupBy(p.groupBy); state.dustSats = num(p.dustSats, 0, 1000000000, 10000);
       if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old' || p.chooseSort === 'known') state.chooseSort = p.chooseSort;
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
-      state.keyRemember = p.keyRemember === true; state.pace = A.cleanPace(p.pace);
+      state.keyRemember = p.keyRemember === true; state.pace = A.cleanPace(p.pace); state.shippedChoices = PK.cleanChoices(p.shippedPacks);
       if (state.keyRemember) loadKeys();
       state.capTx = num(p.capTx, 1, 500, 25); state.capReq = num(p.capReq, 1, 1000, 80); state.capPages = num(p.capPages, 1, 20, 2);
       state.showLabels = p.showLabels !== false;
@@ -2942,11 +2942,11 @@
   var PACK_STORE_LIMIT = 2500000;                                          // characters kept in this browser; a bigger pack works until the page is closed
   function rebuildKnown() {
     Object.keys(KNOWN).forEach(function (k) { delete KNOWN[k]; });
-    Object.assign(KNOWN, LB.buildKnown(KNOWN_BASE, state.packs));
+    Object.assign(KNOWN, LB.buildKnown(KNOWN_BASE, state.packs.concat(PK.active(state.shipped, state.packs))));
     state.knownVersion++;
   }
   function savePacks() {
-    var text = JSON.stringify(state.packs.map(function (p) { return { id: p.id, name: p.name, source: p.source, enabled: p.enabled, sanctions: p.sanctions === true ? true : undefined, entries: p.entries.map(function (e) { return [e.address, e.label, e.category, e.url, e.note]; }) }; }));
+    var text = JSON.stringify(state.packs.map(function (p) { return { id: p.id, name: p.name, source: p.source, enabled: p.enabled, sanctions: p.sanctions === true ? true : undefined, licence: p.licence || undefined, attribution: p.attribution || undefined, asOf: p.asOf || undefined, sourceUrl: p.sourceUrl || undefined, entries: p.entries.map(function (e) { return [e.address, e.label, e.category, e.url, e.note]; }) }; }));
     state.packs.forEach(function (p) { p.stored = true; });
     if (text.length > PACK_STORE_LIMIT || !store.set(PACKS_KEY, text)) {
       store.del(PACKS_KEY); state.packs.forEach(function (p) { p.stored = false; });
@@ -2963,7 +2963,53 @@
     state.graph.nodes.forEach(function (n) { if (n.type === 'addr' && p.entries.length && p.index && p.index.has(n.address)) k++; });
     return k;
   }
+  // The packs that come with the site (packs/index.js): switched on or off here, the choice kept with the other preferences. The OFAC list ships switched on.
+  function initShipped() {
+    state.shipped = PK.cleanIndex(window.HOPLINE_PACK_INDEX).map(function (e) {
+      return Object.assign({}, e, { count: e.entries, entries: [], enabled: PK.isOn(e, state.shippedChoices), loaded: false, loading: false, failed: '', index: null });
+    });
+    state.shipped.forEach(function (p) { if (p.enabled) loadShipped(p); });
+  }
+  function loadShipped(p) {
+    if (p.loaded || p.loading) return;
+    p.loading = true; p.failed = '';
+    PK.load(p, window).then(function (r) {
+      p.entries = r.entries; p.index = new Set(r.entries.map(function (e) { return e.address; }));
+      p.sanctions = r.sanctions === true; p.asOf = r.asOf || p.asOf; p.loaded = true; p.loading = false;
+      rebuildKnown(); renderPacks(); refresh(); showInspector(true);
+    }, function (e) {
+      p.loading = false; p.failed = 'could not be loaded';
+      renderPacks();
+      toast('The built-in list "' + p.name + '" could not be loaded (' + (e && e.message ? e.message : 'error') + ')' + (p.sanctions ? ', so a wallet on it is not marked as sanctioned.' : '.'), true);
+    });
+  }
+  function setShipped(p, on) {
+    p.enabled = on; state.shippedChoices[p.id] = on; savePrefs();
+    if (on) loadShipped(p);
+    rebuildKnown(); renderPacks(); refresh(); showInspector(true);
+  }
+  function renderShipped() {
+    var box = $('shippedList'); box.textContent = '';
+    $('shippedSec').hidden = !state.shipped.length;
+    state.shipped.forEach(function (p) {
+      var cb = el('input', { type: 'checkbox', 'aria-label': 'Use ' + p.name }); cb.checked = p.enabled;
+      cb.addEventListener('change', function () { setShipped(p, cb.checked); });
+      var bits = [fmtInt(p.loaded ? p.entries.length : p.count) + ' wallets'], hits = p.loaded ? packMatches(p) : 0, stale = PK.staleness(p.asOf, Date.now());
+      if (p.sanctions) bits.push('sanctions list');
+      if (p.asOf) bits.push('as of ' + p.asOf);
+      if (stale) bits.push(stale);
+      if (p.licence) bits.push(p.licence);
+      if (hits) bits.push(hits + ' on screen or loaded');
+      if (p.loading) bits.push('loading…');
+      if (p.failed) bits.push(p.failed + (p.sanctions ? ': a wallet on it is not marked' : ''));
+      if (PK.shadowed(p, state.packs)) bits.push('your imported pack of the same name is used instead');
+      var tip = [p.source, p.attribution ? 'Credit: ' + p.attribution : '', p.licence ? 'Licence: ' + p.licence : ''].filter(Boolean).join('\n');
+      box.appendChild(el('div', { 'class': 'packrow' }, [cb, el('span', { 'class': 'packname', title: tip }, [p.name, el('small', { text: bits.join(' · ') })]),
+        p.sourceUrl ? el('a', { href: p.sourceUrl, target: '_blank', rel: 'noopener noreferrer', title: 'Where this list comes from', text: 'source ↗' }) : null]));
+    });
+  }
   function renderPacks() {
+    renderShipped();
     var box = $('packList'); box.textContent = '';
     state.packs.forEach(function (p) {
       if (!p.index) p.index = new Set(p.entries.map(function (e) { return e.address; }));
@@ -2985,7 +3031,7 @@
     try { r = LB.parse(text, String(filename || 'Imported labels').replace(/\.(csv|json|txt)$/i, '')); } catch (e) { toast('Import failed: ' + e.message, true); return; }
     var replaced = state.packs.filter(function (p) { return p.name === r.name; }).length;
     state.packs = state.packs.filter(function (p) { return p.name !== r.name; }).slice(0, 19);
-    var pack = { id: 'p' + Date.now().toString(36), name: r.name, source: r.source, enabled: true, sanctions: r.sanctions === true, entries: r.entries, stored: true, index: new Set(r.entries.map(function (e) { return e.address; })) };
+    var pack = { id: 'p' + Date.now().toString(36), name: r.name, source: r.source, enabled: true, sanctions: r.sanctions === true, licence: r.licence, attribution: r.attribution, asOf: r.asOf, sourceUrl: r.sourceUrl, entries: r.entries, stored: true, index: new Set(r.entries.map(function (e) { return e.address; })) };
     state.packs.push(pack); stat('labels-imported');
     rebuildKnown(); savePacks(); renderPacks(); refresh(); showInspector(true);
     var s = r.skipped, left = [];
@@ -4145,6 +4191,13 @@
     };
   }
 
+  /** What each label pack that is switched on says about itself, for the report's list of where names came from. */
+  function reportPacks() {
+    return PK.active(state.shipped, state.packs).concat(state.packs.filter(function (p) { return p.enabled; })).map(function (p) {
+      return { name: p.name, source: p.source || '', licence: p.licence || '', attribution: p.attribution || '', asOf: p.asOf || '' };
+    });
+  }
+
   /** How the fiat values in a report were worked out, in words. */
   function fiatNoteText() {
     if (!fiatOn()) return '';
@@ -4190,7 +4243,7 @@
     var image = null; try { image = renderer.toDataUrl(); } catch (e) { /* a tainted or empty canvas: the report simply has no picture */ }
     var model = { title: title, preparedBy: by, generated: Date.now(), evidence: base, nodes: base.nodes, edges: base.edges,
                   analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups,
-                  known: function (a) { return KNOWN[a] || null; }, fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
+                  known: function (a) { return KNOWN[a] || null; }, packs: reportPacks(), fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {
       download('hopline-report-' + stamp() + '.html', r.html, 'text/html;charset=utf-8'); stat('report');
@@ -4353,7 +4406,7 @@
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets; $('bundleEdges').checked = state.bundleEdges;
     setSideCollapsed(state.sideCollapsed); setInspCollapsed(state.inspCollapsed); setTbCollapsed(state.tbCollapsed);
-    loadPacks(); renderPacks();
+    loadPacks(); initShipped(); renderPacks();
     document.body.classList.toggle('trace-on', traceOn()); setSeg('layoutSeg', 'data-layout', state.layout); updateScaleRow();
     $('stepCopy').appendChild(copyIconSvg());
     $('reportBy').value = state.reportBy || ''; $('reportBy').addEventListener('change', savePrefs);

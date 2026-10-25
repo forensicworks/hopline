@@ -56,6 +56,19 @@
     return parts.join(' · ');
   }
 
+  /** One line for each label pack that names a wallet in the report: the pack, where its data came from, its licence, who to credit and the date of its data. `model.packs` carries what each pack says about itself. */
+  function packSources(model, wallets) {
+    var used = new Set();
+    wallets.forEach(function (n) {
+      var k = model.known && n.address ? model.known(n.address) : null;
+      if (k) (k.claims && k.claims.length ? k.claims : [{ pack: k.pack || '' }]).forEach(function (c) { if (c.pack) used.add(c.pack); });
+    });
+    return (model.packs || []).filter(function (p) { return used.has(p.name); }).map(function (p) {
+      var bits = [p.source, p.licence && 'licence: ' + p.licence, p.attribution && 'credit: ' + p.attribution, p.asOf && 'data as of ' + p.asOf].filter(Boolean);
+      return p.name + (bits.length ? ' - ' + bits.join('; ') : '');
+    });
+  }
+
   function amountCell(model, sats, time) {
     var fx = model.fiat ? model.fiat(sats, time) : '';
     return esc(Style.fmtBtc(sats)) + ' BTC' + (fx ? ' <span class="hint">· ' + esc(fx) + '</span>' : '');
@@ -185,6 +198,8 @@
       h.push('<h3>Labelled wallets (' + noted.length + ')</h3><table><tr><th>Address</th><th>Name</th><th>Note</th></tr>');
       noted.slice(0, MAX_WALLETS).forEach(function (n) { var k = model.known && model.known(n.address); h.push('<tr><td><code>' + esc(n.address) + '</code></td><td>' + esc(walletName(model, n)) + (k && k.category ? ' <span class="hint">[' + esc(k.category) + ']</span>' : '') + '</td><td>' + esc(n.note || (k && k.note) || '') + '</td></tr>'); });
       h.push('</table>');
+      var src = packSources(model, noted);
+      if (src.length) h.push('<h3>Sources of the names</h3><ul class="reasons">' + src.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>');
     }
 
     if (model.groups && model.groups.length) {                                 // vertices on the screen that stood for several others: say what, and list every one of them

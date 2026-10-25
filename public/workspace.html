@@ -318,9 +318,15 @@ window.addEventListener('error', function (e) {
     <details id="packSection">
       <summary>Label packs</summary>
       <div class="sec">
+        <div id="shippedSec" hidden>
+          <span class="lbl">Built in</span>
+          <div id="shippedList" class="packlist"></div>
+          <p class="hint">Lists that come with this page, from the source named on each: they are read from files on this same site and nothing is sent anywhere. The sanctions list is on until you switch it off; the others are off until you switch them on. Each row says how old its data is, and the choice is kept in this browser. A listing is that list's claim, not proof.</p>
+        </div>
+        <span class="lbl">Your own packs</span>
         <p class="hint">Lists of wallets with names (an exchange's addresses, a sanctions list, your team's findings) from a CSV or JSON file. They are other people's claims: shown as "known (pack name)", kept apart from your own labels, and never sent anywhere. Addresses are checked (checksum included) when the file is read.</p>
         <div class="row wrap"><button type="button" id="packImport">Import labels…</button><input type="file" id="packFile" accept=".csv,.json,.txt,.xml,.zip,text/csv,application/json,application/zip,text/xml" hidden></div>
-        <p class="hint"><b>Sanctions list (OFAC):</b> download <code>SDN_XML.ZIP</code> from <a href="https://sanctionslist.ofac.treas.gov/Home/SdnList" target="_blank" rel="noopener noreferrer">OFAC's SDN list page</a> and choose it here: it is read in your browser and turned into a pack of the Bitcoin addresses it names. <code>SDN_ENHANCED.ZIP</code> and <code>SDN_ADVANCED.ZIP</code> (or their unzipped <code>.XML</code> files) work too but are several times larger. Not <code>SDN.CSV</code>: it cuts long entries and loses addresses. The list changes whenever OFAC acts, so import it again to refresh (a pack with the same name is replaced).</p>
+        <p class="hint"><b>Sanctions list (OFAC):</b> download <code>SDN_XML.ZIP</code> from <a href="https://sanctionslist.ofac.treas.gov/Home/SdnList" target="_blank" rel="noopener noreferrer">OFAC's SDN list page</a> and choose it here: it is read in your browser and turned into a pack of the Bitcoin addresses it names. <code>SDN_ENHANCED.ZIP</code> and <code>SDN_ADVANCED.ZIP</code> (or their unzipped <code>.XML</code> files) work too but are several times larger. Not <code>SDN.CSV</code>: it cuts long entries and loses addresses. The list changes whenever OFAC acts, and the built-in copy is only as new as its date: import the file to use a newer one (a pack with the same name replaces the built-in one).</p>
         <div id="packList" class="packlist"></div>
         <span class="lbl">Share your own labels</span>
         <div class="row wrap"><button type="button" id="packExportCsv" title="Your labelled, tagged and annotated wallets as a CSV">Export (.csv)</button><button type="button" id="packExportJson" title="The same as a label pack (.json) that Import labels reads back">Export (.json)</button></div>
@@ -523,6 +529,8 @@ window.addEventListener('error', function (e) {
 <script src="js/hopline-group.js"></script>
 <script src="js/hopline-analysis.js"></script>
 <script src="js/hopline-labels.js"></script>
+<script src="packs/index.js"></script>
+<script src="js/hopline-packs.js"></script>
 <script src="js/hopline-ofac.js"></script>
 <script src="js/hopline-find.js"></script>
 <script src="js/hopline-detections.js"></script>

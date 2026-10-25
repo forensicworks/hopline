@@ -37,6 +37,8 @@ PAGE = "https://sanctionslist.ofac.treas.gov/Home/SdnList"
 ENTRY_PAGE = "https://sanctionssearch.ofac.treas.gov/Details.aspx?id="          # OFAC's page for one entry, by its uid
 ID_TYPES = ("Digital Currency Address - XBT", "Digital Currency Address - BTC")   # OFAC writes XBT
 MAX_BYTES = 400_000_000                                                          # the biggest real file is about 130 MB
+LICENCE = "Public domain (U.S. government work)"
+ATTRIBUTION = "U.S. Department of the Treasury, Office of Foreign Assets Control (OFAC), SDN list"
 
 
 class ListError(Exception):
@@ -70,6 +72,15 @@ def first_where(items, test):
         if test(i):
             return i
     return items[0] if items else None
+
+
+def iso_date(us):
+    """OFAC writes dates as MM/DD/YYYY; the pack states the date of its data as YYYY-MM-DD ('' when it is not a real date)."""
+    m = re.fullmatch(r"(\d{2})/(\d{2})/(\d{4})", us or "")
+    try:
+        return datetime.date(int(m.group(3)), int(m.group(1)), int(m.group(2))).isoformat() if m else ""
+    except ValueError:
+        return ""
 
 
 def category(programs, limit=40):
@@ -267,7 +278,11 @@ def convert(data, today=None):
         labels.append(entry)
     pack = {"format": "hopline-labels", "version": 1, "name": "OFAC SDN list (Bitcoin)", "sanctions": True,
             "source": "U.S. Treasury OFAC SDN list (" + file + (", dated " + date if date else "") + "), converted " + today,
-            "created": datetime.datetime.now(datetime.timezone.utc).isoformat(), "labels": labels}
+            "licence": LICENCE, "attribution": ATTRIBUTION, "sourceUrl": PAGE}
+    if iso_date(date):
+        pack["asOf"] = iso_date(date)
+    pack["created"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    pack["labels"] = labels
     info = {"layout": name, "date": date, "entries": entries, "with_address": len({r[0] for r in records}), "read": len(records), "expected": expected, "warning": ""}
     if len(records) != expected:
         info["warning"] = ("The file mentions %d Bitcoin address entries but only %d could be read: the list may have a layout this script does not know, "

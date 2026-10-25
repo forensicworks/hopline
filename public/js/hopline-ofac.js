@@ -28,8 +28,17 @@
   var ENTRY_PAGE = 'https://sanctionssearch.ofac.treas.gov/Details.aspx?id=';        // OFAC's page for one entry, by its uid
   var ID_TYPES = ['Digital Currency Address - XBT', 'Digital Currency Address - BTC'];   // OFAC writes XBT
   var MAX_XML = 400000000;                                                           // the real file is about 30 MB
+  var LICENCE = 'Public domain (U.S. government work)';
+  var ATTRIBUTION = 'U.S. Department of the Treasury, Office of Foreign Assets Control (OFAC), SDN list';
 
   function fail(message) { var e = new Error(message); e.name = 'OfacError'; return e; }
+  /** OFAC writes dates as MM/DD/YYYY; the pack states the date of its data as YYYY-MM-DD ('' when it is not a real date). */
+  function isoDate(us) {
+    var m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(us || '');
+    if (!m) return '';
+    var d = new Date(Date.UTC(+m[3], +m[1] - 1, +m[2]));
+    return d.getUTCFullYear() === +m[3] && d.getUTCMonth() === +m[1] - 1 && d.getUTCDate() === +m[2] ? d.toISOString().slice(0, 10) : '';
+  }
   function clean(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); }
   function local(name) { return name.slice(name.lastIndexOf(':') + 1); }
 
@@ -277,7 +286,10 @@
     var today = opts.today || new Date(opts.now != null ? opts.now : Date.now()).toISOString().slice(0, 10);
     var pack = { format: 'hopline-labels', version: 1, name: 'OFAC SDN list (Bitcoin)', sanctions: true,
                  source: 'U.S. Treasury OFAC SDN list (' + lay.file + (date ? ', dated ' + date : '') + '), converted ' + today,
-                 created: new Date(opts.now != null ? opts.now : Date.now()).toISOString(), labels: labels };
+                 licence: LICENCE, attribution: ATTRIBUTION, sourceUrl: PAGE };
+    if (isoDate(date)) pack.asOf = isoDate(date);
+    pack.created = new Date(opts.now != null ? opts.now : Date.now()).toISOString();
+    pack.labels = labels;
     var info = { layout: name, date: date, entries: r.entries, withAddress: uids.size, read: r.records.length, expected: r.expected, warning: '' };
     if (info.read !== info.expected) info.warning = 'The file mentions ' + info.expected + ' Bitcoin address entries but only ' + info.read + ' could be read: the list may have a layout this page does not know, so the pack may be incomplete.';
     return { pack: pack, info: info };

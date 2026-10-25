@@ -1,0 +1,83 @@
+# Refreshes the label packs the site ships (public/packs/) every week and opens a pull request when a list changed, so the new
+# wallets and names can be read before they are published. It never pushes to master: merging the pull request is what publishes
+# (the Deploy site and GitHub Pages workflows run on that push).
+#
+# What it runs is `python3 tools/build_packs.py --refresh`, which rebuilds every source listed in SOURCES in that file. A new source is
+# added there, and this workflow picks it up without a change. A source that cannot be downloaded or fails its checks keeps its old
+# files and fails the run (so GitHub tells you), while the other sources are still refreshed. The new files go through the unit and
+# tool tests before anything is proposed.
+#
+# Needs: Settings > Actions > General > Workflow permissions > "Allow GitHub Actions to create and approve pull requests" (also an
+# organisation setting). Without it the branch automation/refresh-packs is still pushed and the run says so, but the pull request
+# has to be opened by hand. GitHub stops scheduled workflows in a repository with no activity for 60 days; a manual run
+# (Actions > Refresh label packs > Run workflow) starts it again.
+name: Refresh label packs
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'      # Mondays, 05:17 UTC (not on the hour, when GitHub's queue is busiest)
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-packs
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  BRANCH: automation/refresh-packs
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download and rebuild every source
+        id: build
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}      # only so the request for the newest commit of a GitHub-hosted list is not turned away for anonymous limits; the tool sends it to api.github.com and nowhere else
+        run: python3 tools/build_packs.py --refresh --summary pack-refresh.md
+
+      - name: What changed
+        id: diff
+        run: |
+          if [ -f pack-refresh.md ]; then cat pack-refresh.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -n "$(git status --porcelain -- public/packs)" ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; else echo "No list changed." >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Unit tests
+        if: steps.diff.outputs.changed == 'true'
+        run: node --test test/*.test.js
+
+      - name: Tool tests
+        if: steps.diff.outputs.changed == 'true'
+        run: python3 -m pip install --quiet pytest && python3 -m pytest test/tools -q
+
+      - name: Open or update the pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git add public/packs
+          git commit -q -m "Refresh the shipped label packs" -m "Written by the Refresh label packs workflow. What changed is in the pull request."
+          git push --force origin "$BRANCH"
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')" ]; then
+            gh pr edit "$BRANCH" --body-file pack-refresh.md
+          elif ! gh pr create --base "${{ github.event.repository.default_branch }}" --head "$BRANCH" --title "Refresh the shipped label packs" --body-file pack-refresh.md; then
+            echo "::error::The files are on the branch $BRANCH but the pull request could not be created. Allow it under Settings > Actions > General > Workflow permissions (Allow GitHub Actions to create and approve pull requests), or open it from ${{ github.server_url }}/${{ github.repository }}/compare/$BRANCH"
+            exit 1
+          fi
+
+      - name: Fail if a source could not be refreshed
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "::error::At least one label pack could not be refreshed: see the step 'Download and rebuild every source' and the job summary. Its old files were kept."
+          exit 1

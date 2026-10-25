@@ -114,6 +114,20 @@ test('known wallets, tags and notes get their own table, with the pack named', a
   assert.match(r.html, /Labelled wallets \(2\)/); assert.match(r.html, /known: Acme Exchange \(OFAC-like pack\)/); assert.match(r.html, /\[EXCH\]/); assert.match(r.html, /tag THREAT/); assert.match(r.html, /seen twice/);
 });
 
+test('the report lists where the names came from: each pack that names a wallet in it, with its source, licence, credit and date', async () => {
+  const g = sample();
+  const known = (a) => (a === 'shop' ? { label: 'Acme Exchange', pack: 'List one', claims: [{ label: 'Acme Exchange', pack: 'List one' }, { label: 'Acme', pack: 'List two' }, { label: 'A', pack: '' }] } : null);
+  const packs = [{ name: 'List one', source: 'U.S. Treasury <list>', licence: 'Public domain', attribution: 'The Treasury', asOf: '2026-10-21' }, { name: 'List two', source: '', licence: '', attribution: '', asOf: '' },
+                 { name: 'Unused list', source: 'nobody', licence: 'x', attribution: 'x', asOf: '2020-01-01' }];
+  const r = await RP.build(modelOf(g, { known, packs }));
+  assert.match(r.html, /<h3>Sources of the names<\/h3>/);
+  assert.match(r.html, /<li>List one - U\.S\. Treasury &lt;list&gt;; licence: Public domain; credit: The Treasury; data as of 2026-10-21<\/li>/);
+  assert.match(r.html, /<li>List two<\/li>/, 'a pack that says nothing about itself is still named');
+  assert.doesNotMatch(r.html, /Unused list/, 'a pack that names nothing in the report is not listed');
+  assert.doesNotMatch((await RP.build(modelOf(g, { known }))).html, /Sources of the names/, 'nothing to list without the packs');
+  assert.doesNotMatch((await RP.build(modelOf(g, { known: () => null, packs }))).html, /Sources of the names/, 'and nothing when no pack names a wallet');
+});
+
 test('the wallets table has a balance column: what the server reported, with the time, and "not read" otherwise', async () => {
   const g = sample();
   g.addAddressStats('me', { chain_stats: { funded_txo_sum: 139000, spent_txo_sum: 100000, tx_count: 2 }, mempool_stats: { funded_txo_sum: 7000, spent_txo_sum: 0, tx_count: 1 } }, { at: 1700000000, source: 'https://mempool.space/api' });

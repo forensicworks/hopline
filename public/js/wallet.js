@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var A = HoplineApi, AD = HoplineAddress, S = HoplineStyle, W = HoplineWallet, LB = HoplineLabels, PR = HoplinePrice;
+  var A = HoplineApi, AD = HoplineAddress, S = HoplineStyle, W = HoplineWallet, LB = HoplineLabels, PK = HoplinePacks, PR = HoplinePrice;
   var PREF_KEY = 'hopline.prefs.v1', PACKS_KEY = 'hopline.packs.v1', SESSION_KEY = 'hopline.workspace.v1', PAGE = 25, NL = String.fromCharCode(10);
 
   function $(id) { return document.getElementById(id); }
@@ -38,8 +38,27 @@
   }
   if (qs.get('source') && A.PRESETS[qs.get('source')] && qs.get('source') !== 'custom') choice.source = qs.get('source');
   if (choice.source === 'custom' && !/^https?:\/\//i.test(choice.customBase.trim())) choice.source = 'clearnet';
-  var KNOWN = LB.buildKnown(window.HOPLINE_KNOWN || {}, LB.parseStored(store.get(PACKS_KEY)), LB.fromSession(store.get(SESSION_KEY)));         // and what you wrote yourself in the workspace
+  var imported = LB.parseStored(store.get(PACKS_KEY)), own = LB.fromSession(store.get(SESSION_KEY)), shipped = [];                         // packs you imported, what you wrote yourself in the workspace, and the packs that come with the site
+  function buildKnown() { return LB.buildKnown(window.HOPLINE_KNOWN || {}, imported.concat(PK.active(shipped, imported)), own); }
+  var KNOWN = buildKnown();
   function known(a) { return KNOWN[a] || null; }
+
+  /** Load the packs that come with the site and are switched on (the OFAC list unless it was switched off in the workspace). Always resolves; a pack that cannot be loaded is said so on the page. */
+  function loadShipped() {
+    var choices = PK.cleanChoices(prefs.shippedPacks), failed = [];
+    return Promise.all(PK.cleanIndex(window.HOPLINE_PACK_INDEX).filter(function (e) { return PK.isOn(e, choices); }).map(function (e) {
+      return PK.load(e, window).then(function (r) {
+        shipped.push(Object.assign({}, e, { entries: r.entries, sanctions: r.sanctions === true, asOf: r.asOf || e.asOf, enabled: true, loaded: true }));
+      }, function () { failed.push(e); });
+    })).then(function () {
+      KNOWN = buildKnown();
+      if (failed.length) {
+        var w = $('packWarn');
+        w.textContent = failed.map(function (e) { return 'The built-in list "' + e.name + '" could not be loaded' + (e.sanctions ? ', so a wallet on it is not marked as sanctioned here' : ''); }).join('. ') + '. Reload the page to try again.';
+        w.hidden = false;
+      }
+    });
+  }
 
   var state = { addr: null, stats: null, txs: [], done: false, busy: false, dir: 'all', client: null, led: null,
                 fiat: PR.cleanFiat(prefs.fiat), books: {}, today: null, todayAt: 0, fiatError: '', priceClient: null,
@@ -701,6 +720,7 @@
   function hideQR() { $('qrfloat').hidden = true; }
 
   function init() {
+    var packsReady = loadShipped();
     makePriceClient(); wireFiat();
     state.client = A.buildClient(choice, {
       onSwitch: function (i) { state.switched = A.hostOf(i.from) + ' did not answer well, so ' + A.hostOf(i.to) + ' was used.'; message(state.switched); }
@@ -731,7 +751,7 @@
     if (!c.ok) { message(c.message, true); return; }
     if (c.kind === 'tx') { window.location.replace('workspace.html?q=' + encodeURIComponent(c.value)); return; }
     state.addr = c.value;
-    load();
+    packsReady.then(load);                                                        // so the first drawing already knows the names on the built-in lists
   }
 
   window.addEventListener('unhandledrejection', function (ev) { showFailure('Something went wrong', ev.reason, null); });

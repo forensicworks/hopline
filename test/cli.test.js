@@ -71,6 +71,44 @@ test('summary: the built-in wallet list names a wallet, and --no-known leaves it
   assert.equal(run(['summary', FILE, '--known', mine]).json().wallets[0].known.name, 'My own name');
 });
 
+test('the OFAC list the site ships names and flags a wallet in the summary, and --no-packs, --packs and --no-known change that', () => {
+  const pack = fs.readFileSync(path.join(__dirname, '..', 'public', 'packs', 'ofac-sdn.js'), 'utf8');
+  const sanctioned = /^\{"address":"([^"]+)"/m.exec(pack)[1];
+  const g = new Graph();
+  add(g, 60, [IN(250, 1, a('payer'), 50000)], [OUT(sanctioned, 40000), OUT(a('change'), 9000)]);
+  const file = path.join(dir, 'ofac-ws.json'); fs.writeFileSync(file, IO.toJson(g, {}));
+  const w = run(['summary', file]).json().wallets.find((x) => x.address === sanctioned);
+  assert.ok(w && w.known.sanctions === true && /^OFAC SDN: /.test(w.known.name) && w.known.source === 'OFAC SDN list (Bitcoin)', 'named, flagged and sourced like the page does');
+  assert.equal(run(['summary', file, '--no-packs']).json().wallets.find((x) => x.address === sanctioned), undefined);
+  assert.equal(run(['summary', file, '--no-known']).json().wallets.find((x) => x.address === sanctioned), undefined, '--no-known leaves out names from both lists');
+  const other = path.join(dir, 'packs'); fs.mkdirSync(other);
+  assert.equal(run(['summary', file, '--packs', other]).code, 2, 'a folder that holds no pack list is refused when it was asked for');
+  assert.match(run(['summary', file, '--packs', other]).err, /no pack list/);
+  const evil = path.join(dir, 'packs2'); fs.mkdirSync(evil);
+  const marker = path.join(dir, 'ran2.txt');
+  fs.writeFileSync(path.join(evil, 'index.js'), 'require("fs").writeFileSync(' + JSON.stringify(marker) + ', "x"); window.HOPLINE_PACK_INDEX = [{"id":"x","name":"X","file":"x.js","entries":1,"defaultOn":true}];');
+  fs.writeFileSync(path.join(evil, 'x.js'), 'require("fs").writeFileSync(' + JSON.stringify(marker) + ', "x"); (window.HOPLINE_PACKS = {})["x"] = {"labels":[{"address":"' + sanctioned + '","label":"Mine"}]};');
+  const r = run(['summary', file, '--packs', evil]);
+  assert.ok(!fs.existsSync(marker), 'nothing in the pack files was executed'); assert.equal(r.code, 0);
+  assert.equal(r.json().wallets.find((x) => x.address === sanctioned).known.name, 'Mine');
+});
+
+test('a shipped pack that is off as shipped is used only when asked for with --with', () => {
+  const pack = fs.readFileSync(path.join(__dirname, '..', 'public', 'packs', 'ransomwhere.js'), 'utf8');
+  const payee = /^\{"address":"([^"]+)"/m.exec(pack)[1];
+  const g = new Graph();
+  add(g, 61, [IN(250, 2, a('victim'), 90000)], [OUT(payee, 80000), OUT(a('chg'), 9000)]);
+  const file = path.join(dir, 'rw-ws.json'); fs.writeFileSync(file, IO.toJson(g, {}));
+  const find = (args) => run(['summary', file].concat(args)).json().wallets.find((x) => x.address === payee);
+  assert.equal(find([]), undefined, 'not named by default');
+  const w = find(['--with', 'ransomwhere']);
+  assert.ok(w && /^Ransomware/.test(w.known.name) && w.known.source === 'Ransomwhere ransomware payments' && w.known.sanctions === undefined, 'named and sourced, and not a sanctions list');
+  assert.equal(find(['--with', 'ransomwhere,ofac-sdn']).known.name, w.known.name);
+  assert.equal(find(['--with', 'ransomwhere', '--no-packs']), undefined);
+  const bad = run(['summary', file, '--with', 'nope']);
+  assert.equal(bad.code, 2); assert.match(bad.err, /No pack named "nope".*ofac-sdn, ransomwhere/);
+});
+
 test('a wallet list that holds code is read as data and never run', () => {
   const evil = path.join(dir, 'evil.js'), marker = path.join(dir, 'ran.txt');
   fs.writeFileSync(evil, 'require("fs").writeFileSync(' + JSON.stringify(marker) + ', "x"); window.HOPLINE_KNOWN = {};');

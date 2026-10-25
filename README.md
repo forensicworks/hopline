@@ -5,13 +5,13 @@ Bitcoin investigation tools that run in your browser: nothing to install and no 
 
 ![the workspace](screenshot.png)
 
-**Try it:** <https://hopline.pages.dev>. Paste an address or a transaction ID, or press *Try a sample wallet*.
+**Try it:** <https://forensicworks.github.io/hopline/>. Paste an address or a transaction ID, or press *Try a sample wallet*.
 
 ## What you get
 
 * **Workspace** - a graph of transactions and wallets. Start from one wallet or transaction in the **Trace** layout and click ▶ or ◀ to follow the money one step at a time; what is already on screen stays where it is. Group, hide and filter, replay it through time, undo.
 * **Wallet overview** - one address as a ledger: balance, totals, every transaction with its inputs and outputs, the wallets it dealt with most, and a CSV download.
-* **Names** - a built-in list of exchanges and services, label lists you import (the OFAC sanctions list is read directly) and your own labels, tags and notes. A name is somebody's claim, not proof.
+* **Names** - a built-in list of exchanges and services, the OFAC and UK sanctions lists, the Ransomwhere ransomware payment addresses and the mining pools' reward addresses (all built in and dated; the sanctions lists are on unless you switch them off, the others when you switch them on), label lists you import and your own labels, tags and notes. A name is somebody's claim, not proof.
 * **Analysis, with reasons** - consolidations, batch payments, CoinJoin-like transactions, peel chains, the likely change output and addresses spent together. All of it is heuristic: it shows its reasons, and none of it is proof.
 * **Investigation report** - one self-contained HTML file with the findings, the transactions, where and when each was fetched, and hashes that `tools/verify_report.py` can check.
 * **Amounts in a currency** - seven currencies, at each transaction's own time or at today's price.
@@ -21,7 +21,7 @@ Bitcoin investigation tools that run in your browser: nothing to install and no 
 
 * Everything runs in your browser. The only network requests go to the data source you choose (and mempool.space for prices), which can see your IP address and what you look up. A copy you run yourself loads no fonts, analytics or CDNs.
 * Nothing is stored on a server. Your session stays in this browser; on the live site it starts switched off, so tick *Keep this session in this browser* if you want it kept.
-* The live site counts visits by page and feature name only, as an image request: no addresses, transaction IDs, labels or notes, no cookies, and nothing for browsers that send Do Not Track. Copies you run yourself send nothing. More in [Publishing a copy](https://github.com/forensicworks/hopline/wiki/Publishing-a-copy).
+* The copy at <https://hopline.pages.dev> counts visits by page and feature name only, as an image request: no addresses, transaction IDs, labels or notes, no cookies, and nothing for browsers that send Do Not Track. The GitHub Pages copy and copies you run yourself send nothing. More in [Publishing a copy](https://github.com/forensicworks/hopline/wiki/Publishing-a-copy).
 * On the live site your own Esplora server must use `https` and allow cross-origin requests, and Tor is not offered. A copy you run yourself has both. See [Data sources and limits](https://github.com/forensicworks/hopline/wiki/Data-sources-and-limits).
 
 ## Run it yourself

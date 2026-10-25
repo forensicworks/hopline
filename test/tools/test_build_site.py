@@ -65,6 +65,16 @@ def test_a_version_is_added_to_every_local_script_and_style_but_not_to_other_lin
     assert "?v=" not in text(ROOT / "index.html"), "the source is not touched"
 
 
+def test_the_shipped_packs_are_published_and_the_list_of_them_is_versioned(tmp_path):
+    out = tmp_path / "site"
+    build_site.build(str(out), version="abc123")
+    assert (out / "public" / "packs" / "index.js").is_file() and (out / "public" / "packs" / "ofac-sdn.js").is_file()
+    for page in ("workspace.html", "wallet.html"):
+        html = text(out / "public" / page)
+        assert '<script src="packs/index.js?v=abc123"></script>' in html and '<script src="js/hopline-packs.js?v=abc123"></script>' in html, page
+    assert "?v=" not in text(ROOT / "public" / "workspace.html"), "the source is not touched"
+
+
 def test_it_will_not_empty_the_repository_or_a_folder_above_it(tmp_path):
     for bad in (str(ROOT), str(ROOT.parent)):
         with pytest.raises(SystemExit):
