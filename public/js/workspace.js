@@ -52,7 +52,7 @@
     source: 'clearnet', fallback: true, customBase: '', keys: {}, keyRemember: false, pace: { concurrency: 8, delayMs: 20 }, capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: !HOSTED,
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
-    rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true,
+    rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true,
     trace: emptyTrace(),
     undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, an: null, anSig: '', anGraph: null, packs: [], knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
@@ -193,7 +193,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -214,7 +214,7 @@
       state.focusOn = p.focusOn !== false; state.hops = num(p.hops, 1, 3, 2);
       state.fiat = cleanFiat(p.fiat);
       state.sideCollapsed = p.sideCollapsed === true; state.inspCollapsed = p.inspCollapsed === true; state.tbCollapsed = p.tbCollapsed === true;
-      state.edgeLabels = p.edgeLabels !== false; state.viaWallets = p.viaWallets !== false;
+      state.edgeLabels = p.edgeLabels !== false; state.viaWallets = p.viaWallets !== false; state.bundleEdges = p.bundleEdges !== false;
       state.analysis = cleanAnalysis(p.analysis); state.assist = cleanAssist(p.assist); state.auto = cleanAuto(p.auto);
       state.reportBy = typeof p.reportBy === 'string' ? LB.cleanText(p.reportBy, 80) : '';
       if (p.customPrices === 'server' || p.customPrices === 'mempool' || p.customPrices === 'off') state.customPrices = p.customPrices;
@@ -1816,13 +1816,37 @@
   var edgeLabelCache = new Map();
   /** The short text drawn along an edge. Cached until the data or the display choice changes. */
   function edgeLabelFor(e) {
-    var hit = edgeLabelCache.get(e.id); if (hit !== undefined) return hit;
+    var key = e.count > 1 ? 'b' + e.id : e.id, hit = edgeLabelCache.get(key); if (hit !== undefined) return hit;
     var fx = fiatOn() && !e.virtual ? fiatOfEdge(e) : null, mode = fx ? state.fiat.show : 'btc', btc = S.fmtBtcShort(e.amount);      // a group's total spans many moments: no single price fits, so it is shown in BTC only
     var t = mode === 'fiat' ? fx.text : mode === 'both' ? btc + ' · ' + fx.text : btc;
-    var cm = state.analysis.change && state.an ? state.an.changeEdges.get(e.id) : null;
+    if (e.count > 1) t = e.count + (e.kind === 'out' ? ' outputs' : ' inputs') + ' · ' + t;                                             // several coins drawn as one arrow: how many, and their total
+    var cm = null;
+    if (state.analysis.change && state.an) {
+      if (e.parts) { for (var i = 0; i < e.parts.length && !cm; i++) cm = state.an.changeEdges.get(e.parts[i]); }
+      else cm = state.an.changeEdges.get(e.id);
+    }
     if (cm) t += ' · ' + (cm.confidence === 'high' ? 'likely change' : 'change?');
-    edgeLabelCache.set(e.id, t);
+    edgeLabelCache.set(key, t);
     return t;
+  }
+  /** The coins on the same arrow as this edge (the same two ends and kind, on screen), this one first; just [e] when the option is off or it is alone. */
+  function parallelEdges(e) {
+    if (!state.bundleEdges || e.virtual) return [e];
+    var vis = renderer && renderer.data ? renderer.data.visible.edges : null, out = [e];
+    state.graph.edgesOf(e.source).forEach(function (x) { if (x !== e && x.kind === e.kind && x.source === e.source && x.target === e.target && (!vis || vis.has(x.id))) out.push(x); });
+    return out;
+  }
+  /** Every coin of an arrow in the details: where it came from (or whether it is spent) and its amount, largest first; a click selects that coin. */
+  function parallelList(sel, par) {
+    var rows = par.slice().sort(function (a, b) { return (b.amount || 0) - (a.amount || 0); }), list = el('div', { 'class': 'linkrows' });
+    rows.slice(0, 60).forEach(function (x) {
+      var what = x.kind === 'in' ? (x.prev ? 'from ' + S.shortId(x.prev.txid, 6) + ' : ' + x.prev.vout : 'input ' + x.vin) : 'output ' + x.vout + (x.spent === true ? ' · spent' : x.spent === false ? ' · unspent' : '');
+      list.appendChild(el('button', { type: 'button', 'class': 'linkrow' + (x.id === sel.id ? ' on' : ''), title: 'Select this coin', onclick: function () { state.selectedEdge = x.id; state.selected = new Set(); syncSelection(); } },
+                          [el('span', { 'class': 'who', text: what }), el('span', { 'class': 'amt', text: S.fmtBtc(x.amount) + ' BTC' })]));
+    });
+    var box = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Coins on this arrow' }), list]);
+    if (rows.length > 60) box.appendChild(el('p', { 'class': 'hint', text: '… and ' + (rows.length - 60) + ' more, smaller' }));
+    return box;
   }
   function fiatSpan(fx) { return el('span', { 'class': 'fiat' + (fx.approx ? ' approx' : ''), title: fx.title, text: fx.text }); }
 
@@ -2837,7 +2861,9 @@
     var box = $('inspBody'), g = state.graph, dl = el('dl', { 'class': 'kv' });
     var txn = g.nodes.get(e.kind === 'out' ? e.source : e.target);
     box.appendChild(el('h3', {}, [el('span', { 'class': 'kind', text: e.kind === 'out' ? 'Output' : 'Input' })]));
-    kvf(dl, 'Amount', S.fmtBtc(e.amount) + ' BTC (' + fmtInt(e.amount) + ' sat)', fiatOfEdge(e));
+    var par = parallelEdges(e);
+    if (par.length > 1) { var tot = par.reduce(function (s, x) { return s + (x.amount || 0); }, 0); kv(dl, e.kind === 'out' ? 'Outputs on this arrow' : 'Inputs on this arrow', par.length + ' · ' + S.fmtBtc(tot) + ' BTC in all'); }
+    kvf(dl, par.length > 1 ? 'This coin' : 'Amount', S.fmtBtc(e.amount) + ' BTC (' + fmtInt(e.amount) + ' sat)', fiatOfEdge(e));
     kv(dl, 'Time', F.edgeTime(g, e) != null ? S.fmtTime(F.edgeTime(g, e)) : null);
     kv(dl, 'Transaction', S.shortId(e.txid, 8));
     if (e.kind === 'out') {
@@ -2845,6 +2871,7 @@
       if (e.spentBy) kv(dl, 'Spent by', S.shortId(e.spentBy.txid, 8));
     }
     box.appendChild(dl);
+    if (par.length > 1) box.appendChild(parallelList(e, par));
     var acts = [];
     if (txn) acts.push(el('button', { type: 'button', text: 'Select transaction', onclick: function () { selectOnly(txn.id); } }));
     acts.push(el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(e.txid, 'the transaction id'); } }));
@@ -2900,7 +2927,9 @@
       if (n.note) line('Note', n.note.length > 140 ? n.note.slice(0, 140) + '…' : n.note);
     } else {
       var e = g.edges.get(edgeId); if (!e) { tip.hidden = true; return; }
-      line(e.kind === 'out' ? 'Output' : 'Input', mixText(S.fmtBtc(e.amount) + ' BTC', fiatOfEdge(e))); line('Time', F.edgeTime(g, e) != null ? S.fmtTime(F.edgeTime(g, e)) : null);
+      var par = parallelEdges(e);
+      if (par.length > 1) { var tot = par.reduce(function (s, x) { return s + (x.amount || 0); }, 0); line(e.kind === 'out' ? 'Outputs' : 'Inputs', par.length + ' coins · ' + mixText(S.fmtBtc(tot) + ' BTC', fiatOfEdge(Object.assign({}, e, { amount: tot }))) + ' in all (click for the list)'); }
+      else line(e.kind === 'out' ? 'Output' : 'Input', mixText(S.fmtBtc(e.amount) + ' BTC', fiatOfEdge(e))); line('Time', F.edgeTime(g, e) != null ? S.fmtTime(F.edgeTime(g, e)) : null);
       if (e.kind === 'out') line('Spent', e.spent === true ? 'yes' : e.spent === false ? 'no' : 'unknown');
     }
     tip.hidden = false;
@@ -3742,7 +3771,7 @@
     var visible = F.computeVisible(g, f, state.keep, focusOpt(), traceOnly(), hiddenOpt());
     renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, lockX: lockedToTime, axis: timeScaleOn() && state.layoutRes ? state.layoutRes.axis : marksOn() ? { mode: 'marks' } : null,
                        range: { from: f.timeFrom, to: f.timeTo }, showLabels: state.showLabels, focusId: focusOpt() ? state.focus : null,
-                       edgeLabel: state.edgeLabels ? edgeLabelFor : null,
+                       edgeLabel: state.edgeLabels ? edgeLabelFor : null, bundle: state.bundleEdges,
                        handles: traceOn() ? handlesFor : null, handleMore: traceOn() ? handleSummary : null, seedIds: traceOn() ? new Set(state.trace.seeds) : null, noDim: traceOn(), labelAll: traceOn(), nodeNote: traceOn() ? traceNote : null,
                        nodeFlags: state.analysis.flags ? nodeFlags : null, clusterColor: state.analysis.clusters ? clusterColor : null, edgeMark: state.analysis.change ? changeEdgeMark : null });
     document.body.classList.toggle('axis-on', usesAxis());
@@ -4322,7 +4351,7 @@
     $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
-    $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets;
+    $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets; $('bundleEdges').checked = state.bundleEdges;
     setSideCollapsed(state.sideCollapsed); setInspCollapsed(state.inspCollapsed); setTbCollapsed(state.tbCollapsed);
     loadPacks(); renderPacks();
     document.body.classList.toggle('trace-on', traceOn()); setSeg('layoutSeg', 'data-layout', state.layout); updateScaleRow();
@@ -4415,6 +4444,7 @@
     $('inspCollapse').addEventListener('click', function () { setInspCollapsed(true); });
     $('inspTab').addEventListener('click', function () { setInspCollapsed(false); });
     $('edgeLabels').addEventListener('change', function () { state.edgeLabels = this.checked; savePrefs(); refresh(); });
+    $('bundleEdges').addEventListener('change', function () { state.bundleEdges = this.checked; savePrefs(); edgeLabelCache.clear(); refresh(); showInspector(true); });
     Array.prototype.forEach.call($('showSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setShow(b.getAttribute('data-show')); }); });
     $('btnAmounts').addEventListener('click', function () { setShow({ both: 'fiat', fiat: 'btc', btc: 'both' }[state.fiat.show] || 'both'); });
     $('navBack').addEventListener('click', function () { stepNav(-1); });

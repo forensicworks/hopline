@@ -468,20 +468,45 @@
     // edges
     ctx.lineCap = 'round';
     var edgeTexts = [];
+    // Coins that go between the same two vertices (several inputs of one transaction from one wallet) lie exactly on top of each other. With d.bundle they are drawn
+    // as ONE arrow whose width and label are their total and number; the real edges are untouched (selecting, filters, analysis and exports still see every coin).
+    var bundles = new Map(), bundled = new Set();
+    if (d.bundle) {
+      var byEnds = new Map();
+      d.visible.edges.forEach(function (bid) {
+        var be = g.edges.get(bid); if (!be || be.virtual || !self.cur.get(be.source) || !self.cur.get(be.target)) return;
+        var k = be.kind + '|' + be.source + '|' + be.target, list = byEnds.get(k); if (!list) { list = []; byEnds.set(k, list); } list.push(bid);
+      });
+      byEnds.forEach(function (ids) { if (ids.length < 2) return; bundles.set(ids[0], ids); for (var bi = 1; bi < ids.length; bi++) bundled.add(ids[bi]); });
+    }
     d.visible.edges.forEach(function (id) {
+      if (bundled.has(id)) return;                                           // drawn as part of the first coin of its arrow
       var e = g.edges.get(id), a = self.cur.get(e.source), b = self.cur.get(e.target); if (!a || !b) return;
+      var parts = bundles.get(id) || null, eDraw = e, hotHere = id === hotEdge || self.selectedEdge === id, markHere = null, pathHere = !!chain && chain.path.has(id), payHere = !!chain && chain.pay.has(id), allUnspent = e.spent === false;
+      if (parts) {
+        var sum = 0; allUnspent = true;
+        parts.forEach(function (pid) {
+          var pe = g.edges.get(pid); sum += pe.amount || 0;
+          if (pid === hotEdge || pid === self.selectedEdge) hotHere = true;
+          if (pe.spent !== false) allUnspent = false;
+          if (!markHere && d.edgeMark) markHere = d.edgeMark(pe);
+          if (chain && chain.path.has(pid)) pathHere = true;
+          if (chain && chain.pay.has(pid)) payHere = true;
+        });
+        eDraw = Object.assign({}, e, { amount: sum, count: parts.length, parts: parts });
+      } else markHere = d.edgeMark ? d.edgeMark(e) : null;
       var A = self._toScreen(a), B = self._toScreen(b);
       if ((A.x < -50 && B.x < -50) || (A.y < -50 && B.y < -50) || (A.x > self.w + 50 && B.x > self.w + 50) || (A.y > self.h + 50 && B.y > self.h + 50)) return;
       var inFocus = !near || ((focusIds.has(e.source) || focusIds.has(e.target)));
-      var w = Math.max(1, st.edgeWidth(e) * s * 0.8);
-      var mark = d.edgeMark ? d.edgeMark(e) : null;                         // e.g. the output that most likely returns to the sender
-      var onPath = !!chain && chain.path.has(id), onPay = !!chain && chain.pay.has(id);
+      var w = Math.max(1, st.edgeWidth(eDraw) * s * 0.8);
+      var mark = markHere;                                                  // e.g. the output that most likely returns to the sender
+      var onPath = pathHere, onPay = payHere;
       var colour = onPath || onPay ? chain.color : mark || st.edgeColor(e) || th.edge;
-      ctx.globalAlpha = id === hotEdge || (self.selectedEdge === id) || onPath ? 1 : (inFocus ? (near ? 0.95 : 0.55) : 0.08);
+      ctx.globalAlpha = hotHere || onPath ? 1 : (inFocus ? (near ? 0.95 : 0.55) : 0.08);
       if (mark && inFocus && ctx.globalAlpha < 0.9) ctx.globalAlpha = 0.9;
-      ctx.strokeStyle = id === hotEdge ? th.select : colour;
+      ctx.strokeStyle = parts ? (hotHere ? th.select : colour) : (id === hotEdge ? th.select : colour);
       ctx.lineWidth = onPath ? w + 1.5 : w;
-      ctx.setLineDash(e.kind === 'out' && e.spent === false ? [6, 4] : []);
+      ctx.setLineDash(e.kind === 'out' && allUnspent ? [6, 4] : []);
       var ra = st.nodeRadius(g.nodes.get(e.source)) * s, rb = st.nodeRadius(g.nodes.get(e.target)) * s + 2;
       var dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
       var x1 = A.x + ux * ra * 0.6, y1 = A.y + uy * ra * 0.6, x2 = B.x - ux * rb, y2 = B.y - uy * rb;
@@ -499,7 +524,7 @@
       }
       if (d.edgeLabel && edgeTexts.length < 250) {
         var seg = Math.hypot(x2 - x1, y2 - y1);
-        if (seg > 70 && x1 > -200 && x1 < self.w + 200) edgeTexts.push({ e: e, id: id, x1: x1, y1: y1, x2: x2, y2: y2, seg: seg, alpha: ctx.globalAlpha });
+        if (seg > 70 && x1 > -200 && x1 < self.w + 200) edgeTexts.push({ e: eDraw, id: id, hot: hotHere, x1: x1, y1: y1, x2: x2, y2: y2, seg: seg, alpha: ctx.globalAlpha });
       }
     });
     ctx.globalAlpha = 1;
@@ -509,7 +534,7 @@
       // mouse or selected picks its place first, then the edges in focus, then the bigger amounts. An amount tries the middle of its edge, then
       // slides along the edge (never past its ends) to a free spot; with none free it is left out (its details are on hover and in the panel).
       var placed = [];
-      edgeTexts.map(function (t, i) { return { t: t, i: i, rank: (t.id === hotEdge || t.id === self.selectedEdge ? 2 : 0) + (t.alpha >= 0.9 ? 1 : 0) }; })
+      edgeTexts.map(function (t, i) { return { t: t, i: i, rank: (t.hot ? 2 : 0) + (t.alpha >= 0.9 ? 1 : 0) }; })
         .sort(function (a, b) { return (b.rank - a.rank) || ((b.t.e.amount || 0) - (a.t.e.amount || 0)) || (a.i - b.i); })
         .forEach(function (o) {
           var t = o.t, text = d.edgeLabel(t.e); if (!text) return;

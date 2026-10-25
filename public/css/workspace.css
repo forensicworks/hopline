@@ -273,6 +273,7 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 #cv { position: absolute; inset: 0 0 var(--tb) 0; width: 100%; height: calc(100% - var(--tb)); display: block; cursor: grab; }
 /* what was found: chips over the graph, above the counts; a click selects what they count */
 #findStrip { position: absolute; left: 10px; bottom: calc(var(--tb) + 86px); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: calc(100% - 130px); z-index: 4; }
+.linkrow.on { outline: 1px solid var(--accent); background: var(--panel-2); }
 .findchip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12px; border-radius: 12px; background: rgba(28, 20, 29, 0.94); border: 1px solid var(--line); color: var(--text); cursor: pointer; }
 .findchip:hover, .findchip:focus-visible { border-color: var(--accent); }
 .findchip .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
