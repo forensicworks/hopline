@@ -87,3 +87,21 @@ def test_the_headers_file_asks_for_no_referrer_no_sniffing_and_no_framing(tmp_pa
     lines = h.splitlines()
     assert lines[0] == "/*" and "  Referrer-Policy: no-referrer" in lines and "  X-Content-Type-Options: nosniff" in lines and "  Content-Security-Policy: frame-ancestors 'none'" in lines
     assert chr(13) not in h and len(lines) < 100, "plain lines, well inside the host's limit of 100 rules"
+
+
+def test_the_404_page_links_back_to_where_the_site_lives(tmp_path):
+    out = tmp_path / "site"
+    build_site.build(str(out))
+    assert '<a href="/">Back to Hopline</a>' in text(out / "404.html"), "the default: the site is at the root of its host"
+    build_site.build(str(out), base_path="/hopline/")
+    assert '<a href="/hopline/">Back to Hopline</a>' in text(out / "404.html") and "@BASE@" not in text(out / "404.html")
+    build_site.build(str(out), base_path="/hopline")
+    assert '<a href="/hopline/">' in text(out / "404.html"), "a missing trailing slash is added"
+
+
+@pytest.mark.parametrize("bad", ["hopline/", "//evil.com/", "/a b/", "/a?x=1/", "/../", "/./", "/%2e%2e/", "/x/../y/", "https://evil.com/", ""])
+def test_a_base_path_that_is_not_a_plain_path_is_refused_before_anything_is_written(tmp_path, bad):
+    out = tmp_path / "site"
+    with pytest.raises(SystemExit):
+        build_site.build(str(out), base_path=bad)
+    assert not out.exists()

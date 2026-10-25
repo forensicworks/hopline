@@ -32,3 +32,11 @@ def test_the_visible_pages_show_the_link_without_opening_anything(ctx, errors):
         p.goto(PAGES[name])
         assert p.locator("a[href='%s']" % REPO).first.is_visible(), name
         p.close()
+
+
+@pytest.mark.parametrize("name", sorted(PAGES))
+def test_each_page_asks_the_browser_to_send_no_referrer(ctx, errors, name):
+    p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e)))
+    p.goto(PAGES[name])
+    assert p.get_attribute("meta[name=referrer]", "content") == "no-referrer", "for hosts that cannot send the header"
+    p.close()

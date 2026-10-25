@@ -11,7 +11,8 @@ What the published copy differs in (everything else is the source, byte for byte
     with old scripts (static hosts let browsers keep files for minutes);
   * a _headers file (read by Cloudflare and Netlify, ignored elsewhere): no referrer is sent from the pages, content types are not guessed, and
     the pages cannot be shown inside another site's frame;
-  * a 404.html, so an address that does not exist is a 404 (Cloudflare Pages otherwise answers it with the landing page and status 200);
+  * a 404.html, so an address that does not exist is a 404 (Cloudflare Pages otherwise answers it with the landing page and status 200); its
+    "Back to Hopline" link is the only address that is not relative, so --base-path names where the site lives (/ or, on a GitHub project site, /hopline/);
   * a .nojekyll file, so GitHub Pages serves the folder as it is.
 
 The output folder is emptied first, except a .git folder (so it can be a checkout of the repository that serves the site). It will not empty
@@ -39,8 +40,9 @@ NOT_FOUND = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not found - Hopline</title>
 <style>body{font:16px Calibri,Arial,sans-serif;background:#18121a;color:#eee;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
 main{text-align:center;padding:16px}a{color:#aee7f8}</style></head>
-<body><main><h1>Not found</h1><p>There is no page at this address.</p><p><a href="/">Back to Hopline</a></p></main></body></html>
+<body><main><h1>Not found</h1><p>There is no page at this address.</p><p><a href="@BASE@">Back to Hopline</a></p></main></body></html>
 """
+BASE_PATH = re.compile(r"^/((?!\.+/)[A-Za-z0-9._-]+/)*$")
 LOCAL_URL = re.compile(r'((?:src|href)=")((?:public/)?(?:config\.js|(?:js|css|data|lib)/[^"?#]+\.(?:js|css)))(")')
 
 
@@ -68,7 +70,11 @@ def clear(out):
             os.remove(path)
 
 
-def build(out, stats_code=None, stats_endpoint=None, version=None):
+def build(out, stats_code=None, stats_endpoint=None, version=None, base_path="/"):
+    given = base_path
+    base_path = base_path if base_path.endswith("/") else base_path + "/"
+    if not given or not BASE_PATH.match(base_path):
+        raise SystemExit("--base-path must be a path such as / or /hopline/ (letters, digits, dots, hyphens and underscores).")
     if stats_code and stats_endpoint:
         raise SystemExit("Give --stats-code or --stats-endpoint, not both.")
     if stats_code and not CODE.match(stats_code):
@@ -95,7 +101,7 @@ def build(out, stats_code=None, stats_endpoint=None, version=None):
     with open(os.path.join(out, "_headers"), "w", encoding="utf-8", newline="\n") as f:
         f.write(HEADERS)
     with open(os.path.join(out, "404.html"), "w", encoding="utf-8", newline="\n") as f:
-        f.write(NOT_FOUND)
+        f.write(NOT_FOUND.replace("@BASE@", base_path))
     open(os.path.join(out, ".nojekyll"), "w").close()
     return {"out": os.path.realpath(out), "stats": endpoint, "version": version}
 
@@ -106,8 +112,9 @@ def main(argv=None):
     ap.add_argument("--stats-code", help="GoatCounter site code: count visits at https://CODE.goatcounter.com/count")
     ap.add_argument("--stats-endpoint", help="count visits at this https address instead (your own GoatCounter)")
     ap.add_argument("--version", help="added to script and style addresses as ?v=VERSION (for example the short commit id)")
+    ap.add_argument("--base-path", default="/", help="where the site lives on its host, for the one link that cannot be relative: / (the default) or, for a GitHub project site, /hopline/")
     a = ap.parse_args(argv)
-    r = build(a.out, a.stats_code, a.stats_endpoint, a.version)
+    r = build(a.out, a.stats_code, a.stats_endpoint, a.version, a.base_path)
     print("Built %s (counting: %s, version: %s)" % (r["out"], r["stats"] or "off", r["version"] or "none"))
     return 0
 

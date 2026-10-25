@@ -1,0 +1,56 @@
+# Publishes a second copy of the site on GitHub Pages (https://<owner>.github.io/<repository>/) on every push to master, after the tests pass.
+# It is independent of the Cloudflare deploy in deploy.yml: either can fail without stopping the other.
+#
+# Needs only Settings > Pages > Build and deployment > Source: GitHub Actions. There are no secrets. The visit counter is left off in this copy,
+# because it would add its numbers to the main site's (the page names are the same). GitHub Pages cannot send custom headers, so the _headers
+# file has no effect here; the pages ask for no referrer with a meta tag instead.
+name: Deploy GitHub Pages copy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Unit tests
+        run: node --test test/*.test.js
+
+      - name: Tool tests
+        run: python3 -m pip install --quiet pytest && python3 -m pytest test/tools -q
+
+      - name: Build the site folder (on this host it lives under /<repository name>/)
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: python3 tools/build_site.py --out site --base-path "/${REPO_NAME}/" --version "${GITHUB_SHA::7}"
+
+      - name: Package it for Pages
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish
+        id: deployment
+        uses: actions/deploy-pages@v5
