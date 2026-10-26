@@ -226,6 +226,7 @@ body.trace-on #stepbar { display: none !important; }
 .packlist { display: flex; flex-direction: column; gap: 4px; }
 .packrow { display: flex; align-items: center; gap: 6px; font-size: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
 .packrow .packname { flex: 1; overflow-wrap: anywhere; }
+.packrow.loading { opacity: 0.6; }
 .packrow .packname small { display: block; color: var(--dim); }
 .packrow button { padding: 1px 7px; }
 .packrow a { font-size: 11px; white-space: nowrap; }

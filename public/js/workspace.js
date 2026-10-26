@@ -2988,49 +2988,75 @@
     PK.load(p, window).then(function (r) {
       p.entries = r.entries; p.index = new Set(r.entries.map(function (e) { return e.address; }));
       p.sanctions = r.sanctions === true; p.asOf = r.asOf || p.asOf; p.loaded = true; p.loading = false;
-      rebuildKnown(); renderPacks(); refresh(); showInspector(true);
+      rebuildKnown(); renderShipped(); refresh(); showInspector(true);
     }, function (e) {
       p.loading = false; p.failed = 'could not be loaded';
-      renderPacks();
+      renderShipped();
       toast('The built-in list "' + p.name + '" could not be loaded (' + (e && e.message ? e.message : 'error') + ')' + (p.sanctions ? ', so a wallet on it is not marked as sanctioned.' : '.'), true);
     });
   }
   function setShipped(p, on) {
     p.enabled = on; state.shippedChoices[p.id] = on; savePrefs();
     if (on) loadShipped(p);
-    rebuildKnown(); renderPacks(); refresh(); showInspector(true);
+    rebuildKnown(); renderShipped(); refresh(); showInspector(true);
+  }
+  // The rows of both lists are made once and then only updated, never replaced: a row that is redrawn takes away the checkbox someone is pointing at or has the keyboard focus on, and a row that
+  // changes size moves what is under it.
+  function packRow(box, id) { return box.querySelector('[data-id="' + id + '"]'); }
+  function shippedNote(p) {
+    var bits = [fmtInt(p.loaded ? p.entries.length : p.count) + ' wallets'], hits = p.loaded ? packMatches(p) : 0, stale = PK.staleness(p.asOf, Date.now());
+    if (p.sanctions) bits.push('sanctions list');
+    if (p.asOf) bits.push('as of ' + p.asOf);
+    if (stale) bits.push(stale);
+    if (p.licence) bits.push(p.licence);
+    if (hits) bits.push(hits + ' on screen or loaded');
+    if (p.failed) bits.push(p.failed + (p.sanctions ? ': a wallet on it is not marked' : ''));
+    if (PK.shadowed(p, state.packs)) bits.push('your imported pack of the same name is used instead');
+    return bits.join(' · ');
   }
   function renderShipped() {
-    var box = $('shippedList'); box.textContent = '';
+    var box = $('shippedList');
     $('shippedSec').hidden = !state.shipped.length;
     state.shipped.forEach(function (p) {
-      var cb = el('input', { type: 'checkbox', 'aria-label': 'Use ' + p.name }); cb.checked = p.enabled;
-      cb.addEventListener('change', function () { setShipped(p, cb.checked); });
-      var bits = [fmtInt(p.loaded ? p.entries.length : p.count) + ' wallets'], hits = p.loaded ? packMatches(p) : 0, stale = PK.staleness(p.asOf, Date.now());
-      if (p.sanctions) bits.push('sanctions list');
-      if (p.asOf) bits.push('as of ' + p.asOf);
-      if (stale) bits.push(stale);
-      if (p.licence) bits.push(p.licence);
-      if (hits) bits.push(hits + ' on screen or loaded');
-      if (p.loading) bits.push('loading…');
-      if (p.failed) bits.push(p.failed + (p.sanctions ? ': a wallet on it is not marked' : ''));
-      if (PK.shadowed(p, state.packs)) bits.push('your imported pack of the same name is used instead');
-      var tip = [p.source, p.attribution ? 'Credit: ' + p.attribution : '', p.licence ? 'Licence: ' + p.licence : ''].filter(Boolean).join('\n');
-      box.appendChild(el('div', { 'class': 'packrow' }, [cb, el('span', { 'class': 'packname', title: tip }, [p.name, el('small', { text: bits.join(' · ') })]),
-        p.sourceUrl ? el('a', { href: p.sourceUrl, target: '_blank', rel: 'noopener noreferrer', title: 'Where this list comes from', text: 'source ↗' }) : null]));
+      var row = packRow(box, p.id);
+      if (!row) {
+        var cb = el('input', { type: 'checkbox', 'aria-label': 'Use ' + p.name });
+        cb.addEventListener('change', function () { setShipped(p, cb.checked); });
+        row = el('div', { 'class': 'packrow', 'data-id': p.id }, [cb, el('span', { 'class': 'packname' }, [p.name, el('small')]),
+          p.sourceUrl ? el('a', { href: p.sourceUrl, target: '_blank', rel: 'noopener noreferrer', title: 'Where this list comes from', text: 'source ↗' }) : null]);
+        box.appendChild(row);
+      }
+      var cb2 = row.querySelector('input');
+      if (cb2.checked !== p.enabled) cb2.checked = p.enabled;
+      row.className = 'packrow' + (p.loading ? ' loading' : '');
+      if (p.loading) row.setAttribute('aria-busy', 'true'); else row.removeAttribute('aria-busy');
+      row.querySelector('.packname').title = [p.source, p.attribution ? 'Credit: ' + p.attribution : '', p.licence ? 'Licence: ' + p.licence : ''].filter(Boolean).join(NL);
+      var note = shippedNote(p), small = row.querySelector('small');
+      if (small.textContent !== note) small.textContent = note;
     });
+  }
+  function packNote(p) {
+    var hits = packMatches(p);
+    return fmtInt(p.entries.length) + ' wallets' + (p.sanctions ? ' · sanctions list' : '') + (hits ? ' · ' + hits + ' on screen or loaded' : '') + (p.stored === false ? ' · not kept in this browser' : '');
   }
   function renderPacks() {
     renderShipped();
-    var box = $('packList'); box.textContent = '';
+    var box = $('packList'), ids = state.packs.map(function (p) { return p.id; });
+    Array.prototype.slice.call(box.children).forEach(function (r) { if (ids.indexOf(r.getAttribute('data-id')) < 0) box.removeChild(r); });         // a pack that was removed or replaced
     state.packs.forEach(function (p) {
       if (!p.index) p.index = new Set(p.entries.map(function (e) { return e.address; }));
-      var cb = el('input', { type: 'checkbox', 'aria-label': 'Use ' + p.name }); cb.checked = p.enabled;
-      cb.addEventListener('change', function () { p.enabled = cb.checked; rebuildKnown(); savePacks(); refresh(); showInspector(true); renderPacks(); });
-      var hits = packMatches(p);
-      box.appendChild(el('div', { 'class': 'packrow' }, [cb,
-        el('span', { 'class': 'packname', title: p.source || p.name }, [p.name, el('small', { text: fmtInt(p.entries.length) + ' wallets' + (p.sanctions ? ' · sanctions list' : '') + (hits ? ' · ' + hits + ' on screen or loaded' : '') + (p.stored === false ? ' · not kept in this browser' : '') })]),
-        el('button', { type: 'button', title: 'Remove this pack', 'aria-label': 'Remove ' + p.name, onclick: function () { removePack(p.id); } , text: '×' })]));
+      var row = packRow(box, p.id);
+      if (!row) {
+        var cb = el('input', { type: 'checkbox', 'aria-label': 'Use ' + p.name });
+        cb.addEventListener('change', function () { p.enabled = cb.checked; rebuildKnown(); savePacks(); renderPacks(); refresh(); showInspector(true); });
+        row = el('div', { 'class': 'packrow', 'data-id': p.id }, [cb, el('span', { 'class': 'packname', title: p.source || p.name }, [p.name, el('small')]),
+          el('button', { type: 'button', title: 'Remove this pack', 'aria-label': 'Remove ' + p.name, onclick: function () { removePack(p.id); }, text: '×' })]);
+        box.appendChild(row);                                          // a new pack goes last, as it does in the list in memory
+      }
+      var cb2 = row.querySelector('input');
+      if (cb2.checked !== p.enabled) cb2.checked = p.enabled;
+      var note = packNote(p), small = row.querySelector('small');
+      if (small.textContent !== note) small.textContent = note;
     });
     $('packHint').textContent = state.packs.length ? '' : 'No packs imported yet.';
   }

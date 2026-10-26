@@ -258,3 +258,41 @@ def test_the_graphsense_packs_are_off_until_switched_on_and_each_name_links_to_i
     assert k["label"] == "Al-Qaeda Campaign" and k["category"] == "TERRORISM" and k["pack"] == GS["name"] and not k.get("sanctions")
     assert k["url"] == GS_LINE["url"] and k["url"].startswith("https://www.justice.gov/"), "the link is the document the claim comes from, not the repository"
     assert "GraphSense tagpack aft-alqaeda-forfeit_vc" in k["note"]
+
+
+# ---------------------------------------------------------------- the rows are updated, never replaced
+def import_csv(page, name, address, label):
+    page.set_input_files("#packFile", files=[{"name": name, "mimeType": "text/csv", "buffer": ("address,label" + chr(10) + address + "," + label + chr(10)).encode("utf-8")}])
+    page.wait_for_function("() => /Imported|Replaced|Import failed/.test(document.getElementById('toast').textContent)")
+
+
+def test_a_row_is_the_same_element_after_a_list_loads_or_is_switched_and_keeps_the_keyboard_focus(tpage):
+    """A row that was drawn again took away the checkbox someone was aiming at (a click missed) or had focused (the keyboard user lost their place)."""
+    open_packs(tpage)
+    import_csv(tpage, "mine.csv", RW_ADDR, "Mine")
+    mine = tpage.query_selector("#packList input[type=checkbox]")
+    ofac = row_of(tpage, OFAC).locator("input").element_handle()
+    rw = row_of(tpage, RW).locator("input").element_handle()
+    rw.check()                                                                       # a list that loads: its row is updated when it is done
+    wait_known(tpage, RW_ADDR)
+    tpage.wait_for_function("() => window.__hopline.state.shipped.every((p) => !p.enabled || p.loaded)")
+    mine.uncheck(); settle(tpage)                                                    # your own pack switched off
+    ofac.uncheck(); settle(tpage)                                                    # a built-in list switched off
+    assert all(h.evaluate("el => el.isConnected") for h in (mine, ofac, rw)), "every row is still the one that was there"
+    assert [h.is_checked() for h in (mine, ofac, rw)] == [False, False, True]
+    mine.focus(); tpage.keyboard.press("Space"); settle(tpage)
+    assert mine.is_checked() and tpage.evaluate("() => document.activeElement.getAttribute('aria-label')") == "Use mine", "the key press switched it on and focus stayed where it was"
+    ofac.focus(); tpage.keyboard.press("Space"); settle(tpage)
+    assert ofac.is_checked() and tpage.evaluate("() => document.activeElement.getAttribute('aria-label')") == "Use " + OFAC["name"]
+
+
+def test_importing_and_removing_a_pack_adds_and_removes_only_its_own_row(tpage):
+    open_packs(tpage)
+    import_csv(tpage, "one.csv", RW_ADDR, "One")
+    first = tpage.query_selector("#packList input[type=checkbox]")
+    import_csv(tpage, "two.csv", ADDR, "Two")
+    assert tpage.locator("#packList .packrow").count() == 2 and first.evaluate("el => el.isConnected"), "a second pack does not redraw the first"
+    tpage.click("#packList button[aria-label='Remove two']")
+    assert tpage.locator("#packList .packrow").count() == 1 and first.evaluate("el => el.isConnected")
+    import_csv(tpage, "one.csv", RW_ADDR, "One again")                                   # the same name replaces the pack: its row is made again, once
+    assert tpage.locator("#packList .packrow").count() == 1 and not first.evaluate("el => el.isConnected")

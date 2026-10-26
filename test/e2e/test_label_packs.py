@@ -63,7 +63,7 @@ def test_a_pack_can_be_switched_off_and_removed_and_it_is_remembered(fpage):
     fpage.uncheck("#packList input[type=checkbox]"); settle(fpage)
     assert known(fpage, SMALL_ADDR) is None and "First pack" not in drawn_texts(fpage)
     fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
-    open_packs(fpage)
+    open_packs(fpage); settle(fpage)                                      # the page is still arranging itself after a reload (the saved-session bar appears): a click aimed before that can land beside the box
     assert "p1" in fpage.inner_text("#packList") and not fpage.is_checked("#packList input[type=checkbox]"), "still there, still off"
     fpage.check("#packList input[type=checkbox]")
     assert known(fpage, SMALL_ADDR)["label"] == "First pack"
