@@ -469,3 +469,16 @@ test('changeTitle and changeCaution: only a strong guess is "likely", and a weak
   assert.ok(!/Only one sign/.test(two) && /follow both outputs/.test(two));
   assert.match(An.changeCaution(null), /not a certainty/);
 });
+
+test('change: a signal can be switched off to see what it is worth, and every reason belongs to a named signal', () => {
+  const g = new Graph();
+  const id = add(g, 1, [IN(90, 0, a('me'), 100000, 'p2pkh')], [OUT(a('shop'), 60000, 'p2pkh'), OUT(a('me'), 39000, 'p2pkh')]);
+  const v = An.txView(g, id);
+  assert.equal(An.guessChange(v).reasons.map(An.signalOf)[0], 'reuse');
+  assert.equal(An.guessChange(v, { changeOff: ['reuse'] }), null, 'without the signal that named it nothing is left to name it');
+  assert.equal(An.guessChange(v, { changeOff: ['type', 'round'] }).confidence, 'high', 'other signals off changes nothing here');
+  const mixed = add(g, 2, [IN(91, 0, a('who'), 100000, 'v0_p2wpkh')], [OUT(a('legacy'), 61234, 'p2pkh'), OUT(a('mine'), 38000, 'v0_p2wpkh')]);
+  assert.equal(An.guessChange(An.txView(g, mixed), { changeOff: ['type'] }), null);
+  assert.deepEqual(An.CHANGE_SIGNALS.map((x) => x[0]), ['reuse', 'type', 'known', 'fingerprint', 'round', 'smaller']);
+  assert.equal(An.signalOf('something else'), '', 'a reason that is not one of them has no signal');
+});

@@ -1,0 +1,37 @@
+{
+  "about": "Measured on the committed cases (test/benchmark/cases/regtest-v1) with the analysis as of the first run, 2026-10-26. Each number sits a little below (or, for a ceiling, a little above) what was measured, so an honest change passes and one that quietly makes a guess worse fails. A floor is not a target and not a claim about real data. If a change to the rules is right and moves a number past its floor, change the floor in the same commit and say why in the message. Keys are <case>:<path into the results of test/benchmark/lib/evaluate.js>.",
+  "floors": {
+    "payments:change.byTier.high.precision.p": { "min": 0.97, "why": "a high guess has to stay right almost every time, or the label means nothing" },
+    "peel-chains:change.byTier.high.precision.p": { "min": 0.97, "why": "a high guess has to stay right almost every time, or the label means nothing" },
+    "batch-consolidation:change.byTier.high.precision.p": { "min": 0.97, "why": "a high guess has to stay right almost every time, or the label means nothing" },
+    "sweeps:change.byTier.high.precision.p": { "min": 0.97, "why": "a high guess has to stay right almost every time, or the label means nothing" },
+    "coinjoins:change.byTier.high.precision.p": { "min": 0.97, "why": "a high guess has to stay right almost every time, or the label means nothing" },
+    "payjoin:change.byTier.high.precision.p": { "min": 0.95, "why": "a PayJoin is the transaction that breaks the change rules; one high guess was wrong in the first run" },
+    "payments:change.byTier.medium.precision.p": { "min": 0.92, "why": "medium must stay a better guess than a coin toss and than the always-answering baselines (the largest output is right 56%)" },
+    "payments:change.precision.p": { "min": 0.94, "why": "overall precision of the change guess on ordinary payments" },
+    "payments:change.coverage.p": { "min": 0.76, "why": "a change that stops guessing is safe but useless; the first run guessed on 79%" },
+    "coinjoins:change.precision.p": { "min": 0.79, "why": "the hardest case for the change guess: wallets that mix, and exchange payouts" },
+
+    "coinjoins:coinjoin.recall.p": { "min": 0.95, "why": "every real CoinJoin of the case was found in the first run" },
+    "coinjoins:coinjoin.falsePositiveRate.p": { "max": 0.25, "why": "a batched exchange payout with equal amounts looks like a CoinJoin (20% in the first run); it must not get worse" },
+    "batch-consolidation:batch.recall.p": { "min": 0.95, "why": "every batch payment was found in the first run" },
+    "batch-consolidation:batch.precision.p": { "min": 0.95, "why": "nothing but a batch was flagged as one" },
+    "batch-consolidation:consolidation.recall.p": { "min": 0.95, "why": "every consolidation was found in the first run" },
+    "sweeps:batch.recall.p": { "min": 0.95, "why": "every batch payment was found in the first run" },
+    "sweeps:consolidation.recall.p": { "min": 0.95, "why": "every sweep of deposit addresses was found in the first run" },
+    "payjoin:consolidation.recall.p": { "min": 0.95, "why": "every consolidation was found in the first run" },
+    "payments:consolidation.falsePositiveRate.p": { "max": 0.065, "why": "an ordinary payment that needs five coins is flagged as a consolidation (4.9% in the first run); it must not get worse" },
+
+    "payments:clusters.precision.p": { "min": 0.99, "why": "addresses spent together by one sender share an owner" },
+    "peel-chains:clusters.precision.p": { "min": 0.99, "why": "addresses spent together by one sender share an owner" },
+    "batch-consolidation:clusters.precision.p": { "min": 0.99, "why": "addresses spent together by one sender share an owner" },
+    "sweeps:clusters.precision.p": { "min": 0.99, "why": "addresses spent together by one sender share an owner" },
+    "coinjoins:clusters.precision.p": { "min": 0.99, "why": "a CoinJoin must not merge its owners into one cluster" },
+    "coinjoins:clusters.recallOfWhatCoSpendingCanFind.p": { "min": 0.6, "why": "the cost of the CoinJoin exclusion: exchange payouts wrongly flagged lose their clusters (65% found in the first run)" },
+    "payjoin:clusters.precision.p": { "min": 0.93, "why": "a PayJoin joins two owners and the rule cannot tell (95% in the first run); it must not get worse" },
+
+    "peel-chains:peel.stepsFlagged.p": { "min": 0.65, "why": "the steps of real chains that are in a detected chain (71% in the first run)" },
+    "peel-chains:peel.real.p": { "min": 0.88, "why": "a detected chain in the peel-chains case is a real one (93% in the first run)" },
+    "payments:peel.notThereFlaggedPer1000Others": { "max": 8, "why": "ordinary payments out of one coin make the same shape as a peel chain (5.8 chains per 1,000 in the first run); it must not get worse" }
+  }
+}

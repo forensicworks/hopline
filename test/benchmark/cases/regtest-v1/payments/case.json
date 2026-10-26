@@ -1,0 +1,12 @@
+{
+ "generator": "tools/bench/make_regtest.py",
+ "image": "bitcoin/bitcoin@sha256:da25cedc66b1daefff9f412ee196c901a899c3fa68a33b20849c3e08b5c40d63",
+ "name": "payments",
+ "node": "/Satoshi:31.1.0/",
+ "scale": 1.0,
+ "seed": 20261026,
+ "summary": "20 wallets with different habits paying each other and two services",
+ "tier": "A",
+ "transactions": 1200,
+ "wallets": 20
+}

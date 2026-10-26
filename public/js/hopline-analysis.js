@@ -153,12 +153,20 @@
    * (the wallet paid itself back) can name one then, because the others cannot tell an even split from a payment to a wallet of another kind.
    * opts.known(address) -> true for a wallet that is labelled or tagged.
    */
+  /** The signals of guessChange, by the start of the reason each gives: so a benchmark can switch one off (opts.changeOff) and a reader can group the reasons. */
+  var CHANGE_SIGNALS = [['reuse', 'its address is also one of the inputs'], ['type', 'the only output of the same address type'], ['known', 'the other output pays a known'],
+                        ['fingerprint', 'it was spent by a transaction that looks like it came from the same wallet software'], ['round', 'the other output is a round amount'], ['smaller', 'smaller than every input']];
+  function signalOf(reason) {
+    for (var i = 0; i < CHANGE_SIGNALS.length; i++) if (String(reason).indexOf(CHANGE_SIGNALS[i][1]) === 0) return CHANGE_SIGNALS[i][0];
+    return '';
+  }
   function guessChange(v, opts) {
     if (!v || v.coinbase || !v.complete) return null;
     var outs = payOuts(v);
     if (outs.length < 2) return null;
     var votes = outs.map(function () { return { score: 0, reasons: [], reuse: false }; });
-    function vote(i, pts, why, reuse) { votes[i].score += pts; votes[i].reasons.push(why); if (reuse) votes[i].reuse = true; }
+    var off = opts && Array.isArray(opts.changeOff) ? opts.changeOff : [];                // signals switched off, for measuring what each one is worth (see test/benchmark)
+    function vote(i, pts, why, reuse) { if (off.length && off.indexOf(signalOf(why)) >= 0) return; votes[i].score += pts; votes[i].reasons.push(why); if (reuse) votes[i].reuse = true; }
 
     var inAddr = new Set(inputAddresses(v).map(function (i) { return i.address; }));
     var reused = []; outs.forEach(function (o, i) { if (o.address && inAddr.has(o.address)) reused.push(i); });
@@ -400,6 +408,6 @@
 
   return {
     DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
-    peelStep: peelStep, peelChains: peelChains, clusters: clusters, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
+    CHANGE_SIGNALS: CHANGE_SIGNALS, signalOf: signalOf, peelStep: peelStep, peelChains: peelChains, clusters: clusters, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
   };
 }));

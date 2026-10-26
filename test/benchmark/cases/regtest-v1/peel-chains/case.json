@@ -1,0 +1,12 @@
+{
+ "generator": "tools/bench/make_regtest.py",
+ "image": "bitcoin/bitcoin@sha256:da25cedc66b1daefff9f412ee196c901a899c3fa68a33b20849c3e08b5c40d63",
+ "name": "peel-chains",
+ "node": "/Satoshi:31.1.0/",
+ "scale": 1.0,
+ "seed": 20261026,
+ "summary": "14 scripted peel chains of 5 to 30 steps among ordinary payments",
+ "tier": "A",
+ "transactions": 686,
+ "wallets": 24
+}

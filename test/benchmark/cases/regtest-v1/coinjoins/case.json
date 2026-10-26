@@ -1,0 +1,12 @@
+{
+ "generator": "tools/bench/make_regtest.py",
+ "image": "bitcoin/bitcoin@sha256:da25cedc66b1daefff9f412ee196c901a899c3fa68a33b20849c3e08b5c40d63",
+ "name": "coinjoins",
+ "node": "/Satoshi:31.1.0/",
+ "scale": 1.0,
+ "seed": 20261026,
+ "summary": "equal-output CoinJoins of 3 to 9 wallets, exchange payouts of equal amounts, ordinary payments",
+ "tier": "A",
+ "transactions": 435,
+ "wallets": 13
+}
