@@ -32,6 +32,12 @@
 
     "peel-chains:peel.stepsFlagged.p": { "min": 0.65, "why": "the steps of real chains that are in a detected chain (71% in the first run)" },
     "peel-chains:peel.real.p": { "min": 0.88, "why": "a detected chain in the peel-chains case is a real one (93% in the first run)" },
-    "payments:peel.notThereFlaggedPer1000Others": { "max": 8, "why": "ordinary payments out of one coin make the same shape as a peel chain (5.8 chains per 1,000 in the first run); it must not get worse" }
+    "payments:peel.notThereFlaggedPer1000Others": { "max": 8, "why": "ordinary payments out of one coin make the same shape as a peel chain (5.8 chains per 1,000 in the first run); it must not get worse" },
+
+    "mainnet-sample:coinjoin": { "max": 0.0015, "why": "on real traffic a COINJOIN? flag is rare (2 of 4,671, both batches of dust-sized outputs); loosening the detector must show up here" },
+    "mainnet-sample:consolidation": { "max": 0.045, "why": "3.5% of real transactions had 5 or more inputs into 1 or 2 outputs in the first run; the flag must not fire more often than that without a reason" },
+    "mainnet-sample:batch": { "max": 0.04, "why": "3.2% of real transactions were flagged as a batch in the first run" },
+    "mainnet-sample:peelInChain": { "max": 0.045, "why": "3.6% of real transactions were in a detected peel chain in the first run, counting only the neighbours that were in the sample; it must not fire more often" },
+    "mainnet-sample:changeGuessed": { "min": 0.66, "why": "a change guess was made on 71% of the real transactions that can have one; a change that stops guessing is safe but useless" }
   }
 }

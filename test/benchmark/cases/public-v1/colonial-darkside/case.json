@@ -1,0 +1,52 @@
+{
+  "name": "colonial-darkside",
+  "tier": "C",
+  "title": "The Colonial Pipeline ransom to DarkSide, May 2021, as far as the seizure",
+  "api": "https://mempool.space/api",
+  "summary": "Where the 75 BTC ransom paid on 8 May 2021 went, forward from the payment to the address the US government seized 63.7 BTC from on 7 June 2021",
+  "documented": [
+    {
+      "claim": "An address of DarkSide received two payments on 2021-05-08, 75 BTC in all: bc1q7eqww9dmm9p48hx5yz5gcvmncu65w43wfytpsf.",
+      "source": "Ransomwhere dataset version 1.1.0 (Zenodo, doi:10.5281/zenodo.13999026, CC BY 4.0), read in public/packs/ransomwhere.js",
+      "read": "yes, the entry in the shipped pack: label 'Ransomware: DarkSide', note '2 payments, 2021-05-08, 75 BTC in all'"
+    },
+    {
+      "claim": "The affiliate got 85% of the ransom (63.75 BTC), the US seized 63.7 BTC of it, and the address it was seized from is bc1qq2euq8pw950klpjcawuy4uj39ym43hs6cfsegq, 'the same address mentioned in the seizure affidavit'. That address was emptied on 2021-06-07.",
+      "source": "Elliptic, 'US Authorities Seize DarkSide Ransom', 2021-06-07, https://www.elliptic.co/blog/us-authorities-seize-darkside",
+      "read": "yes, the page; its statement that the address is the affidavit's is Elliptic's"
+    },
+    {
+      "claim": "The ransom was about 75 BTC, paid on 8 May 2021; the FBI seized 63.7 BTC from one address whose private key it held.",
+      "source": "US Department of Justice press release, 2021-06-07, https://www.justice.gov/archives/opa/pr/department-justice-seizes-23-million-cryptocurrency-paid-ransomware-extortionists-darkside",
+      "read": "no: the page is behind a bot check and I did not try to get past it; the claims are as quoted in search results and in the Elliptic page. The seizure affidavit itself was not read."
+    }
+  ],
+  "start": {
+    "txid": "fc78327d4e46dac01dc313067b1ac7f274cdb3a07ea9f28f6f71473145f1b264",
+    "why": "The transaction that paid 74.99998307 BTC into bc1q7eqww9dmm9p48hx5yz5gcvmncu65w43wfytpsf, at 17:47 UTC on 2021-05-08 (the other payment into it was 0.00001693 BTC, in the transaction before this one). One of the two payments that make up the 75 BTC."
+  },
+  "endpoint": {
+    "address": "bc1qq2euq8pw950klpjcawuy4uj39ym43hs6cfsegq",
+    "why": "The address Elliptic names as the one in the seizure affidavit."
+  },
+  "route": [
+    "fc78327d4e46dac01dc313067b1ac7f274cdb3a07ea9f28f6f71473145f1b264",
+    "0677781a5079eae8e5cbd5e6d9dcc5c02da45351a3638b85c88e5e3ecdc105a7",
+    "9436dbf0435b15378f309c35754a110db880fa9bb66a062160a25533bb4a212a",
+    "daf38c7b38eb0a587cf843f47000d5c294affb4f56017370ad48c5147f5e69d9"
+  ],
+  "rule_notes": {
+    "all": "Reaches the end quickly, but does not know it has arrived and goes on to the limit of transactions: the cost of following everything is in the last columns.",
+    "largest": "The cheapest way here. It works because every split on the route sent the larger part on; on a route that went through a smaller output it would miss.",
+    "change": "Follows what the sender kept, not the payment, so it leaves the ransom behind: in the first transaction it names the 0.0000675 BTC output (very likely the payer's leftover, so the guess may well be right) and the walk ends at that unspent coin. This rule is for following a wallet's own money; the case is about following a payment.",
+    "peel": "Stops at the second transaction, which has two inputs (the 75 BTC and a 0.0000169 BTC payment into the same address), so it is not a peel step by the rule's own definition."
+  },
+  "expect": {
+    "all": { "reached": true },
+    "largest": { "reached": true, "wrongBranches": 0 },
+    "change": { "reached": false },
+    "peel": { "reached": false }
+  },
+  "expect_note": "What the first run found, kept so that a change to the rules that changes it is noticed: move an entry only together with the change that justifies it.",
+  "route_note": "Found on the chain by walking back from the endpoint, then checked going forward: the 75 BTC is split 63.75 / 11.25 (the 85/15 of Elliptic) at 18:21 UTC on 8 May, 63.7 BTC of the larger part moves on 9 May, and on 28 May that coin is one of 24 inputs of a transaction that pays the endpoint 69.6 BTC. The documents do not list these transactions; the route is the benchmark's, and the verification is that each spends the one before and the last pays the endpoint (test/benchmark.test.js)."
+}

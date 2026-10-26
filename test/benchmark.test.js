@@ -7,6 +7,7 @@ const { evaluateCase, evaluateChange, evaluateClusters, analyse } = require('./b
 const { loadCase, listCases } = require('./benchmark/lib/cases.js');
 const { toMarkdown, pool } = require('./benchmark/lib/report.js');
 const mini = require('./benchmark/lib/mini.js');
+const base = require('./benchmark/lib/base-rates.js');
 
 const near = (a, b, eps) => assert.ok(Math.abs(a - b) <= (eps || 1e-9), a + ' is not ' + b);
 
@@ -151,6 +152,8 @@ test('the committed cases are well-formed: every address has an owner, every cha
 test('the committed cases are measured above the floors in floors.json', { skip: committed.length === 0 || !fs.existsSync(FLOORS) }, () => {
   const floors = JSON.parse(fs.readFileSync(FLOORS, 'utf8')), results = {};
   committed.forEach((d) => { const r = evaluateCase(loadCase(d), { variants: false }); results[r.name] = r; });
+  const sampleDir = path.join(__dirname, 'benchmark', 'cases', 'mainnet-sample');                  // the real sample: its rates, with ceilings
+  if (fs.existsSync(path.join(sampleDir, 'case.json'))) results['mainnet-sample'] = base.rates(base.measure(base.loadSample(sampleDir).txs));
   const get = (obj, p) => p.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
   Object.keys(floors.floors).forEach((key) => {
     const [name, ...rest] = key.split(':'), r = results[name];
@@ -161,4 +164,136 @@ test('the committed cases are measured above the floors in floors.json', { skip:
     if (f.min != null) assert.ok(v >= f.min, key + ' is ' + v.toFixed(4) + ', below its floor ' + f.min + ' (' + f.why + ')');
     if (f.max != null) assert.ok(v <= f.max, key + ' is ' + v.toFixed(4) + ', above its ceiling ' + f.max + ' (' + f.why + ')');
   });
+});
+
+// ---- rates on real traffic (tier D): nothing is known to be right, so what is checked is the counting ---------------------------------
+test('base rates: a CoinJoin, a dust batch, a look-alike that is not flagged, and an ordinary payment are each counted as what they are', () => {
+  const H = mini.hex, A = mini.addr;
+  const ins = (n, from) => Array.from({ length: n }, (_, i) => ({ txid: H(from + i), vout: 0, address: A('in' + from + '_' + i), value: 2000000 }));
+  const outs = (n, value, name) => Array.from({ length: n }, (_, i) => ({ address: A(name + i), value }));
+  const txs = [
+    mini.tx(1, ins(3, 100), outs(5, 1000000, 'cj')),                                                   // 3 inputs, 5 outputs of 0.01 BTC: a CoinJoin
+    mini.tx(2, ins(4, 110), outs(10, 600, 'dust').concat(outs(2, 70000, 'rest'))),                     // 4 input addresses, ten outputs of 600 satoshis: a dust batch
+    mini.tx(3, ins(3, 120), outs(3, 50000, 'eq').concat([0, 1, 2, 3, 4].map((i) => ({ address: A('odd' + i), value: 1234567 + i * 1111 })))),     // 3 equal outputs among 8: looks like one, is not flagged
+    mini.tx(4, ins(1, 130), [{ address: A('shop'), value: 30000 }, { address: A('back'), value: 1960000 }])                           // an ordinary payment: one input, two outputs, a small one and a large one
+  ];
+  const r = base.measure(txs);
+  assert.equal(r.transactions, 4);
+  assert.equal(r.flags.coinjoin, 2, 'the CoinJoin and the dust batch are flagged');
+  assert.deepEqual(r.joinClasses, { 'every output the same amount (not a pool size)': 1, 'equal outputs of dust size (under 1000 satoshis: no mix pays out an amount like that)': 1 });
+  assert.equal(r.lookalikes.length, 1); assert.equal(r.lookalikes[0].txid, H(3)); assert.equal(r.lookalikes[0].equal, 3); assert.equal(r.lookalikes[0].value, 50000);
+  assert.equal(r.peelSteps, 1, 'only the ordinary payment is one coin in and a small and a large output out');
+  assert.deepEqual(Object.keys(r.byYear), ['2023']); assert.equal(r.byYear[2023].transactions, 4);
+  assert.equal(r.shape['1|2'], 1); assert.equal(r.shape['2 to 4|3 to 5'], 1); assert.equal(r.shape['2 to 4|6 or more'], 2, 'the dust batch and the look-alike');
+});
+
+test('base rates: the Whirlpool shape is five inputs and five outputs of exactly one pool size, and is counted whether or not it is flagged', () => {
+  const H = mini.hex, A = mini.addr;
+  const five = (pool, n) => mini.tx(n, [0, 1, 2, 3, 4].map((i) => ({ txid: H(200 + n * 10 + i), vout: 0, address: A('w' + n + i), value: pool + 5000 })), [0, 1, 2, 3, 4].map((i) => ({ address: A('x' + n + i), value: pool })));
+  const r = base.measure([five(1000000, 1), five(1234567, 2)]);
+  assert.equal(r.whirlpoolShaped.all, 1, 'a pool size counts, any other amount does not');
+  assert.equal(base.joinClass(five(1000000, 3)), 'Whirlpool-shaped: 5 inputs, 5 outputs of one pool size');
+  assert.equal(base.joinClass(five(1234567, 4)), 'every output the same amount (not a pool size)');
+});
+
+test('base rates: an output nobody in the sample spent is not said to be unspent, since it may have been spent somewhere else', () => {
+  const t = mini.tx(1, [{ txid: mini.hex(90), vout: 0, address: mini.addr('a'), value: 100000 }], [{ address: mini.addr('b'), value: 60000 }, { address: mini.addr('c'), value: 39000 }]);
+  const g = base.graphOf([t]);
+  assert.ok(!g.nodes.get('tx:' + t.txid).outspendsLoaded, 'nothing was asked about who spent it');
+});
+
+test('base rates: a sample folder is read, and a report is made of it with the shape of what was flagged', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hopline-sample-'));
+  try {
+    const H = mini.hex, A = mini.addr;
+    const txs = [mini.tx(1, [0, 1, 2].map((i) => ({ txid: H(100 + i), vout: 0, address: A('i' + i), value: 2000000 })), [0, 1, 2, 3, 4].map((i) => ({ address: A('o' + i), value: 1000000 })))];
+    fs.writeFileSync(path.join(dir, 'case.json'), JSON.stringify({ name: 'mini-sample', seed: 1, generator: 'by hand', blocks: [{ height: 1001, hash: 'ab', time: 1700000600, tx_count: 10, pages: [0], transactions: 1 }] }));
+    fs.writeFileSync(path.join(dir, 'txs.json.gz'), zlib.gzipSync(JSON.stringify(txs)));
+    const s = base.loadSample(dir), real = base.measure(s.txs), md = base.toMarkdown(s, real, base.measure(txs), { date: '2026-01-01', commit: 'abc', analysisSha: 'f'.repeat(64) });
+    assert.equal(s.name, 'mini-sample'); assert.equal(real.flags.coinjoin, 1);
+    assert.match(md, /rates and shapes, not accuracy/); assert.match(md, /every output the same amount/); assert.match(md, /\| 1 in \|/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ---- documented cases (tier C): the route is a real chain of spends, and the rules do what the first run found --------------------------
+const T = require('./benchmark/lib/trace.js');
+
+/** A recording by hand: A pays a small output nobody spends and a large one that B spends; B pays the endpoint and keeps the rest. */
+function miniRecording() {
+  const H = mini.hex, A = mini.addr, E = A('end');
+  const a = mini.tx(1, [{ txid: H(90), vout: 0, address: A('src'), value: 100000 }], [{ address: A('small'), value: 1000 }, { address: A('mid'), value: 98000 }]);
+  const b = mini.tx(2, [{ txid: a.txid, vout: 1, address: A('mid'), value: 98000 }], [{ address: E, value: 90000 }, { address: A('keep'), value: 7800 }]);
+  const rec = {};
+  rec['/tx/' + a.txid] = a; rec['/tx/' + b.txid] = b;
+  rec['/tx/' + a.txid + '/outspends'] = [{ spent: false }, { spent: true, txid: b.txid, vin: 0, status: { confirmed: true, block_time: 1700001200 } }];
+  rec['/tx/' + b.txid + '/outspends'] = [{ spent: false }, { spent: false }];
+  return { rec, meta: { api: 'https://x.test/api', start: { txid: a.txid }, endpoint: { address: E }, route: [a.txid, b.txid], limits: { hops: 3 } } };
+}
+
+test('trace: the largest output reaches the end in two hops with no wrong branch, and what it asked for is counted', async () => {
+  const { rec, meta } = miniRecording();
+  const r = await T.trace(meta, 'largest', T.replayFetch(rec, meta.api));
+  assert.equal(r.reached, true); assert.equal(r.hops, 1); assert.equal(r.onRoute, 2); assert.equal(r.wrongBranches, 0); assert.equal(r.afterTheEnd, 0);
+  assert.equal(r.requestsToEnd, 3, 'the first transaction and who spent its outputs, then the second transaction'); assert.equal(r.requests, 4, 'the whole run also asks who spent the second');
+  assert.equal(r.endings['output unspent'], 1, 'only the output the rule chose counts: the largest of the second transaction, which nobody has spent');
+});
+
+test('trace: a rule that follows the small output does not reach the end and the transactions it loaded off the route are the wrong branches', async () => {
+  const { rec, meta } = miniRecording();
+  const out = rec['/tx/' + meta.start.txid + '/outspends'];
+  out[0] = { spent: true, txid: mini.hex(3), vin: 0, status: { confirmed: true, block_time: 1700001300 } }; out[1] = { spent: false };            // now the small output is the one spent, by a third transaction
+  rec['/tx/' + mini.hex(3)] = mini.tx(3, [{ txid: meta.start.txid, vout: 0, address: mini.addr('small'), value: 1000 }], [{ address: mini.addr('else'), value: 500 }]);
+  rec['/tx/' + mini.hex(3) + '/outspends'] = [{ spent: false }];
+  const r = await T.trace(meta, 'all', T.replayFetch(rec, meta.api));
+  assert.equal(r.reached, false, 'the large output is now unspent, so nothing leads to the endpoint'); assert.equal(r.wrongBranches, 1); assert.equal(r.requestsToEnd, undefined);
+});
+
+test('trace: a request the recording does not have fails loudly and says how to record it again', async () => {
+  const { rec, meta } = miniRecording();
+  delete rec['/tx/' + meta.route[1]];
+  await assert.rejects(T.trace(meta, 'largest', T.replayFetch(rec, meta.api)), /no answer for .*record the case again/);
+});
+
+test('trace: a route that is not a chain of spends, or does not end at the endpoint, is named', () => {
+  const { rec, meta } = miniRecording();
+  assert.deepEqual(T.checkRoute({ meta, responses: rec }), []);
+  const broken = JSON.parse(JSON.stringify(meta)); broken.route = [meta.route[1], meta.route[0]]; broken.start = { txid: meta.route[1] };
+  assert.ok(T.checkRoute({ meta: broken, responses: rec }).length >= 1);
+  const elsewhere = JSON.parse(JSON.stringify(meta)); elsewhere.endpoint = { address: mini.addr('nowhere') };
+  assert.deepEqual(T.checkRoute({ meta: elsewhere, responses: rec }), ['the last transaction of the route does not pay the endpoint']);
+});
+
+const PUBLIC = path.join(__dirname, 'benchmark', 'cases', 'public-v1'), publicCases = T.listFolders(PUBLIC);
+
+test('the documented cases: the route is a real chain of spends from the start to a payment of the endpoint, and each rule does what the first run found', { skip: publicCases.length === 0 }, async () => {
+  for (const d of publicCases) {
+    const c = T.loadCaseFolder(d);
+    assert.ok(c.responses, c.name + ' has no recording');
+    assert.deepEqual(T.checkRoute(c), [], c.name + ': the route');
+    assert.ok(c.meta.documented.length >= 2 && c.meta.documented.every((x) => x.source && x.read), c.name + ': every claim needs a source and what was read of it');
+    for (const rule of Object.keys(c.meta.expect || {})) {
+      const r = await T.trace(c.meta, rule, T.replayFetch(c.responses, c.meta.api));
+      Object.keys(c.meta.expect[rule]).forEach((k) => assert.equal(r[k], c.meta.expect[rule][k], c.name + ': the ' + rule + ' rule, ' + k + ' (' + (c.meta.expect_note || '') + ')'));
+    }
+  }
+});
+
+const SAMPLE = path.join(__dirname, 'benchmark', 'cases', 'mainnet-sample');
+
+test('the committed real sample says what it is, and every transaction in it can be analysed', { skip: !fs.existsSync(path.join(SAMPLE, 'case.json')) }, () => {
+  const s = base.loadSample(SAMPLE), m = s.meta;
+  assert.equal(m.generator, 'tools/bench/fetch_mainnet_sample.py'); assert.equal(m.tier, 'D'); assert.ok(m.seed && m.tip_when_chosen > 900000);
+  assert.equal(m.transactions, s.txs.length, 'the count in case.json is the count in the file');
+  assert.equal(new Set(s.txs.map((t) => t.txid)).size, s.txs.length, 'a transaction is listed twice');
+  assert.deepEqual(m.blocks.map((b) => b.height), m.blocks.map((b) => b.height).slice().sort((a, b) => a - b), 'blocks in order');
+  assert.equal(m.blocks.reduce((a, b) => a + b.transactions, 0), s.txs.length, 'what each block gave adds up');
+  const heights = new Set(m.blocks.map((b) => b.height));
+  s.txs.forEach((t) => {
+    assert.ok(t.status.confirmed && heights.has(t.status.block_height), 'a transaction from a block that was not chosen: ' + t.txid);
+    t.vin.forEach((v) => assert.ok(v.is_coinbase || (v.prevout && v.prevout.value >= 0 && v.prevout.scriptpubkey_type), 'an input without its previous output: ' + t.txid));
+    assert.ok(t.vout.length > 0 && t.vout.every((o) => o.value >= 0 && o.scriptpubkey_type));
+    t.vin.forEach((v) => { assert.ok(!('witness' in v) || v.is_coinbase, 'a signature that was meant to be left out'); });
+  });
+  const years = new Set(s.txs.map((t) => new Date(t.status.block_time * 1000).getUTCFullYear()));
+  assert.ok(years.size >= 6, 'spread over the years: ' + Array.from(years).join(', '));
 });

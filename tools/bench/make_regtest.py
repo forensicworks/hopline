@@ -44,15 +44,20 @@ def btc(sats):
 
 
 # ---- the node -------------------------------------------------------------------------------------------------------------------
-class Node:
-    """Bitcoin Core regtest in a container, reached over RPC on 127.0.0.1."""
+CHAINS = {"regtest": ("-regtest", 18443), "signet": ("-signet", 38332), "testnet4": ("-testnet4", 48332)}      # the flag and the RPC port of each network
 
-    def __init__(self, image):
+
+class Node:
+    """Bitcoin Core in a container, reached over RPC on 127.0.0.1: regtest, or (with chain=) a test network it does not connect to, for what needs no chain, such as deriving addresses."""
+
+    def __init__(self, image, chain="regtest"):
+        flag, rpc_port = CHAINS[chain]
         s = socket.socket(); s.bind(("127.0.0.1", 0)); self.port = s.getsockname()[1]; s.close()
         self.name = "hopline-bench-%d" % os.getpid()
         self.auth = "Basic " + base64.b64encode(b"bench:bench").decode()
-        subprocess.run(["docker", "run", "-d", "--rm", "--name", self.name, "-p", "127.0.0.1:%d:18443" % self.port, image, "bitcoind", "-regtest", "-server=1", "-rpcuser=bench",
-                        "-rpcpassword=bench", "-rpcbind=0.0.0.0", "-rpcallowip=0.0.0.0/0", "-rpcport=18443", "-txindex=1", "-fallbackfee=0.0002", "-printtoconsole=0"],
+        offline = [] if chain == "regtest" else ["-connect=0", "-listen=0", "-dnsseed=0", "-discover=0"]
+        subprocess.run(["docker", "run", "-d", "--rm", "--name", self.name, "-p", "127.0.0.1:%d:%d" % (self.port, rpc_port), image, "bitcoind", flag, "-server=1", "-rpcuser=bench",
+                        "-rpcpassword=bench", "-rpcbind=0.0.0.0", "-rpcallowip=0.0.0.0/0", "-rpcport=%d" % rpc_port, "-txindex=1", "-fallbackfee=0.0002", "-printtoconsole=0"] + offline,
                        check=True, capture_output=True)
         for _ in range(60):
             try:

@@ -4,7 +4,7 @@ Hopline guesses: which output of a transaction is the change, which addresses sh
 
 What it does not measure: the accuracy of the lists of names ([sources.md](../sources.md)). A name there is somebody's claim, and the benchmark only counts how many addresses a list names in a case.
 
-The results are in [benchmark-results.md](benchmark-results.md), written by the runner. This file is the method.
+The results are written by the runners: [benchmark-results.md](benchmark-results.md) (the synthetic cases, tier A), [benchmark-base-rates.md](benchmark-base-rates.md) (a sample of the real chain, tier D) and [benchmark-cases.md](benchmark-cases.md) (documented cases, tier C). This file is the method.
 
 ## Status
 
@@ -12,9 +12,10 @@ The results are in [benchmark-results.md](benchmark-results.md), written by the 
 |---|---|---|
 | 0 | The harness, the metrics, the committed floors the tests keep | done |
 | 1 | A generator of regtest data with known ownership and known change, six scenarios, the first full results | done |
-| 2 | The same on testnet4 or signet with real wallet software, truth from the wallets' own derivation paths | not started |
-| 3 | Documented public cases (court and FBI documents) as case studies | not started |
-| 4 | Recalibrating the confidence tiers on what the results show, and a wiki page for readers | not started |
+| D | How often each flag fires on a sample of the real chain, with the flagged ones read by hand | done: 4,674 transactions from 8 blocks, 2013 to 2026 |
+| 2 | Real wallet software on signet or testnet4, truth from the wallets' own change chain | **tool built and tested; no data yet**: it needs a person with real wallets and faucet coins, see [benchmark-wallets.md](benchmark-wallets.md) |
+| 3 | Documented public cases (court and FBI documents) as case studies | one case done (Colonial Pipeline and DarkSide); the court documents themselves could not be read, see below |
+| 4 | Recalibrating the confidence tiers on what the results show, and a page for readers | not started; the wiki has a first Accuracy page |
 
 ## What is measured
 
@@ -29,9 +30,9 @@ The results are in [benchmark-results.md](benchmark-results.md), written by the 
 ## Ground truth, in tiers
 
 - **A. Synthetic, on regtest** (built). Bitcoin Core in Docker, wallets with known ownership, every transaction made by a script that knows which output is the change and which wallet owns which address. It checks that the rules do what they say and how sensitive they are, and it can make thousands of labelled decisions. **It only measures my own assumptions about how wallets behave**: the wallets are Bitcoin Core with varied settings, and the scenarios are the ones I thought of.
-- **B. Real wallet software on testnet4 or signet** (planned). Sparrow, Electrum, Core, BlueWallet and a hardware wallet, with free coins. For a wallet whose descriptor is known the derivation path gives the truth exactly (the `/1/` chain is change), so no guessing is needed and no money is spent.
-- **C. Documented public cases** (planned). Court and FBI documents that name transactions. Whether a trace reaches the documented endpoint, how many wrong branches it takes, how many requests it needs. Reported as case studies, not as statistics.
-- **D. Base rates** (planned). A few random blocks, to show how often each flag fires on ordinary traffic, with the flagged ones read by hand.
+- **B. Real wallet software on testnet4 or signet** (tool built, no data yet). Sparrow, Electrum, Core, BlueWallet and a hardware wallet, with free coins. For a wallet whose descriptor is known the derivation path gives the truth exactly (the `/1/` chain is change), so no guessing is needed and no money is spent. `tools/bench/make_wallet_case.py` turns the public descriptors into a case in the format the harness reads; what a person does with the wallets is in [benchmark-wallets.md](benchmark-wallets.md).
+- **C. Documented public cases** (one case). A public document says where money was and where it ended up. Whether a trace reaches the documented endpoint with each rule, how many wrong branches it takes, how many requests it needs. Reported as case studies, not as statistics. The walk is the workspace's own (`HoplineApi.Explorer.walk` and `HoplineAnalysis.successors`), with the network replaced by a recording of what the API said, so the result does not depend on the day; `node test/benchmark/trace.js --record` asks the API again.
+- **D. Base rates on real traffic** (done). Random pages of 25 consecutive transactions from 8 blocks spread over 2013 to 2026, fetched by `tools/bench/fetch_mainnet_sample.py`. Nobody knows who owns what, so there is no right or wrong: only how often each flag fires, what the change guess rests on, and what the flagged transactions look like. The sample is clustered (neighbours in a block are often related) and a spend is only known when the spender is in the sample.
 
 ## The synthetic scenarios (tier A)
 
@@ -52,9 +53,16 @@ Each scenario is a folder in `test/benchmark/cases/regtest-v1/` with `case.json`
 node test/benchmark/run.js                   # the committed cases, to the screen
 node test/benchmark/run.js --write-docs      # also rewrite docs/benchmark-results.md
 python tools/bench/make_regtest.py --out test/benchmark/cases/regtest-v1    # make the cases again (needs Docker, about half an hour)
+
+node test/benchmark/base-rates.js [--write-docs]                           # rates on the sample of real transactions
+python tools/bench/fetch_mainnet_sample.py --out test/benchmark/cases/mainnet-sample    # a new sample (public API, about 200 requests)
+node test/benchmark/trace.js [--write-docs]                                # the documented cases, replayed from their recordings
+node test/benchmark/trace.js --record                                      # ask the public API again and keep the answers
+
+python tools/bench/make_wallet_case.py --config wallets.json --out test/benchmark/cases/signet-v1/<name>    # real wallets: see benchmark-wallets.md
 ```
 
-`node --test` runs the same cases and fails if a measure falls below the floors in `test/benchmark/floors.json`, so a change to the rules cannot quietly make a guess worse. A floor is only moved with the result that justifies it.
+`node --test` runs the same cases and fails if a measure falls below the floors (or above the ceilings) in `test/benchmark/floors.json`, so a change to the rules cannot quietly make a guess worse. A floor is only moved with the result that justifies it. The ceilings on `mainnet-sample` are on how often a flag fires on real traffic; for the documented cases, `expect` in each `case.json` pins what each rule did, and the route of a case is checked to be a real chain of spends.
 
 ## What the first run showed (2026-10-26)
 
@@ -69,6 +77,28 @@ Six cases, 3,647 transactions, on `hopline-analysis.js` as it was that day (the 
 - **Peel chains are found step by step more than as whole chains.** A step is a peel step when the smaller output is at most half the larger, so a step that pays more than a third of the coin ends the run; 2 of the 14 whole chains were found at 80% coverage, and 71% of the steps were in a detected chain.
 
 How these were reached, so the numbers can be weighed: the generator and the evaluator were developed on a small run (the same seed, 5% of the size). After it two things were changed, both because they were wrong, not because of a result: the cluster recall counted pairs joined through a PayJoin against an oracle that leaves PayJoins out (it could exceed 100%), and the scripted peel chains drew their payments from a short list that put about a quarter of the steps past the rule's cut-off, so the chains were broken by construction. No rule in `public/js` was changed in response; the only change there is the option that switches one change signal off, which does nothing when unset. The full-size run used the same seed (20261026), so it is a report, not a test on fresh data; phase 4 starts with a new seed.
+
+## What real traffic showed (2026-10-26)
+
+4,674 transactions from 8 blocks between 2013 and 2026 ([benchmark-base-rates.md](benchmark-base-rates.md)). Nobody knows who owns what in them, so none of this says whether a guess is right.
+
+- **Both CoinJoin flags on real traffic were wrong.** The detector fired on 2 of 4,671 transactions (0.4 per 1,000). Both are from one block in 2023 and look alike: 20 inputs from 4 addresses paying 31 outputs to 5 addresses, with equal outputs of 381, 546 and 600 satoshis, and three of the addresses on both sides, so one wallet. That is a batch of dust-sized outputs (the look of inscription tooling, though the benchmark does not know), not a mix. The rule has no minimum amount for the equal outputs. A minimum is a candidate change for phase 4, to be tried on a new sample and not on this one.
+- **The sample cannot say how many real CoinJoins the detector finds.** It holds no transaction of the Whirlpool shape, and three that have 3 or more equal outputs of 10,000 satoshis or more were not flagged (a payout, or a CoinJoin; the benchmark does not know). Recall on real CoinJoins needs a list of known ones.
+- **The peel-chain shape is common.** 41% of the real transactions are one coin in and two outputs with the small at most half the large (the same share as in the synthetic cases, by coincidence of their mix). 3.6% sit in a detected chain even though only neighbours inside the sample can form one, so with a whole investigation loaded the PEEL badge will fire on ordinary traffic more often than that.
+- **The shape flags are not rare either:** CONSOL on 3.5% of the transactions and BATCH on 3.2%, the same order as the synthetic mix (7.7% and 1.8%).
+- **The change guess is made about as often as on the synthetic cases (71% against 70%) but for other reasons.** Address reuse is a reason in 46% of the real guesses and 3% of the synthetic ones; the "same wallet software" sign is nearly absent (0.2% against 29%) because it needs the spending transaction, which a sample does not have. 66% of the real guesses rest on one sign only, against 46%. By year, a guess was made on 56% to 57% of the transactions that can have change up to 2017 and on 71% to 80% from 2019. What the signs would be worth on real wallets is what phase 2 is for.
+
+## A documented case: Colonial Pipeline and DarkSide (2026-10-26)
+
+Where the 75 BTC ransom of 8 May 2021 went, as far as the seizure ([benchmark-cases.md](benchmark-cases.md) has the sources, the route and the table). What the documents say and what was read of them:
+
+- Ransomwhere (read in the shipped pack): an address of DarkSide received two payments on 8 May 2021, 75 BTC in all.
+- Elliptic (read): the affiliate's 85% (63.75 BTC) was traced to one address, 63.7 BTC of it was seized, and that address is "the same address mentioned in the seizure affidavit".
+- The US Department of Justice press release and the affidavit were **not read**. The DOJ site answers with a bot check, which I did not try to get past, and the affidavit is not on a host that serves it openly.
+
+On the chain, the route is four transactions: the payment into the DarkSide address, the 63.75 / 11.25 split, 63.7 BTC moving on, and a 24-input consolidation that pays the seized address on 28 May. Following **the largest output** reaches the end in 3 hops and 7 requests with no wrong branch. Following **every output** reaches it in 3 hops and 10 requests with 2 wrong branches, then keeps loading to its limit (80 transactions, 160 requests) because it cannot know it has arrived. **The peel-chain rule** stops at the second transaction, which has two inputs. **The likely-change rule** follows what the sender kept, which is not the payment, and ends at an unspent coin: it is a rule for following a wallet's own money.
+
+This is one case. The route was found by walking back from the endpoint, so reaching it is partly by construction; what the case shows is what each rule does along a route that is known, not how often tracing works. More cases are added by writing a `case.json` from documents someone has read and running `node test/benchmark/trace.js --record`.
 
 ## Rules the numbers follow
 
