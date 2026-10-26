@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var A = HoplineApi, AD = HoplineAddress, S = HoplineStyle, W = HoplineWallet, LB = HoplineLabels, PK = HoplinePacks, PR = HoplinePrice;
+  var A = HoplineApi, AD = HoplineAddress, S = HoplineStyle, W = HoplineWallet, LB = HoplineLabels, PK = HoplinePacks, PR = HoplinePrice, XT = HoplineExternal;
   var PREF_KEY = 'hopline.prefs.v1', PACKS_KEY = 'hopline.packs.v1', SESSION_KEY = 'hopline.workspace.v1', PAGE = 25, NL = String.fromCharCode(10);
 
   function $(id) { return document.getElementById(id); }
@@ -117,6 +117,9 @@
     lab.hidden = !k; lab.textContent = k ? k.label : ''; lab.title = k ? nameTip(k) : ''; lab.classList.toggle('sanctioned', !!(k && k.sanctions));
     $('addrNote').textContent = k && k.note ? k.note : '';
     var tg = $('addrTag'); tg.hidden = !(k && k.category); tg.textContent = k && k.category ? k.category : '';
+    var ark = $('arkLink'), arkHref = choice.source === 'tor' ? '' : XT.arkhamUrl('address', a);      // a link to Arkham's own page: not offered over Tor, where it would go outside Tor
+    ark.hidden = !arkHref;
+    if (arkHref) { ark.href = arkHref; ark.title = 'Opens Arkham in a new tab, with your own Arkham account if you are signed in there. Arkham is told which wallet you are looking at; no key or proxy is used.'; }
     drawClaims(k);
     $('head').hidden = false;
     $('toWorkspace').href = 'workspace.html?q=' + encodeURIComponent(a); $('toWorkspace').hidden = false;

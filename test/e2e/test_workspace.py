@@ -496,7 +496,8 @@ def test_unsafe_custom_url_never_becomes_a_link(page):
     open_query(page, NORMAL["txid"])
     click_node(page, NORMAL_ID)
     hrefs = page.evaluate("() => [...document.querySelectorAll('#inspBody a')].map(a => a.href)")
-    assert hrefs and all(h.startswith("https://mempool.space/") for h in hrefs), hrefs
+    explorer = [h for h in hrefs if not h.startswith("https://arkm.com/explorer/")]            # Arkham's own page has its own link, and is not an explorer of the chosen source
+    assert explorer and all(h.startswith("https://mempool.space/") for h in explorer), hrefs
     page.select_option("#source", "custom")
     click_node(page, NORMAL_ID)
     hrefs = page.evaluate("() => [...document.querySelectorAll('#inspBody a')].map(a => a.href)")

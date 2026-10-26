@@ -107,6 +107,7 @@ footer { max-width: 1180px; margin: 0 auto; padding: 0 14px 24px; color: var(--d
 #claims { margin: 6px 0 10px; }
 .claimrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; border-top: 1px solid var(--line); }
 .claimrow .hint { flex: 1 1 100%; margin: 0; }
+.extlink { font-size: 13px; font-weight: 400; margin-left: 4px; white-space: nowrap; }
 .banner.bad { border: 1px solid #ff4d4f; background: rgba(255, 77, 79, 0.12); color: #ff9a9a; padding: 6px 10px; border-radius: 6px; font-weight: 600; }
 .chip.bad { border-color: #ff4d4f; color: #ff9a9a; }
 #addrLabel.sanctioned { color: #ff9a9a; }

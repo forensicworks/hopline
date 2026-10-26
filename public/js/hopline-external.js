@@ -16,6 +16,7 @@
   'use strict';
 
   var SOURCES = { arkham: { id: 'arkham', name: 'Arkham Intelligence' } };
+  var ARKHAM_EXPLORER = 'https://arkm.com/explorer/';                                    // Arkham's own site (intel.arkm.com sends visitors there)
   var RAW_LIMIT = 4000;
 
   function text(v, max) {
@@ -120,6 +121,18 @@
       }).then(function (v) { if (timer) clearTimeout(timer); return v; }, function (e) { if (timer) clearTimeout(timer); throw e; });
   }
 
+  /**
+   * The address of Arkham's page for a wallet (kind 'address') or a Bitcoin transaction (kind 'tx'), to open in a new tab, or '' for anything else.
+   * No key and no proxy: it is a link, and the page is Arkham's (with the visitor's own Arkham account if they are signed in). Opening it tells Arkham
+   * which wallet or transaction is being looked at, so the pages offer it only when the data source is not Tor.
+   */
+  function arkhamUrl(kind, id) {
+    id = typeof id === 'string' ? id : '';
+    if (kind === 'address' && /^[A-Za-z0-9]{14,90}$/.test(id)) return ARKHAM_EXPLORER + 'address/' + id;
+    if (kind === 'tx' && /^[0-9a-fA-F]{64}$/.test(id)) return ARKHAM_EXPLORER + 'tx/' + id.toLowerCase();
+    return '';
+  }
+
   /** GET /health on the proxy: { ok, keyConfigured, upstream }. */
   function proxyHealth(opts) {
     var base = String(opts.base || '').replace(/\/+$/, '');
@@ -131,5 +144,5 @@
     }, function (e) { throw fail('proxy', 'Could not reach the proxy at ' + base + '. Is tools/arkham_proxy.py running? (' + (e && e.message ? e.message : e) + ')'); });
   }
 
-  return { SOURCES: SOURCES, parseArkham: parseArkham, tagFor: tagFor, toExt: toExt, cleanExt: cleanExt, lookupArkham: lookupArkham, proxyHealth: proxyHealth, RAW_LIMIT: RAW_LIMIT };
+  return { SOURCES: SOURCES, parseArkham: parseArkham, tagFor: tagFor, toExt: toExt, cleanExt: cleanExt, lookupArkham: lookupArkham, proxyHealth: proxyHealth, arkhamUrl: arkhamUrl, ARKHAM_EXPLORER: ARKHAM_EXPLORER, RAW_LIMIT: RAW_LIMIT };
 }));

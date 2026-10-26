@@ -108,3 +108,15 @@ test('proxyHealth reports the proxy state or why it is unreachable', async () =>
   await assert.rejects(X.proxyHealth({ fetch: fakeFetch(() => resp(401, {})), base: 'http://x', token: 'bad' }), (e) => e.kind === 'token');
   await assert.rejects(X.proxyHealth({ fetch: () => Promise.reject(new Error('refused')), base: 'http://x', token: 't' }), (e) => e.kind === 'proxy');
 });
+
+test('arkhamUrl builds a link to the Arkham page for a wallet or a Bitcoin transaction, and for nothing else', () => {
+  const tx = 'ABCDEF' + '0'.repeat(58);
+  assert.equal(X.arkhamUrl('address', 'bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h'), 'https://arkm.com/explorer/address/bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h');
+  assert.equal(X.arkhamUrl('address', '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa'), 'https://arkm.com/explorer/address/1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa');
+  assert.equal(X.arkhamUrl('tx', tx), 'https://arkm.com/explorer/tx/' + tx.toLowerCase(), 'a transaction id is written in lower case');
+  ['', 'short', 'bc1q/../x' + 'a'.repeat(20), 'javascript:alert(1)aaaaaaaaaaaa', 'a b c d e f g h i j k l m n', null, undefined, 5, {}].forEach((v) => assert.equal(X.arkhamUrl('address', v), '', String(v)));
+  ['', 'x'.repeat(64), 'a'.repeat(63), 'a'.repeat(65), 'g' + 'a'.repeat(63), null].forEach((v) => assert.equal(X.arkhamUrl('tx', v), '', String(v)));
+  assert.equal(X.arkhamUrl('block', '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa'), '');
+  assert.equal(X.arkhamUrl('address', tx), 'https://arkm.com/explorer/address/' + tx, 'a hex string is also a possible address text: only the kind decides');
+  assert.ok(X.ARKHAM_EXPLORER.startsWith('https://') && X.ARKHAM_EXPLORER.endsWith('/'));
+});

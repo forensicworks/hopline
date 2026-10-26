@@ -1993,6 +1993,16 @@
   /** A vertex id with the address part in its proper case (bech32 lower-cased). */
   function canonicalId(id) { return typeof id === 'string' && id.indexOf('addr:') === 0 ? 'addr:' + AD.normalise(id.slice(5)) : id; }
   function extLink(path, text) { return el('a', { href: explorerOrigin() + path, target: '_blank', rel: 'noopener noreferrer', text: text }); }
+  var ARKHAM_TITLE = 'Opens Arkham in a new tab, with your own Arkham account if you are signed in there. Arkham is told which one you are looking at; no key or proxy is used.';
+  /** Arkham's page for a wallet or transaction vertex, or '' (not for Tor: it would go outside Tor and tell Arkham what you are looking at). */
+  function arkhamHref(n) {
+    if (!n || state.source === 'tor') return '';
+    return n.type === 'tx' ? XT.arkhamUrl('tx', n.txid) : n.type === 'addr' ? XT.arkhamUrl('address', n.address) : '';
+  }
+  function arkhamLink(n) {
+    var href = arkhamHref(n);
+    return href ? el('a', { href: href, target: '_blank', rel: 'noopener noreferrer', title: ARKHAM_TITLE, text: 'Check in Arkham ↗' }) : null;
+  }
 
   function annotateBox(n) {
     var lab = el('input', { type: 'text', id: 'fLabel', maxlength: '120', placeholder: 'Your label (shown on the graph)' });
@@ -2227,6 +2237,8 @@
     if (n.type === 'tx' || n.type === 'addr') {
       var link = el('a', { href: explorerOrigin() + (n.type === 'tx' ? '/tx/' + n.txid : '/address/' + n.address), target: '_blank', rel: 'noopener noreferrer', role: 'menuitem', onclick: function () { closeCtx(); } }, [el('span', { text: 'Open in explorer' }), el('span', { 'class': 'hint', text: '↗' })]);
       m.appendChild(link);
+      var arkHref = arkhamHref(n);
+      if (arkHref) m.appendChild(el('a', { href: arkHref, target: '_blank', rel: 'noopener noreferrer', role: 'menuitem', title: ARKHAM_TITLE, onclick: function () { closeCtx(); } }, [el('span', { text: 'Check in Arkham' }), el('span', { 'class': 'hint', text: '↗' })]));
     }
     m.appendChild(el('div', { 'class': 'sep' }));
     if (traceOn()) {
@@ -2732,7 +2744,7 @@
         el('button', { type: 'button', text: '↔ Both', onclick: function () { expandNode(n.id, 'both'); } })
       ]));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
-        el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])
+        el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), arkhamLink(n), hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])
       ]));
       box.appendChild(autoButtons(n));
       (txAnalysisSection(n) || []).forEach(function (s) { box.appendChild(s); });
@@ -2771,7 +2783,7 @@
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), balButton]));
       var ta2 = traceActions(n); if (ta2) box.appendChild(ta2);
       var acts = [el('button', { type: 'button', text: n.histNext ? 'Load more history' : 'Load history', disabled: n.histDone ? 'disabled' : null, onclick: function () { expandNode(n.id); } }),
-                  el('button', { type: 'button', text: 'Copy address', onclick: function () { copy(n.address); } }), extLink('/address/' + n.address, 'Open in explorer ↗'),
+                  el('button', { type: 'button', text: 'Copy address', onclick: function () { copy(n.address); } }), extLink('/address/' + n.address, 'Open in explorer ↗'), arkhamLink(n),
                   el('a', { href: 'wallet.html?q=' + encodeURIComponent(n.address), target: '_blank', rel: 'noopener', title: 'This wallet as a ledger: every transaction with its inputs and outputs', text: 'Wallet overview ↗' }), hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])];
       box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
       box.appendChild(autoButtons(n));
