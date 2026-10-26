@@ -5,8 +5,8 @@ Written by `node test/benchmark/run.js --write-docs`; the method is in [benchmar
 |  |  |
 | --- | --- |
 | Date | 2026-10-26 |
-| Commit | eaab894 |
-| `hopline-analysis.js` SHA-256 | `b76f4c6882830398` |
+| Commit | 8326ec1 plus uncommitted changes in public/js |
+| `hopline-analysis.js` SHA-256 | `d14f004b301157c2` |
 | Node | v24.19.0 |
 | Cases | batch-consolidation, coinjoins, payjoin, payments, peel-chains, sweeps |
 
@@ -118,7 +118,7 @@ The same transactions with one signal switched off. A signal that matters lowers
 
 ## The CoinJoin detector
 
-A transaction is flagged when at least 3 input addresses and at least 3 outputs of exactly the same value are present (and the equal outputs are at least half the outputs, or at least 5).
+A transaction is flagged when at least 3 input addresses and at least 3 outputs of exactly the same value to different addresses are present (and the equal outputs are at least half the outputs, or at least 5).
 
 | Case | Found of those that are one | Right when flagged | Flagged of those that are not | Flagged wrongly, by what it was |
 | --- | --- | --- | --- | --- |

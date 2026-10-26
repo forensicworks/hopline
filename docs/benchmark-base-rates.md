@@ -5,8 +5,8 @@ Written by `node test/benchmark/base-rates.js --write-docs`; the method is in [b
 |  |  |
 | --- | --- |
 | Date | 2026-10-26 |
-| Commit | eaab894 |
-| `hopline-analysis.js` SHA-256 | `b76f4c6882830398` |
+| Commit | 8326ec1 plus uncommitted changes in public/js |
+| `hopline-analysis.js` SHA-256 | `d14f004b301157c2` |
 | Sample | mn_full2: 4671 transactions (the coinbase of a block left out), 8 blocks |
 | Chosen by | tools/bench/fetch_mainnet_sample.py, seed 20261027 |
 
@@ -40,7 +40,7 @@ Share of the sample by the number of inputs (down) and outputs (across). The syn
 
 | Flag | Real traffic | Per 1,000 transactions | The synthetic cases |
 | --- | --- | --- | --- |
-| COINJOIN? | 0.0% (0.0% to 0.2%), 2 of 4671 | 0.4 | 3.7% (3.1% to 4.4%), 135 of 3647 |
+| COINJOIN? | 0.0% (0.0% to 0.1%), 0 of 4671 | 0.0 | 3.7% (3.1% to 4.4%), 135 of 3647 |
 | CONSOL | 3.5% (3.0% to 4.1%), 163 of 4671 | 34.9 | 7.7% (6.9% to 8.6%), 280 of 3647 |
 | BATCH | 3.2% (2.7% to 3.7%), 148 of 4671 | 31.7 | 1.8% (1.4% to 2.3%), 65 of 3647 |
 | A single peel step (one input, two outputs, the small one at most half the large one) | 40.8% (39.4% to 42.2%), 1905 of 4671 | 407.8 | 40.9% (39.3% to 42.5%), 1492 of 3647 |
@@ -57,7 +57,7 @@ The synthetic column is the six synthetic cases together (3647 transactions); th
 | 2017 | 749 | 0.0% (0.0% to 0.5%), 0 of 749 | 4.3% (3.0% to 6.0%), 32 of 749 | 2.3% (1.4% to 3.6%), 17 of 749 | 56.1% (52.3% to 59.8%), 375 of 669 |
 | 2019 | 750 | 0.0% (0.0% to 0.5%), 0 of 750 | 1.6% (0.9% to 2.8%), 12 of 750 | 1.3% (0.7% to 2.4%), 10 of 750 | 79.9% (76.1% to 83.3%), 378 of 473 |
 | 2021 | 750 | 0.0% (0.0% to 0.5%), 0 of 750 | 3.3% (2.3% to 4.9%), 25 of 750 | 5.3% (3.9% to 7.2%), 40 of 750 | 76.3% (72.7% to 79.6%), 439 of 575 |
-| 2023 | 741 | 0.3% (0.1% to 1.0%), 2 of 741 | 7.7% (6.0% to 9.8%), 57 of 741 | 3.4% (2.3% to 4.9%), 25 of 741 | 72.9% (68.9% to 76.7%), 364 of 499 |
+| 2023 | 741 | 0.0% (0.0% to 0.5%), 0 of 741 | 7.7% (6.0% to 9.8%), 57 of 741 | 3.4% (2.3% to 4.9%), 25 of 741 | 72.9% (68.9% to 76.7%), 364 of 499 |
 | 2025 | 750 | 0.0% (0.0% to 0.5%), 0 of 750 | 2.4% (1.5% to 3.8%), 18 of 750 | 2.9% (1.9% to 4.4%), 22 of 750 | 77.2% (73.4% to 80.6%), 403 of 522 |
 | 2026 | 750 | 0.0% (0.0% to 0.5%), 0 of 750 | 1.6% (0.9% to 2.8%), 12 of 750 | 4.4% (3.1% to 6.1%), 33 of 750 | 71.0% (67.2% to 74.6%), 402 of 566 |
 
@@ -87,18 +87,9 @@ On transactions with two or more payment outputs (the ones that can have a chang
 
 ## What the COINJOIN? flags look like
 
-The 2 transactions flagged, by shape. The shape is read from the transaction alone (a Whirlpool pool has 5 inputs and 5 outputs of exactly 0.001, 0.01, 0.05 or 0.5 BTC); it is a way to look at them, not a verdict.
+None was flagged.
 
-| Shape | Flagged |
-| --- | --- |
-| equal outputs of dust size (under 1000 satoshis: no mix pays out an amount like that) | 2 |
 
-The flagged transactions (to open in Hopline or any explorer):
-
-| Transaction | Year | Inputs | Outputs | Shape |
-| --- | --- | --- | --- | --- |
-| `5021499526bd8c131df8138f586c333a4f9a0f04250c73ec4ddc44a9975f18ba` | 2023 | 20 | 31 | equal outputs of dust size (under 1000 satoshis: no mix pays out an amount like that) |
-| `9aeb98ca91f5ff8732904b7f0a73b01e59f2f7a0180395df4d7bfa1bff9a1cc8` | 2023 | 20 | 31 | equal outputs of dust size (under 1000 satoshis: no mix pays out an amount like that) |
 
 **What the detector did not flag.** In the sample, 0 transactions have the Whirlpool shape (0 flagged). So few CoinJoins are in a sample like this that it cannot say how many real ones the detector finds: that is measured on the synthetic cases, and on real CoinJoins only with a list of known ones.
 

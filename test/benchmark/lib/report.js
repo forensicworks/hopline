@@ -94,7 +94,7 @@ function toMarkdown(results, meta) {
     table(['Case', 'Transactions', 'Wallets', 'Addresses', 'What the transactions were made to be', 'Made by'],
           results.map((r, i) => [r.name, String(r.transactions), String(r.wallets), String(r.addresses), Object.keys(r.kinds).sort().map((k) => k + ' ' + r.kinds[k]).join(', '), meta.cases[i].madeBy || ''])), ''];
   return head.concat([changeSection(results),
-    flagSection(results, 'coinjoin', 'The CoinJoin detector', 'A transaction is flagged when at least 3 input addresses and at least 3 outputs of exactly the same value are present (and the equal outputs are at least half the outputs, or at least 5).'),
+    flagSection(results, 'coinjoin', 'The CoinJoin detector', 'A transaction is flagged when at least 3 input addresses and at least 3 outputs of exactly the same value to different addresses are present (and the equal outputs are at least half the outputs, or at least 5).'),
     flagSection(results, 'consolidation', 'The consolidation flag', 'Flagged at 5 or more inputs going to 1 or 2 outputs. A sweep of deposit addresses counts as a consolidation here.'),
     flagSection(results, 'batch', 'The batch flag', 'Flagged at 6 or more outputs from 3 or fewer inputs.'),
     clusterSection(results), peelSection(results)].filter(Boolean)).join('\n') + '\n';

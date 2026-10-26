@@ -167,24 +167,25 @@ test('the committed cases are measured above the floors in floors.json', { skip:
 });
 
 // ---- rates on real traffic (tier D): nothing is known to be right, so what is checked is the counting ---------------------------------
-test('base rates: a CoinJoin, a dust batch, a look-alike that is not flagged, and an ordinary payment are each counted as what they are', () => {
+test('base rates: a CoinJoin, dust-sized equal outputs to different addresses, the same payments to one address, a look-alike that is not flagged, and an ordinary payment are each counted as what they are', () => {
   const H = mini.hex, A = mini.addr;
   const ins = (n, from) => Array.from({ length: n }, (_, i) => ({ txid: H(from + i), vout: 0, address: A('in' + from + '_' + i), value: 2000000 }));
   const outs = (n, value, name) => Array.from({ length: n }, (_, i) => ({ address: A(name + i), value }));
   const txs = [
     mini.tx(1, ins(3, 100), outs(5, 1000000, 'cj')),                                                   // 3 inputs, 5 outputs of 0.01 BTC: a CoinJoin
-    mini.tx(2, ins(4, 110), outs(10, 600, 'dust').concat(outs(2, 70000, 'rest'))),                     // 4 input addresses, ten outputs of 600 satoshis: a dust batch
+    mini.tx(2, ins(4, 110), outs(10, 600, 'dust').concat(outs(2, 70000, 'rest'))),                     // 4 input addresses, ten outputs of 600 satoshis to ten addresses: flagged (there is no minimum amount), and its shape says dust size
     mini.tx(3, ins(3, 120), outs(3, 50000, 'eq').concat([0, 1, 2, 3, 4].map((i) => ({ address: A('odd' + i), value: 1234567 + i * 1111 })))),     // 3 equal outputs among 8: looks like one, is not flagged
-    mini.tx(4, ins(1, 130), [{ address: A('shop'), value: 30000 }, { address: A('back'), value: 1960000 }])                           // an ordinary payment: one input, two outputs, a small one and a large one
+    mini.tx(4, ins(1, 130), [{ address: A('shop'), value: 30000 }, { address: A('back'), value: 1960000 }]),                          // an ordinary payment: one input, two outputs, a small one and a large one
+    mini.tx(5, ins(4, 140), Array.from({ length: 10 }, () => ({ address: A('same'), value: 600 })).concat(outs(2, 70000, 'more')))     // the same ten payments to ONE address (what two real transactions on the chain did): one recipient, not a mix
   ];
   const r = base.measure(txs);
-  assert.equal(r.transactions, 4);
-  assert.equal(r.flags.coinjoin, 2, 'the CoinJoin and the dust batch are flagged');
+  assert.equal(r.transactions, 5);
+  assert.equal(r.flags.coinjoin, 2, 'the CoinJoin and the dust batch to different addresses are flagged, the payments to one address are not');
   assert.deepEqual(r.joinClasses, { 'every output the same amount (not a pool size)': 1, 'equal outputs of dust size (under 1000 satoshis: no mix pays out an amount like that)': 1 });
   assert.equal(r.lookalikes.length, 1); assert.equal(r.lookalikes[0].txid, H(3)); assert.equal(r.lookalikes[0].equal, 3); assert.equal(r.lookalikes[0].value, 50000);
   assert.equal(r.peelSteps, 1, 'only the ordinary payment is one coin in and a small and a large output out');
-  assert.deepEqual(Object.keys(r.byYear), ['2023']); assert.equal(r.byYear[2023].transactions, 4);
-  assert.equal(r.shape['1|2'], 1); assert.equal(r.shape['2 to 4|3 to 5'], 1); assert.equal(r.shape['2 to 4|6 or more'], 2, 'the dust batch and the look-alike');
+  assert.deepEqual(Object.keys(r.byYear), ['2023']); assert.equal(r.byYear[2023].transactions, 5);
+  assert.equal(r.shape['1|2'], 1); assert.equal(r.shape['2 to 4|3 to 5'], 1); assert.equal(r.shape['2 to 4|6 or more'], 3, 'the dust batch, the look-alike and the payments to one address');
 });
 
 test('base rates: the Whirlpool shape is five inputs and five outputs of exactly one pool size, and is counted whether or not it is flagged', () => {
@@ -296,4 +297,21 @@ test('the committed real sample says what it is, and every transaction in it can
   });
   const years = new Set(s.txs.map((t) => new Date(t.status.block_time * 1000).getUTCFullYear()));
   assert.ok(years.size >= 6, 'spread over the years: ' + Array.from(years).join(', '));
+});
+
+test('compare: what one version flags and another does not is listed as dropped, added or kept, and a version compared with itself differs in nothing', () => {
+  const H = mini.hex, A = mini.addr, AN = require('../public/js/hopline-analysis.js');
+  const ins = (n, from) => Array.from({ length: n }, (_, i) => ({ txid: H(from + i), vout: 0, address: A('in' + from + '_' + i), value: 2000000 }));
+  const txs = [
+    mini.tx(1, ins(3, 100), Array.from({ length: 5 }, (_, i) => ({ address: A('cj' + i), value: 1000000 }))),                         // equal outputs to five addresses: a CoinJoin shape
+    mini.tx(2, ins(4, 110), Array.from({ length: 6 }, () => ({ address: A('same'), value: 600 }))),                                   // six outputs of one amount to ONE address
+    mini.tx(3, ins(1, 120), [{ address: A('shop'), value: 30000 }, { address: A('back'), value: 1960000 }])
+  ];
+  const same = base.compareFlags(txs, AN, AN, 'coinjoin');
+  assert.deepEqual([same.before, same.after, same.dropped.length, same.added.length], [1, 1, 0, 0]);
+  const flagsAll = { analyse: () => ({ tx: new Map(txs.map((t) => ['tx:' + t.txid, { flags: [{ kind: 'coinjoin' }] }])) }) };            // an earlier version that flagged every transaction
+  const r = base.compareFlags(txs, flagsAll, AN, 'coinjoin');
+  assert.equal(r.before, 3); assert.deepEqual(r.kept, [H(1)]); assert.deepEqual(r.dropped.sort(), [H(2), H(3)].sort()); assert.deepEqual(r.added, []);
+  const d = base.describe(txs[1]);
+  assert.equal(d.outputs, 6); assert.equal(d.outputAddresses, 1); assert.equal(d.equalRecipients, 1, 'six outputs, one recipient'); assert.equal(d.inputAddresses, 4);
 });

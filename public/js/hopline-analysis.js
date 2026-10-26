@@ -22,7 +22,7 @@
   var DEFAULTS = {
     consolidation: { minIn: 5, maxOut: 2 },             // many inputs gathered into one or two outputs
     batch: { minOut: 6, maxIn: 3 },                     // a few inputs paying many outputs
-    coinjoin: { minIn: 3, minEqual: 3 },                // several owners' inputs, several outputs of exactly the same value
+    coinjoin: { minIn: 3, minEqual: 3 },                // several owners' inputs, several outputs of exactly the same value to different addresses
     peel: { maxRatio: 0.5, minLength: 4 }               // one input, two outputs, the small one at most half the large; this many in a row
   };
 
@@ -72,10 +72,18 @@
     return out;
   }
   function trailingZeros(v) { var k = 0; while (v > 0 && v % 10 === 0) { v /= 10; k++; } return k; }
-  /** The most outputs sharing one exact value, and that value. */
+  /**
+   * The most different recipients sharing one exact value, and that value. Outputs that pay the same address again count once: the equal
+   * outputs of a CoinJoin go to different people, while a wallet paying one address in many small outputs is one recipient.
+   */
   function mostEqual(outs) {
-    var count = new Map(), best = 0, val = null;
-    outs.forEach(function (o) { var c = (count.get(o.amount) || 0) + 1; count.set(o.amount, c); if (c > best) { best = c; val = o.amount; } });
+    var by = new Map(), best = 0, val = null;
+    outs.forEach(function (o) {
+      var set = by.get(o.amount);
+      if (!set) { set = new Set(); by.set(o.amount, set); }
+      set.add(o.address || ('output ' + o.vout));
+      if (set.size > best) { best = set.size; val = o.amount; }
+    });
     return { count: best, amount: val };
   }
 

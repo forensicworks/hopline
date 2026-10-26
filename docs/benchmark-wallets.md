@@ -6,7 +6,8 @@ The tool is `tools/bench/make_wallet_case.py`. What is built and tested: reading
 
 ## What you need
 
-* A test network: **signet** is the easier one (a stable chain with faucets that give coins on request); testnet4 works too. Both have an Esplora API on mempool.space, which is what the tool reads. Nothing here touches mainnet.
+* A test network. **Testnet4** is the easier one with Sparrow: from version 1.9.1 it is built in (*Tools > Restart In Testnet4*, with a public server run by mempool). **Signet** is a more stable chain, but a wallet needs an Electrum server for it. Both have an Esplora API on mempool.space, which is what the tool reads (`"network": "testnet4"` or `"signet"` in the config). Nothing here touches mainnet.
+* Coins from a **faucet**. Faucets come and go and most are rate-limited (a captcha, or an account): search for a current one and check its date; none was verified when this was written. Get coins once into one wallet and pass them on to the others. Testnet4 can be reset to a new genesis block: make the case soon after the transactions, because the case folder keeps the data and a reset takes the chain away.
 * The wallets to measure, each with a **fresh wallet** (a new seed made for this, never one that holds or has held real bitcoin): Sparrow, Electrum, Bitcoin Core, a hardware wallet through Sparrow, Blockstream Green, BlueWallet, whatever people use. One wallet per software is enough; two in different address types is better.
 * Docker (the tool derives addresses with Bitcoin Core in a container, so no address encoding is written twice) and Python 3.
 * An hour or two.
@@ -28,8 +29,8 @@ Write `wallets.json` with the **public** descriptor of each wallet (an `xpub` or
 
 ```json
 {
-  "name": "signet-1",
-  "network": "signet",
+  "name": "testnet4-1",
+  "network": "testnet4",
   "wallets": {
     "sparrow":  { "software": "Sparrow 2.1",  "descriptor": "wpkh([a1b2c3d4/84h/1h/0h]tpub.../<0;1>/*)" },
     "electrum": { "software": "Electrum 4.5", "receive": "wpkh(tpub.../0/*)", "change": "wpkh(tpub.../1/*)" }
@@ -41,8 +42,8 @@ Write `wallets.json` with the **public** descriptor of each wallet (an `xpub` or
 If a wallet shows only a `vpub`, `zpub` or `ypub`, convert it to a `tpub` first (any BIP 32 converter will do; the key is public) and put it in the descriptor of its address type: `wpkh(...)` for native segwit, `sh(wpkh(...))` for nested segwit, `pkh(...)` for legacy, `tr(...)` for taproot.
 
 ```
-python tools/bench/make_wallet_case.py --config wallets.json --out test/benchmark/cases/signet-v1/<name>
-node test/benchmark/run.js --cases test/benchmark/cases/signet-v1
+python tools/bench/make_wallet_case.py --config wallets.json --out test/benchmark/cases/wallets-v1/<name>
+node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1
 ```
 
 The tool walks each chain until 20 addresses in a row have no history, reads their transactions, and writes `txs.json.gz`, `truth.json` and `case.json` (with a hash of the descriptors, not the descriptors). It makes about 2 requests per address, paced for a public API.

@@ -5,8 +5,8 @@ Written by `node test/benchmark/trace.js --write-docs`; the method is in [benchm
 |  |  |
 | --- | --- |
 | Date | 2026-10-26 |
-| Commit | eaab894 |
-| `hopline-analysis.js` SHA-256 | `b76f4c6882830398` |
+| Commit | 8326ec1 plus uncommitted changes in public/js |
+| `hopline-analysis.js` SHA-256 | `d14f004b301157c2` |
 | Cases | colonial-darkside |
 
 ## The Colonial Pipeline ransom to DarkSide, May 2021, as far as the seizure

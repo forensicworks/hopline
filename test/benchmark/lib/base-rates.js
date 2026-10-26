@@ -26,9 +26,7 @@ function graphOf(txs) { const g = new Graph(); txs.forEach((t) => g.addTx(t)); r
 
 /** What a CoinJoin-like transaction looks like, by its shape alone: a reader can check a class by eye, and none of it is a verdict. */
 function joinClass(t) {
-  const count = {};
-  t.vout.forEach((o) => { count[o.value] = (count[o.value] || 0) + 1; });
-  const top = Object.keys(count).sort((a, b) => count[b] - count[a] || a - b)[0], same = count[top], outs = t.vout.length, ins = t.vin.length;
+  const e = equalOutputs(t), top = e.value, same = e.count, outs = t.vout.length, ins = t.vin.length;
   if (+top < DUST) return 'equal outputs of dust size (under ' + DUST + ' satoshis: no mix pays out an amount like that)';
   if (ins === 5 && outs === 5 && same === 5 && WHIRLPOOL_POOLS.indexOf(+top) >= 0) return 'Whirlpool-shaped: 5 inputs, 5 outputs of one pool size';
   if (same === outs) return 'every output the same amount (not a pool size)';
@@ -36,11 +34,12 @@ function joinClass(t) {
   return 'equal outputs among many others';
 }
 
+/** The amount most recipients were paid and how many different addresses were paid it, as the detector counts (outputs that pay one address again count once). */
 function equalOutputs(t) {
-  const count = {};
-  t.vout.forEach((o) => { count[o.value] = (count[o.value] || 0) + 1; });
-  const top = Object.keys(count).sort((a, b) => count[b] - count[a] || a - b)[0];
-  return { value: +top, count: count[top] };
+  const by = {};
+  t.vout.forEach((o, i) => { (by[o.value] = by[o.value] || new Set()).add(o.scriptpubkey_address || ('output ' + i)); });
+  const top = Object.keys(by).sort((a, b) => by[b].size - by[a].size || a - b)[0];
+  return { value: +top, count: by[top].size };
 }
 
 const year = (t) => (t.status && t.status.block_time ? new Date(t.status.block_time * 1000).getUTCFullYear() : 'unknown');
@@ -76,6 +75,24 @@ function measure(txs) {
     }
   });
   return r;
+}
+
+/** What the detector sees in a transaction's equal outputs, and the sizes around it, for a reader looking at one flagged or dropped transaction. */
+function describe(t) {
+  const e = equalOutputs(t), distinct = (list) => new Set(list).size;
+  return { txid: t.txid, year: year(t), inputs: t.vin.length, inputAddresses: distinct(t.vin.map((v) => v.prevout && v.prevout.scriptpubkey_address)), outputs: t.vout.length,
+           outputAddresses: distinct(t.vout.map((o) => o.scriptpubkey_address)), equalAmount: e.value, equalRecipients: e.count, shape: joinClass(t) };
+}
+
+/** The transactions one version of the analysis flags as `kind` and another does not: for judging a change to a rule on a sample it was not made on. */
+function compareFlags(txs, before, after, kind) {
+  const g = graphOf(txs), flagged = (AN2) => {
+    const an = AN2.analyse(g, {}), s = new Set();
+    txs.forEach((t) => { const r = an.tx.get('tx:' + t.txid); if (r && r.flags.some((f) => f.kind === kind)) s.add(t.txid); });
+    return s;
+  };
+  const a = flagged(before), b = flagged(after);
+  return { transactions: txs.length, before: a.size, after: b.size, dropped: Array.from(a).filter((x) => !b.has(x)), added: Array.from(b).filter((x) => !a.has(x)), kept: Array.from(b).filter((x) => a.has(x)) };
 }
 
 /** The rates of a measure() as plain shares, so that a ceiling in floors.json can be set on any of them. */
@@ -143,4 +160,4 @@ function toMarkdown(sample, real, synthetic, meta) {
   return out.join('\n') + '\n';
 }
 
-module.exports = { loadSample, graphOf, measure, rates, joinClass, equalOutputs, toMarkdown, WHIRLPOOL_POOLS, DUST };
+module.exports = { loadSample, graphOf, measure, rates, joinClass, equalOutputs, describe, compareFlags, toMarkdown, WHIRLPOOL_POOLS, DUST };

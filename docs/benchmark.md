@@ -15,7 +15,7 @@ The results are written by the runners: [benchmark-results.md](benchmark-results
 | D | How often each flag fires on a sample of the real chain, with the flagged ones read by hand | done: 4,674 transactions from 8 blocks, 2013 to 2026 |
 | 2 | Real wallet software on signet or testnet4, truth from the wallets' own change chain | **tool built and tested; no data yet**: it needs a person with real wallets and faucet coins, see [benchmark-wallets.md](benchmark-wallets.md) |
 | 3 | Documented public cases (court and FBI documents) as case studies | one case done (Colonial Pipeline and DarkSide); the court documents themselves could not be read, see below |
-| 4 | Recalibrating the confidence tiers on what the results show, and a page for readers | not started; the wiki has a first Accuracy page |
+| 4 | Recalibrating on what the results show, one change at a time, each judged on a sample it was not made on, and a page for readers | one change made and tested on a holdout (below); the confidence tiers and the PEEL badge are not started; the wiki has a first Accuracy page |
 
 ## What is measured
 
@@ -59,7 +59,7 @@ python tools/bench/fetch_mainnet_sample.py --out test/benchmark/cases/mainnet-sa
 node test/benchmark/trace.js [--write-docs]                                # the documented cases, replayed from their recordings
 node test/benchmark/trace.js --record                                      # ask the public API again and keep the answers
 
-python tools/bench/make_wallet_case.py --config wallets.json --out test/benchmark/cases/signet-v1/<name>    # real wallets: see benchmark-wallets.md
+python tools/bench/make_wallet_case.py --config wallets.json --out test/benchmark/cases/wallets-v1/<name>    # real wallets: see benchmark-wallets.md
 ```
 
 `node --test` runs the same cases and fails if a measure falls below the floors (or above the ceilings) in `test/benchmark/floors.json`, so a change to the rules cannot quietly make a guess worse. A floor is only moved with the result that justifies it. The ceilings on `mainnet-sample` are on how often a flag fires on real traffic; for the documented cases, `expect` in each `case.json` pins what each rule did, and the route of a case is checked to be a real chain of spends.
@@ -82,7 +82,7 @@ How these were reached, so the numbers can be weighed: the generator and the eva
 
 4,674 transactions from 8 blocks between 2013 and 2026 ([benchmark-base-rates.md](benchmark-base-rates.md)). Nobody knows who owns what in them, so none of this says whether a guess is right.
 
-- **Both CoinJoin flags on real traffic were wrong.** The detector fired on 2 of 4,671 transactions (0.4 per 1,000). Both are from one block in 2023 and look alike: 20 inputs from 4 addresses paying 31 outputs to 5 addresses, with equal outputs of 381, 546 and 600 satoshis, and three of the addresses on both sides, so one wallet. That is a batch of dust-sized outputs (the look of inscription tooling, though the benchmark does not know), not a mix. The rule has no minimum amount for the equal outputs. A minimum is a candidate change for phase 4, to be tried on a new sample and not on this one.
+- **Both CoinJoin flags on real traffic were wrong.** The detector fired on 2 of 4,671 transactions (0.4 per 1,000). Both are from one block in 2023 and look alike: 20 inputs from 4 addresses paying 31 outputs to 5 addresses, with equal outputs of 381, 546 and 600 satoshis, and three of the addresses on both sides, so one wallet. That is a batch of dust-sized outputs (the look of inscription tooling, though the benchmark does not know), not a mix. Every equal amount in both went to **one** address, which is what the first change in phase 4 (below) is about.
 - **The sample cannot say how many real CoinJoins the detector finds.** It holds no transaction of the Whirlpool shape, and three that have 3 or more equal outputs of 10,000 satoshis or more were not flagged (a payout, or a CoinJoin; the benchmark does not know). Recall on real CoinJoins needs a list of known ones.
 - **The peel-chain shape is common.** 41% of the real transactions are one coin in and two outputs with the small at most half the large (the same share as in the synthetic cases, by coincidence of their mix). 3.6% sit in a detected chain even though only neighbours inside the sample can form one, so with a whole investigation loaded the PEEL badge will fire on ordinary traffic more often than that.
 - **The shape flags are not rare either:** CONSOL on 3.5% of the transactions and BATCH on 3.2%, the same order as the synthetic mix (7.7% and 1.8%).
@@ -100,11 +100,35 @@ On the chain, the route is four transactions: the payment into the DarkSide addr
 
 This is one case. The route was found by walking back from the endpoint, so reaching it is partly by construction; what the case shows is what each rule does along a route that is known, not how often tracing works. More cases are added by writing a `case.json` from documents someone has read and running `node test/benchmark/trace.js --record`.
 
+## Phase 4, first change: count recipients, not outputs (2026-10-26)
+
+**What the real sample showed.** The two COINJOIN? flags on the first real sample paid every equal amount to **one address** (ten outputs of 600 satoshis to one address, six of 546 to another, five of 35,769 to a third): one wallet paying itself in many pieces. A CoinJoin pays each participant a different address.
+
+**The change.** The equal outputs of a CoinJoin are counted by the number of **different addresses** they pay, not by the number of outputs (`mostEqual` in `hopline-analysis.js`). A minimum amount for the equal outputs, which was the first idea, would not have been enough: five outputs of 35,769 satoshis to one address would still have counted. Nothing else about the rule changed (3 input addresses, 3 equal outputs, and at least 5 of them or half of all the outputs).
+
+**What it did to the data it was made on.** On the synthetic cases nothing changed: every CoinJoin and every exchange payout of equal amounts pays different addresses, so the CoinJoin detector, the clusters and every other number in [benchmark-results.md](benchmark-results.md) are the same to the digit. On the first real sample the two flags went (2 of 4,671 to 0 of 4,671).
+
+**Judged on a sample it was not made on.** A new sample of the real chain, seed 20261101: 10,723 transactions from 8 blocks (2013 to 2026) that were not in the first. It was fetched before the change was made and not looked at until the change was finished. `node test/benchmark/compare.js --rev <earlier commit> --sample <folder>` lists what an earlier version flagged that today's does not.
+
+| | Flagged as COINJOIN? |
+|---|---|
+| The rule before the change | 12 of 10,723 |
+| The rule after it | 10 of 10,723 |
+| Dropped by the change | 2 |
+| Added by the change | 0 |
+
+* **The two dropped** both pay their equal outputs to one address: a 2019 transaction with 36 inputs and 7 outputs of 4,900,000 satoshis to a single address, and a 2025 batch of 5 dust outputs of 600 satoshis to a single address (15 inputs from 5 addresses). Neither pays several recipients.
+* **The ten kept** all look like what the rule is for, by their shape: three have the Whirlpool shape (5 inputs, 5 outputs of 0.05 BTC to five addresses), four are identical 8-input, 8-output transactions of 0.01 BTC to eight addresses, and three are larger mixes with 5 to 21 equal outputs among 20 to 296. So all three Whirlpool-shaped transactions in the sample were found; that is the first evidence on real transactions that the detector finds a shape it should, from three transactions.
+* **Not flagged, with 3 or more equal outputs of 10,000 satoshis or more to different addresses** (3 transactions, from 2015 and 2017): 3 or 4 equal outputs among 10 to 21, with 24, 3 and 3 inputs. They look like ordinary batch payouts, and the rule does not flag them by design (fewer than 5 equal and fewer than half of the outputs).
+* What this does **not** show: how many real CoinJoins the detector misses (the sample is not labelled; a list of known CoinJoins is needed), and whether the ten kept are CoinJoins (their shape says so, nothing else does).
+
+**The PEEL badge, looked at but not changed.** Peel chains need linked transactions, which a sample only has when they are close together, and there is no truth for them on real traffic. What is known: with the minimum length of 4, 3.6% of the real transactions sit in a detected chain, and 2.0% in one of 10 or more; on the synthetic cases a longer minimum finds fewer real chains (steps of real chains in a detected chain: 75% at 3, 71% at 4, 63% at 5, 58% at 6, 52% at 8) and fewer chains that were not made as one (15.5, 6.3, 2.1, 1.2 and 0.3 per 1,000 other transactions). Read by hand, the seven chains of 8 or more steps in the first real sample are all inside one block (they look like sequential payouts that spend each other's change), and two of them peel exactly 546 satoshis next to an OP_RETURN output, which looks like token-protocol transfers and not money. That is a second family of false positives for a later change, on its own holdout; the minimum length is a choice between those two columns that the benchmark can show but not make.
+
 ## Rules the numbers follow
 
 - **Precision first.** A wrong guess sends an investigator down the wrong chain, so precision matters more than coverage, and both are reported.
 - **Intervals.** Every proportion has a Wilson 95% interval. About 1,000 labelled decisions in a tier gives a width of about 3 points.
-- **No tuning on what is reported.** Rules are developed on one set of scenarios and reported on a different one; the generator takes a seed, and a seed used for tuning is not used for reporting.
+- **No tuning on what is reported.** Rules are developed on one set of scenarios and reported on a different one; the generator takes a seed, and a seed used for tuning is not used for reporting. Seeds so far: 20261026 (the synthetic cases, made while the harness was developed), 20261027 (the first sample of the real chain, which the change below was made on) and 20261101 (the first holdout, reported once).
 - **Failures are listed.** The results include the wrong "high" guesses, with their reasons.
 - **No client data, ever.** Cases are synthetic, made from our own wallets, or public documents.
 

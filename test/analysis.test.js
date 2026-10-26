@@ -84,6 +84,23 @@ test('coinjoin-like: several owners and several outputs of one exact value; a pl
   assert.deepEqual(An.classify(An.txView(g, airdrop)).map((x) => x.kind), ['batch']);
 });
 
+test('coinjoin-like: equal outputs that pay the same address again are one recipient, not a mix (a batch of dust-sized outputs seen on the chain)', () => {
+  const g = new Graph();
+  // 20 inputs from 4 addresses paying 31 outputs to 5 addresses: ten of 600 satoshis, six of 546 and five of 35769 each went to one address
+  const ins = Array.from({ length: 20 }, (_, i) => IN(60 + i, 0, a('own' + (i % 4)), 40000));
+  const outs = [...Array.from({ length: 10 }, () => OUT(a('own0'), 600)), ...Array.from({ length: 6 }, () => OUT(a('own1'), 546)), ...Array.from({ length: 5 }, () => OUT(a('own2'), 35769)),
+                ...Array.from({ length: 10 }, (_, i) => OUT(a('rest' + (i % 2)), 1000 + i * 17))];
+  const batch = add(g, 1, ins, outs), v = An.txView(g, batch);
+  assert.equal(An.coinjoinLike(v), null, 'many outputs of one amount to one address are not several recipients');
+  assert.ok(!An.classify(v).some((x) => x.kind === 'coinjoin'));
+  // the same amounts to different addresses are what a CoinJoin looks like
+  const mixed = add(g, 2, Array.from({ length: 5 }, (_, i) => IN(80 + i, 0, a('p' + i), 1100000)), Array.from({ length: 5 }, (_, i) => OUT(a('q' + i), 1000000)));
+  assert.equal(An.coinjoinLike(An.txView(g, mixed)).equal, 5);
+  // a CoinJoin that also pays some of its equal outputs to one address counts the recipients, not the outputs
+  const odd = add(g, 3, Array.from({ length: 4 }, (_, i) => IN(90 + i, 0, a('s' + i), 1100000)), [OUT(a('t0'), 1000000), OUT(a('t1'), 1000000), OUT(a('t1'), 1000000), OUT(a('t2'), 1000000), OUT(a('c'), 77)]);
+  assert.equal(An.coinjoinLike(An.txView(g, odd)).equal, 3, 'four outputs of the amount, three recipients');
+});
+
 // ---- change -------------------------------------------------------------------------------------
 test('change: paying yourself back is the strongest signal', () => {
   const g = new Graph();
