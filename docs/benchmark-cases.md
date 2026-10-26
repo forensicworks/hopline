@@ -5,7 +5,7 @@ Written by `node test/benchmark/trace.js --write-docs`; the method is in [benchm
 |  |  |
 | --- | --- |
 | Date | 2026-10-26 |
-| Commit | 4601be9 |
+| Commit | eaab894 |
 | `hopline-analysis.js` SHA-256 | `b76f4c6882830398` |
 | Cases | colonial-darkside |
 

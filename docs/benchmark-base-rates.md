@@ -5,7 +5,7 @@ Written by `node test/benchmark/base-rates.js --write-docs`; the method is in [b
 |  |  |
 | --- | --- |
 | Date | 2026-10-26 |
-| Commit | 4601be9 |
+| Commit | eaab894 |
 | `hopline-analysis.js` SHA-256 | `b76f4c6882830398` |
 | Sample | mn_full2: 4671 transactions (the coinbase of a block left out), 8 blocks |
 | Chosen by | tools/bench/fetch_mainnet_sample.py, seed 20261027 |
