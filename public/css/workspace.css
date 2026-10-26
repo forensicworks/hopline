@@ -193,6 +193,9 @@ body.trace-on #stepbar { display: none !important; }
 .chooserinfo { padding: 0 9px 4px; font-size: 12px; color: var(--dim); }
 .choosertools .chooserinfo { padding: 0; }
 .choosertools .unspentopt[hidden] { display: none; }
+.choosertools .tickallrow span { padding: 0 1px; }
+.choosertools .tickallrow span[hidden] { display: none; }
+.choosertools .tickallrow span.on { color: var(--text); font-weight: 700; }
 .choosertools .toolrow { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; width: 100%; }
 #ctxMenu .chooserfoot .primary { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 #ctxMenu .chooserfoot .primary:disabled { background: transparent; color: var(--dim); }

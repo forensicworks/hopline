@@ -4,7 +4,7 @@ import json
 import pytest
 
 from chains import IN, OUT, real_addr, tid, tx
-from helpers import click_node, idle, open_query, settle, toast_text, xy
+from helpers import click_node, idle, open_query, settle, tick_all, tick_none, toast_text, xy
 from test_grouping import busy_wallet
 from test_trace import click_handle, handle, shown
 from test_wallet_panel import W, W_ID
@@ -196,7 +196,7 @@ def test_choose_which_opens_a_list_of_just_the_group_and_shows_what_is_ticked(fp
     fpage.click("#inspBody button:has-text('Choose which')")
     assert fpage.is_visible("#ctxMenu .chooser")
     assert "from the group" in fpage.inner_text("#ctxMenu").lower() and fpage.locator("#ctxMenu .chooserrow").count() == 6
-    fpage.click("#ctxMenu .chooserfoot >> text=None")
+    tick_none(fpage)
     boxes = fpage.locator("#ctxMenu .chooser input[type=checkbox]")
     boxes.nth(0).check(); boxes.nth(5).check()
     fpage.click("#ctxMenu .chooserfoot .primary"); idle(fpage); settle(fpage)
@@ -225,9 +225,9 @@ def test_the_arrow_list_can_make_a_group_of_a_group_row_or_of_what_is_ticked(fpa
     assert [g["members"] for g in groups(fpage)] == [6] and fpage.is_hidden("#ctxMenu")
     click_handle(fpage, W_ID, "right", shift=True); idle(fpage)                  # three are left: Shift-click opens the list anyway
     assert fpage.is_visible("#ctxMenu .chooser") and fpage.locator("#ctxMenu .chooserrow").count() == 3
-    fpage.click("#ctxMenu .chooserfoot >> text=None")
+    tick_none(fpage)
     assert fpage.is_disabled("#ctxMenu .oneticked"), "a group needs at least two ticked"
-    fpage.click("#ctxMenu .chooserfoot >> text=All")
+    tick_all(fpage)
     fpage.click("#ctxMenu .oneticked"); idle(fpage); settle(fpage)
     assert sorted(g["members"] for g in groups(fpage)) == [3, 6] and {g["kind"] for g in groups(fpage)} == {"party", "picked"}
 

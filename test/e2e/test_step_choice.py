@@ -1,7 +1,7 @@
 """Arrows in the Trace layout when many vertices wait behind them: ask which, step a few at a time, summarise on hover."""
 import pytest
 
-from helpers import click_node, idle, open_query, settle, xy
+from helpers import click_node, idle, open_query, settle, tick_all, tick_none, tick_top, xy
 from test_trace import click_handle, handle, many_outputs, shown
 from test_wallet_panel import W, W_ID, wallet
 
@@ -117,7 +117,7 @@ def test_the_list_can_be_narrowed_by_amount_and_by_date(fpage, mock):
     fpage.fill("#ctxMenu .choosertools input[type=text]", "0.000999")
     assert listed(fpage) == 15 and "15 of 40 match" in fpage.inner_text("#ctxMenu"), "100000 - 7 i >= 99900 for i <= 14"
     assert len(ticked(fpage)) == 5
-    fpage.click("#ctxMenu .chooserfoot >> text=All")
+    tick_all(fpage)
     assert fpage.inner_text("#ctxMenu .chooserfoot .primary") == "Show 15 ticked", "All means everything listed, not what was filtered out"
     fpage.fill("#ctxMenu .choosertools input[type=text]", "")
     assert listed(fpage) == 40
@@ -131,12 +131,107 @@ def test_the_list_can_be_narrowed_by_amount_and_by_date(fpage, mock):
     assert listed(fpage) == 40
 
 
-def test_top_all_and_none_buttons(fpage, mock):
+def box_state(page):
+    """The tick box as (checked, half-ticked, disabled)."""
+    return tuple(page.eval_on_selector("#ctxMenu .tickall", "b => [b.checked, b.indeterminate, b.disabled]"))
+
+
+def box_mode(page):
+    return page.get_attribute("#ctxMenu .tickall", "data-mode")
+
+
+def lit(page):
+    """The words of the tick box that are lit: which of all, none, top is the case now."""
+    return page.eval_on_selector_all("#ctxMenu .tickallrow span.on", "s => s.map(x => x.textContent)")
+
+
+def test_one_rotating_box_replaces_the_all_none_and_top_buttons(fpage, mock):
     tx = trace_of(fpage, mock, 12)
     click_handle(fpage, tx, "right"); idle(fpage)
-    fpage.click("#ctxMenu .chooserfoot >> text=All"); assert len(ticked(fpage)) == 12
-    fpage.click("#ctxMenu .chooserfoot >> text=None"); assert ticked(fpage) == [] and fpage.is_disabled("#ctxMenu .chooserfoot .primary")
-    fpage.click("#ctxMenu .chooserfoot >> text=Top 5"); assert len(ticked(fpage)) == 5
+    foot = fpage.inner_text("#ctxMenu .chooserfoot")
+    assert "Show 5 ticked" in foot and "Cancel" in foot
+    assert fpage.locator("#ctxMenu .chooserfoot >> text=/^(All|None|Top 5)$/").count() == 0, "the All, None and Top 5 buttons are gone"
+    assert " ".join(fpage.inner_text("#ctxMenu .tickallrow").split()) == "Tick all · none · top 5", "the box says what the three clicks do"
+    assert fpage.locator("#ctxMenu .choosertools label:has-text('Tick') input[type=checkbox]").count() == 1, "with the other options, beside Group similar rows"
+    tick_all(fpage); assert len(ticked(fpage)) == 12 and box_state(fpage) == (True, False, False)
+    tick_none(fpage); assert ticked(fpage) == [] and fpage.is_disabled("#ctxMenu .chooserfoot .primary") and box_state(fpage) == (False, False, False)
+    tick_top(fpage); assert len(ticked(fpage)) == 5
+
+
+def test_each_click_on_the_box_goes_one_step_round_top_all_none_top(fpage, mock):
+    tx = trace_of(fpage, mock, 12)
+    click_handle(fpage, tx, "right"); idle(fpage)
+    assert box_mode(fpage) == "top" and len(ticked(fpage)) == 5 and box_state(fpage) == (False, True, False) and lit(fpage) == ["top 5"], "it opens with the top five ticked"
+    fpage.click("#ctxMenu .tickall")
+    assert box_mode(fpage) == "all" and len(ticked(fpage)) == 12 and box_state(fpage) == (True, False, False) and lit(fpage) == ["all"]
+    fpage.click("#ctxMenu .tickall")
+    assert box_mode(fpage) == "none" and ticked(fpage) == [] and box_state(fpage) == (False, False, False) and lit(fpage) == ["none"]
+    fpage.click("#ctxMenu .tickall")
+    assert box_mode(fpage) == "top" and len(ticked(fpage)) == 5 and box_state(fpage) == (False, True, False) and lit(fpage) == ["top 5"], "and round again to the top five"
+    assert ticked(fpage) == ["addr:bc1qchoose%03d" % i for i in range(5)] or len(set(ticked(fpage))) == 5
+    fpage.click("#ctxMenu .tickall")
+    assert box_mode(fpage) == "all" and len(ticked(fpage)) == 12
+
+
+def test_ticking_rows_by_hand_changes_what_the_box_says_and_a_click_then_starts_at_all(fpage, mock):
+    tx = trace_of(fpage, mock, 12)
+    click_handle(fpage, tx, "right"); idle(fpage)
+    tick_none(fpage)
+    fpage.locator("#ctxMenu .chooserrow input").nth(3).check()
+    assert box_mode(fpage) == "custom" and box_state(fpage) == (False, True, False) and lit(fpage) == [], "one row by hand: some other mix, no word lit"
+    fpage.click("#ctxMenu .tickall")
+    assert box_mode(fpage) == "all" and len(ticked(fpage)) == 12, "a click on some other mix goes to all"
+    for i in range(12):
+        fpage.locator("#ctxMenu .chooserrow input").nth(i).check()
+    assert box_mode(fpage) == "all" and box_state(fpage) == (True, False, False), "ticking the last one by hand is all"
+    fpage.locator("#ctxMenu .chooserrow input").nth(0).uncheck()
+    assert box_mode(fpage) == "custom" and box_state(fpage) == (False, True, False)
+    tick_top(fpage)
+    for i in range(12):
+        fpage.locator("#ctxMenu .chooserrow input").nth(i).uncheck()
+    for i in range(5):
+        fpage.locator("#ctxMenu .chooserrow input").nth(i).check()
+    assert box_mode(fpage) == "top", "the first five in the order shown, ticked by hand, are the top five"
+
+
+def test_with_no_more_rows_than_the_top_few_the_rotation_is_all_and_none(fpage, mock):
+    tx = trace_of(fpage, mock, 6)
+    click_handle(fpage, tx, "right"); idle(fpage)
+    fpage.click("#ctxMenu .tickall")
+    fpage.fill("#ctxMenu .choosertools input[type=text]", "0.0009997")
+    assert listed(fpage) == 5, "five rows are listed: the top five are all of them (the amounts are 100000 - 7 i satoshis)"
+    assert fpage.is_hidden("#ctxMenu .tickallrow span:has-text('top')"), "so there is no separate top step"
+    seen = []
+    for _ in range(4):
+        seen.append(box_mode(fpage)); fpage.click("#ctxMenu .tickall")
+    assert seen[0] in ("all", "none") and set(seen) == {"all", "none"} and all(a != b for a, b in zip(seen, seen[1:])), "it only goes all, none, all, none: " + str(seen)
+
+
+def test_the_tick_box_only_ticks_what_the_choices_list_and_follows_them(fpage, mock):
+    tx = trace_of(fpage, mock, 40)
+    click_handle(fpage, tx, "right"); idle(fpage)
+    fpage.fill("#ctxMenu .choosertools input[type=text]", "0.000999")
+    assert listed(fpage) == 15
+    tick_all(fpage)
+    assert fpage.inner_text("#ctxMenu .chooserfoot .primary") == "Show 15 ticked" and box_state(fpage) == (True, False, False), "everything listed, not what was filtered out"
+    fpage.fill("#ctxMenu .choosertools input[type=text]", "")
+    assert listed(fpage) == 40 and box_mode(fpage) == "custom" and box_state(fpage) == (False, True, False), "more rows are listed now and they are not ticked"
+    fpage.fill("#ctxMenu .choosertools input[type=date] >> nth=0", "2030-01-01")
+    assert listed(fpage) == 0 and box_state(fpage) == (False, False, True), "nothing listed: nothing to tick, so the box is off"
+    fpage.fill("#ctxMenu .choosertools input[type=date] >> nth=0", "")
+    assert listed(fpage) == 40
+
+
+def test_the_tick_box_works_from_the_keyboard(fpage, mock):
+    tx = trace_of(fpage, mock, 12)
+    click_handle(fpage, tx, "right"); idle(fpage)
+    fpage.locator("#ctxMenu .tickall").focus()
+    fpage.keyboard.press("Space")
+    assert len(ticked(fpage)) == 12 and box_mode(fpage) == "all"
+    fpage.keyboard.press("Space")
+    assert ticked(fpage) == [] and box_mode(fpage) == "none"
+    fpage.keyboard.press("Space")
+    assert len(ticked(fpage)) == 5 and box_mode(fpage) == "top"
 
 
 def test_the_list_is_keyboard_friendly(fpage, mock):
@@ -236,7 +331,7 @@ def test_smallest_first_is_an_order_and_the_top_few_follow_it(fpage, mock):
     first = fpage.eval_on_selector_all("#ctxMenu .chooserrow", "rows => rows.map(r => r.querySelector('.amt').textContent)")
     amounts = [float(a.split()[0]) for a in first]
     assert amounts == sorted(amounts), "the smallest at the top"
-    fpage.click("#ctxMenu .chooserfoot >> text=Top 5")
+    tick_top(fpage)
     fpage.click("#ctxMenu .chooserfoot .primary"); idle(fpage); settle(fpage)
     got = shown(fpage) - {tx}
     assert got == {"addr:bc1qchoose%03d" % i for i in range(7, 12)}, "the five smallest were shown: " + str(sorted(got))

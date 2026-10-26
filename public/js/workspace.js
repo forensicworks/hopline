@@ -764,9 +764,14 @@
     groupChk.checked = state.groupRows;
     var knownSel = el('select', { 'aria-label': 'Which wallets', title: 'Known = on the built-in list or a label list you loaded (exchanges, services); labelled = a label or tag you gave it' }, [el('option', { value: 'any', text: 'any wallet' }), el('option', { value: 'skip', text: 'skip known services' }), el('option', { value: 'only', text: 'only known or labelled' })]);
     var unspentChk = el('input', { type: 'checkbox', 'aria-label': 'Unspent only' });
+    // One box that rotates on each click: all listed, none, the top few, and round again. Ticked = all, empty = none, a dash = the top few (or some other mix).
+    var tickAll = el('input', { type: 'checkbox', 'class': 'tickall', 'aria-label': 'Tick all listed, none, or the top few: click to rotate' });
+    var tickWord = { all: el('span', { text: 'all' }), none: el('span', { text: 'none' }), top: el('span', { text: 'top ' + Math.min(state.stepSize, rows.length) }) }, tickTop = el('span', {}, [' · ', tickWord.top]);
     m.appendChild(el('div', { 'class': 'choosertools' }, [el('div', { 'class': 'toolrow' }, [sortSel, el('label', {}, ['at least ', minIn, ' BTC'])]), el('div', { 'class': 'toolrow' }, [el('label', {}, ['from ', fromIn]), el('label', {}, ['to ', toIn]), info]),
       el('div', { 'class': 'toolrow' }, [el('label', {}, ['show ', knownSel]), el('label', { 'class': 'unspentopt', title: 'Only where the output between the two is still unspent' }, [unspentChk, ' unspent only'])]),
-      grp ? null : el('div', { 'class': 'toolrow' }, [el('label', { title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts, or the same month, week, day or year' }, [groupChk, ' Group similar rows']), groupBySelect(render)])]));
+      grp ? null : el('div', { 'class': 'toolrow' }, [el('label', { title: 'Fold rows that look alike into one line: the same wallet on the other side three times or more, or small amounts, or the same month, week, day or year' }, [groupChk, ' Group similar rows']), groupBySelect(render)]),
+      el('div', { 'class': 'toolrow' }, [el('label', { 'class': 'tickallrow', title: 'Click to rotate: tick every row listed, then none, then only the top ' + Math.min(state.stepSize, rows.length) + ' in the order shown, and round again. Rows that do not match the choices above are not listed and are never ticked' },
+                                              [tickAll, ' Tick ', tickWord.all, ' · ', tickWord.none, tickTop])])]));
     var list = el('div', { 'class': 'chooser' }), openG = new Set(), heads = [], grp0 = grp;                         // grp0: inside a group's own list nothing is folded again
     var items = rows.map(function (r) {
       var t = stepRowText(r), parties = n.type === 'addr' && r.type === 'tx' ? partiesOf(r.id, dir === 'next' ? 'out' : 'in', id) : null;
@@ -816,7 +821,20 @@
         hd.cb.checked = on > 0 && on === vis.length; hd.cb.indeterminate = on > 0 && on < vis.length;
       });
     }
-    function ticks() { count(); syncHeads(); }
+    function tickMode() {                                                                  // what is ticked now: all that are listed, none, exactly the top few, or some other mix
+      var vis = visible(), on = vis.filter(function (it) { return it.cb.checked; });
+      if (!vis.length || !on.length) return 'none';
+      if (on.length === vis.length) return 'all';
+      var top = vis.slice(0, N);
+      return on.length === top.length && top.every(function (it) { return it.cb.checked; }) ? 'top' : 'custom';
+    }
+    function syncAll() {                                                                   // the box follows the rows, and the word for what is ticked now is lit
+      var vis = visible(), mode = tickMode();
+      tickAll.setAttribute('data-mode', mode); tickAll.checked = mode === 'all'; tickAll.indeterminate = mode === 'top' || mode === 'custom'; tickAll.disabled = !vis.length;
+      Object.keys(tickWord).forEach(function (k) { tickWord[k].classList.toggle('on', mode === k); });
+      tickTop.hidden = vis.length <= N;                                                    // with no more rows than the top few, "top" is "all": the rotation is all, none
+    }
+    function ticks() { count(); syncHeads(); syncAll(); }
     function visible() { return ordered().filter(function (it) { return it.ok; }); }
     function topN() { visible().forEach(function (it, i) { it.cb.checked = i < N; }); ticks(); }
     function groupBlock(grp) {
@@ -857,6 +875,10 @@
     [knownSel, unspentChk].forEach(function (c) { c.addEventListener('change', render); });
     [sortSel, minIn, fromIn, toIn].forEach(function (c) { c.addEventListener(c === sortSel || c.type === 'date' ? 'change' : 'input', function () { if (c === sortSel) { state.chooseSort = sortSel.value; savePrefs(); } render(); }); });
     groupChk.addEventListener('change', function () { state.groupRows = groupChk.checked; $('groupRows').checked = groupChk.checked; savePrefs(); render(); });
+    tickAll.addEventListener('change', function () {                                       // each click goes one step round: top few -> all -> none -> top few; anything else -> all
+      var mode = tickMode(), hasTop = visible().length > N, next = mode === 'all' ? 'none' : mode === 'none' ? (hasTop ? 'top' : 'all') : 'all';
+      if (next === 'top') topN(); else { items.forEach(function (it) { it.cb.checked = next === 'all' && it.ok; }); ticks(); }
+    });
     m.appendChild(list);
     list.addEventListener('keydown', function (e) {
       var boxes = Array.prototype.slice.call(list.querySelectorAll('input[type=checkbox]')).filter(function (b) { return b.offsetParent !== null; }), i = boxes.indexOf(document.activeElement);
@@ -869,9 +891,6 @@
     var tickCount = count;
     count = function () { tickCount(); if (oneBtn) oneBtn.disabled = items.filter(function (it) { return it.cb.checked; }).length < 2; };
     m.appendChild(el('div', { 'class': 'chooserfoot' }, [go, oneBtn,
-      el('button', { type: 'button', text: 'Top ' + Math.min(N, items.length), title: 'Tick only the first ' + N + ' in the order shown', onclick: topN }),
-      el('button', { type: 'button', text: 'All', title: 'Tick everything listed', onclick: function () { visible().forEach(function (it) { it.cb.checked = true; }); ticks(); } }),
-      el('button', { type: 'button', text: 'None', onclick: function () { items.forEach(function (it) { it.cb.checked = false; }); ticks(); } }),
       el('button', { type: 'button', text: 'Cancel', onclick: closeCtx })]));
     render(); topN();
     placeCtx(at || clientPosOf(id));

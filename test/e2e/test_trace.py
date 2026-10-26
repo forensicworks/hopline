@@ -4,7 +4,7 @@ import json
 import pytest
 
 from conftest import ADDRESS, ADDR_TXS, COINBASE, NORMAL, OUTSPENDS, PAGE_URL, SPENDERS, shot
-from helpers import click_node, counts, idle, open_query, settle, toast_text, xy
+from helpers import click_node, counts, idle, open_query, settle, tick_all, tick_none, toast_text, xy
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
 BIG = max(range(len(NORMAL["vout"])), key=lambda i: NORMAL["vout"][i]["value"])
@@ -470,7 +470,7 @@ def test_shift_click_on_a_handle_lets_you_choose_which_to_show(fpage, mock):
     boxes = fpage.locator("#ctxMenu .chooser input[type=checkbox]")
     assert boxes.count() == 40 and "40 hidden" in fpage.inner_text("#ctxMenu").lower()
     assert sum(1 for i in range(40) if boxes.nth(i).is_checked()) == 5, "the five largest are ticked to start with (the step size)"
-    fpage.click("#ctxMenu >> text=None")
+    tick_none(fpage)
     assert fpage.is_disabled("#ctxMenu >> text=Show 0 ticked")
     for i in (3, 17):
         boxes.nth(i).check()
@@ -492,7 +492,7 @@ def test_the_chooser_works_from_the_menu_and_can_be_cancelled(fpage, mock):
     assert fpage.is_hidden("#ctxMenu") and shown(fpage) == {tx}
     p = xy(fpage, tx); fpage.mouse.click(p["x"], p["y"], button="right")
     fpage.click("#ctxMenu >> text=Choose what to show ▶…")
-    fpage.click("#ctxMenu .chooserfoot >> text=All"); fpage.click("#ctxMenu >> text=Show 12 ticked"); idle(fpage)
+    tick_all(fpage); fpage.click("#ctxMenu >> text=Show 12 ticked"); idle(fpage)
     assert len(shown(fpage)) == 13
 
 

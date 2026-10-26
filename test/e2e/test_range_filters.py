@@ -2,7 +2,7 @@
 import pytest
 
 from chains import IN, OUT, real_addr, tid, tx
-from helpers import idle, open_query, set_slider, settle, toast_text
+from helpers import idle, open_query, set_slider, settle, tick_all, toast_text
 from test_grouping import busy_wallet
 from test_trace import click_handle, handle, shown
 from test_wallet_panel import W, W_ID, WIN
@@ -52,7 +52,7 @@ def test_the_arrow_list_holds_only_what_is_inside_the_range_and_says_so(fpage, m
     assert listed(fpage) + fpage.locator("#ctxMenu .grouphead").count() >= 1
     assert "7 hidden" in fpage.inner_text("#ctxMenu").lower()
     assert "2 more fall outside the time bar's range and are not listed" in fpage.inner_text("#ctxMenu")
-    fpage.click("#ctxMenu .chooserfoot >> text=All")
+    tick_all(fpage)
     fpage.click("#ctxMenu .chooserfoot .primary"); idle(fpage); settle(fpage)
     got = {i for i in shown(fpage) if i.startswith("tx:")}
     assert got == {"tx:" + tid(n) for n in range(102, 109)}, sorted(got)
@@ -150,7 +150,7 @@ def test_skip_known_services_hides_the_rows_on_a_list_and_only_known_keeps_them(
     fpage.select_option("#ctxMenu .choosertools select >> nth=1", "any")
     assert listed(fpage) == 12
     fpage.select_option("#ctxMenu .choosertools select >> nth=1", "skip")
-    fpage.click("#ctxMenu .chooserfoot >> text=All"); fpage.click("#ctxMenu .chooserfoot .primary"); idle(fpage); settle(fpage)
+    tick_all(fpage); fpage.click("#ctxMenu .chooserfoot .primary"); idle(fpage); settle(fpage)
     got = {i for i in shown(fpage) if i.startswith("addr:")}
     assert len(got) == 9 and not got & {"addr:" + KNOWN_OUT[i] for i in (2, 5, 9)}, "the three services were left out"
 
@@ -193,7 +193,7 @@ def test_unspent_only_keeps_the_outputs_not_spent_yet(fpage, mock):
     assert listed(fpage) == 12
     box.check()
     assert listed(fpage) == 8 and "8 of 12 match" in fpage.inner_text("#ctxMenu")
-    fpage.click("#ctxMenu .chooserfoot >> text=All"); fpage.click("#ctxMenu .chooserfoot .primary"); idle(fpage); settle(fpage)
+    tick_all(fpage); fpage.click("#ctxMenu .chooserfoot .primary"); idle(fpage); settle(fpage)
     got = {i for i in shown(fpage) if i.startswith("addr:")}
     assert got == {"addr:" + KNOWN_OUT[i] for i in range(4, 12)}
 

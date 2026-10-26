@@ -3,7 +3,7 @@ import pytest
 
 from chains import IN, OUT, addr, tid, tx
 from conftest import ADDRESS
-from helpers import click_node, idle, open_query, settle
+from helpers import click_node, idle, open_query, settle, tick_none
 from test_copy import capture, copied
 from test_trace import click_handle, many_outputs, shown
 from test_wallet_panel import W, W_ID, WIN, WOUT
@@ -204,7 +204,7 @@ def test_the_group_opens_to_its_rows_in_the_arrow_list_and_a_row_can_be_ticked_a
     open_query(fpage, W)
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     click_handle(fpage, W_ID, "right"); idle(fpage)
-    fpage.click("#ctxMenu .chooserfoot >> text=None")
+    tick_none(fpage)
     assert fpage.evaluate("() => document.querySelector('#ctxMenu .grouphead input').checked") is False
     assert fpage.locator("#ctxMenu .groupmembers").first.is_hidden()
     fpage.click("#ctxMenu .groupfold")
@@ -215,6 +215,25 @@ def test_the_group_opens_to_its_rows_in_the_arrow_list_and_a_row_can_be_ticked_a
     assert fpage.evaluate("() => document.querySelector('#ctxMenu .grouphead input').indeterminate") is True
     fpage.click("#ctxMenu .chooserfoot .primary"); idle(fpage); settle(fpage)
     assert len([i for i in shown(fpage) if i.startswith("tx:")]) == 1, "only the one that was ticked"
+
+
+def test_the_tick_all_box_ticks_the_rows_inside_folded_groups_and_their_boxes_follow(fpage, mock):
+    busy_wallet(mock)
+    open_query(fpage, W)
+    fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
+    click_handle(fpage, W_ID, "right"); idle(fpage)
+    head_state = "() => { const b = document.querySelector('#ctxMenu .grouphead input'); return [b.checked, b.indeterminate]; }"
+    assert fpage.evaluate(head_state) == [False, True], "to start with the group is half-ticked: five of its six"
+    assert fpage.locator("#ctxMenu .groupmembers").first.is_hidden(), "and it is folded"
+    fpage.click("#ctxMenu .tickall")
+    assert fpage.evaluate(head_state) == [True, False], "the box ticks the rows inside a folded group too"
+    total = int(fpage.inner_text("#ctxMenu .chooserfoot .primary").split()[1])
+    assert total == fpage.locator("#ctxMenu .chooserrow:not(.grouphead) input").count(), "every row that is listed"
+    assert fpage.eval_on_selector("#ctxMenu .tickall", "b => [b.checked, b.indeterminate]") == [True, False]
+    fpage.locator("#ctxMenu .grouphead input").uncheck()
+    assert fpage.eval_on_selector("#ctxMenu .tickall", "b => [b.checked, b.indeterminate]") == [False, True], "the group's own box clears six of them: some are left, so half-ticked"
+    fpage.click("#ctxMenu .tickall"); fpage.click("#ctxMenu .tickall")
+    assert fpage.inner_text("#ctxMenu .chooserfoot .primary") == "Show 0 ticked" and fpage.evaluate(head_state) == [False, False]
 
 
 def test_the_arrow_list_groups_follow_the_filters_and_say_how_many_match(fpage, mock):
@@ -250,7 +269,7 @@ def test_many_small_outputs_of_one_transaction_fold_into_one_line(fpage, mock):
     head = fpage.inner_text("#ctxMenu .grouphead")
     assert "12 small outputs (each under 0.00010000 BTC)" in head, head
     assert fpage.locator("#ctxMenu .chooserrow:not(.grouphead)").count() == 15, "the three large ones and the twelve inside the group"
-    fpage.click("#ctxMenu .chooserfoot >> text=None")
+    tick_none(fpage)
     fpage.locator("#ctxMenu .grouphead input").check()
     assert fpage.inner_text("#ctxMenu .chooserfoot .primary") == "Show 12 ticked"
     fpage.click("#ctxMenu .chooserfoot .primary"); idle(fpage); settle(fpage)
@@ -270,7 +289,7 @@ def test_the_group_boxes_work_from_the_keyboard(fpage, mock):
     open_query(fpage, W)
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     click_handle(fpage, W_ID, "right"); idle(fpage)
-    fpage.click("#ctxMenu .chooserfoot >> text=None")
+    tick_none(fpage)
     fpage.locator("#ctxMenu .grouphead input").focus()
     fpage.keyboard.press("Space")
     assert fpage.evaluate("() => document.querySelector('#ctxMenu .grouphead input').checked") is True

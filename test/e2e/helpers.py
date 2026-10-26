@@ -70,3 +70,25 @@ def toast_text(page):
 
 def set_slider(page, selector, value):
     page.evaluate("([s, v]) => { const el = document.querySelector(s); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }", [selector, value])
+
+
+def tick_mode(page, want):
+    """The list behind an arrow has one box that rotates on each click: all listed, none, the top few. Click until it is in the mode asked for."""
+    box = page.locator("#ctxMenu .tickall")
+    for _ in range(4):
+        if box.get_attribute("data-mode") == want:
+            return
+        box.click()
+    raise AssertionError("the tick box never reached %r, it is at %r" % (want, box.get_attribute("data-mode")))
+
+
+def tick_all(page):
+    tick_mode(page, "all")
+
+
+def tick_none(page):
+    tick_mode(page, "none")
+
+
+def tick_top(page):
+    tick_mode(page, "top")
