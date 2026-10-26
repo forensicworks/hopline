@@ -5,7 +5,7 @@ Written by `node test/benchmark/run.js --write-docs`; the method is in [benchmar
 |  |  |
 | --- | --- |
 | Date | 2026-10-26 |
-| Commit | 8326ec1 plus uncommitted changes in public/js |
+| Commit | b4236f6 |
 | `hopline-analysis.js` SHA-256 | `d14f004b301157c2` |
 | Node | v24.19.0 |
 | Cases | batch-consolidation, coinjoins, payjoin, payments, peel-chains, sweeps |
