@@ -11,13 +11,15 @@ and gets a line in packs/index.js, the list the pages read (public/js/hopline-pa
 (or by --refresh, all of them) are rewritten; the others stay as they are. Nothing is evaluated: the sources are read by their own
 converters. --summary FILE writes what changed as markdown (the weekly workflow uses it as the pull request text).
 
-Three packs: the OFAC sanctions list (tools/make_label_pack_ofac.py), which ships switched on, the Ransomwhere ransomware payment
-addresses (tools/make_label_pack_ransomwhere.py) and the mining pools mempool.space knows (tools/make_label_pack_miningpools.py),
-which ship switched off. The mining pools list is taken from the newest commit once its licence text is the one the tool knows; its
-MIT licence asks for its text to travel with copies of the data, so the pack file starts with it. Ransomwhere is taken only from the release the
-converter is pinned to (its MD5 is checked), because the pack states that release's licence; --refresh also says when Zenodo has a
-newer release, which is for a person to read and adopt. A pack that shrinks to under 80% of its earlier size is refused (--force
-overrides): a source that changes its layout shows up as a short list, and a short sanctions list is worse than an old one.
+Five packs, each from its own converter (see sources.md for where each comes from and under what licence): the OFAC sanctions list
+(make_label_pack_ofac.py) and the UK Sanctions List (make_label_pack_uksanctions.py), which ship switched on, and the Ransomwhere
+ransomware payment addresses (make_label_pack_ransomwhere.py), the mining pools mempool.space knows (make_label_pack_miningpools.py)
+and a chosen part of the GraphSense tag packs (make_label_pack_graphsense.py), which ship switched off. The two GitHub-hosted lists are
+taken from the newest commit once the repository's licence text is the one the tool knows; the MIT licence asks for its text to travel
+with copies of the data, so their pack files start with it. Ransomwhere is taken only from the release the converter is pinned to (its
+MD5 is checked), because the pack states that release's licence; --refresh also says when Zenodo has a newer release, which is for a
+person to read and adopt. A pack of 20 or more wallets that shrinks to under 80% of its earlier size is refused (--force overrides): a
+source that changes its layout shows up as a short list, and a short sanctions list is worse than an old one.
 
 To add a source: write tools/make_label_pack_<name>.py (read the file, check every address, return the pack), a build_<name>() below
 that returns (id, pack, switched on as shipped), and one entry in SOURCES. --refresh and the weekly workflow then include it. A source
@@ -32,6 +34,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import make_label_pack_graphsense as gs  # noqa: E402
 import make_label_pack_miningpools as mp  # noqa: E402
 import make_label_pack_ofac as ofac  # noqa: E402
 import make_label_pack_ransomwhere as rw  # noqa: E402
@@ -190,6 +193,18 @@ def build_miningpools(args):
     return "mining-pools", pack, False
 
 
+def build_graphsense(args):
+    try:
+        files, commit = gs.fetch()
+        pack, info = gs.convert(files, commit)
+    except gs.ListError as e:
+        raise BuildError(str(e))
+    if not pack["labels"] or len(info["packs"]) < len(gs.PACKS):
+        raise BuildError("Only %d of the %d chosen GraphSense packs were read, giving %d addresses: a pack may have been renamed or moved. Not written."
+                         % (len(info["packs"]), len(gs.PACKS), len(pack["labels"])))
+    return "graphsense", pack, False
+
+
 def build_uksanctions(args):
     try:
         if args is None or args.download_uk:
@@ -214,6 +229,7 @@ SOURCES = [
     {"id": "ransomwhere", "build": lambda: build_ransomwhere(argparse.Namespace(ransomwhere=None, download_ransomwhere=True)), "check": rw.newer_release},
     {"id": "mining-pools", "build": lambda: build_miningpools(None), "check": None},
     {"id": "uk-sanctions", "build": lambda: build_uksanctions(None), "check": None},
+    {"id": "graphsense", "build": lambda: build_graphsense(None), "check": None},
 ]
 
 
@@ -288,6 +304,7 @@ def main(argv=None):
     ap.add_argument("--ransomwhere", help="path to ransomwhere.json of the pinned Zenodo release")
     ap.add_argument("--download-ransomwhere", action="store_true", help="download the pinned Ransomwhere release from Zenodo (its MD5 is checked)")
     ap.add_argument("--download-miningpools", action="store_true", help="download the mining pools list from GitHub (its licence text must be the one this tool knows)")
+    ap.add_argument("--download-graphsense", action="store_true", help="download the chosen GraphSense tag packs from GitHub (the licence text must be the one this tool knows)")
     ap.add_argument("--uk", help="path to UK-Sanctions-List.xml")
     ap.add_argument("--download-uk", action="store_true", help="download the UK Sanctions List from the Foreign, Commonwealth & Development Office")
     ap.add_argument("--out", default=OUT, help="the folder to write (default: %(default)s)")
@@ -303,11 +320,11 @@ def main(argv=None):
         ap.error("no such pack in --only; the ids are: %s" % ", ".join(s["id"] for s in SOURCES))
     if bool(a.uk) + a.download_uk > 1:
         ap.error("give one source for each pack: a file or --download-uk, not both")
-    if a.refresh and (a.ofac or a.download or a.ransomwhere or a.download_ransomwhere or a.download_miningpools or a.uk or a.download_uk):
+    if a.refresh and (a.ofac or a.download or a.ransomwhere or a.download_ransomwhere or a.download_miningpools or a.uk or a.download_uk or a.download_graphsense):
         ap.error("--refresh downloads every source itself: do not combine it with a source of your own")
-    jobs = ([build_ofac] if a.ofac or a.download else []) + ([build_ransomwhere] if a.ransomwhere or a.download_ransomwhere else []) + ([build_miningpools] if a.download_miningpools else []) + ([build_uksanctions] if a.uk or a.download_uk else [])
+    jobs = ([build_ofac] if a.ofac or a.download else []) + ([build_ransomwhere] if a.ransomwhere or a.download_ransomwhere else []) + ([build_miningpools] if a.download_miningpools else []) + ([build_uksanctions] if a.uk or a.download_uk else []) + ([build_graphsense] if a.download_graphsense else [])
     if not jobs and not a.refresh:
-        ap.error("name at least one source: --refresh, --ofac FILE, --download, --ransomwhere FILE, --download-ransomwhere, --download-miningpools, --uk FILE or --download-uk")
+        ap.error("name at least one source: --refresh, --ofac FILE, --download, --ransomwhere FILE, --download-ransomwhere, --download-miningpools, --uk FILE, --download-uk or --download-graphsense")
     failures, notices = [], []
     try:
         if a.refresh:

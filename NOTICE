@@ -23,4 +23,9 @@ This product includes work by others:
   Government Licence v3.0 (https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/). Hopline ships the Bitcoin
   addresses written in the text of its entries as a label pack (public/packs/uk-sanctions.js). Changes made: the addresses are found in
   the free text of the entries and checked, and each is labelled with the name of its entry; nothing else of the list is kept.
+* A chosen part of the GraphSense TagPacks (https://github.com/graphsense/graphsense-tagpacks), MIT License, Copyright (c) 2022
+  Iknaio Cryptoasset Analytics GmbH and Copyright (c) 2018-2022 AIT Austrian Institute of Technology. Hopline ships ten of its packs
+  (government documents and exchanges' and services' own published addresses) as an optional label pack (public/packs/graphsense.js,
+  which starts with the licence text). Changes made: the tags are converted to Hopline's label pack format, and only the Bitcoin tags
+  whose source link is a page of the kind each pack was chosen for are kept; each keeps its link to its source.
 * The U.S. Treasury OFAC SDN list (public domain, a U.S. government work), shipped as a label pack (public/packs/ofac-sdn.js).

@@ -18,6 +18,7 @@ from test_uksanctions_pack import designation, uk_xml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 import build_packs as bp  # noqa: E402
+import make_label_pack_graphsense as gs  # noqa: E402
 import make_label_pack_miningpools as mp  # noqa: E402
 import make_label_pack_ransomwhere as rw  # noqa: E402
 import make_label_pack_uksanctions as uk  # noqa: E402
@@ -29,6 +30,12 @@ def ofac_xml(addresses, date="10/21/2026", name="GROUP"):
     return sdn_xml([entry(1000 + i, "%s %d" % (name, i), programs=["CYBER2"], ids=[("Digital Currency Address - XBT", a)]) for i, a in enumerate(addresses)], date).encode("utf-8")
 
 
+def graphsense_files():
+    """One small pack for each of the packs that are chosen, each with a source link of the kind its pack is chosen for."""
+    return {name: chr(10).join(["title: T", "label: L", "currency: BTC", "source: " + prefixes[0] + "x", "tags:", "- address: " + valid_address(100 + i), ""])
+            for i, (name, prefixes) in enumerate(gs.PACKS.items())}
+
+
 @pytest.fixture
 def world(monkeypatch):
     """The two sources as the test sets them: world.ofac and world.rw are the bytes the 'download' returns; world.note is what the Ransomwhere check says."""
@@ -36,6 +43,7 @@ def world(monkeypatch):
         ofac = ofac_xml(FIVE)
         rw = data_of([row(LEGACY, "Conti", [(1650000000, 150000000)]), row(P2SH, "Locky")])
         pools = json.dumps([{"id": 1, "name": "AntPool", "addresses": [FIVE[2]], "tags": ["/x/"], "link": "https://www.antpool.com"}]).encode("utf-8")
+        gs = graphsense_files()
         uk = uk_xml([designation("RUS1421", "GARANTEX EUROPE OU", other="Digital Currency Address: XBT " + P2SH)])
         note = ""
         failing = set()
@@ -56,11 +64,17 @@ def world(monkeypatch):
             raise mp.ListError("Could not download the mining pools list (offline).")
         return w.pools, {"sha": "c" * 40, "date": "2026-09-24", "licence_text": "MIT License" + chr(10)}
 
+    def get_gs():
+        if "graphsense" in w.failing:
+            raise gs.ListError("Could not download the GraphSense tag packs (offline).")
+        return w.gs, {"sha": "f" * 40, "date": "2026-10-21", "licence_text": "MIT License" + chr(10)}
+
     def get_uk():
         if "uk-sanctions" in w.failing:
             raise OSError("offline")
         return w.uk
 
+    monkeypatch.setattr(bp.gs, "fetch", get_gs)
     monkeypatch.setattr(uk, "MIN_DESIGNATIONS", 1)
     monkeypatch.setattr(bp.uk, "download", get_uk)
     monkeypatch.setattr(bp.ofac, "download", get_ofac)
@@ -80,11 +94,11 @@ def test_refresh_builds_every_source_and_a_second_refresh_changes_nothing(tmp_pa
     run(tmp_path, "--refresh", "--summary", str(tmp_path / "s.md"))
     out = capsys.readouterr().out
     assert "OFAC SDN list (Bitcoin): 5 wallets, as of 2026-10-21, written (+5 added)" in out and "Ransomwhere ransomware payments: 2 wallets, as of 2024-10-27, written (+2 added)" in out
-    assert [e["id"] for e in bp.read_index(str(tmp_path / "packs" / "index.js"))] == ["ofac-sdn", "ransomwhere", "mining-pools", "uk-sanctions"]
+    assert [e["id"] for e in bp.read_index(str(tmp_path / "packs" / "index.js"))] == ["ofac-sdn", "ransomwhere", "mining-pools", "uk-sanctions", "graphsense"]
     before = {p.name: p.read_bytes() for p in (tmp_path / "packs").iterdir()}
     run(tmp_path, "--refresh", "--summary", str(tmp_path / "s2.md"))
     out2 = capsys.readouterr().out
-    assert out2.count("unchanged") == 4 and "(+" not in out2 and "(-" not in out2
+    assert out2.count("unchanged") == 5 and "(+" not in out2 and "(-" not in out2
     assert {p.name: p.read_bytes() for p in (tmp_path / "packs").iterdir()} == before, "the same sources give the same files, byte for byte"
     assert "| `OFAC SDN list (Bitcoin)` | 5 | 2026-10-21 | nothing |" in (tmp_path / "s2.md").read_text(encoding="utf-8")
 
@@ -116,7 +130,7 @@ def test_one_source_that_fails_keeps_its_files_and_the_others_are_still_refreshe
     assert e.value.code == 1
     cap = capsys.readouterr()
     assert "OFAC SDN list (Bitcoin): 6 wallets, as of 2026-10-28, written" in cap.out and "ransomwhere: NOT refreshed: Could not download it (offline)." in cap.err
-    assert (packs / "ransomwhere.js").read_bytes() == ransom_before and [e["id"] for e in bp.read_index(str(packs / "index.js"))] == ["ofac-sdn", "ransomwhere", "mining-pools", "uk-sanctions"]
+    assert (packs / "ransomwhere.js").read_bytes() == ransom_before and [e["id"] for e in bp.read_index(str(packs / "index.js"))] == ["ofac-sdn", "ransomwhere", "mining-pools", "uk-sanctions", "graphsense"]
     text = (tmp_path / "s.md").read_text(encoding="utf-8")
     assert "### Could not refresh" in text and "**ransomwhere**" in text and "its files were left as they were" in text
 

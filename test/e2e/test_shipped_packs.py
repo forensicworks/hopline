@@ -19,6 +19,7 @@ OFAC = next(e for e in INDEX if e["id"] == "ofac-sdn")
 RW = next(e for e in INDEX if e["id"] == "ransomwhere")
 MP = next(e for e in INDEX if e["id"] == "mining-pools")
 UK = next(e for e in INDEX if e["id"] == "uk-sanctions")
+GS = next(e for e in INDEX if e["id"] == "graphsense")
 SMALL_ADDR = NORMAL["vout"][1 - max(range(len(NORMAL["vout"])), key=lambda i: NORMAL["vout"][i]["value"])]["scriptpubkey_address"]
 ADDR = re.search(r'^\{"address":"([^"]+)"', (PACKS / OFAC["file"]).read_text(encoding="utf-8"), re.M).group(1)
 RW_ADDR = re.search(r'^\{"address":"([^"]+)","label":"Ransomware: Locky"', (PACKS / RW["file"]).read_text(encoding="utf-8"), re.M).group(1)
@@ -239,3 +240,21 @@ def test_a_wallet_on_the_uk_list_is_flagged_on_the_wallet_page_with_the_name_of_
     wpage.wait_for_function("() => document.querySelectorAll('#ledger .tx').length > 0")
     assert wpage.is_visible("#sanctionBanner") and UK["name"] in wpage.inner_text("#sanctionBanner")
     assert wpage.inner_text("#addrLabel").startswith("UK Sanctions: ")
+
+
+# ---------------------------------------------------------------- the GraphSense tag packs
+GS_LINE = json.loads(re.search(r'^(\{"address":"[^"]+","label":"Al-Qaeda Campaign".*\})', (PACKS / GS["file"]).read_text(encoding="utf-8"), re.M).group(1))
+
+
+def test_the_graphsense_packs_are_off_until_switched_on_and_each_name_links_to_its_own_source(tpage):
+    open_packs(tpage)
+    row = row_of(tpage, GS)
+    t = row.inner_text()
+    assert row.count() == 1 and not row.locator("input").is_checked() and "{:,} wallets".format(GS["entries"]) in t and "MIT" in t and "sanctions list" not in t, t
+    assert known(tpage, GS_LINE["address"]) is None
+    row.locator("input").check()
+    wait_known(tpage, GS_LINE["address"])
+    k = known(tpage, GS_LINE["address"])
+    assert k["label"] == "Al-Qaeda Campaign" and k["category"] == "TERRORISM" and k["pack"] == GS["name"] and not k.get("sanctions")
+    assert k["url"] == GS_LINE["url"] and k["url"].startswith("https://www.justice.gov/"), "the link is the document the claim comes from, not the repository"
+    assert "GraphSense tagpack aft-alqaeda-forfeit_vc" in k["note"]
