@@ -4257,12 +4257,7 @@
   }
 
   /** How the fiat values in a report were worked out, in words. */
-  function fiatNoteText() {
-    if (!fiatOn()) return '';
-    var f = state.fiat, cur = f.currency;
-    return 'Shown in ' + cur + ' at ' + (f.basis === 'today' ? 'today\'s price' : f.basis === 'ref' && f.ref ? 'the price at ' + S.fmtTimeFull(f.ref.time) + ' for every amount' : 'the price at each transaction\'s own time')
-      + ', from the mempool.space price history, interpolated between its points (a value marked ≈ was interpolated across more than two days and is rough).';
-  }
+  function fiatNoteText() { return PR.note(state.fiat, S.fmtTimeFull); }
 
   /** A group of the trace as plain data for the report: what it stands for and every member (none is left out). */
   function reportGroup(grp) {
@@ -4280,17 +4275,8 @@
     var an = analysis(), title = LB.cleanText($('reportTitle').value, 120) || 'Hopline investigation report', by = LB.cleanText($('reportBy').value, 80);
     var base = JSON.parse(IO.toJson(g, { only: vis, view: viewState(), source: sourceBase() }));
     if (base.view) delete base.view.hidden;                                    // what you hid is not part of what is reported
-    var atx = {};
-    vis.nodes.forEach(function (id) {
-      var r = an.tx.get(id);
-      if (r && (r.flags.length || r.change || r.chain)) atx[id] = { flags: r.flags.map(function (f) { return { kind: f.kind, short: f.short, title: f.title }; }),
-        change: r.change && vis.nodes.has(r.change.id) ? { vout: r.change.vout, edgeId: r.change.edgeId, address: r.change.address, confidence: r.change.confidence, reasons: r.change.reasons } : null, chain: r.chain };
-    });
     // the report describes what is on screen: a chain or cluster is cut to the vertices that are shown, so nothing hidden leaks in through them
-    var chains = an.chains.filter(function (c) { return c.ids.some(function (id) { return vis.nodes.has(id); }); }).map(function (c) { return { label: c.label, ids: c.ids.filter(function (id) { return vis.nodes.has(id); }), start: c.start, end: c.end, totalPeeled: c.totalPeeled, continues: c.continues }; });
-    var clusters = an.clusters.list.filter(function (c) { return c.addrs.some(function (id) { return vis.nodes.has(id); }); }).map(function (c) {
-      return { label: c.label, size: c.size, addrs: c.addrs.filter(function (id) { return vis.nodes.has(id); }), txs: c.txs.filter(function (txid) { return vis.nodes.has(ID.tx(txid)); }) };
-    });
+    var found = RP.analysisFor(an, function (id) { return vis.nodes.has(id); }), atx = found.tx, chains = found.chains, clusters = found.clusters;
     var loadedTx = base.nodes.filter(function (n) { return n.type === 'tx' && n.loaded; }).length;
     var groups = traceOn() ? Array.from(state.trace.groups.values()).map(reportGroup).filter(Boolean) : [];
     if (base.view && base.view.trace) { delete base.view.trace.groups; delete base.view.trace.seq; }              // the members of a group are not among this file's vertices: they are listed under groups instead

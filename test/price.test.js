@@ -145,3 +145,11 @@ test('amountOf: the value, its text with the ≈ sign only where the price is ro
   assert.equal(P.amountOf({ currency: 'EUR', basis: 'ref', ref: { time: 1827200 } }, 100000000, 1913600, ctx).value, 9000, 'at a reference moment every amount uses its price');
   assert.equal(P.amountOf({ currency: 'EUR', basis: 'ref', ref: null }, 100000000, 1913600, ctx).value, 40000, 'a reference that is not set is today\'s price');
 });
+
+test('note: how a report\'s fiat values were worked out, in words, and nothing when no currency is chosen', () => {
+  const at = (u) => 'T' + u;
+  assert.equal(P.note({ currency: 'off', basis: 'each' }, at), ''); assert.equal(P.note(null, at), '');
+  assert.match(P.note({ currency: 'EUR', basis: 'each' }, at), /^Shown in EUR at the price at each transaction's own time, from the mempool\.space price history/);
+  assert.match(P.note({ currency: 'USD', basis: 'today' }, at), /^Shown in USD at today's price,/);
+  assert.match(P.note({ currency: 'USD', basis: 'ref', ref: { txid: 'a'.repeat(64), time: 1827200 } }, at), /^Shown in USD at the price at T1827200 for every amount,/);
+});
