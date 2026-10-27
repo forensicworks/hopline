@@ -183,6 +183,12 @@ test('peelStep: one input, two outputs, the small one at most half the large one
   assert.equal(st.large.vout, 1); assert.equal(st.small.vout, 0); assert.ok(st.ratio < 0.06);
   assert.equal(An.peelStep(An.txView(g, even)), null);
   assert.equal(An.peelStep(An.txView(g, two)), null, 'two inputs');
+  // a dust-sized small output is a marker, not a payment (what 546-satoshi transfers next to an OP_RETURN output look like on the chain)
+  const dust = add(g, 4, [IN(94, 0, a('s5'), 100000)], [OUT(a('p5'), 546), OUT(a('c5'), 99000)]);
+  assert.equal(An.peelStep(An.txView(g, dust)), null, 'under 1,000 satoshis');
+  const edge = add(g, 5, [IN(95, 0, a('s6'), 100000)], [OUT(a('p6'), 1000), OUT(a('c6'), 98800)]);
+  assert.ok(An.peelStep(An.txView(g, edge)), '1,000 satoshis is the least');
+  assert.ok(An.peelStep(An.txView(g, dust), { peel: { minSmall: 0 } }), 'and the limit can be set');
 });
 
 test('peelChains: finds a run of linked peel steps and what it peeled', () => {

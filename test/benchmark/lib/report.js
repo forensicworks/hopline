@@ -27,6 +27,27 @@ function changeSection(results) {
            ', the first ' + pct(base('first').p) + ', the last ' + pct(base('last').p) + '.', '');
   const nc = withChange.reduce((a, r) => a + r.change.noChangeGuessed.n, 0), ncTotal = sumN((c) => c.noChange);
   out.push('On transactions that have no change a guess is always wrong: Hopline made one on ' + nc + ' of ' + ncTotal + ' (' + ['high', 'medium', 'low'].map((k) => k + ' ' + withChange.reduce((a, r) => a + r.change.noChangeGuessed.byTier[k], 0)).join(', ') + ').', '');
+  // how many signs a guess rests on
+  const kinds = {}, sets = {};
+  withChange.forEach((r) => {
+    Object.keys(r.change.byCount || {}).forEach((k) => { const x = kinds[k] = kinds[k] || { n: 0, k: 0 }; x.n += r.change.byCount[k].guesses; x.k += r.change.byCount[k].precision.k; });
+    Object.keys(r.change.bySigns || {}).forEach((k) => { const x = sets[k] = sets[k] || { n: 0, k: 0 }; x.n += r.change.bySigns[k].guesses; x.k += r.change.bySigns[k].correct; });
+  });
+  const rows = [];
+  ['high', 'medium', 'low'].forEach((t) => ['1', '2', '3 or more'].forEach((c) => { const x = kinds[t + '|' + c]; if (x) rows.push([t, c, String(x.n), prop(wilson(x.k, x.n))]); }));
+  if (rows.length) {
+    out.push('### Guesses by how many signs they rest on', '', 'A guess on one sign is worded as a lead. This says how good a lead, by tier. The signs are reuse, type, known, fingerprint, round and smaller (see the table of what each is worth, further down).', '',
+      table(['Tier', 'Signs the guess rests on', 'Guesses', 'Right when guessed'], rows), '');
+    const singles = Object.keys(sets).filter((k) => k && k.indexOf(' + ') < 0).sort((a, b) => sets[b].n - sets[a].n);
+    if (singles.length) out.push('The same, for the guesses that rest on one sign, by which sign:', '', table(['The one sign', 'Guesses', 'Right when guessed'], singles.map((k) => [k, String(sets[k].n), prop(wilson(sets[k].k, sets[k].n))])), '');
+    // what the tiers would be if a medium guess on one sign were called low (not the rule: a what-if, for the decision on the roadmap)
+    const add = (ks) => ks.reduce((a, k) => ({ n: a.n + (kinds[k] ? kinds[k].n : 0), k: a.k + (kinds[k] ? kinds[k].k : 0) }), { n: 0, k: 0 });
+    const now = { high: add(['high|1', 'high|2', 'high|3 or more']), medium: add(['medium|1', 'medium|2', 'medium|3 or more']), low: add(['low|1', 'low|2', 'low|3 or more']) };
+    const capped = { high: now.high, medium: add(['medium|2', 'medium|3 or more']), low: add(['low|1', 'low|2', 'low|3 or more', 'medium|1']) };
+    out.push('**What if** a medium guess that rests on one sign were called low (a what-if; the rule is not changed):', '',
+      table(['Tier', 'Now: guesses', 'Now: right when guessed', 'If capped: guesses', 'If capped: right when guessed'],
+        ['high', 'medium', 'low'].map((t) => [t, String(now[t].n), prop(wilson(now[t].k, now[t].n)), String(capped[t].n), prop(wilson(capped[t].k, capped[t].n))])), '');
+  }
   // each signal switched off
   const varNames = Object.keys(withChange[0].variants || {}).filter((k) => /^without/.test(k));
   if (varNames.length) {
@@ -79,7 +100,7 @@ function peelSection(results) {
           table(['Case', 'Real chains', 'Found', 'Detected chains that are real', 'Detected, not made as a chain', 'Of those, per 1,000 other transactions', 'Steps of real chains flagged'],
                 rs.map((r) => [r.name, String(r.peel.truthChains), prop(r.peel.recalled), prop(r.peel.real), String(r.peel.notThere), r.peel.notThereFlaggedPer1000Others == null ? 'n/a' : r.peel.notThereFlaggedPer1000Others.toFixed(1), prop(r.peel.stepsFlagged)])), '',
           '### The steps of the real chains, by the smaller output over the larger', '',
-          'The scripted chains pay 1% to 60% of the coin at each step, evenly spread on a log scale, so no step is made to suit the rule. The rule calls a transaction a peel step when the smaller of its two outputs is at most half the larger, and a chain needs four such steps in a row; a step that pays more than a third of the coin is therefore never one, and breaks the chain. How many steps fall there is the generator\'s choice, so read the rows, not the total.', '',
+          'The scripted chains pay 1% to 60% of the coin at each step, evenly spread on a log scale, so no step is made to suit the rule. The rule calls a transaction a peel step when the smaller of its two outputs is at most half the larger and not dust-sized (under 1,000 satoshis), and a chain needs four such steps in a row; a step that pays more than a third of the coin is therefore never one, and breaks the chain. How many steps fall there is the generator\'s choice, so read the rows, not the total.', '',
           table(['Smaller over larger', 'Steps', 'Look like a peel step', 'Are in a detected chain'], rs[0].peel.byRatio.map((b, i) => {
             const at = (f) => pool(rs.map((r) => r.peel.byRatio[i][f]));
             return [b.name, String(rs.reduce((a, r) => a + r.peel.byRatio[i].steps, 0)), prop(at('looksLikeAPeelStep')), prop(at('inAChain'))];

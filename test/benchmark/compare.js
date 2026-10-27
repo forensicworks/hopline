@@ -3,7 +3,7 @@
 /**
  * A change to a rule, judged on a sample it was not made on: which transactions the analysis of an earlier commit flagged and today's does not.
  *
- *   node test/benchmark/compare.js --rev <git revision> --sample <folder> [--kind coinjoin|consolidation|batch]
+ *   node test/benchmark/compare.js --rev <git revision> --sample <folder> [--kind coinjoin|consolidation|batch|peel]
  *
  * The earlier analysis is read from git (public/js/hopline-analysis.js and the model beside it, into a temporary folder). Nothing touches the
  * network; the sample is one made by tools/bench/fetch_mainnet_sample.py. The method is in docs/benchmark.md (phase 4): a sample used to make
@@ -33,7 +33,7 @@ function analysisAt(rev) {
   return { dir, analysis: require(path.join(dir, 'hopline-analysis.js')) };
 }
 
-const USAGE = 'Usage: node test/benchmark/compare.js --rev <git revision> --sample <folder> [--kind coinjoin|consolidation|batch]\n';
+const USAGE = 'Usage: node test/benchmark/compare.js --rev <git revision> --sample <folder> [--kind coinjoin|consolidation|batch|peel]\n';
 
 function main() {
   if (process.argv.length <= 2) { process.stdout.write(USAGE); return; }                // asked for nothing: say how, and do not fail (node --test runs every file under test/)

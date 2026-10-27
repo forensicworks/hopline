@@ -4,9 +4,9 @@ Written by `node test/benchmark/base-rates.js --write-docs`; the method is in [b
 
 |  |  |
 | --- | --- |
-| Date | 2026-10-26 |
-| Commit | b4236f6 |
-| `hopline-analysis.js` SHA-256 | `d14f004b301157c2` |
+| Date | 2026-10-27 |
+| Commit | 164c5ac |
+| `hopline-analysis.js` SHA-256 | `634132ae3ec68366` |
 | Sample | mn_full2: 4671 transactions (the coinbase of a block left out), 8 blocks |
 | Chosen by | tools/bench/fetch_mainnet_sample.py, seed 20261027 |
 
@@ -43,8 +43,8 @@ Share of the sample by the number of inputs (down) and outputs (across). The syn
 | COINJOIN? | 0.0% (0.0% to 0.1%), 0 of 4671 | 0.0 | 3.7% (3.1% to 4.4%), 135 of 3647 |
 | CONSOL | 3.5% (3.0% to 4.1%), 163 of 4671 | 34.9 | 7.7% (6.9% to 8.6%), 280 of 3647 |
 | BATCH | 3.2% (2.7% to 3.7%), 148 of 4671 | 31.7 | 1.8% (1.4% to 2.3%), 65 of 3647 |
-| A single peel step (one input, two outputs, the small one at most half the large one) | 40.8% (39.4% to 42.2%), 1905 of 4671 | 407.8 | 40.9% (39.3% to 42.5%), 1492 of 3647 |
-| In a detected peel chain (needs the next transaction in the sample, so this is a floor) | 3.6% (3.1% to 4.1%), 166 of 4671 | 35.5 | 8.6% (7.8% to 9.6%), 315 of 3647 |
+| A single peel step (one input, two outputs, the small one at most half the large one) | 38.0% (36.6% to 39.4%), 1776 of 4671 | 380.2 | 40.9% (39.3% to 42.5%), 1492 of 3647 |
+| In a detected peel chain (needs the next transaction in the sample, so this is a floor) | 2.8% (2.4% to 3.3%), 132 of 4671 | 28.3 | 8.6% (7.8% to 9.6%), 315 of 3647 |
 
 The synthetic column is the six synthetic cases together (3647 transactions); their mix was chosen to exercise the flags, so it says how far from ordinary traffic they are and nothing else.
 
@@ -90,6 +90,15 @@ On transactions with two or more payment outputs (the ones that can have a chang
 None was flagged.
 
 
+
+## What the detected peel chains look like
+
+The 14 chains of 4 or more steps, by shape (the first that fits). Chains need linked transactions, so only neighbours inside the sample can form one. The shape is a way to look at them, not a verdict.
+
+| Shape | Chains | Steps | Share of the transactions in a chain |
+| --- | --- | --- | --- |
+| inside one block (other) | 13 | 127 | 96.2% |
+| the same amount peeled again and again | 1 | 5 | 3.8% |
 
 **What the detector did not flag.** In the sample, 0 transactions have the Whirlpool shape (0 flagged). So few CoinJoins are in a sample like this that it cannot say how many real ones the detector finds: that is measured on the synthetic cases, and on real CoinJoins only with a list of known ones.
 

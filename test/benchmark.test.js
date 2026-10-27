@@ -37,6 +37,10 @@ test('change: the tiers, the abstention, the wrong guess, the guess on a transac
   assert.deepEqual(r.noChangeGuessed, { n: 1, byTier: { high: 1, medium: 0, low: 0 } }, 'a round payment of another type reads as a payment, so the other output is called change');
   near(r.baselineAccuracy.random, 0.5); near(r.baselineAccuracy.largest.p, 0.25); near(r.baselineAccuracy.first.p, 0.5); near(r.baselineAccuracy.last.p, 0.5); near(r.baselineAccuracy.smallest.p, 0.75);
   assert.equal(r.wrongHigh.length, 0); assert.deepEqual(r.signalUse, { reuse: 1, type: 2 });
+  assert.deepEqual(Object.keys(r.byCount).sort(), ['high|1', 'medium|1'], 'every guess here rests on one sign');
+  assert.deepEqual([r.byCount['high|1'].guesses, r.byCount['high|1'].precision.k], [1, 1], 'the wallet paying itself back: high on one sign, right');
+  assert.deepEqual([r.byCount['medium|1'].guesses, r.byCount['medium|1'].precision.k], [2, 1], 'the same address type alone, twice: one right, one wrong');
+  assert.deepEqual(r.bySigns, { reuse: { guesses: 1, correct: 1 }, type: { guesses: 2, correct: 1 } });
 });
 
 test('change: a high guess that is wrong is listed with its reasons', () => {

@@ -28,7 +28,7 @@ function strata(c, t) {
 
 function evaluateChange(c, an) {
   const out = { transactions: 0, withChange: 0, noChange: 0, all: tier(), abstained: 0, tiers: { high: tier(), medium: tier(), low: tier() }, noChangeGuessed: { n: 0, byTier: { high: 0, medium: 0, low: 0 } },
-                baselines: { random: [], largest: tier(), smallest: tier(), first: tier(), last: tier() }, wrongHigh: [], strata: {} };
+                baselines: { random: [], largest: tier(), smallest: tier(), first: tier(), last: tier() }, wrongHigh: [], strata: {}, bySigns: {}, byCount: {} };
   const signalUse = {};
   Object.keys(c.truth.txs).forEach((txid) => {
     const t = c.truth.txs[txid];
@@ -59,6 +59,9 @@ function evaluateChange(c, an) {
     if (!g) { out.abstained++; return; }
     g.reasons.forEach((r) => { const k = AN.signalOf(r); if (!k) throw new Error('a reason that belongs to no signal: ' + r); signalUse[k] = (signalUse[k] || 0) + 1; });
     const ok = g.vout === t.change_vout;
+    // how many different signs the guess rests on, and which: a guess on one sign is a lead, and this says how good a lead
+    const signs = Array.from(new Set(g.reasons.map(AN.signalOf))).sort(), count = signs.length >= 3 ? '3 or more' : String(signs.length);
+    [[out.bySigns, signs.join(' + ')], [out.byCount, g.confidence + '|' + count]].forEach(([map, key]) => { const x = map[key] = map[key] || tier(); x.n++; if (ok) x.correct++; else x.wrong++; });
     [out.all, out.tiers[g.confidence]].forEach((x) => { x.n++; if (ok) x.correct++; else x.wrong++; });
     if (!ok && g.confidence === 'high' && out.wrongHigh.length < 15) out.wrongHigh.push({ txid, guessed: g.vout, change: t.change_vout, wallet: t.wallet, reasons: g.reasons });
   });
@@ -72,6 +75,8 @@ function summarise(o) {
   r.precision = wilson(o.all.correct, o.all.n);
   r.byTier = {};
   TIERS.forEach((k) => { r.byTier[k] = { guesses: wilson(o.tiers[k].n, o.withChange), precision: wilson(o.tiers[k].correct, o.tiers[k].n) }; });
+  r.byCount = {}; Object.keys(o.byCount).forEach((k) => { r.byCount[k] = { guesses: o.byCount[k].n, precision: wilson(o.byCount[k].correct, o.byCount[k].n) }; });
+  r.bySigns = {}; Object.keys(o.bySigns).forEach((k) => { r.bySigns[k] = { guesses: o.bySigns[k].n, correct: o.bySigns[k].correct }; });
   r.baselineAccuracy = { random: mean(o.baselines.random) };
   ['largest', 'smallest', 'first', 'last'].forEach((k) => { r.baselineAccuracy[k] = o.baselines[k].n ? wilson(o.baselines[k].correct, o.baselines[k].n) : null; });
   r.strataTable = {};

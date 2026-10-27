@@ -4,9 +4,9 @@ Written by `node test/benchmark/run.js --write-docs`; the method is in [benchmar
 
 |  |  |
 | --- | --- |
-| Date | 2026-10-26 |
-| Commit | b4236f6 |
-| `hopline-analysis.js` SHA-256 | `d14f004b301157c2` |
+| Date | 2026-10-27 |
+| Commit | 164c5ac |
+| `hopline-analysis.js` SHA-256 | `634132ae3ec68366` |
 | Node | v24.19.0 |
 | Cases | batch-consolidation, coinjoins, payjoin, payments, peel-chains, sweeps |
 
@@ -35,6 +35,40 @@ Over 3068 transactions whose change is known (batch-consolidation, coinjoins, pa
 What a guess has to beat (a rule that always answers, so its coverage is 100%): a random output is right 48.3% of the time, the largest 56.4%, the smallest 43.5%, the first 45.3%, the last 53.6%.
 
 On transactions that have no change a guess is always wrong: Hopline made one on 86 of 408 (high 1, medium 78, low 7).
+
+### Guesses by how many signs they rest on
+
+A guess on one sign is worded as a lead. This says how good a lead, by tier. The signs are reuse, type, known, fingerprint, round and smaller (see the table of what each is worth, further down).
+
+| Tier | Signs the guess rests on | Guesses | Right when guessed |
+| --- | --- | --- | --- |
+| high | 1 | 4 | 100.0% (51.0% to 100.0%), 4 of 4 |
+| high | 2 | 477 | 99.8% (98.8% to 100.0%), 476 of 477 |
+| high | 3 or more | 422 | 100.0% (99.1% to 100.0%), 422 of 422 |
+| medium | 1 | 579 | 89.5% (86.7% to 91.7%), 518 of 579 |
+| medium | 2 | 387 | 99.5% (98.1% to 99.9%), 385 of 387 |
+| low | 1 | 388 | 90.7% (87.4% to 93.2%), 352 of 388 |
+| low | 2 | 2 | 100.0% (34.2% to 100.0%), 2 of 2 |
+| low | 3 or more | 2 | 100.0% (34.2% to 100.0%), 2 of 2 |
+
+The same, for the guesses that rest on one sign, by which sign:
+
+| The one sign | Guesses | Right when guessed |
+| --- | --- | --- |
+| type | 611 | 84.3% (81.2% to 87.0%), 515 of 611 |
+| round | 251 | 100.0% (98.5% to 100.0%), 251 of 251 |
+| smaller | 92 | 98.9% (94.1% to 99.8%), 91 of 92 |
+| fingerprint | 8 | 100.0% (67.6% to 100.0%), 8 of 8 |
+| known | 5 | 100.0% (56.6% to 100.0%), 5 of 5 |
+| reuse | 4 | 100.0% (51.0% to 100.0%), 4 of 4 |
+
+**What if** a medium guess that rests on one sign were called low (a what-if; the rule is not changed):
+
+| Tier | Now: guesses | Now: right when guessed | If capped: guesses | If capped: right when guessed |
+| --- | --- | --- | --- | --- |
+| high | 903 | 99.9% (99.4% to 100.0%), 902 of 903 | 903 | 99.9% (99.4% to 100.0%), 902 of 903 |
+| medium | 966 | 93.5% (91.7% to 94.9%), 903 of 966 | 387 | 99.5% (98.1% to 99.9%), 385 of 387 |
+| low | 392 | 90.8% (87.5% to 93.3%), 356 of 392 | 971 | 90.0% (88.0% to 91.7%), 874 of 971 |
 
 ### What each signal is worth
 
@@ -176,7 +210,7 @@ A chain is found when the detected run covers at least 80% of the real one; a de
 
 ### The steps of the real chains, by the smaller output over the larger
 
-The scripted chains pay 1% to 60% of the coin at each step, evenly spread on a log scale, so no step is made to suit the rule. The rule calls a transaction a peel step when the smaller of its two outputs is at most half the larger, and a chain needs four such steps in a row; a step that pays more than a third of the coin is therefore never one, and breaks the chain. How many steps fall there is the generator's choice, so read the rows, not the total.
+The scripted chains pay 1% to 60% of the coin at each step, evenly spread on a log scale, so no step is made to suit the rule. The rule calls a transaction a peel step when the smaller of its two outputs is at most half the larger and not dust-sized (under 1,000 satoshis), and a chain needs four such steps in a row; a step that pays more than a third of the coin is therefore never one, and breaks the chain. How many steps fall there is the generator's choice, so read the rows, not the total.
 
 | Smaller over larger | Steps | Look like a peel step | Are in a detected chain |
 | --- | --- | --- | --- |
