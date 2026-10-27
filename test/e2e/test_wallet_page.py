@@ -7,6 +7,7 @@ import pytest
 
 from chains import IN, OUT, real_addr, tid, tx
 from conftest import ADDR_TXS, ADDRESS, ROOT, fx
+from helpers import wallet_export
 from test_copy import capture, copied
 
 WALLET_URL = (ROOT / "public" / "wallet.html").as_uri()
@@ -150,10 +151,27 @@ def test_copy_buttons_copy_the_address_and_the_transaction_id(wpage):
     assert copied(wpage)[-1] == ADDR_TXS[0]["txid"]
 
 
+def test_a_link_to_the_explorer_stands_next_to_the_arkham_one(wpage):
+    goto(wpage)
+    link = wpage.locator("#explorerLink")
+    assert link.is_visible() and link.inner_text().startswith("Check in Explorer")
+    assert link.get_attribute("href") == MEMPOOL + "/address/" + ADDRESS and link.get_attribute("target") == "_blank" and link.get_attribute("rel") == "noopener noreferrer"
+    assert "mempool.space" in link.get_attribute("title") and "told which wallet" in link.get_attribute("title")
+    assert wpage.locator("#explorerLink + #arkLink").count() == 1, "side by side, the explorer first"
+
+
+def test_the_explorer_link_follows_the_data_source_and_stays_over_tor(ctx, wpage):
+    ctx.add_init_script("localStorage.setItem('hopline.prefs.v1', %s);" % json.dumps(json.dumps({"source": "tor"})))
+    goto(wpage)
+    onion = wpage.evaluate("() => HoplineApi.ONION.replace(/\\/api$/, '')")
+    assert wpage.get_attribute("#explorerLink", "href") == onion + "/address/" + ADDRESS and wpage.is_visible("#explorerLink")
+    assert wpage.is_hidden("#arkLink"), "Arkham is not offered over Tor, the explorer of the chosen source is"
+
+
 def test_the_csv_has_a_line_per_loaded_transaction(wpage, tmp_path):
     goto(wpage)
     with wpage.expect_download() as dl:
-        wpage.click("#csv")
+        wallet_export(wpage, "csv")
     p = tmp_path / "w.csv"; dl.value.save_as(p)
     lines = p.read_bytes().decode("utf-8-sig").strip().split("\r\n")
     assert len(lines) == 9 and lines[0].startswith("txid,time_utc,time_unix,status,height,direction,")
@@ -214,7 +232,7 @@ def test_an_address_with_no_history_says_so(wpage, mock):
                                           "mempool_stats": {"funded_txo_count": 0, "funded_txo_sum": 0, "spent_txo_count": 0, "spent_txo_sum": 0, "tx_count": 0}}
     wpage.goto(WALLET_URL + "?q=" + ADDRESS)
     wpage.wait_for_function("() => document.getElementById('ledgerSec') && !document.getElementById('ledgerSec').hidden")
-    assert "No transactions yet" in text_of(wpage, "#ledger") and wpage.is_disabled("#csv") and wpage.is_hidden("#assocSec")
+    assert "No transactions yet" in text_of(wpage, "#ledger") and wpage.is_disabled("[data-export=csv]") and wpage.is_hidden("#assocSec")
 
 
 # ---------------------------------------------------------------- asking: the search box, the server, mistakes

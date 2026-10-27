@@ -158,3 +158,25 @@ test('with no group the report has no groups section, and a very large group is 
   assert.match(r.html, /times unknown · behind <code>me<\/code>/);
   assert.match(r.html, /The first 500 of 600 are listed; the embedded data has them all\./);
 });
+
+test('analysisFor: the findings are cut to the vertices that are in the report, so nothing left out comes in through a chain or a cluster', () => {
+  const an = An.analyse(sample(), {}), all = RP.analysisFor(an, () => true);
+  assert.ok(all.tx[ID.tx(tid(2))].flags.some((f) => f.short.startsWith('CONSOL')), 'the consolidation is found'); assert.equal(all.tx[ID.tx(tid(1))].change.vout, 1, 'and the change');
+  assert.equal(all.clusters.length, 1); assert.equal(all.clusters[0].addrs.length, 5);
+  const drop = all.clusters[0].addrs[0], cut = RP.analysisFor(an, (id) => id !== ID.tx(tid(2)) && id !== drop && id !== ID.addr('me'));
+  assert.ok(!(ID.tx(tid(2)) in cut.tx), 'a transaction that is not in the report has no finding');
+  assert.equal(cut.tx[ID.tx(tid(1))].change, null, 'a change output that is not in the report is not named');
+  assert.equal(cut.clusters.length, 1); assert.equal(cut.clusters[0].size, 5, 'the size is the whole cluster');
+  assert.ok(!cut.clusters[0].addrs.includes(drop) && cut.clusters[0].addrs.length === 4 && cut.clusters[0].txs.length === 0, 'its addresses and transactions are cut to what is in the report');
+  const none = RP.analysisFor(an, () => false);
+  assert.deepEqual(none, { tx: {}, chains: [], clusters: [] });
+});
+
+test('a page can say what made the report and what it covers; the workspace wording is the default', async () => {
+  const d = await RP.build(modelOf(sample()));
+  assert.match(d.html, /made with Hopline workspace/); assert.match(d.html, /This is what was on screen when the report was made\./);
+  const w = await RP.build(modelOf(sample(), { madeWith: 'Hopline wallet', scopeText: 'This is 2 transactions of the wallet <b>me</b>.' }));
+  assert.match(w.html, /made with Hopline wallet/); assert.ok(!/made with Hopline workspace/.test(w.html));
+  assert.match(w.html, /This is 2 transactions of the wallet &lt;b&gt;me&lt;\/b&gt;\./, 'what the page says is escaped');
+  assert.ok(!/This is what was on screen/.test(w.html));
+});

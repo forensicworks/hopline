@@ -8,6 +8,7 @@ import pytest
 
 from chains import IN, OUT, tx
 from conftest import ADDRESS, ADDR_TXS, HIST, PRICES_NOW, fx
+from helpers import wallet_export
 from test_fiat_sources import price_at
 from test_wallet_analysis import ring
 from test_wallet_history import history
@@ -116,7 +117,7 @@ def test_the_csv_gets_the_currency_columns_only_when_a_currency_is_on(ctx, wpage
     prefs(ctx, {"currency": "USD", "basis": "each", "show": "both", "ref": None})
     goto(wpage); wait_prices(wpage)
     with wpage.expect_download() as dl:
-        wpage.click("#csv")
+        wallet_export(wpage, "csv")
     p = tmp_path / "w.csv"; dl.value.save_as(p)
     rows = list(csv.reader(io.StringIO(p.read_bytes().decode("utf-8-sig"))))
     head = rows[0]
@@ -127,10 +128,21 @@ def test_the_csv_gets_the_currency_columns_only_when_a_currency_is_on(ctx, wpage
     assert abs(float(first["fiat_net"]) - int(first["net_sat"]) / 1e8 * price_at(t)) < 0.001
 
 
+def test_the_report_carries_the_currency_and_says_how_it_was_worked_out(ctx, wpage, tmp_path):
+    prefs(ctx, {"currency": "USD", "basis": "each", "show": "both", "ref": None})
+    goto(wpage); wait_prices(wpage)
+    with wpage.expect_download() as dl:
+        wallet_export(wpage, "report")
+    p = tmp_path / "r.html"; dl.value.save_as(p)
+    html = p.read_text(encoding="utf-8")
+    assert "Fiat values" in html and "Shown in USD at the price at each transaction&#39;s own time" in html
+    assert re.search(r'<span class="hint">[^<]*\$[\d,]+\.\d\d</span>', html), "amounts carry their value in the currency"
+
+
 def test_the_csv_is_as_it_was_without_a_currency(wpage, tmp_path):
     goto(wpage)
     with wpage.expect_download() as dl:
-        wpage.click("#csv")
+        wallet_export(wpage, "csv")
     p = tmp_path / "w.csv"; dl.value.save_as(p)
     assert "fiat" not in p.read_bytes().decode("utf-8-sig").split("\r\n")[0]
 

@@ -21,6 +21,26 @@
   function host(url) { return String(url || '').replace(/^https?:\/\//i, '').replace(/\/api\/?$/, ''); }
   function t(unix) { return unix == null ? 'unknown' : Style.fmtTimeFull(unix); }
 
+  /**
+   * The findings of an analysis (HoplineAnalysis.analyse), cut to the vertices that are in the report: has(vertexId) says which. A chain or a cluster keeps only
+   * those vertices, so nothing left out can come in through it. Returns the shape build() takes as model.analysis, without `skipped`: { tx, chains, clusters }.
+   */
+  function analysisFor(an, has) {
+    var tx = {};
+    an.tx.forEach(function (r, id) {
+      if (!has(id) || !(r.flags.length || r.change || r.chain)) return;
+      tx[id] = { flags: r.flags.map(function (f) { return { kind: f.kind, short: f.short, title: f.title }; }),
+                 change: r.change && has(r.change.id) ? { vout: r.change.vout, edgeId: r.change.edgeId, address: r.change.address, confidence: r.change.confidence, reasons: r.change.reasons } : null, chain: r.chain };
+    });
+    var chains = an.chains.filter(function (c) { return c.ids.some(has); }).map(function (c) {
+      return { label: c.label, ids: c.ids.filter(has), start: c.start, end: c.end, totalPeeled: c.totalPeeled, continues: c.continues };
+    });
+    var clusters = an.clusters.list.filter(function (c) { return c.addrs.some(has); }).map(function (c) {
+      return { label: c.label, size: c.size, addrs: c.addrs.filter(has), txs: c.txs.filter(function (txid) { return has('tx:' + txid); }) };
+    });
+    return { tx: tx, chains: chains, clusters: clusters };
+  }
+
   /** The text embedded in the report: compact JSON in which < is escaped, so it can never end the script element. */
   function evidenceText(evidence) {
     return JSON.stringify(evidence).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
@@ -129,6 +149,7 @@
    *   analysis: { tx: {id: {flags:[{short,title}], change:{vout,edgeId,confidence,reasons}, chain:{label,step,of}}}, chains:[...], clusters:[...], skipped:{...} },
    *   known(address) -> {label, pack} | null,  fiat(sats, time) -> text | '',  fiatNote, image (a PNG data URL) | null,
    *   fingerprint(node) -> text | ''
+   *   madeWith (the page that made it, 'Hopline workspace' when left out), scopeText (what the report covers, "what was on screen" when left out)
    * }
    * Resolves to { html, hash, docHash, text }:
    *   text      the embedded evidence, hash = its SHA-256 (robust: it covers one line of JSON, so line endings do not matter)
@@ -164,10 +185,10 @@
     model.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded && model.fingerprint) n.fingerprintText = model.fingerprint(n) || ''; });
 
     h.push('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + esc(title) + '</title><style>' + CSS + '</style></head><body>');
-    h.push('<h1>' + esc(title) + '</h1><p class="meta">' + (model.preparedBy ? 'Prepared by ' + esc(model.preparedBy) + ' · ' : '') + 'generated ' + esc(t(Math.floor((model.generated || Date.now()) / 1000))) + ' · made with Hopline workspace · all times UTC</p>');
+    h.push('<h1>' + esc(title) + '</h1><p class="meta">' + (model.preparedBy ? 'Prepared by ' + esc(model.preparedBy) + ' · ' : '') + 'generated ' + esc(t(Math.floor((model.generated || Date.now()) / 1000))) + ' · made with ' + esc(model.madeWith || 'Hopline workspace') + ' · all times UTC</p>');
     h.push('<div class="notice"><b>Read this first.</b> The facts here (transactions, amounts, times, which output was spent by which transaction) come from the blockchain data source named below and were fetched at the times shown. The <i>findings</i> (patterns, likely change, address clusters) are heuristics: they are guesses with their reasons stated, not proof of who controls what.</div>');
 
-    h.push('<h2>Summary</h2><table><tr><th>What is covered</th><td>' + plural(txs.length, 'transaction') + ' loaded' + (stubs ? ' (and ' + stubs + ' more referenced but not loaded)' : '') + ', ' + plural(wallets.length, 'wallet') + ', ' + plural(model.edges.length, 'movement') + '. This is what was on screen when the report was made.</td></tr>'
+    h.push('<h2>Summary</h2><table><tr><th>What is covered</th><td>' + plural(txs.length, 'transaction') + ' loaded' + (stubs ? ' (and ' + stubs + ' more referenced but not loaded)' : '') + ', ' + plural(wallets.length, 'wallet') + ', ' + plural(model.edges.length, 'movement') + '. ' + esc(model.scopeText || 'This is what was on screen when the report was made.') + '</td></tr>'
       + '<tr><th>Time span</th><td>' + (times.length ? esc(t(Math.min.apply(null, times))) + ' to ' + esc(t(Math.max.apply(null, times))) : 'no confirmed transaction') + '</td></tr>'
       + '<tr><th>Data source</th><td>' + (Object.keys(sources).length ? Object.keys(sources).map(function (k) { return esc(k) + ' (' + plural(sources[k], 'transaction') + ')'; }).join(', ') : 'not recorded') + (fetched.length ? '; fetched between ' + esc(t(Math.min.apply(null, fetched))) + ' and ' + esc(t(Math.max.apply(null, fetched))) : '') + '</td></tr>'
       + (model.fiatNote ? '<tr><th>Fiat values</th><td>' + esc(model.fiatNote) + '</td></tr>' : '') + '</table>');
@@ -241,5 +262,5 @@
     return h.join('\n');
   }
 
-  return { build: build, render: render, esc: esc, evidenceText: evidenceText, sha256Hex: sha256Hex, ZERO: ZERO };
+  return { build: build, render: render, analysisFor: analysisFor, esc: esc, evidenceText: evidenceText, sha256Hex: sha256Hex, ZERO: ZERO };
 }));

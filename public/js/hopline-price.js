@@ -134,5 +134,12 @@
   /** A fixed-precision number for exports (never scientific notation). */
   function plain(value, currency) { return value == null || !isFinite(value) ? '' : value.toFixed(currency === 'JPY' ? 2 : 4); }
 
-  return { CURRENCIES: CURRENCIES, PriceBook: PriceBook, parseToday: parseToday, convert: convert, cleanFiat: cleanFiat, rateFor: rateFor, amountOf: amountOf, format: format, plain: plain, interpolate: interpolate, APPROX_SPAN: APPROX_SPAN };
+  /** The sentence that says how the values in a report were worked out, or '' when no currency is chosen. fmtTimeFull(unix) writes a moment. */
+  function note(fiat, fmtTimeFull) {
+    if (!fiat || fiat.currency === 'off') return '';
+    return 'Shown in ' + fiat.currency + ' at ' + (fiat.basis === 'today' ? 'today\'s price' : fiat.basis === 'ref' && fiat.ref ? 'the price at ' + fmtTimeFull(fiat.ref.time) + ' for every amount' : 'the price at each transaction\'s own time')
+      + ', from the mempool.space price history, interpolated between its points (a value marked ≈ was interpolated across more than two days and is rough).';
+  }
+
+  return { CURRENCIES: CURRENCIES, PriceBook: PriceBook, parseToday: parseToday, convert: convert, cleanFiat: cleanFiat, rateFor: rateFor, amountOf: amountOf, format: format, plain: plain, note: note, interpolate: interpolate, APPROX_SPAN: APPROX_SPAN };
 }));

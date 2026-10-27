@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var A = HoplineApi, AD = HoplineAddress, S = HoplineStyle, W = HoplineWallet, LB = HoplineLabels, PK = HoplinePacks, PR = HoplinePrice, XT = HoplineExternal;
+  var A = HoplineApi, AD = HoplineAddress, S = HoplineStyle, W = HoplineWallet, LB = HoplineLabels, PK = HoplinePacks, PR = HoplinePrice, XT = HoplineExternal, IO = HoplineIO, RP = HoplineReport, AN = HoplineAnalysis;
   var PREF_KEY = 'hopline.prefs.v1', PACKS_KEY = 'hopline.packs.v1', SESSION_KEY = 'hopline.workspace.v1', PAGE = 25, NL = String.fromCharCode(10);
 
   function $(id) { return document.getElementById(id); }
@@ -62,7 +62,8 @@
 
   var state = { addr: null, stats: null, txs: [], done: false, busy: false, dir: 'all', client: null, led: null,
                 fiat: PR.cleanFiat(prefs.fiat), books: {}, today: null, todayAt: 0, fiatError: '', priceClient: null,
-                f: { text: '', from: null, to: null, min: null, max: null }, shown: 100, picked: [], cpShown: 10 };
+                f: { text: '', from: null, to: null, min: null, max: null }, shown: 100, picked: [], cpShown: 10,
+                fetched: new Map(), statsAt: null, statsSource: null };                                // when, and from which server, the totals and each transaction arrived: what an export says about its evidence
 
   // ---- small pieces --------------------------------------------------------------------------------------
   function message(text, bad, retry) {
@@ -117,6 +118,9 @@
     lab.hidden = !k; lab.textContent = k ? k.label : ''; lab.title = k ? nameTip(k) : ''; lab.classList.toggle('sanctioned', !!(k && k.sanctions));
     $('addrNote').textContent = k && k.note ? k.note : '';
     var tg = $('addrTag'); tg.hidden = !(k && k.category); tg.textContent = k && k.category ? k.category : '';
+    var exp = $('explorerLink'), origin = explorerOrigin();                                                   // the block explorer of the chosen data source (mempool.space unless another was chosen)
+    exp.href = origin + '/address/' + a; exp.hidden = false;
+    exp.title = 'Opens this wallet on ' + A.hostOf(origin) + ' in a new tab. That site is told which wallet you are looking at.';
     var ark = $('arkLink'), arkHref = choice.source === 'tor' ? '' : XT.arkhamUrl('address', a);      // a link to Arkham's own page: not offered over Tor, where it would go outside Tor
     ark.hidden = !arkHref;
     if (arkHref) { ark.href = arkHref; ark.title = 'Opens Arkham in a new tab, with your own Arkham account if you are signed in there. Arkham is told which wallet you are looking at; no key or proxy is used.'; }
@@ -222,8 +226,8 @@
     var more = $('more');
     more.disabled = state.busy || state.done;
     more.textContent = state.done ? 'All loaded' : state.busy ? 'Loading…' : 'Load ' + PAGE + ' more';
-    $('loadAll').disabled = state.busy || state.done; $('loadCap').disabled = state.busy || state.done; $('csvAll').disabled = state.busy || state.done || !all.length;
-    $('csv').disabled = !all.length;
+    $('loadAll').disabled = state.busy || state.done; $('loadCap').disabled = state.busy || state.done; $('exportAll').disabled = state.busy || state.done;
+    Array.prototype.forEach.call($('exportMenu').querySelectorAll('[data-export]'), function (b) { b.disabled = !all.length; });
     $('ledgerSec').hidden = false;
     updatePickBar();
   }
@@ -664,8 +668,8 @@
     return null;
   }
   function addPage(list, first) {
-    var seen = new Set(state.txs.map(function (t) { return t.txid; })), chain = 0;
-    list.forEach(function (t) { if (t.status && t.status.confirmed) chain++; if (!seen.has(t.txid)) { state.txs.push(t); seen.add(t.txid); } });
+    var seen = new Set(state.txs.map(function (t) { return t.txid; })), chain = 0, at = Math.floor(Date.now() / 1000), source = state.client.sourceOf(list);
+    list.forEach(function (t) { if (t.status && t.status.confirmed) chain++; if (!seen.has(t.txid)) { state.txs.push(t); seen.add(t.txid); state.fetched.set(t.txid, { at: at, source: source }); } });
     if (chain < PAGE) state.done = true;
   }
   /** Something went wrong while drawing: say so on the page (with what it was) instead of leaving it blank. */
@@ -680,6 +684,7 @@
     return Promise.all([state.client.address(state.addr), state.client.addressTxs(state.addr)]).then(function (r) {
       clearTimeout(waitTimer);
       state.stats = r[0]; state.txs = []; state.done = false;
+      state.fetched = new Map(); state.statsAt = Math.floor(Date.now() / 1000); state.statsSource = state.client.sourceOf(r[0]);
       try { addPage(r[1], true); state.busy = false; message(state.switched || ''); drawHead(); redraw(); }
       catch (e) { showFailure('The data arrived but could not be shown', e, load); }
     }, function (e) {
@@ -706,14 +711,68 @@
     window.location.href = walletHref(c.value);
   }
 
-  function csv() {
-    if (window.HoplineStats) window.HoplineStats.hit('wallet-csv');
-    var cur = state.fiat.currency, opts = {};
-    if (fiatOn()) opts = { currency: cur, fiat: function (sats, time) { var x = fx(sats, time); return x ? { value: PR.plain(x.value, cur), price: String(Math.round(x.rate.price * 100) / 100) } : null; } };
-    var blob = new Blob([String.fromCharCode(0xFEFF) + W.csv(state.led.rows, opts)], { type: 'text/csv;charset=utf-8' });
-    var a = el('a', { href: URL.createObjectURL(blob), download: 'hopline-wallet-' + state.addr.slice(0, 12) + '.csv' });
+  // ---- export: the transactions as CSV, as a workspace file, or as a report ------------------------------------------------------------
+  function download(name, text, mime) {
+    var blob = new Blob([text], { type: mime }), a = el('a', { href: URL.createObjectURL(blob), download: name });
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  function fileName(ext, what) { return 'hopline-wallet-' + (what ? what + '-' : '') + state.addr.slice(0, 12) + '.' + ext; }
+
+  function exportCsv(rows) {
+    var cur = state.fiat.currency, opts = {};
+    if (fiatOn()) opts = { currency: cur, fiat: function (sats, time) { var x = fx(sats, time); return x ? { value: PR.plain(x.value, cur), price: String(Math.round(x.rate.price * 100) / 100) } : null; } };
+    download(fileName('csv'), String.fromCharCode(0xFEFF) + W.csv(rows, opts), 'text/csv;charset=utf-8');
+  }
+
+  /** The loaded transactions behind `rows`, as a graph the workspace can open. */
+  function exportGraph(rows) {
+    var want = new Set(rows.map(function (r) { return r.txid; }));
+    return W.graphOf(state.addr, state.txs.filter(function (t) { return want.has(t.txid); }), { stats: state.stats, at: state.statsAt, source: state.statsSource, fetched: state.fetched });
+  }
+  function exportJson(rows) { download(fileName('json'), IO.toJson(exportGraph(rows), { source: state.client.base }), 'application/json'); }
+
+  /** What the report covers, in words: the whole history, the part that is loaded, or the part the search and limits showed. */
+  function scopeText(n, only) {
+    var wallet = 'the wallet ' + state.addr, all = ' The wallet has ' + fmtInt(totalTxs()) + ' in all.';
+    if (only) return 'This is ' + plural(n, 'transaction') + ' of ' + wallet + ': the ones the search and limits showed among the ' + fmtInt(state.txs.length) + ' loaded on the wallet page.' + all;
+    if (historyComplete()) return 'This is the whole history of ' + wallet + ': ' + plural(n, 'transaction') + '.';
+    return 'This is ' + plural(n, 'transaction') + ' of ' + wallet + ': the ones loaded on the wallet page when the report was made.' + all;
+  }
+  /** What each label pack that is switched on says about itself, for the report's list of where names came from. */
+  function reportPacks() {
+    return PK.active(shipped, imported).concat(imported.filter(function (p) { return p.enabled; })).map(function (p) {
+      return { name: p.name, source: p.source || '', licence: p.licence || '', attribution: p.attribution || '', asOf: p.asOf || '' };
+    });
+  }
+  function exportReport(rows, only) {
+    var g = exportGraph(rows), an = AN.analyse(g, { known: function (a) { return !!known(a); } }), found = RP.analysisFor(an, function () { return true; });
+    var title = LB.cleanText($('reportTitle').value, 120) || 'Hopline wallet report', by = LB.cleanText($('reportBy').value, 80), source = state.client.base;
+    var base = JSON.parse(IO.toJson(g, { source: source })), loaded = base.nodes.filter(function (n) { return n.type === 'tx' && n.loaded; }).length;
+    base.evidence = { generatedBy: 'Hopline wallet', title: title, preparedBy: by, generated: new Date().toISOString(), source: source, fiat: state.fiat,
+                      counts: { nodes: base.nodes.length, edges: base.edges.length, transactionsLoaded: loaded },
+                      analysis: { transactions: found.tx, chains: found.chains, clusters: found.clusters, skipped: an.clusters.skipped, thresholds: AN.DEFAULTS } };
+    var model = { title: title, preparedBy: by, generated: Date.now(), evidence: base, nodes: base.nodes, edges: base.edges, analysis: { tx: found.tx, chains: found.chains, clusters: found.clusters, skipped: an.clusters.skipped }, groups: [],
+                  known: known, packs: reportPacks(), fiat: fiatOn() ? function (s, t) { var x = fx(s, t); return x ? x.text : ''; } : null, fiatNote: PR.note(state.fiat, S.fmtTimeFull),
+                  image: null, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; }, madeWith: 'Hopline wallet', scopeText: scopeText(loaded, only) };
+    return RP.build(model).then(function (r) {
+      download(fileName('html', 'report'), r.html, 'text/html;charset=utf-8');
+      message('Report written: ' + plural(loaded, 'transaction') + '. SHA-256 of its evidence: ' + r.hash.slice(0, 16) + '…');
+    }, function (e) { message('The report could not be made: ' + (e && e.message ? e.message : e), true); });
+  }
+
+  /** kind: 'csv', 'json' or 'report'. With "Load the whole history first" the rest is loaded before anything is written. */
+  function doExport(kind) {
+    $('exportMenu').open = false;
+    if (state.busy || allLoad.running) { message('Wait until loading has finished, then export.', true); return; }
+    if (!state.led || !state.led.rows.length) { message('Nothing to export yet.', true); return; }
+    function run() {
+      var only = $('exportShown').checked, rows = only ? visibleRows() : state.led.rows;
+      if (!rows.length) { message('No loaded transaction is shown, so there is nothing to export. Clear the search and limits, or untick "Only the transactions shown".', true); return; }
+      if (window.HoplineStats) window.HoplineStats.hit('wallet-' + kind);
+      if (kind === 'csv') exportCsv(rows); else if (kind === 'json') exportJson(rows); else exportReport(rows, only);
+    }
+    if ($('exportAll').checked && !state.done) loadAll(run); else run();
   }
 
   function showQR() {
@@ -731,13 +790,12 @@
     $('searchForm').addEventListener('submit', function (e) { e.preventDefault(); open($('q').value); });
     $('more').addEventListener('click', more);
     $('loadAll').addEventListener('click', function () { loadAll(); });
-    $('csvAll').addEventListener('click', function () { loadAll(csv); });
     $('allCancel').addEventListener('click', function () { allLoad.cancel = true; $('allText').textContent = 'Stopping after this page…'; });
     wireFilters(); wireChart(); wireCluster();
     $('cpMore').addEventListener('click', function () { state.cpShown += CP_STEP; drawCounterparties(); });
     $('pickShown').addEventListener('click', pickShown);
     $('pickClear').addEventListener('click', function () { state.picked = []; updatePickBar(); });
-    $('csv').addEventListener('click', csv);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-export]'), function (b) { b.addEventListener('click', function () { doExport(b.getAttribute('data-export')); }); });
     $('copyAddr').addEventListener('click', function () { if (state.addr) copy(state.addr, 'the address'); });
     Array.prototype.forEach.call($('dirSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { state.dir = b.getAttribute('data-dir'); if (state.led) drawLedger(); }); });
     var addr = $('addr');

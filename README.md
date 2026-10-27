@@ -10,7 +10,7 @@ Bitcoin investigation tools that run in your browser: nothing to install and no 
 ## What you get
 
 * **Workspace** - a graph of transactions and wallets. Start from one wallet or transaction in the **Trace** layout and click ▶ or ◀ to follow the money one step at a time; what is already on screen stays where it is. Group, hide and filter, replay it through time, undo.
-* **Wallet overview** - one address as a ledger: balance, totals, every transaction with its inputs and outputs, the wallets it dealt with most, and a CSV download.
+* **Wallet overview** - one address as a ledger: balance, totals, every transaction with its inputs and outputs, the wallets it dealt with most, and an Export menu (CSV, a workspace file, a verifiable report).
 * **Names** - a built-in list of exchanges and services, the OFAC and UK sanctions lists, the Ransomwhere ransomware payment addresses, the mining pools' reward addresses and a chosen part of the GraphSense tag packs (all built in and dated, with their sources in [sources.md](sources.md); the sanctions lists are on unless you switch them off, the others when you switch them on), label lists you import and your own labels, tags and notes. A name is somebody's claim, not proof.
 * **Analysis, with reasons** - consolidations, batch payments, CoinJoin-like transactions, peel chains, the likely change output and addresses spent together. All of it is heuristic: it shows its reasons, and none of it is proof.
 * **Investigation report** - one self-contained HTML file with the findings, the transactions, where and when each was fetched, and hashes that `tools/verify_report.py` can check.

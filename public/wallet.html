@@ -45,7 +45,7 @@ window.addEventListener('error', function (e) {
   </div>
 
   <section id="head" hidden>
-    <h1>Address <span id="addr" class="mono" tabindex="0" title="Hover for a QR code"></span><button type="button" id="copyAddr" class="copybtn" title="Copy the address" aria-label="Copy the address"></button> <span id="addrLabel" class="chip" hidden></span> <span id="addrTag" class="chip dim" hidden></span> <a id="arkLink" class="extlink" target="_blank" rel="noopener noreferrer" hidden>Check in Arkham &#8599;</a></h1>
+    <h1>Address <span id="addr" class="mono" tabindex="0" title="Hover for a QR code"></span><button type="button" id="copyAddr" class="copybtn" title="Copy the address" aria-label="Copy the address"></button> <span id="addrLabel" class="chip" hidden></span> <span id="addrTag" class="chip dim" hidden></span> <a id="explorerLink" class="extlink" target="_blank" rel="noopener noreferrer" hidden>Check in Explorer &#8599;</a> <a id="arkLink" class="extlink" target="_blank" rel="noopener noreferrer" hidden>Check in Arkham &#8599;</a></h1>
     <div id="qrfloat" hidden aria-hidden="true"></div>
     <p class="hint" id="addrNote"></p>
     <p class="banner bad" id="sanctionBanner" role="status" hidden></p>
@@ -124,8 +124,20 @@ window.addEventListener('error', function (e) {
       <button type="button" id="more">Load more</button>
       <button type="button" id="loadAll" title="Load the rest of the history, a page at a time, up to the limit beside it">Load all</button>
       <label class="capwrap" title="Stop after this many transactions"><span>up to</span> <input id="loadCap" type="number" min="25" max="50000" step="25" value="1000" aria-label="Most transactions to load"></label>
-      <button type="button" id="csv" title="The loaded transactions, one line each">Download CSV</button>
-      <button type="button" id="csvAll" title="Load the rest of the history first (up to the limit), then download it">Load all and download</button>
+      <details class="menu" id="exportMenu">
+        <summary>Export</summary>
+        <div class="menu-body">
+          <label class="check" title="Leave out what the search, the dates, the amounts and All / In / Out hide"><input type="checkbox" id="exportShown"> Only the transactions shown</label>
+          <label class="check" title="Load the rest of the history first (up to the limit beside Load all), then export it"><input type="checkbox" id="exportAll"> Load the whole history first</label>
+          <button type="button" data-export="csv" title="The transactions, one line each">Transactions (.csv)</button>
+          <button type="button" data-export="json" title="The transactions as a workspace file: the workspace's Import opens it">Workspace (.json) — can be imported</button>
+          <div class="menu-group">
+            <input type="text" id="reportTitle" placeholder="Report title (optional)" maxlength="120" aria-label="Report title" autocomplete="off">
+            <input type="text" id="reportBy" placeholder="Prepared by (optional)" maxlength="80" aria-label="Prepared by" autocomplete="off">
+            <button type="button" data-export="report" title="One HTML file with the wallet's summary, the findings, the transactions in time order, how each finding was reached, and a SHA-256 of the evidence it embeds">Wallet report (.html)</button>
+          </div>
+        </div>
+      </details>
     </div>
     <div id="allBar" class="allbar" hidden role="status"><span id="allText"></span> <button type="button" id="allCancel">Cancel</button></div>
     <div class="ledgertools" id="ledgerTools">
@@ -153,6 +165,7 @@ window.addEventListener('error', function (e) {
 <script src="js/hopline-model.js"></script>
 <script src="js/hopline-style.js"></script>
 <script src="js/hopline-analysis.js"></script>
+<script src="js/hopline-report.js"></script>
 <script src="js/hopline-price.js"></script>
 <script src="js/hopline-api.js"></script>
 <script src="js/hopline-io.js"></script>

@@ -92,3 +92,10 @@ def tick_none(page):
 
 def tick_top(page):
     tick_mode(page, "top")
+
+
+def wallet_export(page, kind):
+    """Open the wallet page's Export menu and press one item ('csv', 'json' or 'report'). Put it inside expect_download() when a file is expected."""
+    if not page.evaluate("() => document.getElementById('exportMenu').open"):
+        page.click("#exportMenu summary")
+    page.click("[data-export=%s]" % kind)
