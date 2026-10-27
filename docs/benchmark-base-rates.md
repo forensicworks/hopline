@@ -2,7 +2,7 @@
 
 Written by `node test/benchmark/base-rates.js --write-docs`; the method is in [benchmark.md](benchmark.md) (tier D). Nobody knows who owns what in a sample of the chain, so these are **rates and shapes, not accuracy**: a flag that fires is not wrong for it, and one that does not fire is not right.
 
-|  |  |
+| | |
 | --- | --- |
 | Date | 2026-10-27 |
 | Commit | 164c5ac |
@@ -29,7 +29,7 @@ Random pages of 25 consecutive transactions from blocks spread over the years. N
 
 Share of the sample by the number of inputs (down) and outputs (across). The synthetic cases, which were made to exercise the flags, are shown beside it.
 
-|  | 1 out | 2 out | 3 to 5 out | 6 or more out |
+| | 1 out | 2 out | 3 to 5 out | 6 or more out |
 | --- | --- | --- | --- | --- |
 | 1 in | 13.5% (synthetic 0.3%) | 52.5% (synthetic 63.1%) | 6.0% (synthetic 0.0%) | 2.6% (synthetic 1.6%) |
 | 2 to 4 in | 4.0% (synthetic 2.1%) | 14.6% (synthetic 21.4%) | 1.3% (synthetic 0.0%) | 0.9% (synthetic 0.4%) |
@@ -65,7 +65,7 @@ The synthetic column is the six synthetic cases together (3647 transactions); th
 
 On transactions with two or more payment outputs (the ones that can have a change output). Whether a guess is right cannot be known here; only how often one is made, and on what.
 
-|  | Real traffic | The synthetic cases |
+| | Real traffic | The synthetic cases |
 | --- | --- | --- |
 | Transactions with two or more outputs | 3461 | 3355 |
 | A guess was made | 70.8% (69.3% to 72.3%), 2451 of 3461 | 70.3% (68.7% to 71.8%), 2358 of 3355 |
@@ -89,8 +89,6 @@ On transactions with two or more payment outputs (the ones that can have a chang
 
 None was flagged.
 
-
-
 ## What the detected peel chains look like
 
 The 14 chains of 4 or more steps, by shape (the first that fits). Chains need linked transactions, so only neighbours inside the sample can form one. The shape is a way to look at them, not a verdict.
@@ -109,4 +107,3 @@ Transactions with at least 3 equal outputs of 10000 satoshis or more and at leas
 | `a71b8cc529f047a883ee6e6e11876c036a9cb3008d697e47ca04e2532694bd3c` | 2017 | 51 | 54 | 3 | 950000 |
 | `1a11fbab5b5e341984988e66069b24b7d1c037c8814f72f38100588a5a88c1b9` | 2023 | 25 | 9 | 3 | 1935059 |
 | `5dc76dae10cb4ce691d0b4dfa64cf780743125127ac77fe4b0d82761646eaba7` | 2023 | 8 | 9 | 4 | 19352092 |
-

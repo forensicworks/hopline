@@ -22,7 +22,7 @@ Every transaction should be made **by the wallet's own coin selection and change
 **2. Make the transactions**, per wallet, in this order (the last ones empty the wallet, so they go last):
 
 | How many | What | Why it is in the plan |
-|---|---|---|
+| --- | --- | --- |
 | 10 | Pay another of your test wallets, an **odd** amount (0.00123, 0.00457, 0.00891, ...) | ordinary payments, the common case |
 | 8 | Pay another test wallet or D, a **round** amount (0.001, 0.002, 0.005, 0.01, 0.02) | the round-amount sign |
 | 8 | Pay D an odd amount | payments to somebody else |
@@ -64,7 +64,7 @@ Write `wallets.json`. A wallet that shows **one** descriptor with `<0;1>` in it 
 }
 ```
 
-```
+```bash
 python tools/bench/make_wallet_case.py --config wallets.json --out test/benchmark/cases/wallets-v1/<name>
 node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1
 ```
