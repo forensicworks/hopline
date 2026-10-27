@@ -151,6 +151,23 @@ def test_copy_buttons_copy_the_address_and_the_transaction_id(wpage):
     assert copied(wpage)[-1] == ADDR_TXS[0]["txid"]
 
 
+def test_a_link_to_the_explorer_stands_next_to_the_arkham_one(wpage):
+    goto(wpage)
+    link = wpage.locator("#explorerLink")
+    assert link.is_visible() and link.inner_text().startswith("Check in Explorer")
+    assert link.get_attribute("href") == MEMPOOL + "/address/" + ADDRESS and link.get_attribute("target") == "_blank" and link.get_attribute("rel") == "noopener noreferrer"
+    assert "mempool.space" in link.get_attribute("title") and "told which wallet" in link.get_attribute("title")
+    assert wpage.locator("#explorerLink + #arkLink").count() == 1, "side by side, the explorer first"
+
+
+def test_the_explorer_link_follows_the_data_source_and_stays_over_tor(ctx, wpage):
+    ctx.add_init_script("localStorage.setItem('hopline.prefs.v1', %s);" % json.dumps(json.dumps({"source": "tor"})))
+    goto(wpage)
+    onion = wpage.evaluate("() => HoplineApi.ONION.replace(/\\/api$/, '')")
+    assert wpage.get_attribute("#explorerLink", "href") == onion + "/address/" + ADDRESS and wpage.is_visible("#explorerLink")
+    assert wpage.is_hidden("#arkLink"), "Arkham is not offered over Tor, the explorer of the chosen source is"
+
+
 def test_the_csv_has_a_line_per_loaded_transaction(wpage, tmp_path):
     goto(wpage)
     with wpage.expect_download() as dl:

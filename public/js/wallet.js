@@ -118,6 +118,9 @@
     lab.hidden = !k; lab.textContent = k ? k.label : ''; lab.title = k ? nameTip(k) : ''; lab.classList.toggle('sanctioned', !!(k && k.sanctions));
     $('addrNote').textContent = k && k.note ? k.note : '';
     var tg = $('addrTag'); tg.hidden = !(k && k.category); tg.textContent = k && k.category ? k.category : '';
+    var exp = $('explorerLink'), origin = explorerOrigin();                                                   // the block explorer of the chosen data source (mempool.space unless another was chosen)
+    exp.href = origin + '/address/' + a; exp.hidden = false;
+    exp.title = 'Opens this wallet on ' + A.hostOf(origin) + ' in a new tab. That site is told which wallet you are looking at.';
     var ark = $('arkLink'), arkHref = choice.source === 'tor' ? '' : XT.arkhamUrl('address', a);      // a link to Arkham's own page: not offered over Tor, where it would go outside Tor
     ark.hidden = !arkHref;
     if (arkHref) { ark.href = arkHref; ark.title = 'Opens Arkham in a new tab, with your own Arkham account if you are signed in there. Arkham is told which wallet you are looking at; no key or proxy is used.'; }
