@@ -15,7 +15,7 @@ The results are written by the runners: [benchmark-results.md](benchmark-results
 | D | How often each flag fires on a sample of the real chain, with the flagged ones read by hand | done: 4,674 transactions from 8 blocks, 2013 to 2026 |
 | 2 | Real wallet software on signet or testnet4, truth from the wallets' own change chain | **tool built and tested; no data yet**: it needs a person with real wallets and faucet coins, see [benchmark-wallets.md](benchmark-wallets.md) |
 | 3 | Documented public cases (court and FBI documents) as case studies | one case done (Colonial Pipeline and DarkSide); the court documents themselves could not be read, see below |
-| 4 | Recalibrating on what the results show, one change at a time, each judged on a sample it was not made on, and a page for readers | one change made and tested on a holdout (below); the confidence tiers and the PEEL badge are not started; the wiki has a first Accuracy page |
+| 4 | Recalibrating on what the results show, one change at a time, each judged on a sample it was not made on, and a page for readers | two changes made and each tested on a holdout (below), and the one-sign change guess measured; the confidence tiers are not changed; the wiki has a first Accuracy page |
 
 ## What is measured
 
@@ -84,7 +84,7 @@ How these were reached, so the numbers can be weighed: the generator and the eva
 
 - **Both CoinJoin flags on real traffic were wrong.** The detector fired on 2 of 4,671 transactions (0.4 per 1,000). Both are from one block in 2023 and look alike: 20 inputs from 4 addresses paying 31 outputs to 5 addresses, with equal outputs of 381, 546 and 600 satoshis, and three of the addresses on both sides, so one wallet. That is a batch of dust-sized outputs (the look of inscription tooling, though the benchmark does not know), not a mix. Every equal amount in both went to **one** address, which is what the first change in phase 4 (below) is about.
 - **The sample cannot say how many real CoinJoins the detector finds.** It holds no transaction of the Whirlpool shape, and three that have 3 or more equal outputs of 10,000 satoshis or more were not flagged (a payout, or a CoinJoin; the benchmark does not know). Recall on real CoinJoins needs a list of known ones.
-- **The peel-chain shape is common.** 41% of the real transactions are one coin in and two outputs with the small at most half the large (the same share as in the synthetic cases, by coincidence of their mix). 3.6% sit in a detected chain even though only neighbours inside the sample can form one, so with a whole investigation loaded the PEEL badge will fire on ordinary traffic more often than that.
+- **The peel-chain shape is common.** 41% of the real transactions are one coin in and two outputs with the small at most half the large (the same share as in the synthetic cases, by coincidence of their mix). 3.6% sit in a detected chain (2.8% after the dust rule of the second change, below) even though only neighbours inside the sample can form one, so with a whole investigation loaded the PEEL badge will fire on ordinary traffic more often than that.
 - **The shape flags are not rare either:** CONSOL on 3.5% of the transactions and BATCH on 3.2%, the same order as the synthetic mix (7.7% and 1.8%).
 - **The change guess is made about as often as on the synthetic cases (71% against 70%) but for other reasons.** Address reuse is a reason in 46% of the real guesses and 3% of the synthetic ones; the "same wallet software" sign is nearly absent (0.2% against 29%) because it needs the spending transaction, which a sample does not have. 66% of the real guesses rest on one sign only, against 46%. By year, a guess was made on 56% to 57% of the transactions that can have change up to 2017 and on 71% to 80% from 2019. What the signs would be worth on real wallets is what phase 2 is for.
 
@@ -122,13 +122,46 @@ This is one case. The route was found by walking back from the endpoint, so reac
 * **Not flagged, with 3 or more equal outputs of 10,000 satoshis or more to different addresses** (3 transactions, from 2015 and 2017): 3 or 4 equal outputs among 10 to 21, with 24, 3 and 3 inputs. They look like ordinary batch payouts, and the rule does not flag them by design (fewer than 5 equal and fewer than half of the outputs).
 * What this does **not** show: how many real CoinJoins the detector misses (the sample is not labelled; a list of known CoinJoins is needed), and whether the ten kept are CoinJoins (their shape says so, nothing else does).
 
-**The PEEL badge, looked at but not changed.** Peel chains need linked transactions, which a sample only has when they are close together, and there is no truth for them on real traffic. What is known: with the minimum length of 4, 3.6% of the real transactions sit in a detected chain, and 2.0% in one of 10 or more; on the synthetic cases a longer minimum finds fewer real chains (steps of real chains in a detected chain: 75% at 3, 71% at 4, 63% at 5, 58% at 6, 52% at 8) and fewer chains that were not made as one (15.5, 6.3, 2.1, 1.2 and 0.3 per 1,000 other transactions). Read by hand, the seven chains of 8 or more steps in the first real sample are all inside one block (they look like sequential payouts that spend each other's change), and two of them peel exactly 546 satoshis next to an OP_RETURN output, which looks like token-protocol transfers and not money. That is a second family of false positives for a later change, on its own holdout; the minimum length is a choice between those two columns that the benchmark can show but not make.
+**The PEEL badge.** Looked at here, and changed in the second change below (dust-sized peels). What is known about the minimum chain length, which is not changed: with 4, 3.6% of the real transactions in the first sample sat in a detected chain, and 2.0% in one of 10 or more; on the synthetic cases a longer minimum finds fewer real chains (steps of real chains in a detected chain: 75% at 3, 71% at 4, 63% at 5, 58% at 6, 52% at 8) and fewer chains that were not made as one (15.5, 6.3, 2.1, 1.2 and 0.3 per 1,000 other transactions). The minimum length is a choice between those two columns that the benchmark can show but not make.
+
+## Phase 4, second change: a peel step is not a dust-sized output (2026-10-27)
+
+**What the real samples showed.** Detected peel chains were sorted by shape (`docs/benchmark-base-rates.md`). On the first sample, 5 of the 19 chains (20% of the steps in chains) peel only dust, next to an OP_RETURN output; on the first holdout, 11 of the 61 (25% of the steps). The peeled amounts are exactly the dust limits of address types: 546 satoshis (the legacy limit, with OP_RETURN, in 2019) and 330 satoshis (the taproot limit, in 2025). That is the look of token and inscription transfers, where the small output is a marker, not a payment.
+
+**The change.** The smaller output of a peel step must be at least 1,000 satoshis (`peel.minSmall` in `hopline-analysis.js`; `peel: { minSmall: 0 }` brings the old rule back). Nothing else about the rule changed: one input, two outputs, the small one at most half the large one, four in a row. The minimum chain length of 4 is **unchanged**: a longer one trades real chains found against chains that were not made as one, and the benchmark shows both but cannot choose.
+
+**What it did to the data it was made on.** On the synthetic cases nothing changed (the scripted chains peel at least 20,000 satoshis). On the first sample, 166 transactions in chains became 132: exactly the 34 steps of the five dust chains.
+
+**Judged on a sample it was not made on.** A second new sample, seed 20261108: 9,247 transactions from 8 blocks (2013 to 2026) that are in neither earlier sample. It was fetched before the change was made and not read until the change was finished.
+
+| | Transactions in a detected peel chain |
+|---|---|
+| The rule before the change | 502 of 9,247 (5.4%), in 58 chains |
+| The rule after it | 315 of 9,247 (3.4%), in 48 chains |
+| Dropped by the change | 187 |
+| Added by the change | 0 |
+
+* **181 of the 187 dropped steps peel dust**: 163 peel exactly 330 satoshis (all from 2025) and 18 exactly 546, with an OP_RETURN output (2019).
+* **6 are collateral**: steps that peel 2,400 satoshis and lost their chain when a dust step in the middle of it was no longer one (3% of what dropped).
+* **What remains** are chains that peel the same amount again and again (11 chains) and chains inside one block (37): the shapes that look like a service paying out in turn, which the benchmark cannot call right or wrong.
+* What this does **not** show: that what remains is genuine peeling. There is no truth for peel chains on real traffic; the claim is only that a peeled output at the dust limit is not a payment.
+
+## Change guesses by the number of signs (2026-10-27)
+
+The roadmap asks whether a change guess that rests on one sign should count as low. On the synthetic cases (the only labelled data so far; [benchmark-results.md](benchmark-results.md) has the tables):
+
+* A **medium** guess on one sign is right **89.5%** of the time (518 of 579); on two signs **99.5%** (385 of 387).
+* The weak sign is **"same address type" alone**: right **84.3%** (515 of 611), below the low tier as a whole (90.8%). "Round amount" alone (251 of 251) and "smaller than every input" alone (91 of 92) are right nearly every time, and are already low.
+* If one-sign medium guesses were called low, the tiers would read: high 99.9% (903 guesses), medium 99.5% (387), low 90.0% (971). Medium would mean two agreeing signs.
+* On real traffic, 66% of the change guesses rest on one sign, so on real data most "medium" guesses would be called low.
+
+This is a measurement; the rule is **not changed**. The synthetic wallets give "same address type" a good record because most of them change to the type they receive on, and real wallets may not; the real-wallet data ([benchmark-wallets.md](benchmark-wallets.md)) is the test, and is waiting for wallets and faucet coins.
 
 ## Rules the numbers follow
 
 - **Precision first.** A wrong guess sends an investigator down the wrong chain, so precision matters more than coverage, and both are reported.
 - **Intervals.** Every proportion has a Wilson 95% interval. About 1,000 labelled decisions in a tier gives a width of about 3 points.
-- **No tuning on what is reported.** Rules are developed on one set of scenarios and reported on a different one; the generator takes a seed, and a seed used for tuning is not used for reporting. Seeds so far: 20261026 (the synthetic cases, made while the harness was developed), 20261027 (the first sample of the real chain, which the change below was made on) and 20261101 (the first holdout, reported once).
+- **No tuning on what is reported.** Rules are developed on one set of scenarios and reported on a different one; the generator takes a seed, and a seed used for tuning is not used for reporting. Seeds so far: 20261026 (the synthetic cases, made while the harness was developed), 20261027 (the first sample of the real chain, which the change below was made on) 20261101 (the first holdout, reported once, for the CoinJoin change) and 20261108 (the second holdout, reported once, for the peel change).
 - **Failures are listed.** The results include the wrong "high" guesses, with their reasons.
 - **No client data, ever.** Cases are synthetic, made from our own wallets, or public documents.
 

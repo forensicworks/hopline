@@ -37,7 +37,7 @@
     "mainnet-sample:coinjoin": { "max": 0.0015, "why": "on real traffic a COINJOIN? flag is rare (2 of 4,671, both batches of dust-sized outputs); loosening the detector must show up here" },
     "mainnet-sample:consolidation": { "max": 0.045, "why": "3.5% of real transactions had 5 or more inputs into 1 or 2 outputs in the first run; the flag must not fire more often than that without a reason" },
     "mainnet-sample:batch": { "max": 0.04, "why": "3.2% of real transactions were flagged as a batch in the first run" },
-    "mainnet-sample:peelInChain": { "max": 0.045, "why": "3.6% of real transactions were in a detected peel chain in the first run, counting only the neighbours that were in the sample; it must not fire more often" },
+    "mainnet-sample:peelInChain": { "max": 0.035, "why": "2.8% of real transactions are in a detected peel chain (3.6% before dust-sized peels were left out), counting only the neighbours that were in the sample; it must not fire more often" },
     "mainnet-sample:changeGuessed": { "min": 0.66, "why": "a change guess was made on 71% of the real transactions that can have one; a change that stops guessing is safe but useless" }
   }
 }

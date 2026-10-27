@@ -7,7 +7,7 @@
 const fs = require('fs'), path = require('path'), zlib = require('zlib');
 const { Graph } = require('../../../public/js/hopline-model.js');
 const AN = require('../../../public/js/hopline-analysis.js');
-const { wilson, prop } = require('./stats.js');
+const { wilson, prop, pct } = require('./stats.js');
 
 const WHIRLPOOL_POOLS = [100000, 1000000, 5000000, 50000000];          // satoshis: the sizes of the pools, 5 inputs and 5 outputs of one size
 const DUST = 1000;                                                      // satoshis: an amount nobody mixes to
@@ -42,14 +42,32 @@ function equalOutputs(t) {
   return { value: +top, count: by[top].size };
 }
 
+/**
+ * What a detected peel chain looks like, by its shape alone (the first that fits): a way for a reader to look at them, not a verdict.
+ * Peeling a dust-sized amount next to an OP_RETURN output is what token-protocol transfers look like; the same amount again and again, or a
+ * chain inside one block, is a service paying out in turn.
+ */
+function chainClass(ch, byId) {
+  const ts = ch.txids.map((id) => byId.get(id)).filter(Boolean), amounts = ch.peeled.map((p) => p.amount);
+  const opReturn = ts.some((t) => t.vout.some((o) => o.scriptpubkey_type === 'op_return'));
+  if (amounts.length && amounts.every((a) => a < DUST)) return opReturn ? 'dust peels next to an OP_RETURN output' : 'dust peels (under ' + DUST + ' satoshis)';
+  const count = {}; amounts.forEach((a) => { count[a] = (count[a] || 0) + 1; });
+  const most = Math.max.apply(null, [0].concat(Object.keys(count).map((k) => count[k])));
+  if (most >= 3 && most * 2 >= amounts.length) return 'the same amount peeled again and again';
+  if (ts.length && new Set(ts.map((t) => t.status && t.status.block_height)).size === 1) return 'inside one block (other)';
+  return 'spread over several blocks';
+}
+
 const year = (t) => (t.status && t.status.block_time ? new Date(t.status.block_time * 1000).getUTCFullYear() : 'unknown');
 const kindOf = (rec, kind) => !!(rec && rec.flags.some((f) => f.kind === kind));
 
 /** Everything counted over a list of transactions. */
 function measure(txs) {
   const g = graphOf(txs), an = AN.analyse(g, {});
-  const r = { transactions: 0, shape: {}, flags: { coinjoin: 0, consolidation: 0, batch: 0 }, joinClasses: {}, joins: [], lookalikes: [], whirlpoolShaped: { all: 0, flagged: 0 }, peelSteps: 0, inChain: 0, chains: an.chains.length,
+  const r = { transactions: 0, shape: {}, flags: { coinjoin: 0, consolidation: 0, batch: 0 }, joinClasses: {}, joins: [], lookalikes: [], whirlpoolShaped: { all: 0, flagged: 0 }, peelSteps: 0, inChain: 0, chains: an.chains.length, chainClasses: {},
               change: { eligible: 0, guessed: 0, tiers: { high: 0, medium: 0, low: 0 }, oneSign: 0, signals: {} }, byYear: {} };
+  const byId = new Map(txs.map((t) => [t.txid, t]));
+  an.chains.forEach((ch) => { const k = chainClass(ch, byId), x = (r.chainClasses[k] = r.chainClasses[k] || { chains: 0, steps: 0 }); x.chains++; x.steps += ch.txids.length; });
   txs.forEach((t) => {
     const v = AN.txView(g, 'tx:' + t.txid);
     if (!v || v.coinbase || !v.complete) return;
@@ -88,7 +106,7 @@ function describe(t) {
 function compareFlags(txs, before, after, kind) {
   const g = graphOf(txs), flagged = (AN2) => {
     const an = AN2.analyse(g, {}), s = new Set();
-    txs.forEach((t) => { const r = an.tx.get('tx:' + t.txid); if (r && r.flags.some((f) => f.kind === kind)) s.add(t.txid); });
+    txs.forEach((t) => { const r = an.tx.get('tx:' + t.txid); if (r && (kind === 'peel' ? !!r.chain : r.flags.some((f) => f.kind === kind))) s.add(t.txid); });         // 'peel': in a detected chain
     return s;
   };
   const a = flagged(before), b = flagged(after);
@@ -152,6 +170,9 @@ function toMarkdown(sample, real, synthetic, meta) {
   if (real.joins.length) {
     out.push('The flagged transactions (to open in Hopline or any explorer):', '', table(['Transaction', 'Year', 'Inputs', 'Outputs', 'Shape'], real.joins.slice().sort((a, b) => String(a.year).localeCompare(String(b.year)) || a.txid.localeCompare(b.txid)).map((j) => ['`' + j.txid + '`', String(j.year), String(j.inputs), String(j.outputs), j.cls])), '');
   }
+  const kinds = Object.keys(real.chainClasses).sort((a, b) => real.chainClasses[b].steps - real.chainClasses[a].steps), inChain = kinds.reduce((a, k) => a + real.chainClasses[k].steps, 0);
+  out.push('## What the detected peel chains look like', '', kinds.length ? 'The ' + kinds.reduce((a, k) => a + real.chainClasses[k].chains, 0) + ' chains of ' + AN.DEFAULTS.peel.minLength + ' or more steps, by shape (the first that fits). Chains need linked transactions, so only neighbours inside the sample can form one. The shape is a way to look at them, not a verdict.' : 'No chain was detected.', '',
+    kinds.length ? table(['Shape', 'Chains', 'Steps', 'Share of the transactions in a chain'], kinds.map((k) => [k, String(real.chainClasses[k].chains), String(real.chainClasses[k].steps), pct(real.chainClasses[k].steps / inChain)])) : '', '');
   out.push('**What the detector did not flag.** In the sample, ' + real.whirlpoolShaped.all + ' transaction' + (real.whirlpoolShaped.all === 1 ? ' has' : 's have') + ' the Whirlpool shape (' + real.whirlpoolShaped.flagged + ' flagged). So few CoinJoins are in a sample like this that it cannot say how many real ones the detector finds: that is measured on the synthetic cases, and on real CoinJoins only with a list of known ones.', '');
   if (real.lookalikes.length) {
     out.push('Transactions with at least ' + LOOKALIKE.minEqual + ' equal outputs of ' + LOOKALIKE.minSats + ' satoshis or more and at least ' + LOOKALIKE.minIn + ' inputs that were not flagged (' + real.lookalikes.length + '), to look at by hand. Some may be CoinJoins and some payouts of one amount; the benchmark does not know which.', '',
@@ -160,4 +181,4 @@ function toMarkdown(sample, real, synthetic, meta) {
   return out.join('\n') + '\n';
 }
 
-module.exports = { loadSample, graphOf, measure, rates, joinClass, equalOutputs, describe, compareFlags, toMarkdown, WHIRLPOOL_POOLS, DUST };
+module.exports = { loadSample, graphOf, measure, rates, joinClass, chainClass, equalOutputs, describe, compareFlags, toMarkdown, WHIRLPOOL_POOLS, DUST };

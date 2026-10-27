@@ -23,7 +23,7 @@
     consolidation: { minIn: 5, maxOut: 2 },             // many inputs gathered into one or two outputs
     batch: { minOut: 6, maxIn: 3 },                     // a few inputs paying many outputs
     coinjoin: { minIn: 3, minEqual: 3 },                // several owners' inputs, several outputs of exactly the same value to different addresses
-    peel: { maxRatio: 0.5, minLength: 4 }               // one input, two outputs, the small one at most half the large; this many in a row
+    peel: { maxRatio: 0.5, minLength: 4, minSmall: 1000 } // one input, two outputs, the small one at most half the large and not dust (satoshis); this many in a row
   };
 
   var COLORS = { consolidation: '#b58cff', batch: '#6be675', coinjoin: '#ff7aa2', peel: '#ffb347', change: '#ff9f43' };
@@ -231,14 +231,14 @@
   }
 
   // ---- peel chains ----------------------------------------------------------------------------------
-  /** One input, two outputs, the small one at most `maxRatio` of the large one. */
+  /** One input, two outputs, the small one at most `maxRatio` of the large one and at least `minSmall` satoshis (a dust-sized "peel" is a protocol marker, not a payment). */
   function peelStep(v, opts) {
     var c = Object.assign({}, DEFAULTS.peel, opts && opts.peel);
     if (!v || v.coinbase || !v.complete || v.inputs.length !== 1) return null;
     var outs = payOuts(v);
     if (outs.length !== 2 || outs[0].amount <= 0 || outs[1].amount <= 0) return null;
     var large = outs[0].amount >= outs[1].amount ? outs[0] : outs[1], small = large === outs[0] ? outs[1] : outs[0];
-    if (small.amount / large.amount > c.maxRatio) return null;
+    if (small.amount / large.amount > c.maxRatio || small.amount < c.minSmall) return null;
     return { large: large, small: small, ratio: small.amount / large.amount };
   }
 
