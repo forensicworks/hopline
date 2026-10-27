@@ -7,6 +7,7 @@ import pytest
 
 from chains import IN, OUT, tid, tx
 from conftest import ADDRESS
+from helpers import wallet_export
 from test_wallet_page import WALLET_URL, cards, goto, wpage  # noqa: F401  (the fixture is used by name)
 
 W = ADDRESS
@@ -207,11 +208,12 @@ def test_a_failure_part_way_keeps_what_was_loaded_and_says_what_happened(wpage, 
     assert wpage.is_visible("#message.bad") or "bad" in (wpage.get_attribute("#message", "class") or "")
 
 
-def test_load_all_and_download_loads_the_rest_and_then_downloads_everything(wpage, mock, tmp_path):
+def test_export_with_the_whole_history_first_loads_the_rest_and_then_downloads_everything(wpage, mock, tmp_path):
     history(mock, 60)
     goto(wpage)
+    wpage.click("#exportMenu summary"); wpage.check("#exportAll")
     with wpage.expect_download(timeout=60000) as dl:
-        wpage.click("#csvAll")
+        wallet_export(wpage, "csv")
     p = tmp_path / "all.csv"; dl.value.save_as(p)
     rows = list(csv.reader(io.StringIO(p.read_bytes().decode("utf-8-sig"))))
     assert len(rows) == 61, "a heading and every one of the 60"
@@ -221,5 +223,6 @@ def test_load_all_and_download_loads_the_rest_and_then_downloads_everything(wpag
 def test_with_everything_loaded_the_buttons_are_off(wpage, mock):
     history(mock, 20)
     goto(wpage)
-    assert wpage.is_disabled("#loadAll") and wpage.is_disabled("#csvAll") and wpage.is_disabled("#loadCap")
-    assert wpage.is_enabled("#csv")
+    wpage.click("#exportMenu summary")
+    assert wpage.is_disabled("#loadAll") and wpage.is_disabled("#exportAll") and wpage.is_disabled("#loadCap")
+    assert wpage.is_enabled("[data-export=csv]")

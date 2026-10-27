@@ -187,6 +187,24 @@
     return { query: [address].concat(kept).join(' '), txids: kept, cut: ids.length - kept.length };
   }
 
+  /**
+   * The transactions of one wallet as a graph, the way the workspace holds them, so the wallet page can hand over a workspace file and a report.
+   *   txs   transactions in the API's format
+   *   opts  { stats: GET /address/<address> (the totals the server keeps), at: when it was read (unix seconds), source: the API that answered,
+   *           fetched: Map(txid -> { at, source }) saying when and from where each transaction arrived }
+   */
+  function graphOf(address, txs, opts) {
+    opts = opts || {};
+    var g = new Model.Graph();
+    (txs || []).forEach(function (t) {
+      var n = g.nodes.get(g.addTx(t)), f = opts.fetched && opts.fetched.get(t.txid);
+      if (n && f) { n.source = f.source; n.fetchedAt = f.at; }
+    });
+    if (opts.stats) g.addAddressStats(address, opts.stats, { at: opts.at, source: opts.source });
+    g.refreshDerived();
+    return g;
+  }
+
   var COLUMNS = ['txid', 'time_utc', 'time_unix', 'status', 'height', 'direction', 'received_sat', 'sent_sat', 'net_sat', 'fee_sat', 'balance_after_sat', 'inputs', 'outputs'];
   var FIAT_COLUMNS = ['fiat_currency', 'fiat_price_per_btc', 'fiat_received', 'fiat_sent', 'fiat_net'];
   function cell(v) {
@@ -215,5 +233,5 @@
     return out.join('\r\n') + '\r\n';
   }
 
-  return { ledger: ledger, summary: summary, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, cluster: cluster, traceQuery: traceQuery };
+  return { ledger: ledger, summary: summary, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
 }));

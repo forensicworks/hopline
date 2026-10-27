@@ -256,3 +256,32 @@ test('traceQuery: the wallet first, then well-formed transaction ids once each, 
   assert.equal(big.txids.length, 9, 'the wallet and nine transactions are ten places'); assert.equal(big.cut, 5); assert.equal(big.query.split(' ').length, 10);
   assert.equal(Wallet.traceQuery(ME, ids(5), 3).txids.length, 2, 'a smaller limit is kept'); assert.deepEqual(Wallet.traceQuery(ME, null).txids, []);
 });
+
+// ---- the wallet as a graph, for a workspace file and a report -------------------------------------------------------------------------------
+test('graphOf: the transactions as a workspace graph, with when and where each arrived and the totals the server keeps', () => {
+  const Model = require('../public/js/hopline-model.js'), IO = require('../public/js/hopline-io.js');
+  const txs = sample(), api = 'https://mempool.space/api';
+  const fetched = new Map(txs.slice(0, 3).map((t, i) => [t.txid, { at: 1700000000 + i, source: api }]));                 // the fourth has no record of its arrival
+  const stats = { chain_stats: { funded_txo_sum: 268000, spent_txo_sum: 100000, tx_count: 3 }, mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 5000, tx_count: 1 } };
+  const g = Wallet.graphOf(ME, txs, { stats, at: 1700000100, source: api, fetched });
+  const loaded = Array.from(g.nodes.values()).filter((n) => n.type === 'tx' && n.loaded);
+  assert.equal(loaded.length, 4, 'every transaction is a loaded vertex');
+  const first = g.nodes.get(Model.ID.tx(tid(4)));
+  assert.equal(first.source, api); assert.equal(first.fetchedAt, 1700000000);
+  assert.equal(g.nodes.get(Model.ID.tx(tid(1))).fetchedAt, undefined, 'no record of arrival, none invented');
+  const me = g.nodes.get(Model.ID.addr(ME));
+  assert.equal(me.fundedSum, 268000); assert.equal(me.spentSum, 100000); assert.equal(me.statsAt, 1700000100); assert.equal(me.statsSource, api);
+  assert.ok(me.received > 0 && me.sent > 0, 'what each wallet received and sent is worked out');
+  const back = IO.fromJson(IO.toJson(g, { source: api }));                                                                  // the workspace opens it
+  assert.equal(back.graph.nodes.size, g.nodes.size); assert.equal(back.graph.edges.size, g.edges.size);
+  assert.equal(back.graph.nodes.get(Model.ID.tx(tid(4))).fetchedAt, 1700000000, 'the provenance survives');
+  assert.equal(back.graph.nodes.get(Model.ID.addr(ME)).fundedSum, 268000);
+});
+
+test('graphOf: no totals without stats, an empty list is an empty graph, and a transaction given twice is one vertex', () => {
+  const Model = require('../public/js/hopline-model.js');
+  const g = Wallet.graphOf(ME, sample().concat(sample()));
+  assert.equal(Array.from(g.nodes.values()).filter((n) => n.type === 'tx' && n.loaded).length, 4);
+  assert.equal(g.nodes.get(Model.ID.addr(ME)).fundedSum, undefined);
+  const e = Wallet.graphOf(ME, []); assert.equal(e.nodes.size, 0); assert.equal(Wallet.graphOf(ME, null).edges.size, 0);
+});

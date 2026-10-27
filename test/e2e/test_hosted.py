@@ -6,7 +6,7 @@ import re
 import pytest
 
 from conftest import ADDRESS, NORMAL, PAGE_URL, ROOT
-from helpers import idle, open_query
+from helpers import idle, open_query, wallet_export
 from test_wallet_page import WALLET_URL, goto, wpage  # noqa: F401  (the fixture is used by name)
 from test_wallet_sample import SAMPLE, serve_sample
 
@@ -131,10 +131,15 @@ def test_the_workspace_counts_its_page_and_a_few_features_by_name_and_nothing_el
 def test_the_wallet_page_and_the_landing_page_are_counted_and_say_so(ctx, wpage, errors, hits):
     settings(ctx)
     goto(wpage)
-    wpage.click("#csv"); wpage.wait_for_timeout(500)
+    wallet_export(wpage, "csv"); wpage.wait_for_timeout(500)
     got = names(hits)
     assert got[0] == "/wallet" and "wallet-csv" in got, got
     assert wpage.is_visible(".counterbar")
+    assert ADDRESS not in " ".join(h["url"] for h in hits)
+    for kind in ("json", "report"):
+        wallet_export(wpage, kind); wpage.wait_for_timeout(500)
+    got = names(hits)
+    assert "wallet-json" in got and "wallet-report" in got, "each export is counted by its name, so only what is used is known"
     assert ADDRESS not in " ".join(h["url"] for h in hits)
     n0 = len(hits)
     home = new_page(ctx, errors, INDEX_URL); home.wait_for_timeout(500)
