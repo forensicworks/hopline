@@ -1524,7 +1524,7 @@
   function balanceRows(dl, n, box) {
     var b = balanceOf(n);
     if (!b) {
-      dl.appendChild(el('dt', { text: 'Balance' })); dl.appendChild(el('dd', { text: 'not loaded yet' }));
+      dl.appendChild(el('dt', { text: 'Balance' })); dl.appendChild(el('dd', { text: 'not loaded yet: press Load balance to read it' }));
       return el('button', { type: 'button', text: 'Load balance', title: 'Ask the server what this wallet holds now (one request, no history)', onclick: function () { loadBalances([n.id]); } });
     }
     kvf(dl, 'Balance', balanceText(b), fiatToday(b.confirmed));
@@ -1551,8 +1551,9 @@
     var kids = [el('span', { 'class': 'lbl', text: 'Balances (' + addrIds.length + ' wallet' + (addrIds.length === 1 ? '' : 's') + ')' })];
     if (known) { var dl = el('dl', { 'class': 'kv' }); kvf(dl, 'Total of ' + known, S.fmtBtc(total) + ' BTC', fiatToday(total)); kids.push(dl); kids.push(list); }
     if (unknown.length) {
-      kids.push(el('p', { 'class': 'hint', text: plural(unknown.length, 'wallet') + (known ? ' not loaded yet.' : ': balances not loaded yet.') }));
-      kids.push(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', text: 'Load ' + plural(unknown.length, 'balance'), title: 'One request per wallet, no history', onclick: function () { loadBalances(unknown); } })]));
+      var loadText = 'Load ' + plural(unknown.length, 'balance');
+      kids.push(el('p', { 'class': 'hint', text: plural(unknown.length, 'wallet') + (known ? ' not loaded yet: press ' : ': balances not loaded yet. Press ') + loadText + ' to read ' + (unknown.length === 1 ? 'it' : 'them') + '.' }));
+      kids.push(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', text: loadText, title: 'One request per wallet, no history', onclick: function () { loadBalances(unknown); } })]));
     }
     return el('div', { 'class': 'insp-section' }, kids);
   }
@@ -3676,7 +3677,7 @@
     all: 'Follows every spent output, the largest first, up to the limit per transaction. The wallets it does not follow stay on screen so you can expand them by hand.',
     largest: 'Follows only the largest output of each transaction.',
     change: 'Follows the output that most likely returns to the sender, and stops where the evidence is not clear enough to name one.',
-    peel: 'Follows the large output of each transaction that has one input and two outputs, the small one at most half the large one, and stops at anything else. Forward only.'
+    peel: 'Follows the large output of each transaction that has one input and two outputs, the small one at most half the large one and not dust-sized (under 1,000 satoshis), and stops at anything else. Forward only.'
   };
   function autoTarget() {
     var sel = Array.from(state.selected).filter(walletOrTx);

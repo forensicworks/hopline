@@ -76,7 +76,7 @@ def test_a_failed_read_says_so_and_leaves_the_button(fpage, mock):
     select(fpage, INPUT_ADDR)                                                       # no route for it: the server answers 404 (the fixture's own address is SMALL_ADDR, which has one)
     fpage.click("#inspBody button:has-text('Load balance')"); idle(fpage); settle(fpage)
     assert "failed" in toast_text(fpage).lower() or "404" in toast_text(fpage)
-    assert "not loaded yet" in insp(fpage) and fpage.locator("#inspBody button:has-text('Load balance')").count() == 1
+    assert "not loaded yet: press Load balance to read it" in insp(fpage) and fpage.locator("#inspBody button:has-text('Load balance')").count() == 1, "it says what to press"
 
 
 def test_several_selected_wallets_get_a_list_of_balances_largest_first_and_a_total(fpage, mock):
@@ -86,14 +86,14 @@ def test_several_selected_wallets_get_a_list_of_balances_largest_first_and_a_tot
     stats(mock, SMALL_ADDR, 200000, 150000)       # 50000
     select(fpage, BIG_ADDR, SMALL_ADDR, INPUT_ADDR)
     t = insp(fpage)
-    assert "BALANCES (3 WALLETS)" in t.upper() and "3 wallets: balances not loaded yet." in t
+    assert "BALANCES (3 WALLETS)" in t.upper() and "3 wallets: balances not loaded yet. Press Load 3 balances to read them." in t
     fpage.click("#inspBody button:has-text('Load 3 balances')"); idle(fpage); settle(fpage)
     fpage.wait_for_function("() => document.getElementById('toast').textContent.length > 0")
     t = insp(fpage)
     rows = fpage.locator("#inspBody .balrow .amt").all_inner_texts()
     assert rows[:2] == ["0.00500000 BTC", "0.00050000 BTC"], rows
     assert "Total of 2" in t and "0.00550000 BTC" in t
-    assert "1 wallet not loaded yet." in t and fpage.locator("#inspBody button:has-text('Load 1 balance')").count() == 1, "the one the server did not know stays marked"
+    assert "1 wallet not loaded yet: press Load 1 balance to read it." in t and fpage.locator("#inspBody button:has-text('Load 1 balance')").count() == 1, "the one the server did not know stays marked"
 
 
 def test_the_balance_is_valued_at_todays_price_when_a_currency_is_chosen(fpage, mock):
