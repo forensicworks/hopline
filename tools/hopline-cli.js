@@ -6,7 +6,7 @@
  *   node tools/hopline-cli.js detections workspace.json [--kind peel] [--chain P-65a1]
  *   node tools/hopline-cli.js chains     workspace.json                    every possible peel chain, with its steps and payments
  *   node tools/hopline-cli.js focus      workspace.json <ref>              the facts about one transaction, wallet, peel chain (P-65a1) or cluster (C3)
- *   node tools/hopline-cli.js trace      workspace.json [--ref R]          how far the trail from the reference got: service hand-offs and open ends
+ *   node tools/hopline-cli.js trace      workspace.json [--ref R]          how far the trail from the reference got: hand-offs and open ends
  *   node tools/hopline-cli.js handoffs   workspace.json [--ref R] [--csv]  where the trail meets a service wallet, as JSON or CSV
  *   node tools/hopline-cli.js route      workspace.json --from A --to B    the route the money took from one wallet or transaction to another (exit code 1 if none)
  *   node tools/hopline-cli.js prompt     workspace.json --task triage|narrative|explain|challenge [--focus <ref>] [--max-rows 60] [--json]
@@ -39,7 +39,7 @@ function usage() {
     '                                                     the text to give an assistant (T: triage, narrative, explain, challenge)',
     '  check      <workspace.json> <answer.txt>          the ids an answer cites, and which are not in the evidence (exit code 1 if any)',
     '  trace      <workspace.json> [--ref R]             how far the trail from the reference got: service hand-offs and where it is still open',
-    '  handoffs   <workspace.json> [--ref R] [--csv]     where the trail meets a service wallet (a deposit or a withdrawal), as JSON or CSV',
+    '  handoffs   <workspace.json> [--ref R] [--csv]     where the trail meets a service wallet or a wallet a sanctions or ransomware list names, as JSON or CSV',
     '  route      <workspace.json> --from A --to B       the route the money took from one wallet or transaction to another (exit code 1 if there is none)',
     '',
     'A file name of - reads standard input. Options: --known <file>, --packs <folder>, --with <id,id>, --no-packs, --no-known, --generated <ISO time>, --compact.',
@@ -119,12 +119,13 @@ function trailOf(args, ctx, needRef) {
   if (args.flags.ref) { ref = vertexOf(ctx.graph, args.flags.ref); if (!ref) fail('"' + args.flags.ref + '" is not in the workspace.'); }
   else ref = RT.referenceOf(ctx.graph, ctx.view, []);
   if (!ref && needRef) fail('There is no reference: name one with --ref (a wallet address or a transaction id). A workspace saved from a trace has its starting point.');
-  return { idx: idx, ref: ref, hub: function (id) { return RT.isHub(ctx.graph, ctx.known, id); }, name: function (id) { return RT.nameOf(ctx.graph, ctx.known, id); } };
+  return { idx: idx, ref: ref, hub: function (id) { return RT.isHub(ctx.graph, ctx.known, id); }, name: function (id) { return RT.nameOf(ctx.graph, ctx.known, id); },
+           listed: function (id) { return RT.listedName(ctx.graph, ctx.known, id); } };
 }
 function traceOf(args, ctx, needRef) {
   var t = trailOf(args, ctx, needRef);
   if (!t.ref) return null;
-  var r = RT.trace(t.idx, t.ref, { hub: t.hub, name: t.name, stop: t.name });
+  var r = RT.trace(t.idx, t.ref, { hub: t.hub, name: t.name, listed: t.listed, stop: t.name });
   r.referenceName = t.name(t.ref) || '';
   return r;
 }

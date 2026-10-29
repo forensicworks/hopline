@@ -214,6 +214,16 @@ test('trace: with a reference it says where the trail meets a service wallet and
   assert.equal(r.err, '');
 });
 
+test('trace and handoffs: a wallet a list names that is not a service is a row of kind named, and the trail goes on to the service behind it', () => {
+  const list = path.join(dir, 'named-known.js');
+  fs.writeFileSync(list, 'window.HOPLINE_KNOWN = ' + JSON.stringify({ [BINANCE]: { label: 'Binance Hot Wallet' }, [a('peel1')]: { label: 'Ransomware: Acme' } }) + ';\n');
+  const t = run(['trace', FILE, '--ref', a('origin'), '--known', list, '--compact']).json();
+  assert.deepEqual(t.handoffs.map((r) => [r.kind, r.dir, r.service, r.txid]), [['named', 'deposit', 'Ransomware: Acme', tid(11)], ['service', 'deposit', 'Binance Hot Wallet', tid(12)]]);
+  const c = run(['handoffs', FILE, '--ref', a('origin'), '--known', list, '--csv']).out.split('\r\n');
+  assert.ok(c[1].endsWith(',named') && c[2].endsWith(',service'), c.slice(1, 3).join(' | '));
+  assert.deepEqual(run(['handoffs', FILE, '--ref', a('origin')]).json().map((r) => r.kind), ['service'], 'with the built-in list alone there is only the exchange');
+});
+
 test('trace: with no reference it says so, and a wrong one is named', () => {
   let r = run(['trace', FILE]); assert.equal(r.code, 2); assert.match(r.err, /no reference.*--ref/i);
   r = run(['trace', FILE, '--ref', a('nobody')]); assert.equal(r.code, 2); assert.match(r.err, /is not in the workspace/);

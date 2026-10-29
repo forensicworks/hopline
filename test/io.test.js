@@ -325,6 +325,15 @@ test('handoffsCsv: one row per hand-off with its columns, and a name that could 
   assert.equal(IO.handoffsCsv([]), IO.HANDOFF_COLS.join(',') + '\r\n');
 });
 
+test('handoffsCsv: the kind column says service, or named for a wallet a sanctions or ransomware list names', () => {
+  const lines = IO.handoffsCsv([
+    { kind: 'named', dir: 'deposit', service: 'Ransomware: Acme', address: 'bc1qlst', txid: 'ab'.repeat(32), time: 1650000000, amount: 100, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false },
+    { dir: 'withdrawal', service: 'Exchange', address: 'bc1qex', txid: 'cd'.repeat(32), time: 1650000000, amount: 5, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 1, merges: false }]).split('\r\n');
+  assert.equal(IO.HANDOFF_COLS[IO.HANDOFF_COLS.length - 1], 'kind', 'added at the end, so the columns a script already reads stay where they were');
+  assert.ok(lines[1].endsWith(',false,named'), lines[1]);
+  assert.ok(lines[2].endsWith(',false,service'), 'a row from before the kind existed is a service: ' + lines[2]);
+});
+
 test('the reference that was picked survives an export and an import, and an id that was changed on the way follows it', () => {
   const g = new Graph();
   g.upsertNode({ id: 'addr:bc1qabc', type: 'addr', address: 'bc1qabc' });

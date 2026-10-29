@@ -212,6 +212,18 @@ test('report: how far the trace got has the route, the hand-offs and the open en
   assert.ok(html.includes('Routes, hand-offs and open ends</b> follow each coin'));
 });
 
+test('report: a wallet a list names that is not a service is a row marked named, and the heading and columns stop saying service only then', () => {
+  const tm = traceModel();
+  tm.handoffs.push({ kind: 'named', dir: 'deposit', service: 'Ransomware <b>Acme</b>', address: 'bc1qlst', txid: tid(3), time: 1650009000, amount: 700, outputs: 1, walletAddress: 'bc1qbefore2', depth: 3 });
+  const model = modelOf(sample(), { trace: tm }), html = RP.render(model, RP.evidenceText(model.evidence), 'a'.repeat(64));
+  assert.ok(html.includes('<h3>Hand-offs (3)</h3>') && !html.includes('Service hand-offs'), 'the heading no longer says service');
+  assert.ok(html.includes('<th>Name</th><th>Wallet</th>'));
+  assert.ok(html.includes('into the wallet') && html.includes('<i>named</i> Ransomware &lt;b&gt;Acme&lt;/b&gt;'), 'the row says what it is, and the name is escaped');
+  assert.ok(html.includes('deposit (into the service)'), 'a service row is worded as before');
+  assert.ok(html.includes('A row marked <i>named</i> is a wallet a sanctions or ransomware list names, not a service'));
+  assert.ok(!html.replace(/<script type="application\/json"[\s\S]*$/, '').includes('Ransomware <b>'), 'nothing from outside is HTML');
+});
+
 test('report: without a trace there is no such section and no line about it in the limits', () => {
   const model = modelOf(sample(), {}), html = RP.render(model, RP.evidenceText(model.evidence), 'a'.repeat(64));
   assert.ok(!html.includes('How far the trace got') && !html.includes('Routes, hand-offs and open ends'));

@@ -334,17 +334,23 @@
    * deposit addresses into its own wallet, for instance), so the name is offered for the addresses of that cluster that have none. It is a guess and is
    * never applied by itself: a PayJoin or a wallet shared by several people breaks the rule (CoinJoin-like transactions and ones you excluded were not
    * used to make the clusters, so they are not used here either). `cl` is analyse().clusters; names(vertexId) -> a name or null says which wallets are named
-   * (the caller decides which names count). A cluster with two different names is not suggested from but reported as a conflict.
-   * Returns { suggestions: [{ name, cluster, from: [named vertex ids], addrs: [vertex ids without a name], direct: [those spent in the same transaction as a named wallet],
-   *            txids: [up to 3 of those transactions] }], conflicts: [{ cluster, names }] }, the biggest first.
+   * (the caller decides which names count). A name is a string (a list's name) or { name, by } where `by` says whose claim it is ('you' for a label you gave).
+   * A label you gave counts as a name only in a cluster that has no list name: next to a list's name it is left out (it is not a name to spread, and not a
+   * conflict either, since a label may describe a wallet rather than say who owns it). A cluster with two different names is not suggested from but reported as a conflict.
+   * Returns { suggestions: [{ name, by: [whose claim, sorted: 'list', 'you'], cluster, from: [named vertex ids], addrs: [vertex ids without a name],
+   *            direct: [those spent in the same transaction as a named wallet], txids: [up to 3 of those transactions] }], conflicts: [{ cluster, names }] }, the biggest first.
    */
   function suggestNames(graph, cl, names) {
     var suggestions = [], conflicts = [];
     cl.list.forEach(function (c) {
-      var named = [], unnamed = [], seen = {}, nameList = [];
-      c.addrs.forEach(function (id) {
-        var nm = names(id);
-        if (nm) { named.push(id); if (!seen[nm]) { seen[nm] = true; nameList.push(nm); } } else unnamed.push(id);
+      var named = [], unnamed = [], seen = {}, nameList = [], by = [];
+      var found = c.addrs.map(function (id) {
+        var r = names(id);
+        return { id: id, nm: r && typeof r === 'object' ? r.name : r, who: r && typeof r === 'object' && r.by ? r.by : 'list' };
+      });
+      var fromList = found.some(function (f) { return f.nm && f.who !== 'you'; });
+      found.forEach(function (f) {
+        if (f.nm && !(fromList && f.who === 'you')) { named.push(f.id); if (!seen[f.nm]) { seen[f.nm] = true; nameList.push(f.nm); } if (by.indexOf(f.who) < 0) by.push(f.who); } else unnamed.push(f.id);
       });
       if (!named.length || !unnamed.length) return;
       if (nameList.length > 1) { conflicts.push({ cluster: c.label, names: nameList }); return; }
@@ -358,7 +364,7 @@
         ins.forEach(function (i) { if (unnamedSet.has(i.id)) { direct.add(i.id); hit = true; } });
         if (hit && txids.length < 3) txids.push(txid);
       });
-      suggestions.push({ name: nameList[0], cluster: c.label, from: named, addrs: unnamed, direct: unnamed.filter(function (id) { return direct.has(id); }), txids: txids });
+      suggestions.push({ name: nameList[0], by: by.sort(), cluster: c.label, from: named, addrs: unnamed, direct: unnamed.filter(function (id) { return direct.has(id); }), txids: txids });
     });
     suggestions.sort(function (a, b) { return b.addrs.length - a.addrs.length || (a.cluster < b.cluster ? -1 : 1); });
     return { suggestions: suggestions, conflicts: conflicts };

@@ -13,6 +13,7 @@ from test_report import evidence as report_evidence, make_report, verify as veri
 from test_trace import shown
 
 EX = real_addr(501)                                    # an exchange wallet that a label list names
+Q2 = real_addr(503)                                    # a wallet ran pays that a ransomware list can name
 K2 = real_addr(502)                                    # another named wallet: it only shares an address with the flow
 STEPS = ["tx:" + tid(n) for n in (1, 2, 3)]
 
@@ -35,7 +36,7 @@ def case(mock):
     """EX pays a victim (vic) in tx 1; vic pays the ransom wallet (ran) in tx 2; ran pays three wallets in tx 3. Beside it: z, used again by tx 6 after it paid ran in tx 5."""
     tx(mock, 1, [RIN(90, 0, EX, 900)], [ROUT(addr("vic"), 500), ROUT(EX, 390)], spent={0: 2})
     tx(mock, 2, [RIN(1, 0, addr("vic"), 500)], [ROUT(addr("ran"), 490)], spent={0: 3})
-    tx(mock, 3, [RIN(2, 0, addr("ran"), 490)], [ROUT(addr("q1"), 300), ROUT(addr("q2"), 100), ROUT(addr("q3"), 80)])
+    tx(mock, 3, [RIN(2, 0, addr("ran"), 490)], [ROUT(addr("q1"), 300), ROUT(Q2, 100), ROUT(addr("q3"), 80)])
     tx(mock, 5, [RIN(91, 0, addr("z"), 200)], [ROUT(addr("ran"), 190)])
     tx(mock, 6, [RIN(92, 0, K2, 500)], [ROUT(addr("z"), 490)])
     mock.routes["/address/" + EX] = {"address": EX, "chain_stats": {"tx_count": 1, "funded_txo_sum": 390, "spent_txo_sum": 900}, "mempool_stats": {"tx_count": 0}}
@@ -43,18 +44,18 @@ def case(mock):
     return "tx:" + tid(3)
 
 
-def named_list():
+def named_list(extra=()):
     return json.dumps({"format": "hopline-labels", "version": 1, "name": "Test list", "source": "a test",
-                       "labels": [{"address": EX, "label": "Test exchange", "category": "exchange"}, {"address": K2, "label": "Other wallet", "category": "service"}]})
+                       "labels": [{"address": EX, "label": "Test exchange", "category": "exchange"}, {"address": K2, "label": "Other wallet", "category": "service"}] + list(extra)})
 
 
-def trace_case(tpage, mock):
-    """The ransom payment as the starting point, what funded it loaded two steps back, and a list that names EX."""
+def trace_case(tpage, mock, extra=()):
+    """The ransom payment as the starting point, what funded it loaded two steps back, and a list that names EX (and the wallets in `extra`)."""
     case(mock)
     open_query(tpage, tid(3))
     tpage.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'prev', hops: 2, follow: 'largest' })", "tx:" + tid(3)); idle(tpage); settle(tpage)
     open_query(tpage, tid(5)); open_query(tpage, tid(6))
-    load_json(tpage, "list.json", named_list())
+    load_json(tpage, "list.json", named_list(extra))
     tpage.evaluate("() => window.__hopline.setSel([])"); settle(tpage)
     tpage.evaluate("() => window.__hopline.openFindings('known')"); settle(tpage)
 
@@ -249,6 +250,45 @@ def test_the_service_hand_offs_are_listed_downloaded_and_open_the_route(tpage, m
     assert c and c["ids"][0] == "addr:" + EX and c["ids"][-1] == "tx:" + tid(3), "the row shows the route from the service to the reference"
 
 
+RANSOM = {"address": Q2, "label": "Ransomware: Acme", "category": "ransomware"}
+
+
+def test_a_wallet_a_list_names_that_is_not_a_service_is_a_hand_off_marked_named(tpage, mock, tmp_path):
+    trace_case(tpage, mock, [RANSOM])
+    chip = tpage.inner_text("#findStrip [data-key=handoff]")
+    assert chip.startswith("Hand-offs") and not chip.startswith("Service") and chip.endswith("2"), chip
+    tpage.click("#findStrip [data-key=handoff]"); settle(tpage)
+    text = tpage.inner_text("#anFindings")
+    assert "hand-offs" in text.lower() and "a wallet that a list names" in text, text
+    named = tpage.locator("#anFindings [data-handoff=deposit][data-named]")
+    assert named.count() == 1, "one row for the listed wallet"
+    t = named.inner_text()
+    assert "Ransomware: Acme" in t and "named wallet" in t and "went into it" in t and "0.00000100 BTC" in t, t
+    service = tpage.locator("#anFindings [data-handoff=withdrawal]").inner_text()
+    assert "Test exchange" in service and "withdrawal" in service and "named wallet" not in service, service
+    with tpage.expect_download() as dl:
+        tpage.click("#anFindings button:has-text('Download CSV')")
+    p = tmp_path / "handoffs.csv"
+    dl.value.save_as(p)
+    lines = p.read_text(encoding="utf-8-sig").splitlines()
+    assert lines[0].endswith(",kind") and any(l.startswith("deposit,Ransomware: Acme,") and l.endswith(",named") for l in lines), lines
+    assert any(l.startswith("withdrawal,Test exchange,") and l.endswith(",service") for l in lines), lines
+    shot(tpage, "handoffs_named.png")
+    named.locator(".linkrow").click(); idle(tpage); settle(tpage)
+    c = lit(tpage)
+    assert c and c["ids"][0] == "tx:" + tid(3) and c["ids"][-1] == "addr:" + Q2, "the row shows the route from the reference to the listed wallet: " + str(c)
+    p = make_report(tpage, tmp_path, "named.html")
+    html = p.read_text(encoding="utf-8")
+    assert "<h3>Hand-offs (1)</h3>" in html and "<i>named</i> Ransomware: Acme" in html and "into the wallet" in html, "only what is on screen is in the report"
+    r = verify_report(p)
+    assert r.returncode == 0 and "OK:" in r.stdout, r.stdout + r.stderr
+
+
+def test_without_a_list_name_the_chip_still_says_service_hand_offs(tpage, mock):
+    trace_case(tpage, mock)
+    assert tpage.inner_text("#findStrip [data-key=handoff]").startswith("Service hand-offs")
+
+
 def test_the_report_has_the_trail_cut_to_what_is_on_screen(tpage, mock, tmp_path):
     trace_case(tpage, mock)
     html = make_report(tpage, tmp_path, "before.html").read_text(encoding="utf-8")
@@ -312,6 +352,59 @@ def test_a_wallet_you_already_labelled_is_left_alone(tpage, mock):
     assert "1 address in C1" in tpage.locator("#anFindings [data-suggest]").inner_text()
     tpage.locator("#anFindings [data-suggest] .relbtn").click(); settle(tpage)
     assert tpage.evaluate("(a) => [window.__hopline.state.graph.nodes.get('addr:' + a).label, window.__hopline.state.graph.nodes.get('addr:' + a).note]", addr("dep1")) == ["My own name", "mine"]
+
+
+def own_label(page, address, label):
+    page.evaluate("([a, l]) => { window.__hopline.state.graph.annotate('addr:' + a, l, ''); window.__hopline.refresh(); }", [address, label])
+
+
+def labels_of(page, *addresses):
+    return page.evaluate("(a) => a.map(x => (window.__hopline.state.graph.nodes.get('addr:' + x) || {}).label || '')", list(addresses))
+
+
+def test_a_label_you_gave_is_offered_the_same_way_and_the_note_says_it_is_yours(tpage, mock):
+    sweep_case(mock)
+    open_query(tpage, tid(12))
+    own_label(tpage, EX, "Alice")
+    tpage.evaluate("() => window.__hopline.setSel([])"); settle(tpage)
+    tpage.evaluate("() => window.__hopline.openFindings('suggest')"); settle(tpage)
+    sec = tpage.locator("#anFindings [data-suggest]")
+    assert sec.count() == 1
+    text = sec.inner_text()
+    assert "Alice" in text and "your label" in text and "2 addresses in C1" in text, text
+    assert "or a label you gave" in tpage.inner_text("#anFindings"), "the section says labels count"
+    assert labels_of(tpage, addr("dep1"), addr("dep2")) == ["", ""], "suggested, not applied"
+    sec.locator(".relbtn").click(); settle(tpage)
+    assert labels_of(tpage, addr("dep1"), addr("dep2")) == ["Alice (by co-spending)"] * 2
+    note = tpage.evaluate("(a) => window.__hopline.state.graph.nodes.get('addr:' + a).note", addr("dep1"))
+    assert "Spent together with " + EX in note and '"Alice" is a label you gave' in note and "a guess" in note and "name from a list" not in note, note
+
+
+def test_a_name_that_was_itself_a_suggestion_is_not_a_source_for_the_next(tpage, mock):
+    sweep_case(mock)
+    open_query(tpage, tid(12))
+    own_label(tpage, EX, "Alice")
+    tpage.evaluate("() => window.__hopline.setSel([])"); settle(tpage)
+    tpage.evaluate("() => window.__hopline.openFindings('suggest')"); settle(tpage)
+    tpage.locator("#anFindings [data-suggest] .relbtn").click(); settle(tpage)
+    own_label(tpage, EX, "")                                                               # the label that started it is gone
+    tx(mock, 13, [RIN(93, 0, addr("dep1"), 2000), RIN(94, 0, addr("dep9"), 1000)], [ROUT(addr("cold2"), 2800)])
+    open_query(tpage, tid(13)); settle(tpage)
+    tpage.evaluate("() => window.__hopline.setSel([])"); settle(tpage)
+    tpage.evaluate("() => window.__hopline.openFindings('suggest')"); settle(tpage)
+    assert tpage.locator("#anFindings [data-suggest]").count() == 0, "'Alice (by co-spending)' is a guess, and a guess is not a name to spread"
+    assert labels_of(tpage, addr("dep9")) == [""]
+
+
+def test_a_very_long_label_is_cut_before_the_suffix_so_the_result_still_says_it_is_a_guess(tpage, mock):
+    sweep_case(mock)
+    open_query(tpage, tid(12))
+    own_label(tpage, EX, "A" * 130)
+    tpage.evaluate("() => window.__hopline.setSel([])"); settle(tpage)
+    tpage.evaluate("() => window.__hopline.openFindings('suggest')"); settle(tpage)
+    tpage.locator("#anFindings [data-suggest] .relbtn").click(); settle(tpage)
+    label = labels_of(tpage, addr("dep1"))[0]
+    assert len(label) <= 120 and label.endswith(" (by co-spending)") and label.startswith("AAAA"), label
 
 
 # ---- searching for a route --------------------------------------------------------------------------------------------------------

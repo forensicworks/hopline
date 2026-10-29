@@ -417,6 +417,75 @@ test('handoffs: wallets you tagged or a list names that are not services do not 
   assert.deepEqual(R.handoffs(R.index(caseGraph()), A('ran'), { stop }), [], 'without a way to tell a service there is no hand-off');
 });
 
+/** svc2 -> lstb -> ref -> lst -> svc: two services, and a wallet a list names on each side of the reference. */
+function namedGraph() {
+  const g = new Graph(), st = (t) => ({ confirmed: true, block_time: t });
+  g.addTx(esplora(11, 100, [[90, 0, 'svc2', 700]], [['lstb', 600]]));
+  g.addTx(esplora(12, 200, [[11, 0, 'lstb', 600]], [['ref', 590]]));
+  g.addTx(esplora(13, 300, [[12, 0, 'ref', 590]], [['lst', 400], ['chg', 180]]));
+  g.addTx(esplora(14, 400, [[13, 0, 'lst', 400]], [['svc', 390]]));
+  g.addOutspends(tid(11), [{ spent: true, txid: tid(12), vin: 0, status: st(200) }]);
+  g.addOutspends(tid(12), [{ spent: true, txid: tid(13), vin: 0, status: st(300) }]);
+  g.addOutspends(tid(13), [{ spent: true, txid: tid(14), vin: 0, status: st(400) }, { spent: false }]);
+  g.addOutspends(tid(14), [{ spent: false }]);
+  return g;
+}
+const isService = (id) => id === A('svc') || id === A('svc2');
+const namedBy = (id) => (isService(id) ? 'Exchange' : id === A('lst') ? 'Listed ahead' : id === A('lstb') ? 'Listed behind' : null);
+const listedBy = (id) => (id === A('lst') ? 'Listed ahead' : id === A('lstb') ? 'Listed behind' : null);
+
+test('handoffs: a wallet a list names that is not a service is a row of its own, and the trail goes on through it', () => {
+  const idx = R.index(namedGraph());
+  const rows = R.handoffs(idx, A('ref'), { hub: isService, stop: namedBy, listed: listedBy });
+  assert.deepEqual(rows.map((r) => [r.kind, r.dir, r.service, r.txid]), [
+    ['service', 'withdrawal', 'Exchange', tid(11)], ['named', 'withdrawal', 'Listed behind', tid(12)], ['named', 'deposit', 'Listed ahead', tid(13)], ['service', 'deposit', 'Exchange', tid(14)]],
+    'oldest first, and the services behind and beyond the listed wallets are still found');
+  const ahead = rows[2];
+  assert.deepEqual([ahead.address, ahead.amount, ahead.wallet, ahead.depth], [addr('lst'), 400, A('ref'), 1], 'the listed wallet is the one the coin was paid to, and the wallet before it is the reference');
+  assert.equal(rows[1].amount, 600); assert.equal(rows[1].wallet, A('ref'), 'going back, the wallet after the transaction is on its way to the reference');
+});
+
+test('handoffs: without `listed` only the services are rows, as before', () => {
+  const rows = R.handoffs(R.index(namedGraph()), A('ref'), { hub: isService, stop: namedBy });
+  assert.deepEqual(rows.map((r) => [r.kind, r.service, r.txid]), [['service', 'Exchange', tid(11)], ['service', 'Exchange', tid(14)]]);
+});
+
+test('handoffs: your own labels and tags are not rows, only names from lists', () => {
+  const rows = R.handoffs(R.index(namedGraph()), A('ref'), { hub: isService, stop: (id) => (isService(id) ? 'Exchange' : id === A('lst') ? 'VICTIM' : null), listed: () => null });
+  assert.deepEqual(rows.map((r) => r.kind), ['service', 'service'], 'a wallet you tagged is walked through and says nothing');
+});
+
+test('handoffs: the reference itself is never a row, even when it is named and gets change back', () => {
+  const g = new Graph();
+  g.addTx(esplora(13, 300, [[12, 0, 'ref', 590]], [['lst', 400], ['ref', 180]]));                // the change goes back to the reference's own address
+  g.addOutspends(tid(13), [{ spent: false }, { spent: false }]);
+  const rows = R.handoffs(R.index(g), A('ref'), { hub: isService, stop: namedBy, listed: (id) => (id === A('ref') ? 'The reference' : listedBy(id)) });
+  assert.deepEqual(rows.map((r) => r.service), ['Listed ahead'], 'only the other wallet: ' + JSON.stringify(rows.map((r) => r.service)));
+});
+
+test('trace: the hand-offs carry their kind, the open ends are not changed by them, and `has` cuts the named ones too', () => {
+  const idx = R.index(namedGraph()), opts = { hub: isService, name: namedBy, listed: listedBy, stop: namedBy };
+  const t = R.trace(idx, A('ref'), opts);
+  assert.deepEqual(t.handoffs.map((r) => r.kind), ['service', 'named', 'named', 'service']);
+  assert.deepEqual(t.openEnds.next.named.map((n) => n.label), ['Listed ahead'], 'the open ends still stop at the first named wallet, and count it once');
+  const off = R.trace(idx, A('ref'), Object.assign({ has: (id) => id !== A('lst') }, opts));
+  assert.deepEqual(off.handoffs.map((r) => r.service), ['Exchange', 'Listed behind', 'Exchange'], 'a listed wallet that is not on screen is not reported');
+});
+
+test('listedName: the name a list gives a wallet that is not a service', () => {
+  const g = namedGraph();
+  const list = { [addr('lst')]: { label: 'Ransomware: Acme' }, [addr('svc')]: { label: 'Binance' }, [addr('lstb')]: { label: 'SDN entry', sanctions: true }, [addr('chg')]: { label: 'Ransomware: Beta' } };
+  const known = (a) => list[a] || null;
+  assert.equal(R.listedName(g, known, A('lst')), 'Ransomware: Acme');
+  assert.equal(R.listedName(g, known, A('lstb')), 'SDN entry', 'a sanctions entry is not a service');
+  assert.equal(R.listedName(g, known, A('svc')), null, 'an exchange is a service');
+  g.nodes.get(A('chg')).tag = 'EXCH';
+  assert.equal(R.listedName(g, known, A('chg')), null, 'a wallet you tagged as an exchange is a service whatever the list says');
+  assert.equal(R.listedName(g, known, A('ref')), null, 'no entry');
+  assert.equal(R.listedName(g, known, T(11)), null, 'a transaction has no name');
+  assert.equal(R.listedName(g, null, A('lst')), null, 'no list');
+});
+
 // ---- what is loaded but not on screen ----------------------------------------------------------------------
 test('offscreen: how much is loaded that the canvas does not show, and what the findings hold among it', () => {
   const g = caseGraph(), an = require('../public/js/hopline-analysis.js').analyse(g, {});

@@ -3328,6 +3328,8 @@
   /** A service wallet (an exchange, a mixer, a market, a pool): many people's coins pass through it, so a route is not carried across one. Ransomware and sanctions entries are not services. */
   function knownEntry(a) { return Object.prototype.hasOwnProperty.call(KNOWN, a) ? KNOWN[a] : null; }
   function routeHub(id) { return RT.isHub(state.graph, knownEntry, id); }
+  /** The name a list gives a wallet that is not a service (a sanctions or ransomware entry): the hand-offs report it on the way. */
+  function routeListed(id) { return RT.listedName(state.graph, knownEntry, id); }
   /** What a vertex is called in a sentence: your label, tag or the known name, else the start of the address. */
   function routeName(id) {
     var n = state.graph.nodes.get(id);
@@ -3511,29 +3513,45 @@
   function routeHandoffs() {
     var d = routeData();
     if (!d.ref || !d.idx) return [];
-    if (!d.handoffs) d.handoffs = RT.handoffs(d.idx, d.ref, { hub: routeHub, stop: stopName });
+    if (!d.handoffs) d.handoffs = RT.handoffs(d.idx, d.ref, { hub: routeHub, stop: stopName, listed: routeListed });
     return d.handoffs;
   }
+  /** Whether a hand-off row is a wallet a list names that is not a service (a sanctions or ransomware entry). */
+  function handoffNamed(r) { return r.kind === 'named'; }
+  /** What the hand-offs are called: "service hand-off" while they are all services, "hand-off" once a named wallet is among them. */
+  function handoffWord(rows) { return rows.some(handoffNamed) ? 'hand-off' : 'service hand-off'; }
+  /** The money's direction in words: a deposit or a withdrawal for a service, going into or coming out of the wallet for a named one. */
+  function handoffDir(r, short) {
+    if (handoffNamed(r)) return r.dir === 'deposit' ? (short ? 'went into it' : 'into the wallet') : (short ? 'came out of it' : 'out of the wallet');
+    return short ? (r.dir === 'deposit' ? 'deposit' : 'withdrawal') : (r.dir === 'deposit' ? 'into the service' : 'out of the service');
+  }
   function handoffText(rows) {
-    var head = ['direction', 'service', 'service wallet', 'transaction', 'time (UTC)', 'amount (BTC)', 'wallet before a deposit / after a withdrawal', 'transactions from the reference'];
+    var named = rows.some(handoffNamed);
+    var head = ['direction', named ? 'name' : 'service', named ? 'wallet' : 'service wallet', 'transaction', 'time (UTC)', 'amount (BTC)', 'wallet before a deposit / after a withdrawal', 'transactions from the reference'];
+    if (named) head.splice(1, 0, 'kind');
     return [head.join('\t')].concat(rows.map(function (r) {
-      return [r.dir === 'deposit' ? 'into the service' : 'out of the service', r.service, r.address, r.txid, r.time != null ? S.fmtTimeFull(r.time) : '', S.fmtBtc(r.amount), r.walletAddress || '', r.depth].join('\t');
+      var cells = [handoffDir(r), r.service, r.address, r.txid, r.time != null ? S.fmtTimeFull(r.time) : '', S.fmtBtc(r.amount), r.walletAddress || '', r.depth];
+      if (named) cells.splice(1, 0, handoffNamed(r) ? 'named by a list' : 'service');
+      return cells.join('\t');
     })).join(NL);
   }
   /** The hand-offs in the Findings: a table to hand to a service, to copy or to download as CSV. */
   function handoffBlock(box, h) {
     var rows = routeHandoffs(), d = routeData();
     if (!rows.length) return;
-    box.appendChild(h.head('Service hand-offs', 'handoff'));
-    box.appendChild(el('p', { 'class': 'hint', text: 'Where the trail from ' + routeName(d.ref) + ' meets a service wallet, oldest first: money going into one (a deposit) or coming out of one (a withdrawal).' }));
+    var named = rows.some(handoffNamed);
+    box.appendChild(h.head(named ? 'Hand-offs' : 'Service hand-offs', 'handoff'));
+    box.appendChild(el('p', { 'class': 'hint', text: 'Where the trail from ' + routeName(d.ref) + ' meets ' + (named ? 'a wallet that a list names, oldest first: a service wallet (money going into it is a deposit, coming out of it a withdrawal), or a wallet on a sanctions or ransomware list that the trail passes through.'
+      : 'a service wallet, oldest first: money going into one (a deposit) or coming out of one (a withdrawal).') }));
     rows.slice(0, 12).forEach(function (r) {
-      var deposit = r.dir === 'deposit';
+      var deposit = r.dir === 'deposit', nm = handoffNamed(r);
       var left = el('span', { 'class': 'rowtext' }, [(deposit ? '▶ ' : '◀ ') + r.service,
-        el('small', { text: (deposit ? 'deposit' : 'withdrawal') + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') + (r.walletAddress ? ' · ' + (deposit ? 'from ' : 'to ') + S.shortId(r.walletAddress, 8) : '') + (r.merges ? ' · merges inputs' : '') })]);
-      var b = h.row(left, S.fmtBtc(r.amount) + ' BTC', 'Show the route ' + (deposit ? 'from the reference to this service wallet' : 'from this service wallet to the reference'), function () {
+        el('small', { text: (nm ? 'named wallet · ' : '') + handoffDir(r, true) + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') + (r.walletAddress ? ' · ' + (deposit ? 'from ' : 'to ') + S.shortId(r.walletAddress, 8) : '') + (r.merges ? ' · merges inputs' : '') })]);
+      var b = h.row(left, S.fmtBtc(r.amount) + ' BTC', 'Show the route ' + (deposit ? 'from the reference to this ' : 'from this ') + (nm ? 'wallet' : 'service wallet') + (deposit ? '' : ' to the reference'), function () {
         if (deposit) showRoute(d.ref, r.id); else showRoute(r.id, d.ref);
       }, r.txid, 'transaction id');
       b.setAttribute('data-handoff', r.dir);
+      if (nm) b.setAttribute('data-named', '1');
       box.appendChild(b);
     });
     if (rows.length > 12) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (rows.length - 12) + ' more in the copy and the CSV' }));
@@ -3543,27 +3561,54 @@
     box.appendChild(el('p', { 'class': 'hint', text: 'The wallet just before a deposit (or just after a withdrawal) is a candidate for the customer\'s or the service\'s deposit address. A request to the service names the transaction, the time and the amount. The name is a list\'s claim, and only the loaded transactions are followed.' }));
   }
 
-  var sg = { an: null, graph: null, data: null };
-  /** Names the common-input rule suggests (HoplineAnalysis.suggestNames), from the names on lists only. */
+  var sg = { an: null, graph: null, labels: '', data: null };
+  var CO_SPEND = ' (by co-spending)';                                                   // what Name them adds to a label: it marks the label as a guess
+  /** The label you gave a wallet, or null: none, or one that Name them wrote (a guess is not a name to spread to the next wallet). */
+  function ownName(n) {
+    var t = (n.label || '').trim();
+    return t && t.slice(-CO_SPEND.length) !== CO_SPEND ? t : null;
+  }
+  /** A short fingerprint of the labels on wallets: the analysis does not change when a label's text does, and the suggestions depend on it. */
+  function labelsSig() {
+    var h = 0, k = 0;
+    state.graph.nodes.forEach(function (n) {
+      if (n.type !== 'addr' || !n.label) return;
+      var t = n.id + '=' + n.label;
+      for (var i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
+      k++;
+    });
+    return k + ':' + h;
+  }
+  /** Names the common-input rule suggests (HoplineAnalysis.suggestNames): a name from a list, else a label you gave. */
   function routeSuggestions() {
-    var an = analysis();
-    if (sg.an !== an || sg.graph !== state.graph) {
-      sg.an = an; sg.graph = state.graph;
-      sg.data = AN.suggestNames(state.graph, an.clusters, function (id) { var n = state.graph.nodes.get(id), k = n && n.type === 'addr' ? knownEntry(n.address) : null; return k ? k.label : null; });
+    var an = analysis(), ls = labelsSig();
+    if (sg.an !== an || sg.graph !== state.graph || sg.labels !== ls) {
+      sg.an = an; sg.graph = state.graph; sg.labels = ls;
+      sg.data = AN.suggestNames(state.graph, an.clusters, function (id) {
+        var n = state.graph.nodes.get(id);
+        if (!n || n.type !== 'addr') return null;
+        var k = knownEntry(n.address), own = ownName(n);
+        return k ? k.label : own ? { name: own, by: 'you' } : null;
+      });
     }
     return sg.data;
+  }
+  /** Whose claim a suggested name is, for a note: a list's, a label you gave, or both. */
+  function suggestClaim(s) {
+    var you = s.by.indexOf('you') >= 0, list = s.by.indexOf('list') >= 0;
+    return you && list ? 'a name from a list and a label you gave' : you ? 'a label you gave that wallet' : 'a name from a list';
   }
   /** The suggestion's addresses that have no label of yours yet. */
   function suggestTodo(s) { return s.addrs.filter(function (id) { var n = state.graph.nodes.get(id); return n && !n.label; }); }
   var BULK_NAMES = 25;                                                                // naming more than this many wallets at once asks for a second click
   function applySuggestion(s) {
-    var g = state.graph, todo = suggestTodo(s), via = s.from[0] ? g.nodes.get(s.from[0]) : null, tx = s.txids[0] || '', label = LB.cleanText(s.name + ' (by co-spending)', 120), before = [];
+    var g = state.graph, todo = suggestTodo(s), via = s.from[0] ? g.nodes.get(s.from[0]) : null, tx = s.txids[0] || '', label = LB.cleanText(s.name.slice(0, 120 - CO_SPEND.length) + CO_SPEND, 120), before = [];
     if (!todo.length) { toast('Nothing to name: they all have a label already.'); return; }
     stat('name-suggest');
     todo.forEach(function (id) {
       var n = g.nodes.get(id);
       before.push([id, n.label || '', n.note || '']);
-      g.annotate(id, label, n.note || 'Spent together with ' + (via ? via.address : 'a wallet named ' + s.name) + (tx ? ' in tx ' + tx : '') + ' (the common-input rule, a guess; "' + s.name + '" is a name from a list, not proof).');
+      g.annotate(id, label, n.note || 'Spent together with ' + (via ? via.address : 'a wallet named ' + s.name) + (tx ? ' in tx ' + tx : '') + ' (the common-input rule, a guess; "' + s.name + '" is ' + suggestClaim(s) + ', not proof).');
     });
     findingsFor = null; refresh(); scheduleSave();
     toast('Named ' + plural(todo.length, 'address', 'addresses') + ' “' + label + '”. Each note says why.', false, { text: 'Undo', fn: function () {
@@ -3575,10 +3620,10 @@
     var data = routeSuggestions(), list = data.suggestions.filter(function (s) { return suggestTodo(s).length; });
     if (!list.length && !data.conflicts.length) return;
     box.appendChild(h.head('Suggested names', 'suggest'));
-    if (list.length) box.appendChild(el('p', { 'class': 'hint', text: 'Wallets spent in the same transaction as a named wallet probably have the same owner (an exchange sweeping its deposit addresses into its own wallet, for example). A guess from the common-input rule: nothing is named until you choose Name them.' }));
+    if (list.length) box.appendChild(el('p', { 'class': 'hint', text: 'Wallets spent in the same transaction as a named wallet (a name from a list or a label you gave) probably have the same owner (an exchange sweeping its deposit addresses into its own wallet, for example). A guess from the common-input rule: nothing is named until you choose Name them.' }));
     list.slice(0, 6).forEach(function (s) {
       var todo = suggestTodo(s), short = s.name.length > 24 ? s.name.slice(0, 23) + '…' : s.name;
-      var left = el('span', { 'class': 'rowtext' }, [s.name, el('small', { text: plural(todo.length, 'address', 'addresses') + ' in ' + s.cluster + (s.direct.length ? ' · ' + s.direct.length + ' spent with it directly' : ' · linked through other addresses') + (s.txids[0] ? ' · tx ' + S.shortId(s.txids[0], 5) : '') })]);
+      var left = el('span', { 'class': 'rowtext' }, [s.name, el('small', { text: plural(todo.length, 'address', 'addresses') + ' in ' + s.cluster + (s.direct.length ? ' · ' + s.direct.length + ' spent with it directly' : ' · linked through other addresses') + (s.txids[0] ? ' · tx ' + S.shortId(s.txids[0], 5) : '') + ' · ' + (s.by.length > 1 ? 'a list and your label' : s.by[0] === 'you' ? 'your label' : 'a list') })]);
       var main = h.row(left, '+' + todo.length, 'Select these addresses', function () { selectIds(todo, 'addresses of ' + s.cluster); });
       box.appendChild(el('div', { 'class': 'relrow', 'data-suggest': s.cluster }, [main, el('div', { 'class': 'rel' }, [
         el('button', { type: 'button', 'class': 'relbtn', title: 'Give each a label “' + s.name + ' (by co-spending)” with a note saying why. Nothing else changes.', onclick: function (ev) {
@@ -3629,7 +3674,7 @@
   function routeTraceData(has) {
     var d = routeData();
     if (!d.ref || !d.idx) return null;
-    var t = RT.trace(d.idx, d.ref, { hub: routeHub, name: stopName, stop: state.auto.stopLabel ? stopName : null, has: has });
+    var t = RT.trace(d.idx, d.ref, { hub: routeHub, name: stopName, listed: routeListed, stop: state.auto.stopLabel ? stopName : null, has: has });
     t.referenceName = routeName(d.ref);
     return t;
   }
@@ -3659,7 +3704,7 @@
   function offscreenParts(oc) {
     var kinds = Object.keys(oc.patterns).filter(function (k) { return oc.patterns[k]; }).map(function (k) { return fmtInt(oc.patterns[k]) + ' ' + (FLAG_NAME[k] || k); });
     return [kinds.length ? kinds.join(', ') + ' flags' : '', oc.clusters ? plural(oc.clusters, 'address cluster') : '', oc.change ? plural(oc.change, 'change guess', 'change guesses') : '',
-            oc.known.length ? plural(oc.known.length, 'known wallet') : '', oc.handoffs.length ? plural(oc.handoffs.length, 'service hand-off') : '', oc.ends.length ? plural(oc.ends.length, 'open end') : ''].filter(Boolean);
+            oc.known.length ? plural(oc.known.length, 'known wallet') : '', oc.handoffs.length ? plural(oc.handoffs.length, handoffWord(oc.handoffs)) : '', oc.ends.length ? plural(oc.ends.length, 'open end') : ''].filter(Boolean);
   }
   /** In the Findings: how much is loaded but not on screen, and the named wallets, hand-offs and open ends among it, each one click from being shown. */
   function offscreenBlock(box, h) {
@@ -3680,11 +3725,11 @@
     if (oc.known.length > 5) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (oc.known.length - 5) + ' more known wallets under Known wallets' }));
     oc.handoffs.slice(0, 5).forEach(function (r) {
       var deposit = r.dir === 'deposit';
-      var b = h.row(el('span', { 'class': 'rowtext' }, [(deposit ? '▶ ' : '◀ ') + r.service, el('small', { text: (deposit ? 'deposit' : 'withdrawal') + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') })]),
+      var b = h.row(el('span', { 'class': 'rowtext' }, [(deposit ? '▶ ' : '◀ ') + r.service, el('small', { text: handoffDir(r, true) + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') })]),
         S.fmtBtc(r.amount) + ' BTC', 'Show the route to it: what is not on screen is added', function () { if (deposit) showRoute(d.ref, r.id); else showRoute(r.id, d.ref); });
       b.setAttribute('data-offscreen', 'handoff'); box.appendChild(b);
     });
-    if (oc.handoffs.length > 5) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (oc.handoffs.length - 5) + ' more under Service hand-offs' }));
+    if (oc.handoffs.length > 5) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (oc.handoffs.length - 5) + ' more under ' + (oc.handoffs.some(handoffNamed) ? 'Hand-offs' : 'Service hand-offs') }));
     oc.ends.slice(0, 5).forEach(function (e) {
       var fwd = e.dir !== 'prev';
       var b = h.row(el('span', { 'class': 'rowtext' }, [e.address ? el('span', { 'class': 'mono', text: S.shortId(e.address, 8) }) : 'spender not loaded', el('small', { text: (fwd ? 'open end going forward' : 'open end going back') + ' · ' + plural(e.depth, 'transaction') + ' from the reference' })]),
@@ -4064,8 +4109,8 @@
     }
     add('known', 'Known wallets', known, '#f2c94c', 'known wallets', plural(known.length, 'wallet') + ' on the built-in list or a label list (a name is a claim, not proof). Click to select them.');
     var ho = routeHandoffs();
-    if (ho.length) out.push({ key: 'handoff', text: 'Service hand-offs', count: ho.length, ids: [], color: '#f2c94c', bad: false, what: 'hand-offs',
-                              title: plural(ho.length, 'place') + ' where the trail from ' + routeName(routeRefId()) + ' meets a service wallet (an exchange, for example). Click to list them.' });
+    if (ho.length) out.push({ key: 'handoff', text: ho.some(handoffNamed) ? 'Hand-offs' : 'Service hand-offs', count: ho.length, ids: [], color: '#f2c94c', bad: false, what: 'hand-offs',
+                              title: plural(ho.length, 'place') + ' where the trail from ' + routeName(routeRefId()) + ' meets ' + (ho.some(handoffNamed) ? 'a service wallet (an exchange, for example) or a wallet a sanctions or ransomware list names' : 'a service wallet (an exchange, for example)') + '. Click to list them.' });
     var oe = routeEnds('next');
     var oc = offscreenInfo();
     if (offscreenSignificant(oc)) out.push({ key: 'offscreen', text: 'Not on screen', count: oc.left, ids: [], color: '#9aa3ad', bad: false, what: 'vertices not on screen',
