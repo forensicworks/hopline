@@ -285,6 +285,97 @@ test('chatFinish: says when the model ran out of room, and never throws', () => 
   assert.match(As.CUT_OFF, /ran out of room/); assert.match(As.CUT_OFF, /num_ctx/);
 });
 
+// ---- Claude: the one way the evidence can leave this computer ------------------------------------------------
+const KEY = 'sk-ant-api03-' + 'k'.repeat(30);
+test('claudeRequest: always to api.anthropic.com, with the headers a browser needs, and never anything that API version refuses', () => {
+  const r = As.claudeRequest({ key: KEY, model: 'claude-opus-5-5', system: 'S', user: 'U' });
+  assert.equal(r.url, 'https://api.anthropic.com/v1/messages'); assert.equal(r.host, 'api.anthropic.com');
+  assert.equal(r.init.method, 'POST');
+  assert.deepEqual(r.init.headers, { 'content-type': 'application/json', 'x-api-key': KEY, 'anthropic-version': '2026-10-21', 'anthropic-dangerous-direct-browser-access': 'true',
+                                     'anthropic-beta': 'server-side-fallback-2026-07-01' });
+  const body = JSON.parse(r.init.body);
+  assert.deepEqual(body, { model: 'claude-opus-5-5', max_tokens: 16000, system: 'S', messages: [{ role: 'user', content: 'U' }], fallbacks: 'default' });
+  for (const refused of ['temperature', 'top_p', 'top_k', 'thinking', 'stream']) assert.ok(!(refused in body), refused + ' is not sent');
+  assert.ok(!r.init.body.includes(KEY), 'the key is a header, never in the body');
+  assert.equal(r.fallback, true);
+});
+
+test('claudeRequest: the refusal fallback is asked for only on the models that take it', () => {
+  for (const m of ['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5', 'claude-fable-5-1']) {
+    const r = As.claudeRequest({ key: KEY, model: m, system: 'S', user: 'U' });
+    assert.equal(JSON.parse(r.init.body).fallbacks, 'default', m); assert.equal(r.init.headers['anthropic-beta'], 'server-side-fallback-2026-07-01', m);
+  }
+  for (const m of ['claude-haiku-5-5', 'claude-sonnet-4-6', 'something-else']) {
+    const r = As.claudeRequest({ key: KEY, model: m, system: 'S', user: 'U' });
+    assert.ok(!('fallbacks' in JSON.parse(r.init.body)), m); assert.ok(!('anthropic-beta' in r.init.headers), m); assert.equal(r.fallback, false);
+  }
+});
+
+test('claudeRequest: a missing or odd key or model is refused in words, and the address cannot be changed', () => {
+  assert.throws(() => As.claudeRequest({ key: '', model: 'claude-opus-5-5', system: 'S', user: 'U' }), /Enter your Anthropic API key/);
+  assert.throws(() => As.claudeRequest({ key: 'short', model: 'claude-opus-5-5', system: 'S', user: 'U' }), /Enter your Anthropic API key/);
+  assert.throws(() => As.claudeRequest({ key: 'sk-ant with a space inside it', model: 'claude-opus-5-5', system: 'S', user: 'U' }), /Enter your Anthropic API key/);
+  assert.throws(() => As.claudeRequest({ key: 'sk-ant-line\nbreak-in-the-key', model: 'claude-opus-5-5', system: 'S', user: 'U' }), /Enter your Anthropic API key/);
+  assert.throws(() => As.claudeRequest({ key: KEY, model: '', system: 'S', user: 'U' }), /Name the Claude model/);
+  assert.throws(() => As.claudeRequest({ key: KEY, model: '   ', system: 'S', user: 'U' }), /Name the Claude model/);
+  const r = As.claudeRequest({ key: '  ' + KEY + '  ', model: 'claude-opus-5-5', system: 'S', user: 'U', base: 'https://evil.example/v1', url: 'https://evil.example/v1/messages' });
+  assert.equal(r.url, 'https://api.anthropic.com/v1/messages', 'no option points the key and the evidence anywhere else'); assert.equal(r.init.headers['x-api-key'], KEY, 'trimmed');
+  assert.equal(JSON.parse(As.claudeRequest({ key: KEY, model: 'claude opus/5<5>', system: 'S', user: 'U' }).init.body).model, 'claudeopus55', 'a model name cannot carry anything but name characters');
+  assert.equal(As.cleanClaudeKey(KEY), KEY); assert.equal(As.cleanClaudeKey(null), ''); assert.equal(As.cleanClaudeModel(undefined), '');
+});
+
+test('claudeModelsRequest: asks for the list of models with the key and no evidence', () => {
+  const r = As.claudeModelsRequest(KEY);
+  assert.equal(r.url, 'https://api.anthropic.com/v1/models?limit=100'); assert.equal(r.init.method, 'GET'); assert.ok(!('body' in r.init));
+  assert.equal(r.init.headers['x-api-key'], KEY); assert.equal(r.init.headers['anthropic-dangerous-direct-browser-access'], 'true'); assert.ok(!('content-type' in r.init.headers));
+  assert.throws(() => As.claudeModelsRequest(''), /Enter your Anthropic API key/);
+  assert.deepEqual(As.parseClaudeModels({ data: [{ id: 'claude-opus-5-5' }, { id: 'claude-sonnet-5-5' }, { nope: 1 }], has_more: false }), ['claude-opus-5-5', 'claude-sonnet-5-5']);
+  assert.deepEqual(As.parseClaudeModels({}), []);
+  assert.throws(() => As.parseClaudeModels({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }), /invalid x-api-key/);
+});
+
+test('parseClaude: the text blocks of a reply, and a clear message for every way it can go wrong', () => {
+  const reply = { type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: 'Hello' }, { type: 'text', text: ', world' }], stop_reason: 'end_turn' };
+  assert.equal(As.parseClaude(reply), 'Hello, world', 'thinking is not part of the answer'); assert.equal(As.parseClaude(JSON.stringify(reply)), 'Hello, world');
+  assert.throws(() => As.parseClaude('<html>'), /not JSON/);
+  assert.throws(() => As.parseClaude({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' }, request_id: 'req_1' }), /Anthropic said: Overloaded/);
+  assert.throws(() => As.parseClaude({ content: [], stop_reason: 'end_turn' }), /no text/);
+  assert.throws(() => As.parseClaude({ content: [{ type: 'text', text: '  ' }] }), /no text/);
+  assert.throws(() => As.parseClaude({ content: [{ type: 'thinking', thinking: 'x' }] }), /no text/);
+  assert.throws(() => As.parseClaude(null), /no text/);
+  assert.throws(() => As.parseClaude({ content: [{ type: 'text', text: 'partial' }], stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'cyber' } }), /declined this request \(cyber\)/);
+  assert.throws(() => As.parseClaude({ content: [], stop_reason: 'refusal', stop_details: null }), /declined this request, so there is no answer/);
+});
+
+test('parseClaude: after a fallback only the second model\'s text is taken', () => {
+  const reply = { content: [{ type: 'text', text: 'I cannot' }, { type: 'fallback', from: { model: 'claude-opus-5-5' }, to: { model: 'claude-opus-4-8' } }, { type: 'text', text: 'The answer.' }], stop_reason: 'end_turn', model: 'claude-opus-4-8' };
+  assert.equal(As.parseClaude(reply), 'The answer.');
+  assert.equal(As.claudeFinish(reply).fellBack, true); assert.equal(As.claudeFinish(reply).model, 'claude-opus-4-8');
+});
+
+test('claudeFinish: says when Claude ran out of room and how many tokens were used, and never throws', () => {
+  const reply = (stop) => ({ model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Hi' }], stop_reason: stop, usage: { input_tokens: 4210, output_tokens: 880 } });
+  assert.deepEqual(As.claudeFinish(reply('end_turn')), { reason: 'end_turn', truncated: false, model: 'claude-opus-5-5', input: 4210, output: 880, fellBack: false });
+  assert.equal(As.claudeFinish(reply('max_tokens')).truncated, true); assert.equal(As.claudeFinish(reply('model_context_window_exceeded')).truncated, true);
+  assert.equal(As.claudeFinish(JSON.stringify(reply('max_tokens'))).truncated, true);
+  for (const bad of ['<html>', null, undefined, 5, {}, { usage: 'x', stop_reason: 7 }]) assert.deepEqual(As.claudeFinish(bad), { reason: null, truncated: false, model: '', input: null, output: null, fellBack: false }, String(bad));
+});
+
+test('claudeError: a plain sentence for the status, then what Anthropic said, cleaned', () => {
+  const body = JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' }, request_id: 'req_1' });
+  assert.match(As.claudeError(401, body), /did not accept the key \(401\)/); assert.match(As.claudeError(401, body), /It said: "invalid x-api-key"/);
+  assert.match(As.claudeError(404, body), /does not know that model/); assert.match(As.claudeError(413, '{}'), /too large/);
+  assert.match(As.claudeError(429, '{}'), /limiting requests, or the spending cap/); assert.match(As.claudeError(529, '{}'), /overloaded/);
+  assert.match(As.claudeError(500, 'boom'), /Anthropic had an error \(500\).*"boom"/); assert.match(As.claudeError(418, ''), /answered 418\.$/);
+  assert.match(As.claudeError(400, JSON.stringify({ error: { message: 'Your credit balance is too low' } })), /credit balance is too low/);
+  assert.ok(!/\n/.test(As.claudeError(400, JSON.stringify({ error: { message: 'a\nb‮c' } }))), 'line breaks and direction marks are taken out');
+});
+
+test('the Claude option adds nothing to the local-model rule: a non-local address is still refused there', () => {
+  assert.equal(As.localEndpoint('https://api.anthropic.com/v1').ok, false);
+  assert.throws(() => As.chatRequest({ base: 'https://api.anthropic.com/v1', model: 'claude-opus-5-5', system: 'S', user: 'U' }), /Only a model on this computer/);
+});
+
 test('prompt: every task carries the rule to account for every input and output, and an explain asks for the list first', () => {
   const s = scene(), m = sum(s), f = As.focus(s.g, s.an, 'tx:' + tid(12));
   for (const task of ['triage', 'narrative', 'challenge']) assert.match(As.prompt(m, task).system, /account for every input and every output/, task);

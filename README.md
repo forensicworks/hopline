@@ -15,7 +15,7 @@ Bitcoin investigation tools that run in your browser: nothing to install and no 
 * **Analysis, with reasons** - consolidations, batch payments, CoinJoin-like transactions, peel chains, the likely change output and addresses spent together. All of it is heuristic: it shows its reasons, and none of it is proof.
 * **Investigation report** - one self-contained HTML file with the findings, the transactions, where and when each was fetched, and hashes that `tools/verify_report.py` can check.
 * **Amounts in a currency** - seven currencies, at each transaction's own time or at today's price.
-* **An assistant that stays on your computer** (optional) - the evidence as text for any AI assistant, or a model on this computer (Ollama, LM Studio, llama.cpp), with every id in its answer checked against the evidence. See [docs/interface.md](docs/interface.md).
+* **An assistant** (optional) - the evidence as text for any AI assistant, or a model on this computer (Ollama, LM Studio, llama.cpp), with every id in its answer checked against the evidence. It stays on your computer unless you switch on the **Claude option**, which is off by default, shows you the exact text, and asks before every send, because it sends the evidence to Anthropic. See [docs/interface.md](docs/interface.md).
 
 ## Privacy
 
