@@ -76,6 +76,20 @@ The reply is shown in an editable box labelled as a model's draft, and its ids a
 
 This part has been tested against a stand-in server that behaves like those servers; it has not been run against a real model yet.
 
+## Claude (optional: the evidence leaves your computer)
+
+The workspace can also ask Claude, through Anthropic's API. **This is the one way the evidence leaves your computer**, so it is built to be hard to do by accident:
+
+- It is **off whenever the page opens**. You switch it on under *Assistant > Claude*, paste your own Anthropic API key and choose a model (the default is `claude-opus-5-5`; Sonnet, Haiku and Fable are listed too). While it is on, an amber note shows in the Assistant section and a *Claude on* marker in its heading, even when the section is closed.
+- **Every send is shown first.** *Ask Claude…* builds the same text as *Copy for assistant* and shows it, exactly, in a read-only box with where it goes, which model, and about how many tokens. Nothing is sent until you press *Send to Anthropic*. What is sent is that text, not a rebuilt one: if the workspace changes while the box is open it is still the text you read, and changing the task, the rows, the model, the key or the switch withdraws the box.
+- **The address is fixed**: `https://api.anthropic.com/v1/messages`. No setting, field or file changes where the key and the evidence go, and *Ask the local model* still refuses any address that is not on this computer.
+- **The key** is sent only to `api.anthropic.com`, as a header. It stays in memory until the page is closed, or in this browser under its own name if you tick *Remember on this computer* (unticking forgets it). It is never in the saved session, an export, a report, the preferences or the activity log. *Test key* asks Anthropic which models the key can use and sends no evidence.
+- **What comes back** goes into the same editable box labelled as a model's draft, and its ids are checked at once, like any other answer. A reply is never added to the graph or to a report by itself. A reply that ran out of room, was declined, or failed is said in words and never written over what is in the box. The activity log records each send (model, task, size, address).
+
+What Anthropic does with what it receives is set by your agreement with Anthropic, not by Hopline. Do not use this for a case whose data must not leave your computer: use a model on this computer, or *Copy for assistant* and decide where to paste it.
+
+The request is built in `public/js/hopline-assist.js` (`claudeRequest`, `parseClaude`) and the page logic is in `public/js/workspace.js`. It sends no sampling settings (the current API version refuses them), leaves thinking at the model's default, and asks for the server-side refusal fallback on the models that take it, so a request Anthropic's safety classifiers decline is re-run on another Anthropic model instead of coming back empty (the answer's note says when that happened). The tests answer for api.anthropic.com themselves (`test/e2e/test_assistant_claude.py`, `test/assist.test.js`). It has not been run against the real API with a real key yet: the first run with one may need a small fix, and the raw reply is what to look at.
+
 ## Not here yet
 
-Letting an assistant act on a workspace (load, expand, follow the money) is not offered. It would need an approval step for every request first; see the roadmap.
+Letting an assistant (a local model or Claude) act on a workspace (load, expand, follow the money in plain language) is not offered. It needs an approval step for every request first, shown before anything runs; see the roadmap.
