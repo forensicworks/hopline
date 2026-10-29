@@ -1,6 +1,7 @@
 /*
  * Hopline assist: the evidence of a workspace as plain data that a script or an AI assistant can read, the prompts that go with it,
- * a check of an assistant's answer against that evidence, and the rules for talking to a model that runs on this machine.
+ * a check of an assistant's answer against that evidence, the rules for talking to a model that runs on this machine, and (optional, off by default) the
+ * request to Claude at api.anthropic.com.
  * Pure functions, no DOM, no network (the page and the command-line tool do the talking).
  *
  * The idea: the facts come from the analysis, never from a model. A model is only given the evidence and asked to read it, rank it
@@ -13,6 +14,8 @@
  *   checkCitations(answer, sets)          which ids an answer cites, which of them are not in the evidence, which paragraphs cite nothing
  *   localEndpoint(url)                    accepts only an address on this machine; returns { ok, base } or { ok: false, error }
  *   chatRequest(o) / parseChat(reply)     an OpenAI-compatible chat request (Ollama, LM Studio, llama.cpp ...) and its reply
+ *   claudeRequest(o) / parseClaude(reply) the optional request to Claude at api.anthropic.com (the only address that is ever used) and its reply: the one way
+ *                                         the evidence can leave this computer, so the page asks first, every time, and shows the exact text
  *
  * Text that came from outside (labels, notes, names from a label pack) is cleaned in summary() (control characters and line breaks
  * removed, length cut) and listed in `untrustedFields`; the prompts tell the model to treat it as data and never as instructions.
@@ -363,6 +366,99 @@
   /** What the page says when a reply was cut off. */
   var CUT_OFF = 'The model ran out of room and stopped before it finished, so its answer ends mid-way. Raise the context window or the answer limit in the server (in Ollama, num_ctx), or lower the pattern rows, and ask again.';
 
+  // ---- Claude (Anthropic): the one way the evidence can leave this computer, and only when the person switches it on -------------------------------
+  /**
+   * The address is fixed: the key and the evidence can only go to api.anthropic.com, whatever is typed anywhere. Nothing here makes a request: claudeRequest()
+   * only builds one, and the page shows the exact text and asks before it sends it. A browser may call the API directly only with the header
+   * anthropic-dangerous-direct-browser-access (the one the official SDK sends when it is told it runs in a browser).
+   */
+  var CLAUDE = { host: 'api.anthropic.com', url: 'https://api.anthropic.com/v1/messages', modelsUrl: 'https://api.anthropic.com/v1/models?limit=100', version: '2026-10-21',
+                 defaultModel: 'claude-opus-5-5', models: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1'], maxTokens: 16000,
+                 fallbackBeta: 'server-side-fallback-2026-07-01' };
+  // the models that take the server-side refusal fallback: a request their safety classifiers decline is re-run on another Anthropic model instead of coming back empty
+  var CLAUDE_FALLBACK = { 'claude-opus-5-5': 1, 'claude-opus-5': 1, 'claude-sonnet-5-5': 1, 'claude-fable-5-1': 1 };
+
+  /** A key as typed: printable characters without spaces, 8 to 300 of them; '' for anything else. It is only ever sent as a header to CLAUDE.host. */
+  function cleanClaudeKey(k) { var t = String(k == null ? '' : k).trim(); return /^[\x21-\x7e]{8,300}$/.test(t) ? t : ''; }
+  /** A model name as typed (letters, digits, dots, colons, hyphens), at most 80 characters. */
+  function cleanClaudeModel(m) { return String(m == null ? '' : m).replace(/[^\w.:\-]/g, '').slice(0, 80); }
+  function claudeHeaders(key) {
+    return { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': CLAUDE.version, 'anthropic-dangerous-direct-browser-access': 'true' };
+  }
+
+  /**
+   * The request for one answer: o = { key, model, system, user }. { url, host, fallback, init }, or an Error saying what is missing.
+   * Thinking is left at the model's default and nothing about sampling is sent (API version 2026-10-21 refuses temperature, top_p and top_k).
+   */
+  function claudeRequest(o) {
+    var key = cleanClaudeKey(o.key), model = cleanClaudeModel(o.model);
+    if (!key) throw new Error('Enter your Anthropic API key first (it starts with sk-ant-).');
+    if (!model) throw new Error('Name the Claude model to use (for example ' + CLAUDE.defaultModel + ').');
+    var body = { model: model, max_tokens: CLAUDE.maxTokens, system: o.system, messages: [{ role: 'user', content: o.user }] }, headers = claudeHeaders(key), fb = CLAUDE_FALLBACK[model] === 1;
+    if (fb) { body.fallbacks = 'default'; headers['anthropic-beta'] = CLAUDE.fallbackBeta; }
+    return { url: CLAUDE.url, host: CLAUDE.host, fallback: fb, init: { method: 'POST', headers: headers, body: JSON.stringify(body) } };
+  }
+  /** The request that lists the models a key can use. It carries the key and no evidence. */
+  function claudeModelsRequest(key) {
+    var k = cleanClaudeKey(key);
+    if (!k) throw new Error('Enter your Anthropic API key first (it starts with sk-ant-).');
+    var h = claudeHeaders(k); delete h['content-type'];
+    return { url: CLAUDE.modelsUrl, host: CLAUDE.host, init: { method: 'GET', headers: h } };
+  }
+
+  function claudeJson(reply) {
+    var d = reply;
+    if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { throw new Error('Anthropic sent something that is not JSON.'); } }
+    if (d && (d.type === 'error' || d.error)) throw new Error('Anthropic said: ' + plainText(d.error && d.error.message ? d.error.message : typeof d.error === 'string' ? d.error : 'an error', 240));
+    return d;
+  }
+  /**
+   * The text of a reply (an object or its JSON text). Only text blocks count: thinking and tool blocks are not an answer, and when a declined request was re-run on
+   * another model (a "fallback" block marks the switch) only what came after the switch is taken. Throws an Error saying what is wrong with it.
+   */
+  function parseClaude(reply) {
+    var d = claudeJson(reply);
+    if (d && d.stop_reason === 'refusal') {
+      var cat = d.stop_details && typeof d.stop_details.category === 'string' ? plainText(d.stop_details.category, 40) : '';
+      throw new Error('Claude declined this request' + (cat ? ' (' + cat + ')' : '') + ', so there is no answer.');
+    }
+    var blocks = d && Array.isArray(d.content) ? d.content : [], from = 0;
+    blocks.forEach(function (b, i) { if (b && b.type === 'fallback') from = i + 1; });
+    var t = blocks.slice(from).filter(function (b) { return b && b.type === 'text' && typeof b.text === 'string'; }).map(function (b) { return b.text; }).join('');
+    if (!t.trim()) throw new Error('Claude sent no text.');
+    return t;
+  }
+  /** About a reply that parseClaude took: { reason, truncated (it ran out of room), model (which one wrote it), input, output (tokens), fellBack (a second model answered) }. Never throws. */
+  function claudeFinish(reply) {
+    var d = reply;
+    if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = null; } }
+    d = d && typeof d === 'object' ? d : {};
+    var r = typeof d.stop_reason === 'string' ? d.stop_reason : null, u = d.usage && typeof d.usage === 'object' ? d.usage : {};
+    function n(x) { return typeof x === 'number' && isFinite(x) && x >= 0 ? Math.floor(x) : null; }
+    return { reason: r, truncated: r === 'max_tokens' || r === 'model_context_window_exceeded', model: typeof d.model === 'string' ? plainText(d.model, 80) : '',
+             input: n(u.input_tokens), output: n(u.output_tokens), fellBack: Array.isArray(d.content) && d.content.some(function (b) { return b && b.type === 'fallback'; }) };
+  }
+  /** The model ids in a reply to the models request. */
+  function parseClaudeModels(reply) {
+    var d = claudeJson(reply);
+    var list = d && Array.isArray(d.data) ? d.data : [];
+    return list.map(function (m) { return m && m.id; }).filter(function (x) { return typeof x === 'string'; }).map(function (x) { return plainText(x, 80); });
+  }
+  /** What the page says when Anthropic answers with an error status: a plain sentence, then what Anthropic said (cleaned). */
+  var CLAUDE_STATUS = { 400: 'Anthropic refused the request (400).', 401: 'Anthropic did not accept the key (401). Check it, or make a new one in the Anthropic Console.',
+                        402: 'Anthropic reports a billing problem (402).', 403: 'This key is not allowed to do that (403).', 404: 'Anthropic does not know that model or address (404): check the model name.',
+                        413: 'The request is too large for Anthropic (413): lower the pattern rows.', 429: 'Anthropic is limiting requests, or the spending cap is reached (429). Wait a little, then try again.',
+                        504: 'Anthropic timed out (504). Try again.', 529: 'Anthropic is overloaded right now (529). Try again in a minute.' };
+  function claudeError(status, body) {
+    var msg = '';
+    try { var d = JSON.parse(body); msg = d && d.error && typeof d.error.message === 'string' ? d.error.message : ''; } catch (e) { msg = ''; }
+    msg = plainText(msg || body, 240);
+    var base = CLAUDE_STATUS[status] || (status >= 500 ? 'Anthropic had an error (' + status + '). Try again.' : 'Anthropic answered ' + status + '.');
+    return base + (msg ? ' It said: "' + msg + '"' : '');
+  }
+
   return { FORMAT: FORMAT, VERSION: VERSION, TASKS: Object.keys(TASKS), summary: summary, focus: focus, prompt: prompt, idSets: idSets, checkCitations: checkCitations,
-           localEndpoint: localEndpoint, chatRequest: chatRequest, parseChat: parseChat, chatFinish: chatFinish, CUT_OFF: CUT_OFF, plainText: plainText };
+           localEndpoint: localEndpoint, chatRequest: chatRequest, parseChat: parseChat, chatFinish: chatFinish, CUT_OFF: CUT_OFF, plainText: plainText,
+           CLAUDE: CLAUDE, cleanClaudeKey: cleanClaudeKey, cleanClaudeModel: cleanClaudeModel, claudeRequest: claudeRequest, claudeModelsRequest: claudeModelsRequest,
+           parseClaude: parseClaude, claudeFinish: claudeFinish, parseClaudeModels: parseClaudeModels, claudeError: claudeError };
 }));

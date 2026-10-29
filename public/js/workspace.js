@@ -11,7 +11,7 @@
   var KNOWN_BASE = window.HOPLINE_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
-  var SAVE_KEY = 'hopline.workspace.v1', PREF_KEY = 'hopline.prefs.v1', TOKEN_KEY = 'hopline.ext.token', PACKS_KEY = 'hopline.packs.v1', KEYS_KEY = 'hopline.keys.v1';
+  var SAVE_KEY = 'hopline.workspace.v1', PREF_KEY = 'hopline.prefs.v1', TOKEN_KEY = 'hopline.ext.token', PACKS_KEY = 'hopline.packs.v1', KEYS_KEY = 'hopline.keys.v1', CLAUDE_KEY = 'hopline.claude.key';
   var ARRANGE = { columns: 1, flow: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 }, DEFAULT_ARRANGE = 'columns';
   var HOSTED = !!(window.HOPLINE_CONFIG && window.HOPLINE_CONFIG.hosted);                 // a published copy: see public/config.js
   function stat(name) { if (window.HoplineStats) window.HoplineStats.hit(name); }          // counts that a feature was used, by name only (public/js/hopline-stats.js)
@@ -54,7 +54,7 @@
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true,
     trace: emptyTrace(),
-    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
+    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
     stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
@@ -64,6 +64,7 @@
     log: []
   };
   var renderer = null, saveTimer = null, toastTimer = null, clearTimer = null;
+  var cl = { on: false, key: '', busy: null, pending: null };                              // the Claude option: always off when the page opens; the key lives here (and in the browser only if asked), never in state or a prefs file
 
   // ---- messages -------------------------------------------------------------------------------
   function log(msg, bad) {
@@ -193,7 +194,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -216,6 +217,7 @@
       state.sideCollapsed = p.sideCollapsed === true; state.inspCollapsed = p.inspCollapsed === true; state.tbCollapsed = p.tbCollapsed === true;
       state.edgeLabels = p.edgeLabels !== false; state.viaWallets = p.viaWallets !== false; state.bundleEdges = p.bundleEdges !== false;
       state.analysis = cleanAnalysis(p.analysis); state.assist = cleanAssist(p.assist); state.auto = cleanAuto(p.auto);
+      state.claude = cleanClaude(p.claude); if (state.claude.remember) cl.key = AS.cleanClaudeKey(store.get(CLAUDE_KEY) || '');
       state.reportBy = typeof p.reportBy === 'string' ? LB.cleanText(p.reportBy, 80) : '';
       if (p.customPrices === 'server' || p.customPrices === 'mempool' || p.customPrices === 'off') state.customPrices = p.customPrices;
       if (typeof p.extProxy === 'string' && proxyUrlOk(p.extProxy)) state.ext.proxy = p.extProxy;
@@ -3350,6 +3352,7 @@
     $('aiAsk').disabled = !ai.busy && (!ep.ok || !state.assist.model);
     $('aiAsk').title = ai.busy ? 'Stop waiting for the model' : !ep.ok ? ep.error : !state.assist.model ? 'Name the model under Local model first' : 'Send the instructions and the evidence to the model on this computer';
     $('aiTest').disabled = !ep.ok;
+    syncClaudeUi();
   }
 
   function aiCopyPrompt() {
@@ -3366,6 +3369,7 @@
 
   function aiAsk() {
     if (ai.busy) { ai.busy.abort(); return; }                                              // while a question is out the button says Cancel
+    if (cl.busy) { toast('Claude is answering: wait for it, or cancel it, first.', true); return; }
     var ep = AS.localEndpoint(state.assist.endpoint);
     if (!ep.ok) { toast(ep.error, true); return; }
     if (!state.assist.model) { toast('Name the model to ask (for example llama3.1).', true); return; }
@@ -3429,7 +3433,106 @@
     box.appendChild(el('p', { 'class': 'hint', text: 'A model\'s text is not evidence. Check each claim against the transactions before it goes into a report.' }));
   }
 
+  // ---- Claude: off whenever the page opens, and the one way the evidence leaves this computer. Asking shows the exact text first and sends only after a click. ----
+  function cleanClaude(c) {
+    c = c && typeof c === 'object' ? c : {};
+    return { model: AS.cleanClaudeModel(c.model) || AS.CLAUDE.defaultModel, remember: c.remember === true };
+  }
+  /** The key stays in this browser only when asked for, under its own name, apart from the prefs, the saved session, an export and a report. */
+  function saveClaudeKey() {
+    var k = AS.cleanClaudeKey(cl.key);
+    if (state.claude.remember && k) store.set(CLAUDE_KEY, k); else store.del(CLAUDE_KEY);
+  }
+  function claudeErrorText(e) {
+    if (e && e.name === 'AbortError') return 'Stopped: no answer was received. Anthropic may already have received the evidence.';
+    if (e && e.name === 'TypeError') return 'Could not reach ' + AS.CLAUDE.host + '. Check your connection: a network rule or a browser extension can also block it.';
+    return e && e.message ? e.message : 'The question failed.';
+  }
+  var CLAUDE_CUT = 'Claude ran out of room (the answer limit is ' + AS.CLAUDE.maxTokens.toLocaleString() + ' tokens) and stopped before it finished, so its answer ends mid-way. Lower the pattern rows and ask again.';
+  /** The review is of one exact text: change anything it was made from (task, rows, key, model, the switch) and it is withdrawn. */
+  function claudeDiscard() { if (cl.pending) { cl.pending = null; syncClaudeUi(); } }
+  function syncClaudeUi() {
+    var key = AS.cleanClaudeKey(cl.key);
+    $('claudeOn').checked = cl.on; $('claudeBody').hidden = !cl.on; $('claudeFlag').hidden = !cl.on; $('claudeBadge').hidden = !cl.on;
+    if (document.activeElement !== $('claudeKey')) $('claudeKey').value = cl.key;
+    if (document.activeElement !== $('claudeModel')) $('claudeModel').value = state.claude.model;
+    $('claudeRemember').checked = state.claude.remember;
+    $('claudeAsk').textContent = cl.busy ? 'Cancel' : 'Ask Claude…';
+    $('claudeAsk').disabled = !cl.busy && (!key || !state.claude.model);
+    $('claudeAsk').title = cl.busy ? 'Stop waiting for Claude' : !key ? 'Enter your Anthropic API key first' : !state.claude.model ? 'Name the model first' : 'Show exactly what would be sent to Anthropic, then ask you to confirm';
+    $('claudeTest').disabled = !key || !!cl.busy;
+    $('claudeReview').hidden = !(cl.on && cl.pending); $('claudeSend').disabled = !cl.pending || !!cl.busy;
+  }
+  function setClaudeOn(on) {
+    cl.on = !!on;
+    if (!cl.on) { if (cl.busy) cl.busy.abort(); cl.pending = null; }
+    log(cl.on ? 'Claude option switched on: when you ask and confirm, the evidence goes to Anthropic (' + AS.CLAUDE.host + ').' : 'Claude option switched off.');
+    syncClaudeUi();
+  }
+  /** Build the prompt and show exactly what would be sent. Nothing is sent yet. */
+  function claudePrepare() {
+    if (cl.busy) { cl.busy.abort(); return; }
+    if (!cl.on) return;
+    if (ai.busy) { toast('The model on this computer is answering: wait for it, or cancel it, first.', true); return; }
+    var p = assistPrompt(); if (!p) return;
+    var req; try { req = AS.claudeRequest({ key: cl.key, model: state.claude.model, system: p.system, user: p.user }); } catch (e) { toast(e.message, true); return; }
+    cl.pending = { p: p, model: state.claude.model };
+    $('claudeReviewMeta').textContent = 'This leaves your computer. It goes to ' + req.host + ' (Anthropic) with your API key, to the model ' + state.claude.model + ': about ' + p.tokens.toLocaleString() + ' tokens ('
+      + plural(p.shown.patterns, 'pattern row') + ', ' + plural(p.shown.peelChains, 'peel chain') + ', ' + plural(p.shown.clusters, 'cluster') + ', ' + plural(p.shown.wallets, 'noted wallet') + '). What Anthropic does with it is set by your agreement with Anthropic, not by Hopline. Read it, then send or cancel.';
+    $('claudeReviewText').textContent = p.text;                                            // a block of text, not a field: it cannot be edited, so what is read is what is sent
+    syncClaudeUi(); $('claudeReview').scrollIntoView({ block: 'nearest' }); $('claudeReview').focus();
+  }
+  /** Send what the review showed (the text kept from then, not rebuilt) and put the answer in the answer box, checked like any other. */
+  function claudeSend() {
+    var pend = cl.pending; if (!pend || cl.busy || !cl.on) return;
+    var p = pend.p, model = pend.model, req;
+    try { req = AS.claudeRequest({ key: cl.key, model: model, system: p.system, user: p.user }); } catch (e) { toast(e.message, true); return; }
+    var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 10 * 60 * 1000);
+    req.init.signal = ctl.signal; cl.busy = ctl; cl.pending = null; syncClaudeUi();
+    aiNoteSet('Asking Claude (' + model + ')… The evidence has gone to ' + req.host + ' (about ' + p.tokens.toLocaleString() + ' tokens; this can take a minute or two).');
+    log('Asked Claude ' + model + ' (' + p.task + ', about ' + p.tokens + ' tokens). It was sent to ' + req.host + '.');
+    fetch(req.url, req.init).then(function (r) {
+      return r.text().then(function (body) {
+        if (!r.ok) throw new Error(AS.claudeError(r.status, body));
+        return { text: AS.parseClaude(body), fin: AS.claudeFinish(body) };
+      });
+    }).then(function (a) {
+      var cut = a.fin.truncated, who = a.fin.model || model;
+      $('aiText').value = cut ? a.text + '\n\n[Cut off: Claude stopped before it finished.]' : a.text;                  // the marker travels with the text if it is copied
+      aiNoteSet('Written by ' + who + ' (Claude, through Anthropic) at ' + new Date().toISOString().slice(11, 16) + ' UTC'
+        + (a.fin.input != null && a.fin.output != null ? ', ' + a.fin.input.toLocaleString() + ' tokens in and ' + a.fin.output.toLocaleString() + ' out' : '') + '. It is a draft by a model, not evidence.'
+        + (a.fin.fellBack ? ' The first model declined the request, so a second Anthropic model answered.' : '') + (cut ? ' ' + CLAUDE_CUT : ''), cut);
+      aiCheckNow();
+    }, function (e) {
+      aiNoteSet(claudeErrorText(e), !(e && e.name === 'AbortError'));
+    }).then(function () { clearTimeout(timer); cl.busy = null; syncClaudeUi(); });
+  }
+  /** Ask which models the key can use: the key goes to Anthropic, the evidence does not. */
+  function claudeTest() {
+    var req; try { req = AS.claudeModelsRequest(cl.key); } catch (e) { toast(e.message, true); return; }
+    aiNoteSet('Asking ' + req.host + ' which models this key can use… (the key is sent, no evidence)');
+    fetch(req.url, req.init).then(function (r) {
+      return r.text().then(function (body) {
+        if (!r.ok) throw new Error(AS.claudeError(r.status, body));
+        var names = AS.parseClaudeModels(body);
+        if (!names.length) return aiNoteSet('The key was accepted, but Anthropic lists no models for it.', true);
+        var has = names.indexOf(state.claude.model) >= 0;
+        aiNoteSet('The key works. Models: ' + names.slice(0, 12).join(', ') + (names.length > 12 ? ' and ' + (names.length - 12) + ' more' : '') + '.' + (has ? '' : ' "' + state.claude.model + '" is not among them.'), !has);
+      });
+    }).catch(function (e) { aiNoteSet(claudeErrorText(e), true); });
+  }
+
   function wireAssistant() {
+    $('claudeOn').addEventListener('change', function () { setClaudeOn(this.checked); });
+    $('claudeKey').addEventListener('input', function () { cl.key = this.value.trim(); saveClaudeKey(); claudeDiscard(); syncClaudeUi(); });
+    $('claudeRemember').addEventListener('change', function () { state.claude.remember = this.checked; saveClaudeKey(); savePrefs(); syncClaudeUi(); });
+    $('claudeModel').addEventListener('input', function () { state.claude.model = AS.cleanClaudeModel(this.value); savePrefs(); claudeDiscard(); syncClaudeUi(); });
+    $('claudeModel').addEventListener('blur', function () { if (!state.claude.model) { state.claude.model = AS.CLAUDE.defaultModel; savePrefs(); } this.value = state.claude.model; syncClaudeUi(); });
+    $('claudeAsk').addEventListener('click', claudePrepare);
+    $('claudeSend').addEventListener('click', claudeSend);
+    $('claudeCancel').addEventListener('click', claudeDiscard);
+    $('claudeTest').addEventListener('click', claudeTest);
+    $('aiTask').addEventListener('change', claudeDiscard);
     $('aiCopy').addEventListener('click', aiCopyPrompt);
     $('aiAsk').addEventListener('click', aiAsk);
     $('aiTest').addEventListener('click', aiTest);
@@ -3437,7 +3540,7 @@
     $('aiCopyAnswer').addEventListener('click', function () { var t = $('aiText').value; if (t.trim()) copy(t, 'the answer'); else toast('There is no answer to copy.', true); });
     $('aiEndpoint').addEventListener('input', function () { state.assist.endpoint = this.value.slice(0, 300); savePrefs(); syncAssistUi(); });
     $('aiModel').addEventListener('input', function () { state.assist.model = cleanAssist({ model: this.value }).model; savePrefs(); syncAssistUi(); });
-    $('aiRows').addEventListener('change', function () { state.assist.rows = num(this.value, 5, 400, 60); this.value = state.assist.rows; savePrefs(); syncAssistUi(); });
+    $('aiRows').addEventListener('change', function () { state.assist.rows = num(this.value, 5, 400, 60); this.value = state.assist.rows; savePrefs(); claudeDiscard(); syncAssistUi(); });
     $('aiRows').addEventListener('input', function () { $('aiRowsOut').textContent = this.value; });
     $('aiEndpoint').addEventListener('blur', function () { this.value = state.assist.endpoint; });
     $('aiModel').addEventListener('blur', function () { this.value = state.assist.model; });

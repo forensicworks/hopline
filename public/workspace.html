@@ -203,9 +203,10 @@ window.addEventListener('error', function (e) {
     </details>
 
     <details id="aiSection">
-      <summary>Assistant</summary>
+      <summary>Assistant <span id="claudeBadge" class="badge out" hidden title="The Claude option is on: when you ask and confirm, the evidence goes to Anthropic">Claude on</span></summary>
       <div class="sec">
-        <p class="hint">The findings come from the analysis; an assistant only reads, ranks or words them, and every id in its answer is checked against the evidence. Everything loaded is included, hidden or not. Nothing is sent anywhere unless you set up a model on this computer below.</p>
+        <div id="claudeFlag" class="flag out" role="status" hidden><b>Claude is on.</b> When you ask and confirm, the evidence leaves this computer and goes to Anthropic (api.anthropic.com). Switch it off under Claude below.</div>
+        <p class="hint">The findings come from the analysis; an assistant only reads, ranks or words them, and every id in its answer is checked against the evidence. Everything loaded is included, hidden or not. Nothing is sent anywhere unless you set up a model on this computer, or switch on the Claude option, below.</p>
         <label for="aiTask">Ask for</label>
         <select id="aiTask">
           <option value="triage">Triage: what to look at first</option>
@@ -229,6 +230,30 @@ window.addEventListener('error', function (e) {
           <input type="text" id="aiModel" spellcheck="false" autocomplete="off" placeholder="for example llama3.1">
           <div class="row wrap"><button type="button" id="aiTest" title="Ask the server which models it has (sends no evidence)">Test connection</button></div>
           <p class="hint">Most local models read only about 4,000 tokens unless you raise their context window (in Ollama, num_ctx). If the answer ignores the end of the evidence, lower the pattern rows above or raise the context. If the browser blocks the request, allow this page's address in the server (for Ollama, the OLLAMA_ORIGINS setting).</p>
+        </details>
+        <details id="aiClaude" class="outbound">
+          <summary>Claude (sends the evidence to Anthropic)</summary>
+          <p class="hint warn"><b>Off by default. Switched on, this is the one place the evidence leaves your computer.</b> The button below sends the instructions and the evidence (transaction ids, addresses, amounts, and your labels and notes) to api.anthropic.com, which is not under your control. You see the exact text and confirm every time. Do not use it for a case whose data must stay on this computer: use a model on this computer, or copy the prompt yourself.</p>
+          <label class="check"><input type="checkbox" id="claudeOn"> Switch on the Claude option (until this page is closed)</label>
+          <div id="claudeBody" hidden>
+            <label for="claudeKey">Anthropic API key</label>
+            <input type="password" id="claudeKey" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+            <label class="check" title="Keep the key in this browser. Off: it is forgotten when the page is closed."><input type="checkbox" id="claudeRemember"> Remember on this computer</label>
+            <p class="hint">The key is sent only to api.anthropic.com, as a header. It is never put in the saved session, an export or a report.</p>
+            <label for="claudeModel">Model</label>
+            <input type="text" id="claudeModel" list="claudeModels" spellcheck="false" autocomplete="off">
+            <datalist id="claudeModels"><option value="claude-opus-5-5"><option value="claude-sonnet-5-5"><option value="claude-haiku-5-5"><option value="claude-fable-5-1"></datalist>
+            <div class="row wrap">
+              <button type="button" id="claudeTest" title="Ask Anthropic which models this key can use (sends the key, no evidence)">Test key</button>
+              <button type="button" id="claudeAsk" class="outbound-btn">Ask Claude…</button>
+            </div>
+            <div id="claudeReview" class="review" role="region" aria-label="Review before sending to Anthropic" tabindex="-1" hidden>
+              <p class="hint" id="claudeReviewMeta"></p>
+              <span class="lbl" id="claudeReviewLabel">Exactly what will be sent (the instructions, then the evidence)</span>
+              <pre id="claudeReviewText" tabindex="0" role="region" aria-labelledby="claudeReviewLabel"></pre>
+              <div class="row wrap"><button type="button" id="claudeSend" class="outbound-btn">Send to Anthropic</button><button type="button" id="claudeCancel">Cancel</button></div>
+            </div>
+          </div>
         </details>
         <p class="hint" id="aiNote" role="status"></p>
         <label for="aiText">Answer</label>
@@ -402,7 +427,7 @@ window.addEventListener('error', function (e) {
         <p><b>The investigation report</b> (Export menu) is one HTML file for what is on screen: a summary, the findings with their reasons, the transactions in time order with inputs and outputs, the wallets, the graph as a picture, where and when every transaction was fetched, and the method and limits. It embeds the evidence as data and states its SHA-256, so a reader can check the file was not changed afterwards (<code>tools/verify_report.py</code>).</p>
         <p><b>Label packs</b> (left panel) import lists of wallets and names from a CSV (<code>address,label,category,url,note</code>) or JSON file, such as an exchange's addresses, or OFAC's sanctions list (<code>SDN_XML.ZIP</code>, <code>SDN_ENHANCED.ZIP</code> or <code>SDN_ADVANCED.ZIP</code>), which is read directly. They appear as <i>known (pack name)</i> with a gold ring, stop an auto-expand like any known wallet, and can be switched off or removed. <i>Export</i> writes your own labels and tags in the same format to share with a colleague. A pack is someone else's claim, not a finding.</p>
         <p><b>Analysis</b> looks for patterns in what is loaded: <i>CONSOL</i> (many inputs gathered into one or two outputs), <i>BATCH</i> (a few inputs paying many outputs), <i>COINJOIN?</i> (several wallets' inputs and several outputs of exactly the same value to different addresses) and <i>PEEL</i> (a run of transactions that each pay a smaller amount, more than dust, out of a single coin and pass the rest on). A peel chain is named after the transaction it starts at (<i>P-65a1</i>) and has one colour, so both stay the same whatever else is loaded. Badges show their text where it fits and become small dots in the pattern's colour when zoomed out or crowded; point at or select a vertex to read its badge and chain name. Each kind can be switched off under <i>Flag patterns on transactions</i>. <i>Detections</i>, under the findings in the right-hand panel, lists every pattern found, oldest first, with its reason: filter it by kind or by chain, click a row to select that transaction and bring it into view, or copy the list. Pick a chain there (or open one of its steps) to light it up on the graph with numbered steps, show just that chain as a trace, or follow it further. A transaction's details also say which output most likely returns to the sender, and why; that output's edge is coloured amber. <b>Clusters</b> group addresses that were spent together in one transaction, which usually means one owner, and are drawn with a dashed ring in one colour; CoinJoin-like transactions are left out, and you can leave out any other by hand. All of it is heuristic: it shows its reasons and none of it is proof.</p>
-        <p><b>Assistant</b> gives an AI assistant the evidence and checks what it says. <i>Copy for assistant</i> copies the instructions and the evidence as text (triage, a draft of the findings text, an explanation of the selected vertex, or a challenge of the findings) to paste into any assistant. The findings come from the analysis; a model only reads, ranks or words them. <i>Check ids</i> compares every transaction id and address in an answer with the workspace and names the ones that are not there, which is how a made-up id is caught. <i>Ask the local model</i> does it with a model on this computer (Ollama, LM Studio, llama.cpp): only localhost or 127.0.0.1 is accepted, no key is sent, nothing leaves the machine. A model's text is a draft, not evidence.</p>
+        <p><b>Assistant</b> gives an AI assistant the evidence and checks what it says. <i>Copy for assistant</i> copies the instructions and the evidence as text (triage, a draft of the findings text, an explanation of the selected vertex, or a challenge of the findings) to paste into any assistant. The findings come from the analysis; a model only reads, ranks or words them. <i>Check ids</i> compares every transaction id and address in an answer with the workspace and names the ones that are not there, which is how a made-up id is caught. <i>Ask the local model</i> does it with a model on this computer (Ollama, LM Studio, llama.cpp): only localhost or 127.0.0.1 is accepted, no key is sent, nothing leaves the machine. <i>Claude</i> is the one exception, off whenever the page opens: switched on and given your Anthropic API key, it shows the exact text and, after you confirm, sends the evidence to Anthropic (api.anthropic.com), and a marker shows in the Assistant heading while it is on. A model's text is a draft, not evidence.</p>
         <p><b>Auto-expand</b> follows the money several transactions in one go, forward or backward, from the selected vertex, stopping at the limits you set (hops, transactions, requests) and at labelled wallets or CoinJoins. <i>Follow</i> chooses every output, the largest, the likely change, or a peel chain. In the Trace layout everything it loaded is shown and one <kbd>Ctrl+Z</kbd> takes it back.</p>
         <p><b>Right-click</b> a wallet or transaction for its actions: tag it (EXCH, THREAT, …), look a wallet up in Arkham (with your own key, through the proxy) or open Arkham's page for it in a new tab (<i>Check in Arkham</i>: no key, and Arkham is told what you are looking at), load more. <b>Tags</b> give a vertex a colour, a shape and a badge; set them next to the label in the details.</p>
         <p><b>Previous / Next</b> under the graph step along the money: from a transaction to the wallets it paid (or that paid in), from a wallet to the transactions that spent from it. One choice moves at once; several open a list.</p>
@@ -451,7 +476,7 @@ window.addEventListener('error', function (e) {
       <h2>Follow the money</h2>
       <p>Paste a transaction id or an address above.</p>
       <p><button type="button" id="sample" class="primary">Try a sample transaction</button> <button type="button" id="emptyImport">Open a workspace file</button></p>
-      <p class="hint">Everything runs in your browser. Look-ups go to the data source you choose.</p>
+      <p class="hint">Everything runs in your browser. Look-ups go to the data source you choose, and nothing else leaves it unless you switch on the Claude option in the Assistant section.</p>
     </div>
     <div id="chainChip" hidden role="status"><span id="chainChipName"></span><span id="chainChipText"></span><button type="button" id="chainChipClear" class="icon-only" aria-label="Clear the chain highlight" title="Clear the highlight">×</button></div>
     <div id="tooltip" role="tooltip" hidden></div>
