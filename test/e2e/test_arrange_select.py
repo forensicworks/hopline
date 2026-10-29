@@ -506,3 +506,67 @@ def test_adding_to_a_timeline_plus_force_trace_keeps_the_picture_steady(fpage, m
     moved = max(abs(pos(fpage, i)[1] - before[i][1]) for i in before)
     assert moved < 120, "what was there stays roughly where it was in height (largest move %s)" % moved
     assert len({tuple(pos(fpage, i)) for i in now}) == len(now), "and nothing is on top of anything"
+
+
+# ---- moving several vertices together --------------------------------------------------------------------------------
+def moved_by(page, before, ids):
+    """How far each of `ids` has moved since `before` (a dict id -> [x, y]), in world units."""
+    return {i: (round(pos(page, i)[0] - before[i][0], 1), round(pos(page, i)[1] - before[i][1], 1)) for i in ids}
+
+
+def screen_drag(page, id_, dx, dy):
+    p = xy(page, id_)
+    page.mouse.move(p["x"], p["y"]); page.mouse.down(); page.mouse.move(p["x"] + dx, p["y"] + dy, steps=8); page.mouse.up(); settle(page)
+
+
+def test_dragging_one_of_several_selected_vertices_moves_them_all_by_the_same_amount(fpage, mock):
+    ids = traced(fpage, mock, hops=3)
+    chosen = [i for i in ids if i.startswith("tx:")][:3]
+    fpage.evaluate("(a) => window.__hopline.setSel(a)", chosen); settle(fpage)
+    before = {i: pos(fpage, i) for i in ids}
+    screen_drag(fpage, chosen[1], 70, 90)
+    m = moved_by(fpage, before, ids)
+    assert abs(m[chosen[1]][0]) > 20 and abs(m[chosen[1]][1]) > 20, "the vertex dragged moved: " + str(m[chosen[1]])
+    for i in chosen:
+        assert abs(m[i][0] - m[chosen[1]][0]) < 0.25 and abs(m[i][1] - m[chosen[1]][1]) < 0.25, "every selected vertex moved by the same amount: " + str({j: m[j] for j in chosen})
+    assert all(m[i] == (0, 0) for i in ids if i not in chosen), "what was not selected stays where it was"
+    assert selected(fpage) == set(chosen), "dragging does not change the selection"
+
+
+def test_a_vertex_that_is_not_selected_is_dragged_alone(fpage, mock):
+    ids = traced(fpage, mock, hops=3)
+    txs = [i for i in ids if i.startswith("tx:")]
+    fpage.evaluate("(a) => window.__hopline.setSel(a)", txs[:2]); settle(fpage)
+    before = {i: pos(fpage, i) for i in ids}
+    screen_drag(fpage, txs[2], 60, 80)
+    m = moved_by(fpage, before, ids)
+    assert m[txs[2]] != (0, 0)
+    assert all(m[i] == (0, 0) for i in ids if i != txs[2]), "the selection stays put when the vertex dragged is not part of it"
+
+
+def test_a_branch_selected_from_the_menu_is_moved_as_one_and_the_places_are_kept(fpage, mock):
+    ids = traced(fpage, mock, hops=3)
+    start = "tx:" + tid(11)
+    p = xy(fpage, start); fpage.mouse.click(p["x"], p["y"], button="right")
+    fpage.click("#ctxMenu >> text=Select this branch"); settle(fpage)
+    branch = selected(fpage)
+    assert start in branch and len(branch) > 2, branch
+    before = {i: pos(fpage, i) for i in ids}
+    screen_drag(fpage, start, 50, 110)
+    m = moved_by(fpage, before, ids)
+    assert len({m[i] for i in branch}) == 1 and m[start] != (0, 0), "the whole branch moved by one and the same amount: " + str({i: m[i] for i in branch})
+    assert all(m[i] == (0, 0) for i in ids if i not in branch)
+    saved = fpage.evaluate("(a) => a.map(id => { const q = window.__hopline.state.trace.pos.get(id); return q ? [Math.round(q.x * 10) / 10, Math.round(q.y * 10) / 10] : null; })", sorted(branch))
+    assert saved == [pos(fpage, i) for i in sorted(branch)], "in Columns the new places are what is saved with the session"
+
+
+def test_in_a_time_arrangement_a_group_keeps_its_times_and_moves_up_and_down(fpage, mock):
+    ids = traced(fpage, mock, hops=3)
+    arrange(fpage, "timeline")
+    chosen = [i for i in ids if i.startswith("tx:")][:3]
+    fpage.evaluate("(a) => window.__hopline.setSel(a)", chosen); settle(fpage)
+    before = {i: pos(fpage, i) for i in ids}
+    screen_drag(fpage, chosen[0], 80, 100)
+    m = moved_by(fpage, before, chosen)
+    assert all(m[i][0] == 0 for i in chosen), "x means time here, so no transaction moved sideways: " + str(m)
+    assert len({m[i][1] for i in chosen}) == 1 and m[chosen[0]][1] != 0, "all moved up or down by the same amount: " + str(m)

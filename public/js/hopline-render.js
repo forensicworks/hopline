@@ -275,8 +275,13 @@
     var pt = this._local(e), hnd = this._pickHandle(pt);
     try { this.canvas.setPointerCapture(e.pointerId); } catch (x) { /* synthetic events */ }
     if (hnd) { this.drag = { handle: hnd, start: pt, moved: false, shift: e.shiftKey || e.altKey }; return; }
-    var h = this._pick(pt);
-    this.drag = { id: h.node, x0: h.node && this.cur.get(h.node) ? this.cur.get(h.node).x : null, edge: h.edge, start: pt, last: pt, moved: false, view0: { x: this.view.x, y: this.view.y }, shift: e.shiftKey || e.ctrlKey || e.metaKey, box: !h.node && (e.shiftKey || this.boxMode) };
+    var h = this._pick(pt), here = h.node ? this.cur.get(h.node) : null, group = null;
+    if (h.node && this.selected.has(h.node) && this.selected.size > 1) {            // pressing on one of several selected vertices: they all move together
+      group = [];
+      this.selected.forEach(function (id) { var p = this.cur.get(id); if (p && id !== h.node) group.push({ id: id, x: p.x, y: p.y }); }, this);
+      if (!group.length) group = null;
+    }
+    this.drag = { id: h.node, x0: here ? here.x : null, y0: here ? here.y : null, group: group, edge: h.edge, start: pt, last: pt, moved: false, view0: { x: this.view.x, y: this.view.y }, shift: e.shiftKey || e.ctrlKey || e.metaKey, box: !h.node && (e.shiftKey || this.boxMode) };
   };
 
   Renderer.prototype._move = function (e) {
@@ -301,6 +306,14 @@
       var nx = up ? d.x0 : w.x;
       if (p) { p.x = nx; p.y = w.y; }
       var t = this.target.get(d.id); if (t) { t.x = nx; t.y = w.y; }
+      if (d.group && d.x0 != null) {                                  // the rest of the selection moves by the same amount, each by the rule of its own layout (x may mean time)
+        var dx = nx - d.x0, dy = w.y - d.y0, self = this;                  // by what the dragged vertex itself moved: if its x is locked to time, so is the shift of the others
+        d.group.forEach(function (g) {
+          var gx = !e.shiftKey && self.data && typeof self.data.lockX === 'function' && self.data.lockX(g.id) ? g.x : g.x + dx, gp = self.cur.get(g.id), gt = self.target.get(g.id);
+          if (gp) { gp.x = gx; gp.y = g.y + dy; }
+          if (gt) { gt.x = gx; gt.y = g.y + dy; }
+        });
+      }
       this.canvas.style.cursor = up ? 'ns-resize' : 'grabbing';
     } else {
       this.view.x = d.view0.x + (pt.x - d.start.x); this.view.y = d.view0.y + (pt.y - d.start.y);
@@ -321,7 +334,13 @@
       return;
     }
     if (d.handle) { if (this.cb.onHandle) this.cb.onHandle(d.handle.id, d.handle.dir, d.shift, { x: e.clientX, y: e.clientY }); return; }
-    if (d.moved && d.id) { if (this.cb.onMove) this.cb.onMove(d.id, { x: this.cur.get(d.id).x, y: this.cur.get(d.id).y }); return; }
+    if (d.moved && d.id) {
+      if (this.cb.onMove) {
+        var self = this, ids = [d.id].concat((d.group || []).map(function (g) { return g.id; }));
+        ids.forEach(function (id) { var p = self.cur.get(id); if (p) self.cb.onMove(id, { x: p.x, y: p.y }); });
+      }
+      return;
+    }
     if (d.moved) return;
     if (d.id) { if (this.cb.onSelect) this.cb.onSelect(d.id, d.shift); }
     else if (d.edge) { if (this.cb.onSelectEdge) this.cb.onSelectEdge(d.edge); }
