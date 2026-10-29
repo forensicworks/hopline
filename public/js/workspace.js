@@ -2036,8 +2036,8 @@
                                                   el('label', { 'for': 'fNote', 'class': 'lbl', text: 'Notes' }), note]);
   }
 
-  var SHAPE_GLYPH = { circle: '●', square: '■', diamond: '◆', hexagon: '⬢', triangle: '▲', star: '★', cross: '✚' };
-  var SHAPE_NAME = { circle: 'Circle', square: 'Square', diamond: 'Diamond', hexagon: 'Hexagon', triangle: 'Triangle', star: 'Star', cross: 'Cross' };
+  var SHAPE_GLYPH = { circle: '●', square: '■', diamond: '◆', hexagon: '⬢', triangle: '▲', 'triangle-down': '▼', star: '★', cross: '✚' };
+  var SHAPE_NAME = { circle: 'Circle', square: 'Square', diamond: 'Diamond', hexagon: 'Hexagon', triangle: 'Triangle', 'triangle-down': 'Triangle (down)', star: 'Star', cross: 'Cross' };
   var DEFAULT_SHAPE_OF = { tx: 'square', coinbase: 'diamond', data: 'hexagon' };
 
   /** Tag, colour and shape for one vertex, or for every selected vertex at once. */

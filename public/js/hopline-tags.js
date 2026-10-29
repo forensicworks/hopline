@@ -13,12 +13,12 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var SHAPES = ['circle', 'square', 'diamond', 'hexagon', 'triangle', 'star', 'cross'];
+  var SHAPES = ['circle', 'square', 'diamond', 'hexagon', 'triangle', 'triangle-down', 'star', 'cross'];
 
   var PRESETS = [
     { id: 'EXCH',     name: 'Exchange',                    color: '#2ecc71', shape: 'hexagon' },
     { id: 'THREAT',   name: 'Threat actor',                color: '#ff4d4d', shape: 'triangle' },
-    { id: 'VICTIM',   name: 'Victim',                      color: '#4da3ff', shape: 'circle' },
+    { id: 'VICTIM',   name: 'Victim',                      color: '#4da3ff', shape: 'triangle-down' },    // the threat actor's triangle, turned over
     { id: 'PAYMENT',  name: 'Payment of interest',         color: '#ffd23f', shape: 'star' },
     { id: 'MIXER',    name: 'Mixer / tumbler',             color: '#b36bff', shape: 'diamond' },
     { id: 'MARKET',   name: 'Darknet market',              color: '#ff5fa2', shape: 'cross' },

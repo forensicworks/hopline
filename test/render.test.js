@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { niceTicks, distToSegment } = require('../public/js/hopline-render.js');
+const { niceTicks, distToSegment, shape } = require('../public/js/hopline-render.js');
 
 const DAY = 86400;
 
@@ -38,4 +38,21 @@ test('distToSegment: perpendicular, end caps and zero-length segments', () => {
   assert.equal(distToSegment({ x: -3, y: 4 }, { x: 0, y: 0 }, { x: 10, y: 0 }), 5);
   assert.equal(distToSegment({ x: 13, y: 4 }, { x: 0, y: 0 }, { x: 10, y: 0 }), 5);
   assert.equal(distToSegment({ x: 3, y: 4 }, { x: 0, y: 0 }, { x: 0, y: 0 }), 5);
+});
+
+// a canvas that only remembers the corners of the path it was asked to draw
+function corners(kind, x, y, r) {
+  const pts = [];
+  shape({ beginPath() {}, closePath() {}, moveTo(a, b) { pts.push([a, b]); }, lineTo(a, b) { pts.push([a, b]); } }, kind, x, y, r);
+  return pts;
+}
+
+test('shape: triangle-down is the triangle turned over, with the point below and the flat side above', () => {
+  const up = corners('triangle', 100, 50, 10), down = corners('triangle-down', 100, 50, 10);
+  assert.equal(down.length, 3);
+  const apexUp = up.reduce((m, p) => (p[1] < m[1] ? p : m)), apexDown = down.reduce((m, p) => (p[1] > m[1] ? p : m));
+  assert.deepEqual(apexUp, [100, 38], 'the threat triangle points up');
+  assert.deepEqual(apexDown, [100, 62], 'the victim triangle points down');
+  const mirrored = up.map(([a, b]) => [a, 2 * 50 - b]).sort(), turned = down.slice().sort();
+  assert.deepEqual(turned, mirrored, 'the same triangle, reflected across the middle');
 });

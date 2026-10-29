@@ -434,6 +434,8 @@
       for (i = 0; i < 6; i++) { a = Math.PI / 3 * i + Math.PI / 6; ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); }
     } else if (kind === 'triangle') {
       ctx.moveTo(x, y - r * 1.2); ctx.lineTo(x + r * 1.1, y + r * 0.8); ctx.lineTo(x - r * 1.1, y + r * 0.8);
+    } else if (kind === 'triangle-down') {
+      ctx.moveTo(x, y + r * 1.2); ctx.lineTo(x + r * 1.1, y - r * 0.8); ctx.lineTo(x - r * 1.1, y - r * 0.8);
     } else if (kind === 'star') {
       for (i = 0; i < 10; i++) { a = -Math.PI / 2 + Math.PI / 5 * i; var rr = i % 2 ? r * 0.55 : r * 1.25; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
     } else if (kind === 'cross') {
@@ -556,7 +558,7 @@
     }
 
     // nodes
-    var labels = [], badges = [], pills = [], flagItems = [], stepNums = [];
+    var labels = [], badges = [], pills = [], flagItems = [], stepNums = [], notes = [];
     this.handleRects = [];
     d.visible.nodes.forEach(function (id) {
       var n = g.nodes.get(id), p = self.cur.get(id); if (!p) return;
@@ -594,6 +596,7 @@
       if (n.ext) {                                                         // a small blue dot: something was looked up about this wallet
         ctx.beginPath(); ctx.arc(P.x + r * 0.85, P.y - r * 0.85, 3.4, 0, Math.PI * 2); ctx.fillStyle = '#4da3ff'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.stroke();
       }
+      if (n.note) notes.push({ x: P.x + r * 0.7 + 3.5, y: P.y + r * 0.7 + 3.5, alpha: dimmed ? 0.15 : 1 });
       ctx.globalAlpha = 1;
       if (n.tag && !dimmed) badges.push({ text: n.tag, x: P.x, y: P.y - r - 6 - ((d.seedIds ? d.seedIds.has(id) : d.seedId === id) ? 10 : 0), color: colour });
       var isSeed = d.seedIds ? d.seedIds.has(id) : d.seedId === id;
@@ -620,6 +623,18 @@
       }
       var note = d.nodeNote ? d.nodeNote(n) : '';
       if (text && !dimmed) labels.push({ text: text, sub: note, x: P.x, y: P.y + r + 12, strong: !!(n.label || known), sel: self.selected.has(id) });
+    });
+    notes.forEach(function (nt) {                                          // a small yellow note at the lower right of a vertex you wrote a note on, drawn after every vertex so none covers it
+      var hs = 4.5, x = nt.x, y = nt.y;
+      ctx.globalAlpha = nt.alpha;
+      ctx.beginPath();
+      ctx.moveTo(x - hs, y - hs); ctx.lineTo(x + hs - 3, y - hs); ctx.lineTo(x + hs, y - hs + 3); ctx.lineTo(x + hs, y + hs); ctx.lineTo(x - hs, y + hs); ctx.closePath();
+      ctx.fillStyle = '#ffe27a'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.stroke();
+      if (self.view.k >= 0.5) {                                            // two lines of writing, when there is room for them
+        ctx.beginPath(); ctx.moveTo(x - hs + 2, y - 0.5); ctx.lineTo(x + hs - 2, y - 0.5); ctx.moveTo(x - hs + 2, y + 2); ctx.lineTo(x + hs - 3, y + 2);
+        ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(60,40,0,0.7)'; ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
     });
     ctx.font = 'bold 9.5px Calibri, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.lineJoin = 'round';
     // Pattern flags (PEEL 3/5, CONSOL 34>2 ...) only get their text where it fits: zoomed out, or where two would sit on top of each other, a small
