@@ -244,10 +244,13 @@
         h.push('</table>');
       }
       if (tr.handoffs && tr.handoffs.length) {
-        h.push('<h3>Service hand-offs (' + tr.handoffs.length + ')</h3><p class="hint">Where the trail meets a wallet that a list names as a service: money going into it (a deposit) or coming out of it (a withdrawal), oldest first. The wallet just before a deposit, or just after a withdrawal, is a candidate for the deposit address or the customer\'s wallet; a request to the service names the transaction, the time and the amount. A name is the list\'s claim, not proof.</p>'
-          + '<table><tr><th>Direction</th><th>Service</th><th>Service wallet</th><th>Transaction</th><th>Time</th><th>Amount</th><th>Wallet before / after</th><th>Steps</th></tr>');
+        var anyNamed = tr.handoffs.some(function (r) { return r.kind === 'named'; });
+        h.push('<h3>' + (anyNamed ? 'Hand-offs' : 'Service hand-offs') + ' (' + tr.handoffs.length + ')</h3><p class="hint">Where the trail meets a wallet that a list names as a service: money going into it (a deposit) or coming out of it (a withdrawal), oldest first. The wallet just before a deposit, or just after a withdrawal, is a candidate for the deposit address or the customer\'s wallet; a request to the service names the transaction, the time and the amount. '
+          + (anyNamed ? 'A row marked <i>named</i> is a wallet a sanctions or ransomware list names, not a service: the trail goes on through it. ' : '') + 'A name is the list\'s claim, not proof.</p>'
+          + '<table><tr><th>Direction</th><th>' + (anyNamed ? 'Name' : 'Service') + '</th><th>' + (anyNamed ? 'Wallet' : 'Service wallet') + '</th><th>Transaction</th><th>Time</th><th>Amount</th><th>Wallet before / after</th><th>Steps</th></tr>');
         tr.handoffs.slice(0, MAX_ROWS * 2).forEach(function (r) {
-          h.push('<tr><td>' + (r.dir === 'deposit' ? 'deposit (into the service)' : 'withdrawal (out of the service)') + '</td><td>' + esc(r.service) + '</td><td><code>' + esc(r.address) + '</code></td><td><a href="#tx-' + esc(r.txid) + '"><code>' + esc(r.txid.slice(0, 16)) + '…</code></a></td><td>'
+          var nm = r.kind === 'named', dep = r.dir === 'deposit';
+          h.push('<tr><td>' + (nm ? (dep ? 'into the wallet' : 'out of the wallet') : (dep ? 'deposit (into the service)' : 'withdrawal (out of the service)')) + '</td><td>' + (nm ? '<i>named</i> ' : '') + esc(r.service) + '</td><td><code>' + esc(r.address) + '</code></td><td><a href="#tx-' + esc(r.txid) + '"><code>' + esc(r.txid.slice(0, 16)) + '…</code></a></td><td>'
             + esc(t(r.time)) + '</td><td class="num">' + amountCell(model, r.amount, r.time) + '</td><td>' + (r.walletAddress ? '<code>' + esc(r.walletAddress) + '</code>' : '') + '</td><td class="num">' + esc(r.depth) + '</td></tr>');
         });
         h.push('</table>' + (tr.handoffs.length > MAX_ROWS * 2 ? '<p class="hint">The first ' + (MAX_ROWS * 2) + ' of ' + tr.handoffs.length + ' are listed.</p>' : ''));

@@ -426,6 +426,21 @@ test('summary: the hand-offs are cut to a cap and the cut is said', () => {
   assert.ok(s.limits.some((l) => /40 of 50 service hand-offs/.test(l)), s.limits.join(' | '));
 });
 
+test('summary and prompt: a hand-off to a named wallet carries its kind, and the prompt gets a kind column only then', () => {
+  const g = new Graph();
+  add(g, 1, [IN(90, 0, a('ex'), 1000)], [OUT(a('vic'), 900)]);
+  const t = traceFixture();
+  t.handoffs.push({ kind: 'named', dir: 'deposit', service: 'Ransomware: Acme', address: a('q2'), txid: tid(4), time: 1650002400, amount: 50, outputs: 1, wallet: null, walletAddress: null, depth: 2, nIn: 1, nOut: 1, merges: false });
+  const s = As.summary(g, An.analyse(g, {}), { trace: t });
+  assert.deepEqual(s.trace.handoffs.map((r) => r.kind), ['service', 'service', 'named']);
+  const p = As.prompt(s, 'triage', {}), ev = JSON.parse(p.user.slice(p.user.indexOf('<<EVIDENCE (JSON)\n') + 18, p.user.lastIndexOf('\nEVIDENCE>>')));
+  assert.deepEqual(ev.trace.handoffColumns, ['time', 'direction', 'service', 'txid', 'btc', 'walletBeforeOrAfter', 'kind']);
+  assert.equal(ev.trace.handoffs[2][6], 'named');
+  assert.ok(s.notes.some((n) => /"named" is not a service/.test(n)), 'the evidence says how to read a named hand-off');
+  const plain = As.summary(g, An.analyse(g, {}), { trace: traceFixture() }), pp = As.prompt(plain, 'triage', {});
+  assert.deepEqual(JSON.parse(pp.user.slice(pp.user.indexOf('<<EVIDENCE (JSON)\n') + 18, pp.user.lastIndexOf('\nEVIDENCE>>'))).trace.handoffColumns, ['time', 'direction', 'service', 'txid', 'btc', 'walletBeforeOrAfter'], 'unchanged without a named one');
+});
+
 test('idSets: what the trail names may be cited by an answer, and nothing else', () => {
   const g = new Graph();
   add(g, 1, [IN(90, 0, a('ex'), 1000)], [OUT(a('vic'), 900)]);

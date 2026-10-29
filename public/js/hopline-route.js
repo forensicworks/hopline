@@ -46,6 +46,13 @@
     var k = known ? known(n.address) : null;
     return n.label || n.tag || (k && k.label) || null;
   }
+  /** The name a list gives a wallet that is NOT a service (a sanctions or ransomware entry), or null: the names whose wallets a trail passes through and still reports. */
+  function listedName(graph, known, id) {
+    var n = graph.nodes.get(id);
+    if (!n || n.type !== 'addr' || !known || isHub(graph, known, id)) return null;
+    var k = known(n.address);
+    return (k && k.label) || null;
+  }
   /**
    * What the other wallets are related to: the one picked (view.routeRef), else the first starting point of the trace (view.trace.seeds), else a wallet tagged
    * THREAT, else the one vertex that is selected. Returns a vertex id or null.
@@ -198,8 +205,8 @@
   // ---- where the trail is still open ------------------------------------------------------------------
   /**
    * Follow the money from the reference(s) as far as what is loaded goes, and report how each branch ends. dir: 'next' (where it went)
-   * or 'prev' (where it came from). opts: { stop(vertexId) -> a name or null, max }. A wallet that has a name stops the branch, as it
-   * does for Auto-expand.
+   * or 'prev' (where it came from). opts: { stop(vertexId) -> a name or null, pass(vertexId) -> a name or null, max }. A wallet that has a name stops the
+   * branch, as it does for Auto-expand. A wallet `pass` names is recorded in `named` (with passed: true) and the branch goes on through it.
    *   ends     branches that go on but were not followed: kind 'unchecked' (whether the output was spent was never asked), 'spent' (it
    *            was spent, by a transaction that is not loaded: forward) or 'funder' (the transaction that paid the input is not loaded:
    *            backward); each { kind, dir, txid, id (the wallet), address, amount, index (output or input number), edgeId, time, depth, next (the transaction to load) }
@@ -211,7 +218,7 @@
    */
   function openEnds(idx, refIds, dir, opts) {
     opts = opts || {};
-    var graph = idx.graph, max = opts.max || MAX_TXS, forward = dir !== 'prev', stop = opts.stop;
+    var graph = idx.graph, max = opts.max || MAX_TXS, forward = dir !== 'prev', stop = opts.stop, pass = opts.pass;
     var seen = new Map(), side = new Map(), queue = [], ends = [], named = [], resting = { count: 0, sats: 0 }, reached = { txs: 0, coinbase: 0 };
     // side: the wallet that held the coin on the reference's side of a transaction: just before it (forward) or just after it, on its way to the reference (backward)
     (Array.isArray(refIds) ? refIds : [refIds]).forEach(function (r) {
@@ -221,6 +228,10 @@
       return { id: id, address: address, label: label, txid: t.slice(3), amount: amount, depth: d, time: node.time == null ? null : node.time, wallet: side.get(t) || null, nIn: node.nIn == null ? null : node.nIn, nOut: node.nOut == null ? null : node.nOut };
     }
     function nameOf(id) { return stop ? stop(id) : null; }
+    function passed(id, address, t, amount, d, node) {
+      var label = pass ? pass(id) : null;
+      if (label) { var x = entry(label, id, address, t, amount, d, node); x.passed = true; named.push(x); }
+    }
     for (var i = 0; i < queue.length; i++) {
       var t = queue[i], d = seen.get(t), rec = idx.txs.get(t), node = graph.nodes.get(t) || {};
       if (!rec || !rec.loaded) {
@@ -234,6 +245,7 @@
           if (!target || target.type !== 'addr') return;                      // OP_RETURN data and outputs with no address carry no coins to follow
           var label = nameOf(e.target);
           if (label) { named.push(entry(label, e.target, target.address, t, e.amount, d, node)); return; }
+          passed(e.target, target.address, t, e.amount, d, node);
           if (e.spent === false) { resting.count++; resting.sats += e.amount; return; }
           var spender = e.spentBy && e.spentBy.txid ? ID.tx(e.spentBy.txid) : null;
           if (e.spent === true && spender) {
@@ -251,6 +263,7 @@
           if (src.type !== 'addr') return;
           var label = nameOf(e.source);
           if (label) { named.push(entry(label, e.source, src.address, t, e.amount, d, node)); return; }
+          passed(e.source, src.address, t, e.amount, d, node);
           if (!e.prev || !e.prev.txid) return;
           var funder = ID.tx(e.prev.txid), fr = idx.txs.get(funder);
           if (fr && fr.loaded) { if (d + 1 <= max && !seen.has(funder)) { seen.set(funder, d + 1); side.set(funder, e.source); queue.push(funder); } return; }
@@ -265,11 +278,14 @@
   // ---- where the money meets a service ---------------------------------------------------------------
   /**
    * The places where money from the reference went into a service wallet (a deposit) or money from one came into the trail (a withdrawal), oldest first.
-   * opts: { hub(vertexId), stop(vertexId) -> name, max }. Several outputs of one transaction to one service are one row. The trail is followed THROUGH every
-   * wallet that is not a service, whatever its name or tag (a victim wallet you tagged, a ransom address on a list): only a service ends a branch, because only a
-   * service mixes everyone's coins. Without `hub` there is no way to tell a service, and nothing is returned.
-   *   { dir: 'deposit' | 'withdrawal', service (its name), id, address, txid, time, amount (sats), outputs, wallet (the wallet that held the coin just before a
-   *     deposit, a deposit address candidate, or just after a withdrawal: the customer's wallet candidate), walletAddress, depth, nIn, nOut, merges }
+   * opts: { hub(vertexId), stop(vertexId) -> name, listed(vertexId) -> the name a list gives a wallet that is not a service, max }. Several outputs of one
+   * transaction to one wallet are one row. The trail is followed THROUGH every wallet that is not a service, whatever its name or tag (a victim wallet you
+   * tagged, a ransom address on a list): only a service ends a branch, because only a service mixes everyone's coins. A wallet that `listed` names (a sanctions
+   * or ransomware entry) is reported on the way, as a row of kind 'named', and the trail goes on through it. Your own labels and tags are not rows: you put them
+   * there. Without `hub` there is no way to tell a service, and nothing is returned.
+   *   { kind: 'service' | 'named', dir: 'deposit' | 'withdrawal' (the money went into the wallet, or came out of it), service (the wallet's name), id, address, txid,
+   *     time, amount (sats), outputs, wallet (the wallet that held the coin just before a deposit, a deposit address candidate, or just after a withdrawal: the
+   *     customer's wallet candidate), walletAddress, depth, nIn, nOut, merges }
    * The reference's own coins are followed only as far as the loaded transactions go, so a missing row only means none was found there.
    */
   function handoffs(idx, refIds, opts) {
@@ -277,13 +293,15 @@
     if (!opts.hub) return [];
     var rows = [], graph = idx.graph, hub = opts.hub, name = opts.stop;
     var services = name ? function (id) { return hub(id) ? name(id) : null; } : null;
+    var refs = Array.isArray(refIds) ? refIds : [refIds];
+    var listed = opts.listed ? function (id) { return refs.indexOf(id) >= 0 ? null : opts.listed(id); } : null;       // the reference is where the trail starts, not a place it meets
     [['next', 'deposit'], ['prev', 'withdrawal']].forEach(function (d) {
-      var oe = openEnds(idx, refIds, d[0], { stop: services, max: opts.max }), by = new Map();
+      var oe = openEnds(idx, refIds, d[0], { stop: services, pass: listed, max: opts.max }), by = new Map();
       oe.named.forEach(function (n) {
         var key = n.txid + '|' + n.id, r = by.get(key);
         if (!r) {
           var w = n.wallet ? graph.nodes.get(n.wallet) : null;
-          r = { dir: d[1], service: n.label, id: n.id, address: n.address, txid: n.txid, time: n.time, amount: 0, outputs: 0, wallet: n.wallet, walletAddress: w && w.address ? w.address : null,
+          r = { kind: n.passed ? 'named' : 'service', dir: d[1], service: n.label, id: n.id, address: n.address, txid: n.txid, time: n.time, amount: 0, outputs: 0, wallet: n.wallet, walletAddress: w && w.address ? w.address : null,
                 depth: n.depth, nIn: n.nIn, nOut: n.nOut, merges: n.nIn != null && n.nIn >= MERGE_INPUTS };
           by.set(key, r); rows.push(r);
         }
@@ -423,12 +441,12 @@
   /**
    * How far the trail from the reference got, as plain data for a report, the evidence summary and the command-line tool:
    *   { reference, handoffs: [...as handoffs()], openEnds: { next, prev } } where each side is { count, sats, unchecked, notLoaded, resting, named: [{ label, count, sats }], rows: [first 20] }.
-   * opts: { hub, name(vertexId) -> a name (for the hand-offs: always), stop(vertexId) -> a name or null (for the open ends: the stop-at-labelled setting), max, has(vertexId) }.
+   * opts: { hub, name(vertexId) -> a name (for the hand-offs: always), listed(vertexId) -> a list's name for a wallet that is not a service (more hand-offs), stop(vertexId) -> a name or null (for the open ends: the stop-at-labelled setting), max, has(vertexId) }.
    * With `has`, only what that says is shown is kept (the report: nothing outside what is on screen comes in through here), and counts are of what is kept.
    */
   function trace(idx, refId, opts) {
     opts = opts || {};
-    var has = opts.has, rows = handoffs(idx, refId, { hub: opts.hub, stop: opts.name, max: opts.max });
+    var has = opts.has, rows = handoffs(idx, refId, { hub: opts.hub, stop: opts.name, listed: opts.listed, max: opts.max });
     if (has) {
       rows = rows.filter(function (r) { return has(ID.tx(r.txid)) && has(r.id); }).map(function (r) {
         return r.wallet && !has(r.wallet) ? Object.assign({}, r, { wallet: null, walletAddress: null }) : r;
@@ -438,6 +456,6 @@
              openEnds: { next: endsSummary(openEnds(idx, refId, 'next', { stop: opts.stop, max: opts.max }), has), prev: endsSummary(openEnds(idx, refId, 'prev', { stop: opts.stop, max: opts.max }), has) } };
   }
 
-  return { MAX_TXS: MAX_TXS, MERGE_INPUTS: MERGE_INPUTS, isHub: isHub, nameOf: nameOf, referenceOf: referenceOf, index: index, find: find, relations: relations, openEnds: openEnds,
+  return { MAX_TXS: MAX_TXS, MERGE_INPUTS: MERGE_INPUTS, isHub: isHub, nameOf: nameOf, listedName: listedName, referenceOf: referenceOf, index: index, find: find, relations: relations, openEnds: openEnds,
            handoffs: handoffs, endsSuccessors: endsSuccessors, pickEnds: pickEnds, connect: connect, trace: trace, offscreen: offscreen };
 }));

@@ -533,6 +533,25 @@ test('suggestNames: a cluster with two different names is a conflict, not a sugg
   assert.deepEqual(r.conflicts.map((c) => c.names.slice().sort()), [['Exchange A', 'Exchange B']]);
 });
 
+test('suggestNames: whose name it is travels with the suggestion, and your label counts only where no list names a wallet of the cluster', () => {
+  const g = new Graph();
+  add(g, 1, [IN(90, 0, a('hot'), 9000), IN(91, 0, a('dep1'), 4000)], [OUT(a('cold'), 12800)]);
+  add(g, 2, [IN(92, 0, a('own'), 9000), IN(93, 0, a('dep2'), 4000)], [OUT(a('cold2'), 12800)]);
+  add(g, 3, [IN(94, 0, a('both1'), 9000), IN(95, 0, a('both2'), 9000), IN(96, 0, a('dep3'), 4000)], [OUT(a('cold3'), 21800)]);
+  const an = An.analyse(g, {}), V = (n) => ID.addr(a(n));
+  const names = (id) => (id === V('hot') ? 'Exchange' : id === V('own') ? { name: 'Alice', by: 'you' } : id === V('both1') ? 'Same' : id === V('both2') ? { name: 'Same', by: 'you' } : null);
+  const r = An.suggestNames(g, an.clusters, names), by = {}, addrs = {};
+  r.suggestions.forEach((s) => { by[s.name] = s.by; addrs[s.name] = s.addrs.slice().sort(); });
+  assert.deepEqual(by, { Exchange: ['list'], Alice: ['you'], Same: ['list'] }, 'a plain string is a list, and your label next to a list name is not counted');
+  assert.deepEqual(addrs.Same, [V('both2'), V('dep3')].sort(), 'the wallet you labelled is left to the caller, which does not touch a wallet that has a label');
+  assert.deepEqual(r.conflicts, []);
+  const mixed = An.suggestNames(g, an.clusters, (id) => (id === V('both1') ? 'Bob' : id === V('both2') ? { name: 'Alice', by: 'you' } : null));
+  assert.deepEqual(mixed.conflicts, [], 'a list name and a label of yours that differ are not a conflict: the label may only describe the wallet');
+  assert.deepEqual(mixed.suggestions.map((s) => [s.name, s.by]), [['Bob', ['list']]]);
+  const two = An.suggestNames(g, an.clusters, (id) => (id === V('both1') ? { name: 'Bob', by: 'you' } : id === V('both2') ? { name: 'Alice', by: 'you' } : null));
+  assert.deepEqual(two.conflicts.map((c) => c.names.slice().sort()), [['Alice', 'Bob']], 'two labels of yours that differ are a conflict like any two names');
+});
+
 test('suggestNames: a CoinJoin-like transaction and one you excluded are not used, so nothing is suggested from them', () => {
   const g = new Graph();
   const ins = [1, 2, 3, 4, 5].map((i) => IN(90 + i, 0, a('w' + i), 1000000 + i)), outs = [1, 2, 3, 4, 5].map((i) => OUT(a('e' + i), 1000000)).concat([OUT(a('chg'), 99)]);
