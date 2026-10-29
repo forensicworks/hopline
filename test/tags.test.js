@@ -24,6 +24,13 @@ test('EXCH and THREAT are visibly different from each other and from the default
   T.PRESETS.forEach((p) => assert.ok(!defaults.includes(p.color), p.id + ' collides with a default colour'));
 });
 
+test('VICTIM is the THREAT triangle turned over, in blue, so the two read apart by shape and not only by colour', () => {
+  assert.equal(T.preset('THREAT').shape, 'triangle');
+  assert.equal(T.preset('VICTIM').shape, 'triangle-down');
+  assert.equal(T.preset('VICTIM').color, '#4da3ff');
+  assert.ok(T.SHAPES.includes('triangle-down'));
+});
+
 test('cleanTag: presets are recognised in any case, custom tags are tidied and capped', () => {
   assert.equal(T.cleanTag('exch'), 'EXCH');
   assert.equal(T.cleanTag('  Threat '), 'THREAT');
