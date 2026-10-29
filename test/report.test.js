@@ -180,3 +180,59 @@ test('a page can say what made the report and what it covers; the workspace word
   assert.match(w.html, /This is 2 transactions of the wallet &lt;b&gt;me&lt;\/b&gt;\./, 'what the page says is escaped');
   assert.ok(!/This is what was on screen/.test(w.html));
 });
+
+// ---- how far the trace got ----------------------------------------------------------------------------
+function traceModel() {
+  return {
+    reference: 'addr:me', referenceName: 'Me <script>alert(1)</script>',
+    route: { fromName: 'Exchange <b>X</b>', toName: 'Me', viaHub: ['Service "hub"'], steps: [
+      { txid: tid(1), time: 1650000000, nIn: 1, nOut: 2, coinOut: 60000, merges: false }, { txid: tid(2), time: 1650006000, nIn: 5, nOut: 1, coinOut: 49000, merges: true }] },
+    handoffs: [{ dir: 'deposit', service: '<img src=x onerror=1>', address: 'bc1qsvc', txid: tid(1), time: 1650000000, amount: 60000, outputs: 1, walletAddress: 'bc1qbefore', depth: 1 },
+               { dir: 'withdrawal', service: 'Exchange', address: 'bc1qex', txid: tid(2), time: 1650006000, amount: 9000, outputs: 1, walletAddress: null, depth: 2 }],
+    openEnds: {
+      next: { count: 3, sats: 12345, unchecked: 2, notLoaded: 1, named: [{ label: 'Svc <i>', count: 1, sats: 700 }], rows: [{ kind: 'unchecked', address: 'bc1qopen', amount: 12000, txid: tid(2), depth: 2 }, { kind: 'spent', address: null, amount: null, txid: tid(9), depth: 3 }] },
+      prev: { count: 0, sats: 0, unchecked: 0, notLoaded: 0, named: [], rows: [] }
+    }
+  };
+}
+
+test('report: how far the trace got has the route, the hand-offs and the open ends, and every name from outside is escaped', () => {
+  const model = modelOf(sample(), { trace: traceModel() }), html = RP.render(model, RP.evidenceText(model.evidence), 'a'.repeat(64));
+  assert.ok(html.includes('<h2>How far the trace got</h2>'));
+  assert.ok(html.includes('Route: Exchange &lt;b&gt;X&lt;/b&gt; to Me (2 transactions)'));
+  assert.ok(html.includes('Only found across Service &quot;hub&quot;'), 'a route across a service wallet says so');
+  assert.ok(html.includes('merges many inputs: coins of other origins join the route here'));
+  assert.ok(html.includes('<h3>Service hand-offs (2)</h3>') && html.includes('deposit (into the service)') && html.includes('withdrawal (out of the service)'));
+  assert.ok(html.includes('&lt;img src=x onerror=1&gt;'));
+  assert.ok(html.includes('<h3>Where the money went: open ends (3)</h3>') && html.includes('2 outputs never looked up to see whether it was spent, 1 spender not loaded'));
+  assert.ok(html.includes('Svc &lt;i&gt; (0.00000700 BTC)'), 'a named wallet where a branch ended');
+  assert.ok(html.includes('spender not loaded') && html.includes('bc1qopen'));
+  assert.ok(!html.includes('Where the money came from'), 'a side with nothing open and nothing named is left out');
+  assert.ok(!/<script>alert|<img src=x|Exchange <b>X<\/b>|Svc <i>/.test(html.replace(/<script type="application\/json"[\s\S]*$/, '')), 'nothing from outside is HTML');
+  assert.ok(html.includes('Routes, hand-offs and open ends</b> follow each coin'));
+});
+
+test('report: without a trace there is no such section and no line about it in the limits', () => {
+  const model = modelOf(sample(), {}), html = RP.render(model, RP.evidenceText(model.evidence), 'a'.repeat(64));
+  assert.ok(!html.includes('How far the trace got') && !html.includes('Routes, hand-offs and open ends'));
+});
+
+test('report: a route step that is not loaded says so', () => {
+  const t = traceModel();
+  t.route.steps[0].loaded = false;
+  const model = modelOf(sample(), { trace: t }), html = RP.render(model, RP.evidenceText(model.evidence), 'a'.repeat(64));
+  assert.ok(html.includes('not loaded: known from the spends on either side of it'));
+});
+
+test('report: it says how much of what was loaded it leaves out, with counts, and says nothing when nothing is left out', () => {
+  const g = sample();
+  let model = modelOf(g, { leftOut: { total: 4117, left: 4082, transactions: 1547, wallets: 2534, other: 1 } }), html = RP.render(model, RP.evidenceText(model.evidence), 'a'.repeat(64));
+  assert.ok(html.includes('<b>Not everything that was loaded is in this report.</b> 4,082 of the 4,117 vertices in the workspace (1,547 transactions, 2,534 wallets, 1 of other kinds) were not on screen when it was made'), html.match(/Not everything[^<]*/));
+  assert.ok(html.includes('including any finding that rests on them') && html.includes('without <i>Visible part only</i>'));
+  assert.ok(html.indexOf('Read this first') < html.indexOf('Not everything that was loaded'), 'right under the first notice, before the summary');
+  assert.ok(html.indexOf('Not everything that was loaded') < html.indexOf('<h2>Summary</h2>'));
+  for (const lo of [{ total: 10, left: 0, transactions: 0, wallets: 0, other: 0 }, undefined, null]) {
+    model = modelOf(g, { leftOut: lo }); html = RP.render(model, RP.evidenceText(model.evidence), 'a'.repeat(64));
+    assert.ok(!html.includes('Not everything that was loaded'), JSON.stringify(lo));
+  }
+});

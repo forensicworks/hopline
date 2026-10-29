@@ -185,7 +185,7 @@ test('problems with the input are reported plainly and exit 2', () => {
 });
 
 test('it never touches the network: neither the tool nor the modules it uses can open a connection', () => {
-  const files = [CLI].concat(['hopline-assist.js', 'hopline-detections.js'].map((f) => path.join(__dirname, '..', 'public', 'js', f)));
+  const files = [CLI].concat(['hopline-assist.js', 'hopline-detections.js', 'hopline-route.js'].map((f) => path.join(__dirname, '..', 'public', 'js', f)));
   files.forEach((f) => {
     const src = fs.readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     assert.ok(!/require\(\s*['"](?:node:)?(?:https?|net|tls|dgram|dns|http2)['"]\s*\)/.test(src), f + ' requires a network module');
@@ -201,4 +201,58 @@ test('the same workspace gives the same summary every time (apart from the time 
 test('the analysis in the CLI is the one the page runs', () => {
   const g = IO.fromJson(fs.readFileSync(FILE, 'utf8')).graph, an = An.analyse(g);
   assert.equal(run(['chains', FILE]).json()[0].label, an.chains[0].label);
+});
+
+// ---- the trail: trace, handoffs, route ----------------------------------------------------------------
+test('trace: with a reference it says where the trail meets a service wallet and where it is still open', () => {
+  const r = run(['trace', FILE, '--ref', a('origin'), '--compact']), t = r.json();
+  assert.equal(r.code, 0); assert.equal(t.reference, 'addr:' + a('origin'));
+  assert.equal(t.handoffs.length, 1);
+  assert.deepEqual([t.handoffs[0].dir, t.handoffs[0].service, t.handoffs[0].address, t.handoffs[0].txid, t.handoffs[0].depth], ['deposit', 'Binance Hot Wallet', BINANCE, tid(12), 3]);
+  assert.equal(t.handoffs[0].walletAddress, a('c1'), 'the wallet just before the deposit');
+  assert.ok(t.openEnds.next.count >= 1 && t.openEnds.next.unchecked >= 1);
+  assert.equal(r.err, '');
+});
+
+test('trace: with no reference it says so, and a wrong one is named', () => {
+  let r = run(['trace', FILE]); assert.equal(r.code, 2); assert.match(r.err, /no reference.*--ref/i);
+  r = run(['trace', FILE, '--ref', a('nobody')]); assert.equal(r.code, 2); assert.match(r.err, /is not in the workspace/);
+});
+
+test('trace: a workspace saved from a trace has its own reference, the first starting point', () => {
+  const g = IO.fromJson(fs.readFileSync(FILE, 'utf8')).graph;
+  const own = path.join(dir, 'ws-trace.json');
+  fs.writeFileSync(own, IO.toJson(g, { view: { trace: { seeds: ['addr:' + a('origin')] } } }));
+  const r = run(['handoffs', own]);
+  assert.equal(r.code, 0); assert.equal(r.json().length, 1);
+});
+
+test('handoffs: JSON by default, CSV with --csv', () => {
+  const j = run(['handoffs', FILE, '--ref', a('origin')]).json();
+  assert.equal(j[0].service, 'Binance Hot Wallet');
+  const c = run(['handoffs', FILE, '--ref', a('origin'), '--csv']);
+  assert.equal(c.code, 0);
+  const lines = c.out.split('\r\n');
+  assert.equal(lines[0], IO.HANDOFF_COLS.join(','));
+  assert.ok(lines[1].startsWith('deposit,Binance Hot Wallet,' + BINANCE + ',' + tid(12) + ','), lines[1]);
+});
+
+test('route: the coins from one wallet to another, with its steps; exit code 1 when there is none', () => {
+  let r = run(['route', FILE, '--from', a('origin'), '--to', a('c3'), '--compact']), j = r.json();
+  assert.equal(r.code, 0); assert.equal(j.route.hops, 4);
+  assert.deepEqual(j.route.transactions, [10, 11, 12, 13].map((n) => 'tx:' + tid(n)));
+  assert.equal(j.route.steps[0].inputs, 1); assert.equal(j.route.steps[0].mergesManyInputs, false);
+  assert.match(j.route.note, /does not say who controls/);
+  r = run(['route', FILE, '--from', a('origin'), '--to', BINANCE]); assert.equal(r.code, 0, 'a service wallet may be where a route ends');
+  r = run(['route', FILE, '--from', a('c4'), '--to', a('origin')]); assert.equal(r.code, 1); assert.equal(r.json().route, null); assert.match(r.json().message, /only means none was found/);
+  r = run(['route', FILE, '--from', a('origin')]); assert.equal(r.code, 2); assert.match(r.err, /Name both ends/);
+  r = run(['route', FILE, '--from', 'bc1qnobody', '--to', a('c3')]); assert.equal(r.code, 2); assert.match(r.err, /is not in the workspace/);
+});
+
+test('summary and prompt carry the trail when there is a reference, and say nothing when there is none', () => {
+  assert.equal(run(['summary', FILE, '--generated', 'x']).json().trace, null);
+  const s = run(['summary', FILE, '--ref', a('origin'), '--generated', 'x']).json();
+  assert.equal(s.trace.handoffs[0].service, 'Binance Hot Wallet');
+  const p = run(['prompt', FILE, '--task', 'triage', '--ref', a('origin')]);
+  assert.equal(p.code, 0); assert.match(p.out, /"handoffs":\[\["2022-04-15/);
 });

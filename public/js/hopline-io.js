@@ -111,6 +111,7 @@
     if (badEdges) warnings.push(badEdges + ' invalid edge(s) skipped');
     var view = d.view ? clean(d.view, 0) : null;
     if (view && typeof view.focus === 'string' && idMap.has(view.focus)) view.focus = idMap.get(view.focus);
+    if (view && typeof view.routeRef === 'string' && idMap.has(view.routeRef)) view.routeRef = idMap.get(view.routeRef);
     return { graph: g, view: view, positions: d.positions ? clean(d.positions, 0) : null, warnings: warnings };
   }
 
@@ -165,6 +166,18 @@
                         cell(bal ? bal.confirmed : ''), cell(bal ? bal.pending : ''), cell(bal && n.statsAt != null ? Style.fmtTimeFull(n.statsAt) : '')]));
       });
     }
+    return lines.join('\r\n') + '\r\n';
+  }
+
+  // ---- service hand-offs ------------------------------------------------------------------------
+  var HANDOFF_COLS = ['direction', 'service', 'service_wallet', 'txid', 'time_unix', 'time_utc', 'amount_sat', 'amount_btc', 'outputs_to_service', 'wallet_before_or_after', 'transactions_from_reference', 'inputs', 'outputs', 'merges_inputs'];
+  /** The rows of HoplineRoute.handoffs as CSV (direction: deposit = into the service, withdrawal = out of it). Names from lists are defused like any other text. */
+  function handoffsCsv(rows) {
+    var lines = [row(HANDOFF_COLS)];
+    (rows || []).forEach(function (r) {
+      lines.push(row([cell(r.dir), cell(r.service), cell(r.address), cell(r.txid), cell(r.time), cell(r.time != null ? Style.fmtTime(r.time) : ''), cell(r.amount, true), cell(Style.fmtBtc(r.amount), true),
+                      cell(r.outputs, true), cell(r.walletAddress || ''), cell(r.depth, true), cell(r.nIn), cell(r.nOut), cell(r.merges)]));
+    });
     return lines.join('\r\n') + '\r\n';
   }
 
@@ -234,5 +247,5 @@
   }
 
   return { FORMAT: FORMAT, VERSION: VERSION, isFormat: isFormat, toJson: toJson, fromJson: fromJson, toCsv: toCsv, toGraphMl: toGraphMl,
-           defuse: defuse, xml: xml, NODE_COLS: NODE_COLS, EDGE_COLS: EDGE_COLS };
+           defuse: defuse, xml: xml, NODE_COLS: NODE_COLS, EDGE_COLS: EDGE_COLS, handoffsCsv: handoffsCsv, HANDOFF_COLS: HANDOFF_COLS };
 }));
