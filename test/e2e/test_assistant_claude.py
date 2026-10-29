@@ -1,5 +1,6 @@
 """Assistant, the Claude option: off when the page opens, the exact text shown before anything is sent, and one request to api.anthropic.com (answered here, never for real)."""
 import json
+import re
 
 import pytest
 
@@ -10,6 +11,11 @@ from test_assistant import FAKE, MODEL_URL, browser_noise, capture, evidence, mo
 from test_pattern_flags import CHAIN_LABEL, scene
 
 API = "https://api.anthropic.com"
+
+
+def names_host(text):
+    """The words on the page name the Anthropic host (a check on what the page says, not on a URL)."""
+    return re.search(r"\bapi\.anthropic\.com\b", text) is not None
 KEY = "sk-ant-api03-" + "k" * 30
 CORS = {"access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS",
         "access-control-allow-headers": "content-type, x-api-key, anthropic-version, anthropic-beta, anthropic-dangerous-direct-browser-access"}
@@ -106,7 +112,7 @@ def test_switching_it_on_shows_the_marker_in_the_panel_and_in_the_closed_heading
     scene(fpage, mock); open_ai(fpage)
     fpage.evaluate("() => { document.getElementById('aiClaude').open = true; }")
     fpage.check("#claudeOn")
-    assert fpage.is_visible("#claudeFlag") and "Claude is on" in fpage.inner_text("#claudeFlag") and "api.anthropic.com" in fpage.inner_text("#claudeFlag")
+    assert fpage.is_visible("#claudeFlag") and "Claude is on" in fpage.inner_text("#claudeFlag") and names_host(fpage.inner_text("#claudeFlag"))
     assert fpage.is_visible("#claudeBadge") and fpage.is_visible("#claudeBody") and fpage.is_visible("#claudeAsk")
     fpage.evaluate("() => { document.getElementById('aiSection').open = false; }")
     assert fpage.is_visible("#claudeBadge"), "the heading says it even when the section is closed"
@@ -149,7 +155,7 @@ def test_asking_shows_the_exact_text_and_sends_nothing_until_it_is_confirmed(fpa
     assert text.startswith("You are helping an investigator read the output of a Bitcoin transaction analysis tool.") and "Use only the EVIDENCE" in text and "TASK: Triage" in text
     assert evidence(text)["peelChains"][0]["name"] == CHAIN_LABEL
     meta = fpage.inner_text("#claudeReviewMeta")
-    assert "leaves your computer" in meta and "api.anthropic.com" in meta and "claude-opus-5-5" in meta and "pattern rows" in meta
+    assert "leaves your computer" in meta and names_host(meta) and "claude-opus-5-5" in meta and "pattern rows" in meta
     assert fpage.evaluate("() => { const e = document.getElementById('claudeReviewText'); return [e.tagName, e.isContentEditable]; }") == ["PRE", False], "a block of text, not a field that could be edited"
     assert fpage.locator("textarea[readonly]").count() == 0, "no read-only field for the page's other helpers to trip over"
     settle(fpage)
