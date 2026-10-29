@@ -19,7 +19,6 @@ Ideas and known gaps for Hopline, in no particular order inside each section. No
 
 - [ ] **A change guess on one sign counts as low.** A guess that rests on a single sign (the only output of the inputs' address type, or a known wallet on the other side) is still called medium and is followed by Auto-expand. On the synthetic cases a medium guess on one sign is right 89.5% of the time, on two signs 99.5%, and the weak one is "same address type" alone (84%); on real traffic 66% of the guesses rest on one sign (`docs/benchmark-results.md`). Capping them at low would make medium mean two agreeing signs. Decide with the real-wallet data (`docs/benchmark-wallets.md`), which is the first labelled data that is not synthetic. **S**
 - [ ] **As one vertex outside the Trace layout.** *Show on graph* and *+ show* work in every layout now; folding rows into one group vertex (*As one vertex*) still exists only in the Trace layout. **M**
-- [ ] **A search from a service wallet's side is wide.** Going backward from an exchange wallet fans out to every deposit it swept, so the connection search follows only the 8 largest branches each round and stops after 8 rounds. A smarter rule (for example transactions near the time of the other end) would reach further for the same requests. **M**
 
 ## Bigger projects
 

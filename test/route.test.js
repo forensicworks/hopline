@@ -396,6 +396,60 @@ test('trace: with `has`, only what is shown comes in, so a report cannot say mor
   assert.deepEqual(t.openEnds.next.named, []);
 });
 
+test('timeWindow: a route can start no earlier than the first spend of its start and end no later than the last payment to its end', () => {
+  const idx = R.index(caseGraph());
+  assert.deepEqual(R.timeWindow(idx, A('ex'), A('ran')), { lo: 1000, hi: 2000 }, 'ex first spends in tx 1; ran is paid last by tx 2 (the older payments to it count for less)');
+  assert.deepEqual(R.timeWindow(idx, T(1), T(3)), { lo: 1000, hi: 3000 }, 'a transaction is its own time');
+  assert.deepEqual(R.timeWindow(idx, A('q3'), A('ran')), { lo: null, hi: 2000 }, 'a wallet that never spent has no first spend');
+  assert.deepEqual(R.timeWindow(idx, A('ex'), A('nobody')), { lo: 1000, hi: null });
+});
+
+test('pickEnds with a rank: ends that cannot fit the times wait, and a service side takes the nearest in time first', () => {
+  const win = { lo: 1000, hi: 5000 };
+  const fwd = [{ next: 'a', time: 6000, amount: 90 }, { next: 'b', time: 2000, amount: 70 }, { next: 'c', time: 4000, amount: 50 }, { next: 'd', time: null, amount: 5 }];
+  assert.deepEqual(R.pickEnds(fwd, 10, R.endRank('next', win, false)).map((e) => e.next), ['b', 'c', 'd'], 'elsewhere the amount decides, among those that fit; the one after the end waits');
+  assert.deepEqual(R.pickEnds(fwd, 10, R.endRank('next', win, true)).map((e) => e.next), ['c', 'b', 'd'], 'from a service: the nearest to the end first (4000 before 2000), unknown last');
+  assert.deepEqual(R.pickEnds(fwd, 2, R.endRank('next', win, true)).map((e) => e.next), ['c', 'b']);
+  const back = [{ next: 'a', time: 900, amount: 99 }, { next: 'b', time: 3000, amount: 30 }, { next: 'c', time: 1500, amount: 20 }];
+  assert.deepEqual(R.pickEnds(back, 10, R.endRank('prev', win, true)).map((e) => e.next), ['c', 'b'], 'going back from a service: the nearest after the start first; one before the start cannot be on the route');
+  assert.deepEqual(R.pickEnds(back, 10, R.endRank('prev', win, false)).map((e) => e.next), ['b', 'c'], 'elsewhere the largest of those that fit');
+  const none = [{ next: 'x', time: 100, amount: 1 }, { next: 'y', time: 200, amount: 2 }];
+  assert.deepEqual(R.pickEnds(none, 10, R.endRank('prev', win, true)).map((e) => e.next), ['y', 'x'], 'when none fits they are all kept, the nearer first: nothing is called exhausted while something is left');
+  assert.deepEqual(R.pickEnds(fwd, 10, R.endRank('next', { lo: null, hi: null }, true)).map((e) => e.next), ['a', 'b', 'c', 'd'], 'with no times it is the largest first, as before');
+});
+
+/** chain(n) with an exchange wallet (dst) that 40 unrelated deposits pay as well; they are later than the chain and larger than its coins. */
+function crowdedExchange(n) {
+  const routes = chain(n);
+  for (let j = 0; j < 40; j++) {
+    const id = 100 + j, fund = 200 + j, when = 1650000000 + 200000 + j * 60;
+    routes['/tx/' + tid(id)] = { txid: tid(id), fee: 10, weight: 800, status: { confirmed: true, block_height: 800000 + j, block_time: when },
+      vin: [{ txid: tid(fund), vout: 0, is_coinbase: false, prevout: { scriptpubkey_address: addr('u' + j), scriptpubkey_type: 'v0_p2wpkh', value: 60000 } }],
+      vout: [{ scriptpubkey_address: addr('dst'), scriptpubkey_type: 'v0_p2wpkh', value: 59900 }] };
+    routes['/tx/' + tid(id) + '/outspends'] = [{ spent: false }];
+    routes['/tx/' + tid(fund)] = { txid: tid(fund), fee: 10, weight: 800, status: { confirmed: true, block_height: 799000 + j, block_time: when - 600 },
+      vin: [{ txid: tid(250), vout: j, is_coinbase: false, prevout: { scriptpubkey_address: addr('w' + j), scriptpubkey_type: 'v0_p2wpkh', value: 61000 } }],
+      vout: [{ scriptpubkey_address: addr('u' + j), scriptpubkey_type: 'v0_p2wpkh', value: 60000 }] };
+    routes['/tx/' + tid(fund) + '/outspends'] = [{ spent: true, txid: tid(id), vin: 0, status: { confirmed: true, block_time: when } }];
+  }
+  return routes;
+}
+async function crowdedSearch(opts) {
+  const { g, ex } = explorer(crowdedExchange(9));
+  await ex.loadTx(tid(1)); await ex.loadTx(tid(9));
+  for (let j = 0; j < 40; j++) await ex.loadTx(tid(100 + j));
+  return R.connect(ex, g, A('src'), A('dst'), Object.assign({ rounds: 3 }, opts));
+}
+
+test('connect: from a service wallet side the deposits nearest in time to the other end go first, so the route is found where the largest-first rule runs out of rounds', async () => {
+  const wide = await crowdedSearch({});
+  assert.equal(wide.reason, 'rounds', 'by amount the 40 larger deposits are followed first and the end of the chain is never reached: ' + JSON.stringify(wide));
+  const near = await crowdedSearch({ hub: (id) => id === A('dst') });
+  assert.equal(near.reason, 'found', JSON.stringify(near));
+  assert.deepEqual([near.route.vertices[0], near.route.vertices[near.route.vertices.length - 1]], [A('src'), A('dst')]);
+  assert.ok(near.rounds <= 3 && near.requests <= wide.requests, 'for no more requests: ' + near.requests + ' against ' + wide.requests);
+});
+
 test('connect: a round that changes nothing stops the search as stalled, with what could not be fetched', async () => {
   const routes = chain(5);
   delete routes['/tx/' + tid(3)]; delete routes['/tx/' + tid(2) + '/outspends'];                              // the data source cannot return transaction 3, nor say who spent the outputs of 2
