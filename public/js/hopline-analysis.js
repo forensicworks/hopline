@@ -328,6 +328,42 @@
     return { list: list, byAddr: byAddr, skipped: skipped };
   }
 
+  // ---- names from co-spending -------------------------------------------------------------------------
+  /**
+   * Names the common-input rule suggests. An address spent in the same transaction as a named wallet probably has the same owner (an exchange sweeping its
+   * deposit addresses into its own wallet, for instance), so the name is offered for the addresses of that cluster that have none. It is a guess and is
+   * never applied by itself: a PayJoin or a wallet shared by several people breaks the rule (CoinJoin-like transactions and ones you excluded were not
+   * used to make the clusters, so they are not used here either). `cl` is analyse().clusters; names(vertexId) -> a name or null says which wallets are named
+   * (the caller decides which names count). A cluster with two different names is not suggested from but reported as a conflict.
+   * Returns { suggestions: [{ name, cluster, from: [named vertex ids], addrs: [vertex ids without a name], direct: [those spent in the same transaction as a named wallet],
+   *            txids: [up to 3 of those transactions] }], conflicts: [{ cluster, names }] }, the biggest first.
+   */
+  function suggestNames(graph, cl, names) {
+    var suggestions = [], conflicts = [];
+    cl.list.forEach(function (c) {
+      var named = [], unnamed = [], seen = {}, nameList = [];
+      c.addrs.forEach(function (id) {
+        var nm = names(id);
+        if (nm) { named.push(id); if (!seen[nm]) { seen[nm] = true; nameList.push(nm); } } else unnamed.push(id);
+      });
+      if (!named.length || !unnamed.length) return;
+      if (nameList.length > 1) { conflicts.push({ cluster: c.label, names: nameList }); return; }
+      var namedSet = new Set(named), unnamedSet = new Set(unnamed), direct = new Set(), txids = [];
+      c.txs.forEach(function (txid) {
+        var v = txView(graph, ID.tx(txid));
+        if (!v) return;
+        var ins = inputAddresses(v);
+        if (!ins.some(function (i) { return namedSet.has(i.id); })) return;
+        var hit = false;
+        ins.forEach(function (i) { if (unnamedSet.has(i.id)) { direct.add(i.id); hit = true; } });
+        if (hit && txids.length < 3) txids.push(txid);
+      });
+      suggestions.push({ name: nameList[0], cluster: c.label, from: named, addrs: unnamed, direct: unnamed.filter(function (id) { return direct.has(id); }), txids: txids });
+    });
+    suggestions.sort(function (a, b) { return b.addrs.length - a.addrs.length || (a.cluster < b.cluster ? -1 : 1); });
+    return { suggestions: suggestions, conflicts: conflicts };
+  }
+
   // ---- everything at once ----------------------------------------------------------------------------
   /**
    * Analyse the whole graph. opts: { known(address), minConfidence ('medium'), consolidation, batch, coinjoin, peel }.
@@ -416,6 +452,6 @@
 
   return {
     DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
-    CHANGE_SIGNALS: CHANGE_SIGNALS, signalOf: signalOf, peelStep: peelStep, peelChains: peelChains, clusters: clusters, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
+    CHANGE_SIGNALS: CHANGE_SIGNALS, signalOf: signalOf, peelStep: peelStep, peelChains: peelChains, clusters: clusters, suggestNames: suggestNames, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
   };
 }));

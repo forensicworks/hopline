@@ -505,3 +505,39 @@ test('change: a signal can be switched off to see what it is worth, and every re
   assert.deepEqual(An.CHANGE_SIGNALS.map((x) => x[0]), ['reuse', 'type', 'known', 'fingerprint', 'round', 'smaller']);
   assert.equal(An.signalOf('something else'), '', 'a reason that is not one of them has no signal');
 });
+
+// ---- names from co-spending ---------------------------------------------------------------------
+test('suggestNames: addresses spent with a named wallet get its name offered, the direct ones counted apart from the ones linked through others', () => {
+  const g = new Graph();
+  add(g, 1, [IN(90, 0, a('hot'), 9000), IN(91, 0, a('dep1'), 4000), IN(92, 0, a('dep2'), 3000)], [OUT(a('cold'), 15500)]);     // a sweep: the hot wallet with two deposit addresses
+  add(g, 2, [IN(93, 0, a('dep2'), 2000), IN(94, 0, a('dep3'), 1000)], [OUT(a('cold'), 2800)]);                                   // dep3 is only linked through dep2
+  add(g, 3, [IN(95, 0, a('lone1'), 500), IN(96, 0, a('lone2'), 500)], [OUT(a('x'), 900)]);                                         // a cluster with no name
+  const an = An.analyse(g, {}), names = (id) => (id === ID.addr(a('hot')) ? 'Exchange' : null);
+  const r = An.suggestNames(g, an.clusters, names);
+  assert.equal(r.suggestions.length, 1); assert.deepEqual(r.conflicts, []);
+  const s = r.suggestions[0];
+  assert.equal(s.name, 'Exchange');
+  assert.deepEqual(s.from, [ID.addr(a('hot'))]);
+  assert.deepEqual(s.addrs.slice().sort(), [ID.addr(a('dep1')), ID.addr(a('dep2')), ID.addr(a('dep3'))].sort());
+  assert.deepEqual(s.direct.slice().sort(), [ID.addr(a('dep1')), ID.addr(a('dep2'))].sort(), 'dep3 was never spent with the hot wallet itself');
+  assert.deepEqual(s.txids, [tid(1)], 'the transaction where they were spent together');
+});
+
+test('suggestNames: a cluster with two different names is a conflict, not a suggestion; one that is all named, or has no name, gives nothing', () => {
+  const g = new Graph();
+  add(g, 1, [IN(90, 0, a('ex1'), 9000), IN(91, 0, a('ex2'), 4000), IN(92, 0, a('free'), 3000)], [OUT(a('c'), 15500)]);
+  add(g, 2, [IN(93, 0, a('all1'), 9000), IN(94, 0, a('all2'), 4000)], [OUT(a('d'), 12800)]);
+  const an = An.analyse(g, {}), nm = { [ID.addr(a('ex1'))]: 'Exchange A', [ID.addr(a('ex2'))]: 'Exchange B', [ID.addr(a('all1'))]: 'X', [ID.addr(a('all2'))]: 'X' };
+  const r = An.suggestNames(g, an.clusters, (id) => nm[id] || null);
+  assert.deepEqual(r.suggestions, []);
+  assert.deepEqual(r.conflicts.map((c) => c.names.slice().sort()), [['Exchange A', 'Exchange B']]);
+});
+
+test('suggestNames: a CoinJoin-like transaction and one you excluded are not used, so nothing is suggested from them', () => {
+  const g = new Graph();
+  const ins = [1, 2, 3, 4, 5].map((i) => IN(90 + i, 0, a('w' + i), 1000000 + i)), outs = [1, 2, 3, 4, 5].map((i) => OUT(a('e' + i), 1000000)).concat([OUT(a('chg'), 99)]);
+  add(g, 1, ins, outs);
+  const an = An.analyse(g, {});
+  assert.equal(an.clusters.list.length, 0);
+  assert.deepEqual(An.suggestNames(g, an.clusters, (id) => (id === ID.addr(a('w1')) ? 'Name' : null)).suggestions, []);
+});
