@@ -209,6 +209,21 @@ body.trace-on #stepbar { display: none !important; }
 .findings .linkrow .sw { width: 10px; height: 10px; border-radius: 50%; border: 2px dashed currentColor; flex: none; }
 .findings .linkrow .amt { margin-left: auto; }
 .findings .lbl { margin-top: 6px; }
+/* routes and open ends in the Findings */
+.refpick { display: flex; align-items: center; gap: 6px; margin: 2px 0 4px; }
+.refpick .lbl { margin: 0; flex: none; }
+.refpick select { flex: 1; min-width: 0; font-size: 12px; }
+.relrow { display: flex; flex-direction: column; gap: 1px; margin-bottom: 3px; }
+.relrow .rel { margin: 0 0 0 14px; }
+.rel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+p.rel { margin-top: 0; }
+.rel .hint { margin: 0; }
+.relbtn[data-search] { color: var(--dim); border-style: dashed; }
+.relbtn { font-size: 11px; padding: 1px 8px; border-radius: 9px; }
+.relbtn[data-rel="up"] { color: #8fd3ff; }
+.relbtn[data-rel="down"] { color: #ffb347; }
+.findings [data-dir][aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.findings .insp-actions { margin-top: 4px; }
 .flagtag { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px; padding: 1px 6px; border-radius: 9px; border: 1px solid currentColor; margin-right: 4px; }
 #toast button { margin-left: 10px; padding: 2px 10px; font-size: 12px; }
 .copybtn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; flex: none; background: transparent; border: 1px solid transparent; border-radius: 5px; color: var(--dim); cursor: pointer; vertical-align: middle; }
