@@ -334,10 +334,44 @@
     };
   }
 
-  /** The largest few of a list of open ends (by amount), at most `width`, one per transaction to load. */
-  function pickEnds(ends, width) {
-    var out = [], seen = {};
-    ends.slice().sort(function (a, b) { return (b.amount || 0) - (a.amount || 0); }).forEach(function (e) {
+  /**
+   * The times a route from `fromId` to `toId` has to fit in, from what is loaded: `lo` is the earliest transaction that spends `fromId` (its own time for a transaction),
+   * `hi` the latest transaction that pays `toId` (its own time for a transaction). Money only moves forward, so nothing before `lo` can have come from `fromId`, and
+   * nothing after `hi` can still reach `toId`. A bound is null when no transaction on that side has a time.
+   */
+  function timeWindow(idx, fromId, toId) {
+    var lo = null, hi = null;
+    function at(t) { var n = idx.graph.nodes.get(t); return n && n.time != null ? n.time : null; }
+    startsFor(idx, fromId, 'next').forEach(function (t) { var v = at(t); if (v != null && (lo == null || v < lo)) lo = v; });
+    startsFor(idx, toId, 'prev').forEach(function (t) { var v = at(t); if (v != null && (hi == null || v > hi)) hi = v; });
+    return { lo: lo, hi: hi };
+  }
+  /**
+   * How to choose among open ends by time (see pickEnds): `fit(end)` says whether the end can lie on a route inside the window (forward: not later than `hi`;
+   * backward: not earlier than `lo`; an end with no time fits), and `near(end)`, only when the side starts at a service wallet, how far it is from the other end's time
+   * (forward: before `hi`; backward: after `lo`), Infinity when unknown. A service wallet has thousands of deposits or withdrawals and only the ones around the time of
+   * the other end can be on the route, so those go first; elsewhere the amount decides, as before.
+   */
+  function endRank(dir, win, service) {
+    var fwd = dir !== 'prev';
+    return {
+      fit: function (e) { return e.time == null || (fwd ? win.hi == null || e.time <= win.hi : win.lo == null || e.time >= win.lo); },
+      near: service ? function (e) { var o = fwd ? win.hi : win.lo; return e.time == null || o == null ? Infinity : Math.abs(fwd ? o - e.time : e.time - o); } : null
+    };
+  }
+  /**
+   * The few open ends to follow next, at most `width`, one per transaction to load. Without `rank` the largest by amount. With `rank` (endRank) the ends that fit the
+   * window come first, and the others only when none fits (so a search never claims there is nothing left while something is); among those, the nearest in time when
+   * the rank has `near`, then the largest.
+   */
+  function pickEnds(ends, width, rank) {
+    var out = [], seen = {}, list = ends.slice();
+    if (rank && rank.fit) { var fit = list.filter(rank.fit); if (fit.length) list = fit; }
+    list.sort(function (a, b) {
+      if (rank && rank.near) { var da = rank.near(a), db = rank.near(b); if (da !== db) return da < db ? -1 : 1; }
+      return (b.amount || 0) - (a.amount || 0);
+    });
+    list.forEach(function (e) {
       if (out.length >= width) return;
       if (e.next && seen[e.next] && !e.edgeId) return;
       seen[e.next] = true; out.push(e);
@@ -350,6 +384,9 @@
    * the largest going backward from `toId` are followed one step, until a route appears or a limit is reached. `ex` is an Explorer (only ex.walk is
    * used), so the request limit of its client applies. A wallet with a name ends a branch, as it does for Auto-expand.
    * opts: { hub, stop(vertexId) -> name, sopts (AN.successors options), rounds (8), width (8 branches per side), maxTx (40 loaded per step), progress(round) }
+   * Which branches: the largest by amount, but only those that can fit the times of the route (nothing before the start's first spend, nothing after the end's last
+   * payment) unless none does; and on a side that starts at a service wallet (`hub`) the ones nearest in time to the other end first, because there the branches are
+   * thousands of unrelated deposits or withdrawals.
    * Resolves { route, reason: 'found' | 'exhausted' (nothing left to load) | 'stalled' (a whole round changed nothing: what it asked for was not returned) | 'rounds' |
    * 'cap-requests' | 'cap-tx' | 'cancelled', rounds, loaded, requests, errors (the first few that were not a request limit), open: { next, prev } }.
    */
@@ -365,8 +402,8 @@
       return { route: route || null, reason: reason, rounds: round, loaded: total.loaded, requests: total.requests, errors: total.errors, open: open };
     }
     var reason = 'found';
-    function side(ends, dir) {
-      var picks = pickEnds(ends, width), starts = [];
+    function side(ends, dir, win) {
+      var picks = pickEnds(ends, width, endRank(dir, win, hub ? hub(dir === 'prev' ? toId : fromId) : false)), starts = [];
       picks.forEach(function (e) { if (e.next && starts.indexOf(e.next) < 0) starts.push(e.next); });
       if (!starts.length) return Promise.resolve(null);
       return ex.walk(starts, { dir: dir, hops: 1, maxTx: opts.maxTx || 40, successors: endsSuccessors(graph, picks, dir, sopts) }).then(function (w) {
@@ -383,8 +420,8 @@
       if (!f.length && !b.length) { reason = 'exhausted'; return Promise.resolve(result(reason, idx, null)); }
       round++;
       if (opts.progress) opts.progress(round);
-      var before = sig();
-      return side(f, 'next').then(function (stopped) { return stopped || side(b, 'prev'); }).then(function (stopped) {
+      var before = sig(), win = timeWindow(idx, fromId, toId);
+      return side(f, 'next', win).then(function (stopped) { return stopped || side(b, 'prev', win); }).then(function (stopped) {
         var i2 = index(graph), r2 = find(i2, fromId, toId, { hub: hub });
         if (r2) { reason = 'found'; return result(reason, i2, r2); }
         if (stopped) { reason = stopped; return result(reason, i2, null); }
@@ -457,5 +494,5 @@
   }
 
   return { MAX_TXS: MAX_TXS, MERGE_INPUTS: MERGE_INPUTS, isHub: isHub, nameOf: nameOf, listedName: listedName, referenceOf: referenceOf, index: index, find: find, relations: relations, openEnds: openEnds,
-           handoffs: handoffs, endsSuccessors: endsSuccessors, pickEnds: pickEnds, connect: connect, trace: trace, offscreen: offscreen };
+           handoffs: handoffs, endsSuccessors: endsSuccessors, pickEnds: pickEnds, timeWindow: timeWindow, endRank: endRank, connect: connect, trace: trace, offscreen: offscreen };
 }));
