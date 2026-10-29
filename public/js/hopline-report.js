@@ -20,6 +20,7 @@
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many || one + 's'); }
   function host(url) { return String(url || '').replace(/^https?:\/\//i, '').replace(/\/api\/?$/, ''); }
   function t(unix) { return unix == null ? 'unknown' : Style.fmtTimeFull(unix); }
+  function fmtInt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
 
   /**
    * The findings of an analysis (HoplineAnalysis.analyse), cut to the vertices that are in the report: has(vertexId) says which. A chain or a cluster keeps only
@@ -187,6 +188,11 @@
     h.push('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + esc(title) + '</title><style>' + CSS + '</style></head><body>');
     h.push('<h1>' + esc(title) + '</h1><p class="meta">' + (model.preparedBy ? 'Prepared by ' + esc(model.preparedBy) + ' · ' : '') + 'generated ' + esc(t(Math.floor((model.generated || Date.now()) / 1000))) + ' · made with ' + esc(model.madeWith || 'Hopline workspace') + ' · all times UTC</p>');
     h.push('<div class="notice"><b>Read this first.</b> The facts here (transactions, amounts, times, which output was spent by which transaction) come from the blockchain data source named below and were fetched at the times shown. The <i>findings</i> (patterns, likely change, address clusters) are heuristics: they are guesses with their reasons stated, not proof of who controls what.</div>');
+    if (model.leftOut && model.leftOut.left > 0) {                              // the workspace holds more than was on screen: say how much this report leaves out
+      var lo = model.leftOut;
+      h.push('<div class="notice"><b>Not everything that was loaded is in this report.</b> ' + esc(fmtInt(lo.left)) + ' of the ' + esc(fmtInt(lo.total)) + ' vertices in the workspace (' + esc(fmtInt(lo.transactions)) + (lo.transactions === 1 ? ' transaction' : ' transactions') + ', ' + esc(fmtInt(lo.wallets)) + (lo.wallets === 1 ? ' wallet' : ' wallets') + (lo.other ? ', ' + esc(fmtInt(lo.other)) + ' of other kinds' : '')
+        + ') were not on screen when it was made, so nothing about them is here, including any finding that rests on them. To keep all of it, export the workspace as JSON without <i>Visible part only</i>, or show them and make the report again.</div>');
+    }
 
     h.push('<h2>Summary</h2><table><tr><th>What is covered</th><td>' + plural(txs.length, 'transaction') + ' loaded' + (stubs ? ' (and ' + stubs + ' more referenced but not loaded)' : '') + ', ' + plural(wallets.length, 'wallet') + ', ' + plural(model.edges.length, 'movement') + '. ' + esc(model.scopeText || 'This is what was on screen when the report was made.') + '</td></tr>'
       + '<tr><th>Time span</th><td>' + (times.length ? esc(t(Math.min.apply(null, times))) + ' to ' + esc(t(Math.max.apply(null, times))) : 'no confirmed transaction') + '</td></tr>'
@@ -223,6 +229,47 @@
       if (src.length) h.push('<h3>Sources of the names</h3><ul class="reasons">' + src.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>');
     }
 
+    if (model.trace) {                                                         // how far the trace got: the lit route, the hand-offs to services, where the trail is still open
+      var tr = model.trace, plainId = function (id) { return String(id).replace(/^(addr|tx):/, ''); };
+      h.push('<h2>How far the trace got</h2><p class="hint">Money is followed coin by coin: each step is the transaction that spent the coin before it, never a match of addresses. Only what is on screen and was loaded is covered, so a missing row only means none was found there. Reference: <b>' + esc(tr.referenceName || plainId(tr.reference)) + '</b> <code>' + esc(plainId(tr.reference)) + '</code>.</p>');
+      if (tr.route) {
+        var rt = tr.route;
+        h.push('<h3>Route: ' + esc(rt.fromName) + ' to ' + esc(rt.toName) + ' (' + plural(rt.steps.length, 'transaction') + ')</h3>'
+          + (rt.viaHub && rt.viaHub.length ? '<div class="notice"><b>Only found across ' + esc(rt.viaHub.join(', ')) + '</b>, a service wallet that mixes everyone\'s coins: this is not evidence of a link.</div>' : '')
+          + '<table><tr><th>#</th><th>Transaction</th><th>Time</th><th>Inputs → outputs</th><th>The coin</th><th>Note</th></tr>');
+        rt.steps.forEach(function (st, i) {
+          h.push('<tr><td>' + (i + 1) + '</td><td><a href="#tx-' + esc(st.txid) + '"><code>' + esc(st.txid.slice(0, 16)) + '…</code></a></td><td>' + esc(t(st.time)) + '</td><td class="num">' + esc((st.nIn == null ? '?' : st.nIn) + ' → ' + (st.nOut == null ? '?' : st.nOut))
+            + '</td><td class="num">' + (st.coinOut == null ? '' : amountCell(model, st.coinOut, st.time)) + '</td><td>' + [st.merges ? 'merges many inputs: coins of other origins join the route here' : '', st.loaded === false ? 'not loaded: known from the spends on either side of it' : ''].filter(Boolean).join('; ') + '</td></tr>');
+        });
+        h.push('</table>');
+      }
+      if (tr.handoffs && tr.handoffs.length) {
+        h.push('<h3>Service hand-offs (' + tr.handoffs.length + ')</h3><p class="hint">Where the trail meets a wallet that a list names as a service: money going into it (a deposit) or coming out of it (a withdrawal), oldest first. The wallet just before a deposit, or just after a withdrawal, is a candidate for the deposit address or the customer\'s wallet; a request to the service names the transaction, the time and the amount. A name is the list\'s claim, not proof.</p>'
+          + '<table><tr><th>Direction</th><th>Service</th><th>Service wallet</th><th>Transaction</th><th>Time</th><th>Amount</th><th>Wallet before / after</th><th>Steps</th></tr>');
+        tr.handoffs.slice(0, MAX_ROWS * 2).forEach(function (r) {
+          h.push('<tr><td>' + (r.dir === 'deposit' ? 'deposit (into the service)' : 'withdrawal (out of the service)') + '</td><td>' + esc(r.service) + '</td><td><code>' + esc(r.address) + '</code></td><td><a href="#tx-' + esc(r.txid) + '"><code>' + esc(r.txid.slice(0, 16)) + '…</code></a></td><td>'
+            + esc(t(r.time)) + '</td><td class="num">' + amountCell(model, r.amount, r.time) + '</td><td>' + (r.walletAddress ? '<code>' + esc(r.walletAddress) + '</code>' : '') + '</td><td class="num">' + esc(r.depth) + '</td></tr>');
+        });
+        h.push('</table>' + (tr.handoffs.length > MAX_ROWS * 2 ? '<p class="hint">The first ' + (MAX_ROWS * 2) + ' of ' + tr.handoffs.length + ' are listed.</p>' : ''));
+      }
+      [['next', 'Where the money went'], ['prev', 'Where the money came from']].forEach(function (d) {
+        var o = tr.openEnds && tr.openEnds[d[0]];
+        if (!o || !(o.count || (o.named && o.named.length))) return;
+        h.push('<h3>' + d[1] + ': open ends (' + o.count + ')</h3>');
+        if (o.count) h.push('<p class="hint">' + plural(o.count, 'branch', 'branches') + (o.sats ? ' (' + esc(Style.fmtBtc(o.sats)) + ' BTC in the outputs)' : '') + ' could be followed further: ' + (d[0] === 'next'
+          ? (o.unchecked ? plural(o.unchecked, 'output') + ' never looked up to see whether it was spent' : '') + (o.unchecked && o.notLoaded ? ', ' : '') + (o.notLoaded ? plural(o.notLoaded, 'spender') + ' not loaded' : '')
+          : plural(o.count, 'input') + ' whose funding transaction is not loaded') + '.</p>');
+        if (o.named && o.named.length) h.push('<p class="hint">Branches that ended at a named wallet: ' + o.named.map(function (n) { return esc(n.label) + ' (' + esc(Style.fmtBtc(n.sats)) + ' BTC)'; }).join(', ') + '.</p>');
+        if (o.rows && o.rows.length) {
+          h.push('<table><tr><th>Wallet</th><th>Amount</th><th>Transaction</th><th>Steps from the reference</th></tr>');
+          o.rows.forEach(function (r) {
+            h.push('<tr><td>' + (r.address ? '<code>' + esc(r.address) + '</code>' : 'spender not loaded') + '</td><td class="num">' + (r.amount == null ? '' : amountCell(model, r.amount, null)) + '</td><td><a href="#tx-' + esc(r.txid) + '"><code>' + esc(String(r.txid).slice(0, 16)) + '…</code></a></td><td class="num">' + esc(r.depth) + '</td></tr>');
+          });
+          h.push('</table>' + (o.count > o.rows.length ? '<p class="hint">The first ' + o.rows.length + ' of ' + o.count + ' are listed; the embedded data has the transactions.</p>' : ''));
+        }
+      });
+    }
+
     if (model.groups && model.groups.length) {                                 // vertices on the screen that stood for several others: say what, and list every one of them
       h.push('<h2>Groups shown as one vertex</h2><p class="hint">On the screen each of these was a single vertex standing for several transactions or outputs that were not drawn one by one. They are listed here in full: none was left out.</p>');
       model.groups.forEach(function (g) {
@@ -252,6 +299,7 @@
       + '<li><b>Patterns</b> are rules over the loaded transactions: consolidation (5 or more inputs into 1 or 2 outputs), batch payment (up to 3 inputs, 6 or more outputs), CoinJoin-like (3 or more input wallets and several outputs of exactly the same value to different addresses), peel chain (4 or more linked one-input, two-output transactions whose small output is at most half the large one and not dust-sized).</li>'
       + '<li><b>Likely change</b> weighs: the output address is also an input; the only output of the same address type as the inputs; a round payment amount; the other output paying a known or tagged wallet; an output smaller than every input; the spender having the same wallet habits. Each reason is listed beside the finding. Close calls are not named, and neither are two outputs within 1% of each other unless one address is also an input (an even split looks like two payments). Only a strong guess is called likely; the rest are called possible, and a lead to follow from both outputs.</li>'
       + '<li><b>Clusters</b> use the common-input rule (inputs spent together share an owner). A CoinJoin, a PayJoin or a shared wallet can break it.</li>'
+      + (model.trace ? '<li><b>Routes, hand-offs and open ends</b> follow each coin to the transaction that spent it (never a match of addresses), within what was loaded and on screen. A route is not carried across a service wallet unless there is no other way, and then it says so; a step that merges many inputs is named, because coins of other origins join there. A route shows that the money could have travelled that way, not who controls the wallets between. "No route" and a missing hand-off only mean none was found in the loaded transactions.</li>' : '')
       + '<li>Only loaded transactions can be analysed; loading more can add, change or remove a finding. Names from label packs are third-party claims, shown with the pack they came from.</li>'
       + (model.fiatNote ? '<li><b>Fiat values</b> are indicative: ' + esc(model.fiatNote) + ' Quote an exchange\'s price for the exact moment where it matters.</li>' : '') + '</ul>');
 

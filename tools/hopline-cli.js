@@ -6,10 +6,14 @@
  *   node tools/hopline-cli.js detections workspace.json [--kind peel] [--chain P-65a1]
  *   node tools/hopline-cli.js chains     workspace.json                    every possible peel chain, with its steps and payments
  *   node tools/hopline-cli.js focus      workspace.json <ref>              the facts about one transaction, wallet, peel chain (P-65a1) or cluster (C3)
+ *   node tools/hopline-cli.js trace      workspace.json [--ref R]          how far the trail from the reference got: service hand-offs and open ends
+ *   node tools/hopline-cli.js handoffs   workspace.json [--ref R] [--csv]  where the trail meets a service wallet, as JSON or CSV
+ *   node tools/hopline-cli.js route      workspace.json --from A --to B    the route the money took from one wallet or transaction to another (exit code 1 if none)
  *   node tools/hopline-cli.js prompt     workspace.json --task triage|narrative|explain|challenge [--focus <ref>] [--max-rows 60] [--json]
  *   node tools/hopline-cli.js check      workspace.json answer.txt         which ids an answer cites that are not in the evidence (exit code 1 if any)
  *
  * workspace.json is a file made by Export > JSON in the workspace (use - to read it from standard input; for check, answer.txt can be - too).
+ * The reference (--ref, a wallet address or a transaction id) is the first starting point of the trace the file was saved from, or a wallet tagged THREAT.
  * Options: --known <file> (the wallet list to use; default is public/data/known-addresses.js), --packs <folder> (the packs the site ships that are on as shipped, the OFAC list;
  * default is public/packs), --with <id,id> (also use these shipped packs, e.g. ransomwhere), --no-packs, --no-known (no names from either), --generated <ISO time>, --compact.
  * It reads files and prints; it never opens a connection. Exit codes: 0 done, 1 check found ids that are not in the evidence, 2 could not run.
@@ -19,7 +23,7 @@
 var fs = require('fs'), path = require('path');
 var JS = path.join(__dirname, '..', 'public', 'js');
 var IO = require(path.join(JS, 'hopline-io.js')), AN = require(path.join(JS, 'hopline-analysis.js')), DT = require(path.join(JS, 'hopline-detections.js')), AS = require(path.join(JS, 'hopline-assist.js'));
-var LB = require(path.join(JS, 'hopline-labels.js')), PK = require(path.join(JS, 'hopline-packs.js'));
+var LB = require(path.join(JS, 'hopline-labels.js')), PK = require(path.join(JS, 'hopline-packs.js')), RT = require(path.join(JS, 'hopline-route.js'));
 
 function fail(msg, code) { process.stderr.write('hopline: ' + msg + '\n'); process.exit(code || 2); }
 
@@ -34,19 +38,23 @@ function usage() {
     '  prompt     <workspace.json> --task T [--focus ref] [--max-rows N] [--json]',
     '                                                     the text to give an assistant (T: triage, narrative, explain, challenge)',
     '  check      <workspace.json> <answer.txt>          the ids an answer cites, and which are not in the evidence (exit code 1 if any)',
+    '  trace      <workspace.json> [--ref R]             how far the trail from the reference got: service hand-offs and where it is still open',
+    '  handoffs   <workspace.json> [--ref R] [--csv]     where the trail meets a service wallet (a deposit or a withdrawal), as JSON or CSV',
+    '  route      <workspace.json> --from A --to B       the route the money took from one wallet or transaction to another (exit code 1 if there is none)',
     '',
     'A file name of - reads standard input. Options: --known <file>, --packs <folder>, --with <id,id>, --no-packs, --no-known, --generated <ISO time>, --compact.',
+    'For trace, handoffs and route a wallet is an address and a transaction a 64-character id; --ref defaults to the first starting point saved in the file.',
     'The workspace file is Export > JSON from the workspace. The JSON shapes are in docs/interface.md.'
   ].join('\n');
 }
 
 function parseArgs(argv) {
-  var out = { _: [], flags: {} }, valued = { '--kind': 1, '--chain': 1, '--task': 1, '--focus': 1, '--max-rows': 1, '--known': 1, '--packs': 1, '--with': 1, '--generated': 1 };
+  var out = { _: [], flags: {} }, valued = { '--kind': 1, '--chain': 1, '--task': 1, '--focus': 1, '--max-rows': 1, '--known': 1, '--packs': 1, '--with': 1, '--generated': 1, '--ref': 1, '--from': 1, '--to': 1 };
   for (var i = 0; i < argv.length; i++) {
     var a = argv[i];
     if (a === '-' || a.slice(0, 2) !== '--') { out._.push(a); continue; }
     if (valued[a]) { if (i + 1 >= argv.length) fail('Option ' + a + ' needs a value.'); out.flags[a.slice(2)] = argv[++i]; }
-    else if (a === '--no-known' || a === '--no-packs' || a === '--compact' || a === '--json' || a === '--help') out.flags[a.slice(2)] = true;
+    else if (a === '--no-known' || a === '--no-packs' || a === '--compact' || a === '--json' || a === '--help' || a === '--csv') out.flags[a.slice(2)] = true;
     else fail('Unknown option ' + a + '. Try: node tools/hopline-cli.js help');
   }
   return out;
@@ -95,7 +103,30 @@ function load(args) {
   }
   var knownFn = known ? function (a) { return Object.prototype.hasOwnProperty.call(known, a) ? known[a] : null; } : null;
   var an = AN.analyse(loaded.graph, { known: function (a) { var n = loaded.graph.nodes.get('addr:' + a); return !!(n && (n.label || n.tag)) || !!(knownFn && knownFn(a)); } });
-  return { graph: loaded.graph, an: an, known: knownFn };
+  return { graph: loaded.graph, an: an, known: knownFn, view: loaded.view };
+}
+
+/** A wallet or a transaction named on the command line: an address, a 64-character id, or a vertex id (addr:... / tx:...). null when it is not in the workspace. */
+function vertexOf(graph, ref) {
+  if (typeof ref !== 'string' || !ref) return null;
+  var tries = [ref, 'addr:' + ref, 'tx:' + ref];
+  for (var i = 0; i < tries.length; i++) if (graph.nodes.has(tries[i])) return tries[i];
+  return null;
+}
+/** What route, hand-off and open-end commands need: the coin index, the reference and the rules for service wallets and names. */
+function trailOf(args, ctx, needRef) {
+  var idx = RT.index(ctx.graph), ref = null;
+  if (args.flags.ref) { ref = vertexOf(ctx.graph, args.flags.ref); if (!ref) fail('"' + args.flags.ref + '" is not in the workspace.'); }
+  else ref = RT.referenceOf(ctx.graph, ctx.view, []);
+  if (!ref && needRef) fail('There is no reference: name one with --ref (a wallet address or a transaction id). A workspace saved from a trace has its starting point.');
+  return { idx: idx, ref: ref, hub: function (id) { return RT.isHub(ctx.graph, ctx.known, id); }, name: function (id) { return RT.nameOf(ctx.graph, ctx.known, id); } };
+}
+function traceOf(args, ctx, needRef) {
+  var t = trailOf(args, ctx, needRef);
+  if (!t.ref) return null;
+  var r = RT.trace(t.idx, t.ref, { hub: t.hub, name: t.name, stop: t.name });
+  r.referenceName = t.name(t.ref) || '';
+  return r;
 }
 
 function print(args, value) {
@@ -104,7 +135,7 @@ function print(args, value) {
 
 function summaryOf(args, ctx) {
   var generated = args.flags.generated || new Date().toISOString();
-  return AS.summary(ctx.graph, ctx.an, { generated: generated, known: ctx.known });
+  return AS.summary(ctx.graph, ctx.an, { generated: generated, known: ctx.known, trace: traceOf(args, ctx, false) });
 }
 
 function main(argv) {
@@ -147,6 +178,26 @@ function main(argv) {
     var res = AS.checkCitations(answer, AS.idSets(sum, ctx.graph, focusFacts));
     print(args, res);
     return res.ok ? 0 : 1;
+  }
+  if (cmd === 'trace') { ctx = load(args); print(args, traceOf(args, ctx, true)); return 0; }
+  if (cmd === 'handoffs') {
+    ctx = load(args);
+    var rows = traceOf(args, ctx, true).handoffs;
+    if (args.flags.csv) process.stdout.write(IO.handoffsCsv(rows)); else print(args, rows);
+    return 0;
+  }
+  if (cmd === 'route') {
+    ctx = load(args);
+    if (!args.flags.from || !args.flags.to) fail('Name both ends: --from <wallet or transaction> --to <wallet or transaction>.');
+    var from = vertexOf(ctx.graph, args.flags.from), to = vertexOf(ctx.graph, args.flags.to), tr = trailOf(args, ctx, false);
+    if (!from) fail('"' + args.flags.from + '" is not in the workspace.');
+    if (!to) fail('"' + args.flags.to + '" is not in the workspace.');
+    var route = RT.find(tr.idx, from, to, { hub: tr.hub });
+    if (!route) { print(args, { route: null, from: from, to: to, message: 'No route in the loaded transactions: it only means none was found there, not that the money did not go that way.' }); return 1; }
+    print(args, { route: { from: route.from, to: route.to, hops: route.hops, vertices: route.vertices, edges: route.edges, transactions: route.txs, firstTime: route.first, lastTime: route.last,
+                           steps: route.steps.map(function (st) { return { txid: st.txid, time: st.time, inputs: st.nIn, outputs: st.nOut, coinSats: st.coinOut, mergesManyInputs: st.merges }; }),
+                           acrossServiceWallets: route.viaHub, note: 'Each step is the transaction that spent the coin before it; it does not say who controls the wallets between.' } });
+    return 0;
   }
   fail('Unknown command "' + cmd + '". Try: node tools/hopline-cli.js help');
 }

@@ -309,3 +309,25 @@ test('balances are exported, survive a round trip, and hostile values are droppe
   const clean = IO.fromJson(JSON.stringify(doc)).graph.node(ID.addr('A'));
   ['fundedSum', 'spentSum', 'mempoolFundedSum', 'mempoolSpentSum', 'statsAt', 'statsSource'].forEach((k) => assert.equal(clean[k], undefined, k));
 });
+
+test('handoffsCsv: one row per hand-off with its columns, and a name that could run as a formula is defused', () => {
+  const rows = [
+    { dir: 'deposit', service: '=HYPERLINK("http://x")', address: 'bc1qsvc', txid: 'ab'.repeat(32), time: 1650000000, amount: 123456789, outputs: 2, walletAddress: 'bc1qbefore', depth: 3, nIn: 1, nOut: 2, merges: false },
+    { dir: 'withdrawal', service: 'Exchange, Inc', address: 'bc1qex', txid: 'cd'.repeat(32), time: null, amount: 5, outputs: 1, walletAddress: null, depth: 1, nIn: 6, nOut: 1, merges: true }
+  ];
+  const lines = IO.handoffsCsv(rows).split('\r\n');
+  assert.equal(lines[0], IO.HANDOFF_COLS.join(','));
+  assert.equal(lines[1].split(',')[1], "\"'=HYPERLINK(\"\"http://x\"\")\"", 'a name that starts with = is prefixed with a quote and quoted');
+  assert.ok(lines[1].includes(',1650000000,2022-04-15 05:20 UTC,123456789,1.23456789,2,bc1qbefore,3,1,2,false'), lines[1]);
+  assert.ok(lines[2].startsWith('withdrawal,"Exchange, Inc",bc1qex,'), 'a comma in a name is quoted');
+  assert.ok(lines[2].includes(',,5,0.00000005,1,,1,6,1,true'), 'no time and no wallet are empty cells: ' + lines[2]);
+  assert.equal(lines[3], '', 'the file ends with a line break');
+  assert.equal(IO.handoffsCsv([]), IO.HANDOFF_COLS.join(',') + '\r\n');
+});
+
+test('the reference that was picked survives an export and an import, and an id that was changed on the way follows it', () => {
+  const g = new Graph();
+  g.upsertNode({ id: 'addr:bc1qabc', type: 'addr', address: 'bc1qabc' });
+  const text = IO.toJson(g, { view: { routeRef: 'addr:bc1qabc', focus: 'addr:bc1qabc' } });
+  assert.equal(IO.fromJson(text).view.routeRef, 'addr:bc1qabc');
+});

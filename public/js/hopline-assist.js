@@ -28,7 +28,7 @@
 
   var FORMAT = 'hopline-evidence-summary', VERSION = 1;
   var MAX_TEXT = 200;
-  var CAPS = { detections: 400, chains: 100, clusters: 60, clusterAddrs: 25, clusterTxs: 25, change: 200, wallets: 200 };
+  var CAPS = { detections: 400, chains: 100, clusters: 60, clusterAddrs: 25, clusterTxs: 25, change: 200, wallets: 200, handoffs: 40, endRows: 20 };
   var TASKS = { triage: 1, narrative: 1, explain: 1, challenge: 1 };
 
   var LEGEND = {
@@ -42,9 +42,10 @@
     'A peel chain is a shape; ordinary wallets that pay from a single coin produce the same shape.',
     'Common-input clusters join addresses spent together; a CoinJoin, a PayJoin, a shared custodial wallet or a multisig breaks that assumption.',
     'A name or label on a wallet is somebody\'s claim, not a fact. Its source is named where it is known.',
-    'Only what was loaded is analysed: a transaction that was not loaded is not in the evidence, so absence here is not absence on the chain.'
+    'Only what was loaded is analysed: a transaction that was not loaded is not in the evidence, so absence here is not absence on the chain.',
+    'A service hand-off is where money that was traced met a wallet a list names as a service (an exchange, for example), found by following each coin to the transaction that spent it; a missing hand-off or a trail that is still open only means none was found in what was loaded.'
   ];
-  var UNTRUSTED = ['wallets[].label', 'wallets[].tag', 'wallets[].note', 'wallets[].known.name', 'wallets[].known.category', 'wallets[].known.source'];
+  var UNTRUSTED = ['wallets[].label', 'wallets[].tag', 'wallets[].note', 'wallets[].known.name', 'wallets[].known.category', 'wallets[].known.source', 'trace.referenceName', 'trace.handoffs[].service', 'trace.openEnds.next.named[].label', 'trace.openEnds.prev.named[].label'];
 
   // ---- small helpers ----------------------------------------------------------------------------
   // control characters, line and paragraph separators, zero-width and direction-changing characters (built from code points so the file holds no invisible characters)
@@ -80,6 +81,23 @@
    * graph: a loaded Hopline graph; an: the result of analyse(graph). opts: { title, generated (ISO text), known(address) -> { name, category, source } | null }.
    * Everything is plain JSON: strings, numbers, arrays and objects.
    */
+  /** The trail of HoplineRoute.trace (plus referenceName), with every name cleaned and the lists cut; null when there is none. */
+  function cleanTrace(t) {
+    if (!t || typeof t !== 'object' || typeof t.reference !== 'string' || !t.openEnds) return null;
+    function side(x) {
+      x = x || { count: 0, sats: 0, unchecked: 0, notLoaded: 0, named: [], rows: [] };
+      return { count: x.count, sats: x.sats, unchecked: x.unchecked, notLoaded: x.notLoaded, resting: x.resting || null,
+               named: (x.named || []).slice(0, 10).map(function (n) { return { label: plainText(n.label), count: n.count, sats: n.sats }; }),
+               rows: (x.rows || []).slice(0, CAPS.endRows).map(function (r) { return { kind: r.kind, address: r.address || null, sats: r.amount == null ? null : r.amount, txid: r.txid, steps: r.depth }; }) };
+    }
+    var hf = t.handoffs || [];
+    return { referenceKind: /^tx:/.test(t.reference) ? 'transaction' : 'wallet', reference: t.reference.replace(/^(addr|tx):/, ''), referenceName: plainText(t.referenceName || ''),
+             handoffs: hf.slice(0, CAPS.handoffs).map(function (r) {
+               return { direction: r.dir, service: plainText(r.service), serviceWallet: r.address, txid: r.txid, time: r.time, timeText: when(r.time), sats: r.amount, walletBeforeOrAfter: r.walletAddress || null, steps: r.depth, mergesInputs: !!r.merges };
+             }),
+             handoffsTotal: hf.length, openEnds: { next: side(t.openEnds.next), prev: side(t.openEnds.prev) } };
+  }
+
   function summary(graph, an, opts) {
     opts = opts || {};
     var limits = [], times = [], sources = {}, loaded = 0, stubs = 0, wallets = 0;
@@ -127,13 +145,15 @@
     });
     noted.sort(function (a, b) { return a.address < b.address ? -1 : a.address > b.address ? 1 : 0; });
     noted = cut(noted, CAPS.wallets, 'noted wallets', limits);
+    var trace = cleanTrace(opts.trace);
+    if (trace && trace.handoffsTotal > trace.handoffs.length) limits.push('Only the first ' + trace.handoffs.length + ' of ' + trace.handoffsTotal + ' service hand-offs are listed.');
 
     return {
       format: FORMAT, version: VERSION, generatedBy: 'Hopline', generated: opts.generated || null, title: plainText(opts.title || '', 120),
       counts: { transactionsLoaded: loaded, transactionsNotLoaded: stubs, wallets: wallets, movements: graph.edges.size,
                 detections: d.counts.total, peelChains: an.chains.length, clusters: an.clusters.list.length, changeGuesses: change.length },
       timeSpan: times.length ? { from: Math.min.apply(null, times), to: Math.max.apply(null, times), fromText: when(Math.min.apply(null, times)), toText: when(Math.max.apply(null, times)) } : null,
-      sources: sources, detections: detections, chains: chains, clusters: clusters, change: change, wallets: noted,
+      sources: sources, detections: detections, chains: chains, clusters: clusters, change: change, wallets: noted, trace: trace,
       legend: LEGEND, thresholds: AN.DEFAULTS, notes: NOTES, limits: limits, untrustedFields: UNTRUSTED
     };
   }
@@ -190,6 +210,12 @@
     sum.clusters.forEach(function (c) { addAll(ev.txids, c.txids); addAll(ev.addresses, c.addresses); });
     sum.change.forEach(function (c) { ev.txids.add(c.txid); if (c.address) ev.addresses.add(c.address); });
     sum.wallets.forEach(function (w) { ev.addresses.add(w.address); });
+    if (sum.trace) {
+      var tr = sum.trace;
+      if (tr.referenceKind === 'wallet') ev.addresses.add(tr.reference); else ev.txids.add(tr.reference);
+      tr.handoffs.forEach(function (r) { ev.txids.add(r.txid); ev.addresses.add(r.serviceWallet); if (r.walletBeforeOrAfter) ev.addresses.add(r.walletBeforeOrAfter); });
+      ['next', 'prev'].forEach(function (k) { tr.openEnds[k].rows.forEach(function (r) { ev.txids.add(r.txid); if (r.address) ev.addresses.add(r.address); }); });
+    }
     if (focusFacts) {
       (function walk(x) {
         if (!x || typeof x !== 'object') return;
@@ -275,6 +301,18 @@
     challenge: 'TASK: Challenge the findings. For each main finding say what in the evidence argues against it or weakens it (a shape ordinary wallets also produce, a change guess with low confidence, a CoinJoin-like link, an unloaded transaction ...) and what extra data would settle it. Cite ids.'
   };
 
+  /** The trail cut down for a prompt: the first hand-offs and the first few open ends of each side. */
+  function compactTrace(t, limits) {
+    if (t.handoffs.length > 12) limits.push('Only the first 12 of ' + t.handoffsTotal + ' service hand-offs are in this prompt.');
+    function side(x) {
+      return { count: x.count, btc: btc(x.sats), neverLookedUp: x.unchecked, notLoaded: x.notLoaded, namedWalletsReached: x.named.slice(0, 5).map(function (n) { return n.label + ' (' + btc(n.sats) + ' BTC)'; }),
+               rows: x.rows.slice(0, 8).map(function (r) { return [r.txid, r.address, btc(r.sats)]; }) };
+    }
+    return { reference: t.reference, referenceKind: t.referenceKind, referenceName: t.referenceName || undefined,
+             handoffs: t.handoffs.slice(0, 12).map(function (r) { return [r.timeText, r.direction, r.service, r.txid, btc(r.sats), r.walletBeforeOrAfter]; }), handoffColumns: ['time', 'direction', 'service', 'txid', 'btc', 'walletBeforeOrAfter'],
+             openEnds: { next: side(t.openEnds.next), prev: side(t.openEnds.prev) }, openEndColumns: ['txid', 'address', 'btc'] };
+  }
+
   /** The summary cut down for a prompt: peel steps appear once, inside their chain; pattern rows carry no repeated explanation (the legend has it). */
   function compact(sum, opts) {
     var maxRows = opts.maxRows || 60, limits = sum.limits.slice();
@@ -294,7 +332,7 @@
       paymentColumns: ['txid', 'address', 'btc'],
       clusters: clusters,
       likelyChange: change.map(function (c) { return { txid: c.txid, output: c.vout, address: c.address, btc: btc(c.sats), confidence: c.confidence, reasons: c.reasons }; }),
-      wallets: wallets, untrustedFields: sum.untrustedFields, limits: limits
+      wallets: wallets, trace: sum.trace ? compactTrace(sum.trace, limits) : undefined, untrustedFields: sum.untrustedFields, limits: limits
     };
     return ev;
   }

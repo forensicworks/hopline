@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, OF = HoplineOfac, PK = HoplinePacks, FD = HoplineFind, DT = HoplineDetections, AS = HoplineAssist, RP = HoplineReport, balanceOf = M.balanceOf;
+  var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, OF = HoplineOfac, PK = HoplinePacks, FD = HoplineFind, DT = HoplineDetections, RT = HoplineRoute, AS = HoplineAssist, RP = HoplineReport, balanceOf = M.balanceOf;
   var ID = M.ID;
   var KNOWN_BASE = window.HOPLINE_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
@@ -53,7 +53,7 @@
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true,
-    trace: emptyTrace(),
+    trace: emptyTrace(), routeRef: null, routeFocus: null, openDir: 'next',
     undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
     stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
@@ -467,9 +467,10 @@
     var prev = state.focus, hadKeep = state.keep.has(id);
 
     function commit() {
+      var addedSeed = false;
       stopPlay(); $('tooltip').hidden = true;
       state.focus = id; state.keep.add(id);
-      if (traceOn()) { if (!state.trace.shown.size) traceStart(id); else if (o.replaceTrace) traceRestart(id); else traceAddSeed(id, false); }       // a new vertex is ADDED to the trace; only "Start over" replaces it
+      if (traceOn()) { if (!state.trace.shown.size) traceStart(id); else if (o.replaceTrace) traceRestart(id); else addedSeed = traceAddSeed(id, false); }       // a new vertex is ADDED to the trace; only "Start over" replaces it
       state.filter.timeFrom = null; state.filter.timeTo = null;       // a window chosen for the old neighbourhood may hide the whole new one
       state.pinned.clear();
       if (!o.fromHistory) visitNav(id);
@@ -479,6 +480,8 @@
       afterGraphChange({ fit: !pan });
       if (pan) renderer.centerOn(id);
       updateNavUi(); scheduleSave();
+      var note = addedNote(id, addedSeed);                                                              // money ran between it and the reference: offer the route; a very long history: say so
+      if (note) toast((addedSeed ? 'Added as another starting point. ' : '') + note.text, false, note.action);
       return true;
     }
 
@@ -1741,7 +1744,7 @@
     navigate(id).then(function (ok) {
       if (ok === false) return;
       if (keep) { state.rightTab = 'findings'; showInspector(true); }
-      if (findIsShown(id)) { show(); if (traceOn()) toast('Added to the trace as another starting point (Ctrl+Z takes it back).'); }
+      if (findIsShown(id)) { show(); if (traceOn()) { var note = addedNote(id, true); toast('Added to the trace as another starting point (Ctrl+Z takes it back).' + (note ? ' ' + note.text : ''), false, note ? note.action : null); } }
       else toast('It is loaded but not on screen: a filter or the time bar hides it (see Filters and the time range).', true);
     });
   }
@@ -2770,6 +2773,7 @@
       ]));
       box.appendChild(autoButtons(n));
       (txAnalysisSection(n) || []).forEach(function (s) { box.appendChild(s); });
+      var rt1 = routeDetails(n); if (rt1) box.appendChild(rt1);
       connectedTxSections(n).forEach(function (s) { box.appendChild(s); });
     } else if (n.type === 'addr') {
       box.appendChild(idRow(n.address, 'address'));
@@ -2809,7 +2813,9 @@
                   el('a', { href: 'wallet.html?q=' + encodeURIComponent(n.address), target: '_blank', rel: 'noopener', title: 'This wallet as a ledger: every transaction with its inputs and outputs', text: 'Wallet overview ↗' }), hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])];
       box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
       box.appendChild(autoButtons(n));
+      var hg = hugeNote(n.id, false); if (hg) box.appendChild(el('p', { 'class': 'hint warn' }, [el('b', { text: 'Large wallet. ' }), hg]));
       var cs = addrClusterSection(n); if (cs) box.appendChild(cs);
+      var rt2 = routeDetails(n); if (rt2) box.appendChild(rt2);
       connectedTxSections(n).forEach(function (s) { box.appendChild(s); });
       box.appendChild(externalCard(n));
     } else {
@@ -3258,13 +3264,16 @@
     var index = new Map(); ch.ids.forEach(function (id, i) { index.set(id, i + 1); });
     return { label: ch.label, color: ch.color, ids: ch.ids.slice(), index: index, path: new Set(ch.path), pay: new Set(ch.pay) };
   }
-  /** Give the canvas the chain that is lit (or none). A chain that is gone (deleted, another workspace) clears itself. */
+  /** Give the canvas the chain or the route that is lit (or none). One that is gone (deleted, another workspace) clears itself. */
   function applyChain() {
-    var ch = state.chainFocus ? chainByLabel(state.chainFocus) : null;
+    var rf = routeLit(), ch = !rf && state.chainFocus ? chainByLabel(state.chainFocus) : null;
     if (state.chainFocus && !ch) state.chainFocus = null;
-    renderer.setChain(ch ? chainView(ch) : null);
-    var chip = $('chainChip'); chip.hidden = !ch;
-    if (ch) {
+    renderer.setChain(rf ? routeView(rf) : ch ? chainView(ch) : null);
+    var chip = $('chainChip'); chip.hidden = !(rf || ch);
+    if (rf) {
+      $('chainChipName').textContent = 'Route'; $('chainChipName').style.color = ROUTE_COLOR;
+      $('chainChipText').textContent = plural(rf.route.hops, 'transaction') + ' · ' + routeName(rf.route.from) + ' → ' + routeName(rf.route.to);
+    } else if (ch) {
       $('chainChipName').textContent = ch.label; $('chainChipName').style.color = ch.color;
       $('chainChipText').textContent = plural(ch.ids.length, 'transaction') + ' · peeled ' + S.fmtBtc(ch.totalPeeled) + ' BTC';
     }
@@ -3277,13 +3286,13 @@
   }
   function showChain(label) {
     var ch = chainByLabel(label); if (!ch) return;
-    state.chainFocus = label; applyChain();
+    state.routeFocus = null; state.chainFocus = label; applyChain();
     var vis = renderer.data ? renderer.data.visible.nodes : null, on = vis ? ch.ids.filter(function (id) { return vis.has(id); }) : ch.ids;
     if (on.length) renderer.frame(on);
     if (on.length < ch.ids.length) toast((on.length ? 'Only ' + on.length + ' of the ' + ch.ids.length + ' steps are on screen' : 'None of its ' + ch.ids.length + ' steps is on screen')
       + (traceOn() ? ': Trace this chain shows them all.' : ': the Focus view, a filter or the time bar hides the others.'), !on.length);
   }
-  function clearChain() { state.chainFocus = null; applyChain(); }
+  function clearChain() { var had = !!state.routeFocus; state.chainFocus = null; state.routeFocus = null; applyChain(); if (had) { findingsFor = null; updateFindings(); } }
   function toggleChain(label) { if (state.chainFocus === label) clearChain(); else showChain(label); }
   /** The Trace layout with just this chain: its first step is the starting point and the other steps are revealed in order (Undo takes it back in two steps: the reveal, then the restart). */
   function traceChain(label) {
@@ -3311,6 +3320,476 @@
     return el('div', { 'class': 'insp-actions' }, row);
   }
 
+  // ---- routes: how the money got from one vertex to another, and where the trail is still open ----------------------------------------------
+  // HoplineRoute follows coins (what spent what), never addresses; see public/js/hopline-route.js for what a route does and does not say.
+  var ROUTE_COLOR = '#f2c94c';
+  var rd = { an: null, graph: null, idx: null, key: '', ref: null, ends: {}, handoffs: null };         // the coin index of what is loaded and what was worked out from the reference: rebuilt only when the analysis was
+
+  /** A service wallet (an exchange, a mixer, a market, a pool): many people's coins pass through it, so a route is not carried across one. Ransomware and sanctions entries are not services. */
+  function knownEntry(a) { return Object.prototype.hasOwnProperty.call(KNOWN, a) ? KNOWN[a] : null; }
+  function routeHub(id) { return RT.isHub(state.graph, knownEntry, id); }
+  /** What a vertex is called in a sentence: your label, tag or the known name, else the start of the address. */
+  function routeName(id) {
+    var n = state.graph.nodes.get(id);
+    if (!n) return '';
+    if (n.type === 'tx') return 'tx ' + S.shortId(n.txid, 5);
+    if (n.type !== 'addr') return id;
+    var m = markOf(n.address);
+    return m ? (m.length > 28 ? m.slice(0, 27) + '…' : m) : S.shortId(n.address, 6);
+  }
+  function stopName(id) { var n = state.graph.nodes.get(id); return n && n.type === 'addr' ? markOf(n.address) : null; }
+
+  /** What the other wallets are related to: the one chosen in the Findings, else the first starting point of the trace, else a wallet tagged THREAT, else the one vertex selected. */
+  function routeRefId() { return RT.referenceOf(state.graph, { routeRef: state.routeRef, trace: { seeds: state.trace.seeds } }, Array.from(state.selected)); }
+  /** The vertices the Findings offer as the reference: the starting points, the tagged ones, the selected one. */
+  function routeCandidates(ref) {
+    var g = state.graph, out = [], seen = new Set();
+    function add(id, what) {
+      if (seen.has(id) || !g.nodes.has(id) || !/^(tx|addr):/.test(id)) return;
+      seen.add(id); var n = g.nodes.get(id);
+      out.push({ id: id, text: what + ' · ' + (n.type === 'tx' ? 'tx ' + S.shortId(n.txid, 6) : S.shortId(n.address, 8)) + (n.tag && what !== n.tag ? ' (' + n.tag + ')' : '') });
+    }
+    (state.trace.seeds || []).forEach(function (id) { add(id, 'START'); });
+    g.nodes.forEach(function (n) { if (out.length < 24 && n.tag && (n.type === 'addr' || n.type === 'tx')) add(n.id, n.tag); });
+    Array.from(state.selected).forEach(function (id) { if (state.selected.size === 1) add(id, 'Selected'); });
+    if (ref) add(ref, 'Reference');
+    return out;
+  }
+  function routeData() {
+    var an = analysis(), ref = routeRefId(), key = ref + '|' + state.auto.stopLabel;
+    if (rd.an !== an || rd.graph !== state.graph) { rd.an = an; rd.graph = state.graph; rd.idx = state.graph.nodes.size ? RT.index(state.graph) : null; rd.key = ''; }
+    if (rd.key !== key) { rd.key = key; rd.ref = ref; rd.ends = {}; rd.handoffs = null; }
+    return rd;
+  }
+  /** What the route part of the Findings depends on besides the analysis: the reference, the stop rule, the direction of the open ends, the route that is lit. */
+  function routeStamp() { var rf = routeLit(); return routeData().key + '|' + state.openDir + '|' + (rf ? rf.route.from + '>' + rf.route.to : '') + '|' + offscreenKey(); }
+  /** Where the trail from the reference is still open, forward ('next') or backward ('prev'). null without a reference. */
+  function routeEnds(dir) {
+    var d = routeData();
+    if (!d.ref || !d.idx) return null;
+    dir = dir === 'prev' ? 'prev' : 'next';
+    if (!d.ends[dir]) d.ends[dir] = RT.openEnds(d.idx, d.ref, dir, { stop: state.auto.stopLabel ? stopName : null });
+    return d.ends[dir];
+  }
+
+  /** The route that is lit, or null; one whose vertices are gone (deleted, another workspace) clears itself. */
+  function routeLit() {
+    var rf = state.routeFocus;
+    if (rf && !rf.route.vertices.every(function (id) { return state.graph.nodes.has(id); })) rf = state.routeFocus = null;
+    return rf;
+  }
+  function routeView(rf) {
+    var r = rf.route, index = new Map();
+    r.txs.forEach(function (id, i) { index.set(id, i + 1); });
+    return { label: 'Route', color: ROUTE_COLOR, ids: r.vertices.slice(), index: index, path: new Set(r.edges), pay: new Set() };
+  }
+  function routeText(r) {
+    var lines = ['Route from ' + routeName(r.from) + ' to ' + routeName(r.to) + ': ' + plural(r.hops, 'transaction') + ', following each coin to the transaction that spent it'];
+    r.steps.forEach(function (s, i) {
+      lines.push((i + 1) + '. ' + s.txid + (s.time != null ? ' ' + S.fmtTimeFull(s.time) : '') + ' · ' + (s.nIn == null ? '?' : s.nIn) + ' in, ' + (s.nOut == null ? '?' : s.nOut) + ' out'
+        + (s.coinOut != null ? ' · coin ' + S.fmtBtc(s.coinOut) + ' BTC' : '') + (s.merges ? ' · merges many inputs' : '') + (s.loaded ? '' : ' · not loaded'));
+    });
+    if (r.viaHub.length) lines.push('Only found across ' + r.viaHub.map(routeName).join(', ') + ' (a service wallet).');
+    return lines.join(NL);
+  }
+
+  /**
+   * Show these routes in the trace: what is not on screen is added next to what is, in the direction the money moves, in one step that
+   * Ctrl+Z takes back. A route with nothing on screen yet starts from its first vertex as another starting point. Returns how many vertices were added.
+   */
+  function traceRevealRoutes(routes) {
+    var T = state.trace, revealed = [], seeded = false;
+    unfoldLog = [];
+    routes.forEach(function (r) {
+      var ids = r.vertices.filter(function (id) { return state.graph.nodes.has(id); }), first = -1, i;
+      for (i = 0; i < ids.length && first < 0; i++) if (T.shown.has(ids[i])) first = i;
+      if (first < 0) {
+        if (!ids.length) return;
+        var keep = unfoldLog; unfoldLog = null; traceAddSeed(ids[0], true); unfoldLog = keep; seeded = true; first = 0;
+      }
+      for (i = first + 1; i < ids.length; i++) tracePut(ids[i - 1], [ids[i]], 'next', revealed);
+      for (i = first - 1; i >= 0; i--) tracePut(ids[i + 1], [ids[i]], 'prev', revealed);
+    });
+    revealed.unfolded = unfoldLog; unfoldLog = null;
+    if (revealed.length) traceRecord({ type: 'reveal', ids: revealed.slice(), unfolded: revealed.unfolded });
+    if (revealed.length || seeded) traceChanged(revealed, false);
+    return revealed.length;
+  }
+
+  /** Light up the route from one vertex to another, show it in the trace, and list its steps in the Findings. */
+  function showRoute(fromId, toId) {
+    var d = routeData(), r = d.idx ? RT.find(d.idx, fromId, toId, { hub: routeHub }) : null;
+    if (!r) {
+      toast('No route from ' + routeName(fromId) + ' to ' + routeName(toId) + ' in what is loaded. Open ends (Findings) show where the trail could go on.', true);
+      return false;
+    }
+    stat('route-show');
+    state.chainFocus = null; state.routeFocus = { route: r };
+    var added = traceOn() ? traceRevealRoutes([r]) : 0;
+    applyChain(); findingsFor = null; updateFindings(); openFindings('route');
+    var vis = renderer.data ? renderer.data.visible.nodes : null, on = vis ? r.vertices.filter(function (id) { return vis.has(id); }) : r.vertices;
+    if (on.length) renderer.frame(on);
+    var note = [];
+    if (r.viaHub.length) note.push('only across ' + r.viaHub.map(routeName).join(', ') + ', a service wallet');
+    if (r.mixing.length) note.push(plural(r.mixing.length, 'step') + ' merge' + (r.mixing.length === 1 ? 's' : '') + ' many inputs');
+    toast('Route: ' + plural(r.hops, 'transaction') + (note.length ? ' (' + note.join('; ') + ')' : '') + '.' + (added ? ' ' + plural(added, 'vertex', 'vertices') + ' shown (Ctrl+Z takes them back).' : '')
+      + (on.length < r.vertices.length && !traceOn() ? ' Some of it is hidden by the Focus view, a filter or the time bar.' : ''), !!r.viaHub.length);
+    return true;
+  }
+
+  /** A sentence and a button for a vertex that was just added, when money ran between it and the reference. null when there is no route. */
+  function routeOffer(id) {
+    var d = routeData(), ref = d.ref;
+    if (!ref || id === ref || !d.idx) return null;
+    var rel = RT.relations(d.idx, ref, [id], { hub: routeHub }).get(id);
+    if (!rel || (!rel.up && !rel.down)) return null;
+    var up = !!rel.up && (!rel.down || rel.up.hops <= rel.down.hops), h = up ? rel.up : rel.down;
+    return { text: (up ? 'Money from it reached ' : 'Money from ') + routeName(ref) + (up ? '' : ' reached it') + ' in ' + plural(h.hops, 'transaction') + (h.viaHub ? ', but only across a service wallet' : '') + '.',
+             action: { text: 'Show route', fn: function () { if (up) showRoute(id, ref); else showRoute(ref, id); } } };
+  }
+
+  /** One wallet's relation to the reference, as buttons that light the route (or a line saying there is none). */
+  function relLine(id, rel, ref) {
+    if (!rel) return null;
+    if (rel.same) return el('p', { 'class': 'rel hint', text: 'This is the reference.' });
+    var kids = [];
+    [['up', rel.up], ['down', rel.down]].forEach(function (x) {
+      var h = x[1], up = x[0] === 'up';
+      if (!h) return;
+      kids.push(el('button', { type: 'button', 'class': 'relbtn', 'data-rel': x[0],
+        title: (up ? 'Money this wallet spent reached ' + routeName(ref) : 'Money from ' + routeName(ref) + ' reached this wallet') + ' after ' + plural(h.hops, 'transaction') + (h.viaHub ? ', but only across a service wallet' : '') + '. Click to show the route.',
+        onclick: function () { if (up) showRoute(id, ref); else showRoute(ref, id); },
+        text: (up ? '◀ upstream' : '▶ downstream') + ' · ' + h.hops + ' tx' + (h.viaHub ? ' · via a service wallet' : '') + ' · show route' }));
+    });
+    if (!kids.length) {
+      return el('div', { 'class': 'rel', 'data-rel': 'none' }, [el('span', { 'class': 'hint', text: 'No route to or from ' + routeName(ref) + ' in what is loaded.' }),
+        searchBtn('up', 'Look for a route from this wallet to ' + routeName(ref), function () { searchRoute(id, ref); }),
+        searchBtn('down', 'Look for a route from ' + routeName(ref) + ' to this wallet', function () { searchRoute(ref, id); })]);
+    }
+    return el('div', { 'class': 'rel' }, kids);
+  }
+  function refPicker(ref) {
+    var sel = el('select', { 'aria-label': 'Relate these wallets to', 'class': 'refsel' });
+    routeCandidates(ref).forEach(function (o) { sel.appendChild(el('option', { value: o.id, text: o.text })); });
+    sel.value = ref;
+    sel.addEventListener('change', function () { state.routeRef = sel.value; findingsFor = null; updateFindings(); updateFindStrip(); scheduleSave(); });
+    return el('div', { 'class': 'refpick' }, [el('span', { 'class': 'lbl', text: 'Relative to' }), sel]);
+  }
+  /** In the details of a wallet or transaction: its route to or from the reference, when there is one. */
+  function routeDetails(n) {
+    var d = routeData();
+    if (!d.ref || !d.idx || n.id === d.ref) return null;
+    var rel = RT.relations(d.idx, d.ref, [n.id], { hub: routeHub }).get(n.id);
+    if (!rel || (!rel.up && !rel.down && !(n.type === 'addr' && markOf(n.address)))) return null;          // a wallet with a name is shown even without a route: it can be searched for
+    return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Route to ' + routeName(d.ref) }), relLine(n.id, rel, d.ref)]);
+  }
+
+  /** The route that is lit, as steps in the Findings: the transactions in order, what to be careful of, copy and clear. */
+  function routeBlock(box, h) {
+    var rf = routeLit();
+    if (!rf) return;
+    var r = rf.route, when = r.first == null ? '' : ' · ' + S.fmtTime(r.first) + (r.last !== r.first ? ' → ' + S.fmtTime(r.last) : '');
+    box.appendChild(h.head('Route', 'route'));
+    box.appendChild(el('p', { 'class': 'hint' }, [el('b', { text: routeName(r.from) }), ' → ', el('b', { text: routeName(r.to) }), ' · ' + plural(r.hops, 'transaction') + when]));
+    r.steps.forEach(function (s, i) {
+      var left = el('span', { 'class': 'rowtext' }, [(i + 1) + '. tx ', el('span', { 'class': 'mono', text: S.shortId(s.txid, 5) }),
+        el('small', { text: (s.nIn == null ? '?' : s.nIn) + ' in → ' + (s.nOut == null ? '?' : s.nOut) + ' out' + (s.time != null ? ' · ' + S.fmtTime(s.time) : '') + (s.loaded ? '' : ' · not loaded') + (s.merges ? ' · merges inputs' : '') })]);
+      box.appendChild(h.row(left, s.coinOut == null ? '' : S.fmtBtc(s.coinOut) + ' BTC', 'Select this transaction and bring it into view', function () { findKeep(s.id); }, s.txid, 'transaction id'));
+    });
+    if (r.viaHub.length) box.appendChild(el('p', { 'class': 'hint warn' }, [el('b', { text: 'Only found across ' + r.viaHub.map(routeName).join(', ') + '. ' }), 'A service wallet mixes everyone\'s coins, so this is not evidence of a link.']));
+    if (r.mixing.length) box.appendChild(el('p', { 'class': 'hint', text: 'Step ' + r.steps.map(function (s, i) { return s.merges ? i + 1 : 0; }).filter(Boolean).join(', ') + ' merge' + (r.mixing.length === 1 ? 's' : '') + ' many inputs: coins of other origins join the route there, so it shows where these coins could have gone, not that all of that money did.' }));
+    box.appendChild(el('p', { 'class': 'hint', text: 'Each step is the transaction that spent the coin before it, so the money could have travelled this way. It does not say who controls the wallets in between.' }));
+    box.appendChild(el('div', { 'class': 'insp-actions' }, [
+      el('button', { type: 'button', text: 'Copy route', onclick: function () { copy(routeText(r), 'the route'); } }),
+      el('button', { type: 'button', text: 'Clear', title: 'Take the highlight off', onclick: clearChain })]));
+  }
+
+  // ---- service hand-offs, suggested names, searching for a route, large wallets ---------------------------------------------------------------
+  var HUGE_TX = 1000, hugeSeen = new Set();
+
+  /** Where the money from the reference met a service wallet, or a service's money came into the trail (HoplineRoute.handoffs). Not tied to the stop-at-labelled setting. */
+  function routeHandoffs() {
+    var d = routeData();
+    if (!d.ref || !d.idx) return [];
+    if (!d.handoffs) d.handoffs = RT.handoffs(d.idx, d.ref, { hub: routeHub, stop: stopName });
+    return d.handoffs;
+  }
+  function handoffText(rows) {
+    var head = ['direction', 'service', 'service wallet', 'transaction', 'time (UTC)', 'amount (BTC)', 'wallet before a deposit / after a withdrawal', 'transactions from the reference'];
+    return [head.join('\t')].concat(rows.map(function (r) {
+      return [r.dir === 'deposit' ? 'into the service' : 'out of the service', r.service, r.address, r.txid, r.time != null ? S.fmtTimeFull(r.time) : '', S.fmtBtc(r.amount), r.walletAddress || '', r.depth].join('\t');
+    })).join(NL);
+  }
+  /** The hand-offs in the Findings: a table to hand to a service, to copy or to download as CSV. */
+  function handoffBlock(box, h) {
+    var rows = routeHandoffs(), d = routeData();
+    if (!rows.length) return;
+    box.appendChild(h.head('Service hand-offs', 'handoff'));
+    box.appendChild(el('p', { 'class': 'hint', text: 'Where the trail from ' + routeName(d.ref) + ' meets a service wallet, oldest first: money going into one (a deposit) or coming out of one (a withdrawal).' }));
+    rows.slice(0, 12).forEach(function (r) {
+      var deposit = r.dir === 'deposit';
+      var left = el('span', { 'class': 'rowtext' }, [(deposit ? '▶ ' : '◀ ') + r.service,
+        el('small', { text: (deposit ? 'deposit' : 'withdrawal') + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') + (r.walletAddress ? ' · ' + (deposit ? 'from ' : 'to ') + S.shortId(r.walletAddress, 8) : '') + (r.merges ? ' · merges inputs' : '') })]);
+      var b = h.row(left, S.fmtBtc(r.amount) + ' BTC', 'Show the route ' + (deposit ? 'from the reference to this service wallet' : 'from this service wallet to the reference'), function () {
+        if (deposit) showRoute(d.ref, r.id); else showRoute(r.id, d.ref);
+      }, r.txid, 'transaction id');
+      b.setAttribute('data-handoff', r.dir);
+      box.appendChild(b);
+    });
+    if (rows.length > 12) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (rows.length - 12) + ' more in the copy and the CSV' }));
+    box.appendChild(el('div', { 'class': 'insp-actions' }, [
+      el('button', { type: 'button', text: 'Copy table', onclick: function () { copy(handoffText(rows), 'the hand-off table'); } }),
+      el('button', { type: 'button', text: 'Download CSV', onclick: function () { stat('handoffs-csv'); download('hopline-handoffs-' + new Date().toISOString().slice(0, 10) + '.csv', '﻿' + IO.handoffsCsv(rows), 'text/csv;charset=utf-8'); } })]));
+    box.appendChild(el('p', { 'class': 'hint', text: 'The wallet just before a deposit (or just after a withdrawal) is a candidate for the customer\'s or the service\'s deposit address. A request to the service names the transaction, the time and the amount. The name is a list\'s claim, and only the loaded transactions are followed.' }));
+  }
+
+  var sg = { an: null, graph: null, data: null };
+  /** Names the common-input rule suggests (HoplineAnalysis.suggestNames), from the names on lists only. */
+  function routeSuggestions() {
+    var an = analysis();
+    if (sg.an !== an || sg.graph !== state.graph) {
+      sg.an = an; sg.graph = state.graph;
+      sg.data = AN.suggestNames(state.graph, an.clusters, function (id) { var n = state.graph.nodes.get(id), k = n && n.type === 'addr' ? knownEntry(n.address) : null; return k ? k.label : null; });
+    }
+    return sg.data;
+  }
+  /** The suggestion's addresses that have no label of yours yet. */
+  function suggestTodo(s) { return s.addrs.filter(function (id) { var n = state.graph.nodes.get(id); return n && !n.label; }); }
+  var BULK_NAMES = 25;                                                                // naming more than this many wallets at once asks for a second click
+  function applySuggestion(s) {
+    var g = state.graph, todo = suggestTodo(s), via = s.from[0] ? g.nodes.get(s.from[0]) : null, tx = s.txids[0] || '', label = LB.cleanText(s.name + ' (by co-spending)', 120), before = [];
+    if (!todo.length) { toast('Nothing to name: they all have a label already.'); return; }
+    stat('name-suggest');
+    todo.forEach(function (id) {
+      var n = g.nodes.get(id);
+      before.push([id, n.label || '', n.note || '']);
+      g.annotate(id, label, n.note || 'Spent together with ' + (via ? via.address : 'a wallet named ' + s.name) + (tx ? ' in tx ' + tx : '') + ' (the common-input rule, a guess; "' + s.name + '" is a name from a list, not proof).');
+    });
+    findingsFor = null; refresh(); scheduleSave();
+    toast('Named ' + plural(todo.length, 'address', 'addresses') + ' “' + label + '”. Each note says why.', false, { text: 'Undo', fn: function () {
+      before.forEach(function (b) { if (g.nodes.has(b[0])) g.annotate(b[0], b[1], b[2]); });
+      findingsFor = null; refresh(); scheduleSave(); toast('Took the names back.');
+    } });
+  }
+  function suggestBlock(box, h) {
+    var data = routeSuggestions(), list = data.suggestions.filter(function (s) { return suggestTodo(s).length; });
+    if (!list.length && !data.conflicts.length) return;
+    box.appendChild(h.head('Suggested names', 'suggest'));
+    if (list.length) box.appendChild(el('p', { 'class': 'hint', text: 'Wallets spent in the same transaction as a named wallet probably have the same owner (an exchange sweeping its deposit addresses into its own wallet, for example). A guess from the common-input rule: nothing is named until you choose Name them.' }));
+    list.slice(0, 6).forEach(function (s) {
+      var todo = suggestTodo(s), short = s.name.length > 24 ? s.name.slice(0, 23) + '…' : s.name;
+      var left = el('span', { 'class': 'rowtext' }, [s.name, el('small', { text: plural(todo.length, 'address', 'addresses') + ' in ' + s.cluster + (s.direct.length ? ' · ' + s.direct.length + ' spent with it directly' : ' · linked through other addresses') + (s.txids[0] ? ' · tx ' + S.shortId(s.txids[0], 5) : '') })]);
+      var main = h.row(left, '+' + todo.length, 'Select these addresses', function () { selectIds(todo, 'addresses of ' + s.cluster); });
+      box.appendChild(el('div', { 'class': 'relrow', 'data-suggest': s.cluster }, [main, el('div', { 'class': 'rel' }, [
+        el('button', { type: 'button', 'class': 'relbtn', title: 'Give each a label “' + s.name + ' (by co-spending)” with a note saying why. Nothing else changes.', onclick: function (ev) {
+          var b = ev.currentTarget, n = suggestTodo(s).length;
+          if (n > BULK_NAMES && !b.getAttribute('data-armed')) {                                    // a lot of wallets: ask again before writing on all of them
+            b.setAttribute('data-armed', '1'); b.textContent = 'Click again to name ' + n + ' addresses';
+            setTimeout(function () { if (b.isConnected) { b.removeAttribute('data-armed'); b.textContent = 'Name them “' + short + ' (by co-spending)”'; } }, 4000);
+            return;
+          }
+          applySuggestion(s);
+        }, text: 'Name them “' + short + ' (by co-spending)”' })])]));
+    });
+    if (list.length > 6) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (list.length - 6) + ' more' }));
+    data.conflicts.slice(0, 3).forEach(function (c) {
+      box.appendChild(el('p', { 'class': 'hint warn', text: c.cluster + ' holds wallets with different names (' + c.names.slice(0, 4).join(', ') + '): the common-input rule links them, so check before relying on either.' }));
+    });
+  }
+
+  /** Load from both ends until a route from one vertex to another appears or a limit is reached; the limits of Auto-expand apply. */
+  function searchRoute(fromId, toId) {
+    var o = Object.assign({}, state.auto), info = null;
+    stat('route-search');
+    return run('Search for a route', function () {
+      return RT.connect(state.explorer, state.graph, fromId, toId, { hub: routeHub, stop: stopName, sopts: successorOpts(o), rounds: 8, width: 8, maxTx: o.maxTx,
+        progress: function (n) { showProgress('Search for a route: round ' + n); } }).then(function (r) {
+        info = r;
+        return { added: r.loaded, addedEdges: 0, requests: r.requests, truncated: false, errors: (r.errors || []).concat(r.reason === 'cap-requests' ? ['request cap'] : []), failed: false };
+      });
+    }, { maxRequests: o.maxReq }).then(function (r) {
+      if (!r || !info) return false;
+      findingsFor = null;
+      if (info.route) return showRoute(fromId, toId);
+      var open = ' ' + plural(info.open.next, 'branch', 'branches') + ' are still open from ' + routeName(fromId) + ' and ' + info.open.prev + ' behind ' + routeName(toId) + '.';
+      var why = { exhausted: 'Nothing is left to load from either end: they are not connected by money that can be followed (a named wallet or a CoinJoin-like transaction ends a branch).',
+                  rounds: 'Still no route after ' + info.rounds + ' rounds.' + open + ' Search again to go further, or raise the limits under Auto-expand.',
+                  stalled: 'Nothing more could be loaded: the data source did not return what it was asked for.' + open,
+                  'cap-requests': 'Stopped at the request limit.' + open, 'cap-tx': 'Stopped at the limit of transactions per step.' + open, cancelled: 'Cancelled: what was loaded is kept.' }[info.reason];
+      toast('No route from ' + routeName(fromId) + ' to ' + routeName(toId) + ': ' + plural(info.loaded, 'transaction') + ' loaded in ' + plural(info.rounds, 'round') + '. ' + (why || ''), false);
+      updateFindings();
+      return false;
+    });
+  }
+  function searchBtn(dir, title, fn) {
+    return el('button', { type: 'button', 'class': 'relbtn', 'data-search': dir, title: title + ' by loading from both ends (up to ' + state.auto.maxReq + ' requests).', onclick: fn, text: dir === 'up' ? '◀ search upstream' : '▶ search downstream' });
+  }
+
+  /** HoplineRoute.trace for the reference with this page's rules: the hand-offs and how each side of the trail ends. null without a reference. `has(vertexId)` cuts it to what is on screen (the report). */
+  function routeTraceData(has) {
+    var d = routeData();
+    if (!d.ref || !d.idx) return null;
+    var t = RT.trace(d.idx, d.ref, { hub: routeHub, name: stopName, stop: state.auto.stopLabel ? stopName : null, has: has });
+    t.referenceName = routeName(d.ref);
+    return t;
+  }
+
+  // ---- what is loaded but not on screen ------------------------------------------------------------------------------------------------------
+  var osc = { vis: null, an: null, key: '', n: -1, data: null };
+  /** What the workspace holds that the canvas does not show, and what the findings, the known wallets, the hand-offs and the open ends hold among it. null before anything is drawn. */
+  function offscreenInfo() {
+    var vis = renderer && renderer.data ? renderer.data.visible : null, an = analysis(), d = routeData();
+    if (!vis) return null;
+    if (osc.vis === vis && osc.an === an && osc.key === d.key && osc.n === state.graph.nodes.size) return osc.data;
+    var data = RT.offscreen(state.graph, vis.nodes, an, knownEntry);
+    data.handoffs = []; data.ends = [];
+    if (data.left && d.ref && d.idx) {
+      var off = function (txid, id) { return !vis.nodes.has(ID.tx(txid)) || (id && !vis.nodes.has(id)); };
+      data.handoffs = routeHandoffs().filter(function (r) { return off(r.txid, r.id); });
+      ['next', 'prev'].forEach(function (dir) { var oe = routeEnds(dir); if (oe) oe.ends.forEach(function (e) { if (off(e.txid, e.id)) data.ends.push(e); }); });
+    }
+    osc = { vis: vis, an: an, key: d.key, n: state.graph.nodes.size, data: data };
+    return data;
+  }
+  function patternTotal(oc) { return Object.keys(oc.patterns).reduce(function (t, k) { return t + oc.patterns[k]; }, 0); }
+  /** Whether anything worth looking at is among what is not on screen (a finding, a named wallet, a hand-off, an open end); the chip and the section only appear then. */
+  function offscreenSignificant(oc) { return !!(oc && oc.left && (patternTotal(oc) || oc.clusters || oc.change || oc.known.length || oc.handoffs.length || oc.ends.length)); }
+  function offscreenKey() { var oc = offscreenInfo(); return oc ? oc.left + '/' + oc.known.length + '/' + oc.handoffs.length + '/' + oc.ends.length + '/' + patternTotal(oc) + '/' + oc.clusters + '/' + oc.change : ''; }
+  /** In words, what is among the vertices that are not on screen. */
+  function offscreenParts(oc) {
+    var kinds = Object.keys(oc.patterns).filter(function (k) { return oc.patterns[k]; }).map(function (k) { return fmtInt(oc.patterns[k]) + ' ' + (FLAG_NAME[k] || k); });
+    return [kinds.length ? kinds.join(', ') + ' flags' : '', oc.clusters ? plural(oc.clusters, 'address cluster') : '', oc.change ? plural(oc.change, 'change guess', 'change guesses') : '',
+            oc.known.length ? plural(oc.known.length, 'known wallet') : '', oc.handoffs.length ? plural(oc.handoffs.length, 'service hand-off') : '', oc.ends.length ? plural(oc.ends.length, 'open end') : ''].filter(Boolean);
+  }
+  /** In the Findings: how much is loaded but not on screen, and the named wallets, hand-offs and open ends among it, each one click from being shown. */
+  function offscreenBlock(box, h) {
+    var oc = offscreenInfo(), d = routeData();
+    if (!offscreenSignificant(oc)) return;
+    box.appendChild(h.head('Loaded but not on screen', 'offscreen'));
+    box.appendChild(el('p', { 'class': 'hint', text: fmtInt(oc.left) + ' of the ' + fmtInt(oc.total) + ' vertices loaded are not on screen (' + fmtInt(oc.transactions) + (oc.transactions === 1 ? ' transaction' : ' transactions') + ', ' + fmtInt(oc.wallets) + (oc.wallets === 1 ? ' wallet' : ' wallets') + '). The findings below are over everything loaded, so they include these. Click a row to bring it into view (Ctrl+Z takes it back).' }));
+    var kinds = offscreenParts(oc).filter(function (x) { return !/known wallet|hand-off|open end/.test(x); });
+    if (kinds.length) {
+      box.appendChild(h.row(el('span', { 'class': 'rowtext' }, ['Patterns, clusters and guesses', el('small', { text: kinds.join(' · ') })]), '', 'Open the Detections list: every pattern, and a click on a row brings its transaction into view', function () { detShow(); }));
+    }
+    oc.known.slice(0, 5).forEach(function (id) {
+      var n = state.graph.nodes.get(id), k = n && knownEntry(n.address);
+      if (!k) return;
+      var b = h.row(el('span', { 'class': 'rowtext' }, [k.label, el('small', { 'class': 'mono', text: S.shortId(n.address, 6) })]), 'known wallet', 'Bring it into view: in a trace it is added as another starting point', function () { findKeep(id); });
+      b.setAttribute('data-offscreen', 'known'); box.appendChild(b);
+    });
+    if (oc.known.length > 5) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (oc.known.length - 5) + ' more known wallets under Known wallets' }));
+    oc.handoffs.slice(0, 5).forEach(function (r) {
+      var deposit = r.dir === 'deposit';
+      var b = h.row(el('span', { 'class': 'rowtext' }, [(deposit ? '▶ ' : '◀ ') + r.service, el('small', { text: (deposit ? 'deposit' : 'withdrawal') + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') })]),
+        S.fmtBtc(r.amount) + ' BTC', 'Show the route to it: what is not on screen is added', function () { if (deposit) showRoute(d.ref, r.id); else showRoute(r.id, d.ref); });
+      b.setAttribute('data-offscreen', 'handoff'); box.appendChild(b);
+    });
+    if (oc.handoffs.length > 5) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (oc.handoffs.length - 5) + ' more under Service hand-offs' }));
+    oc.ends.slice(0, 5).forEach(function (e) {
+      var fwd = e.dir !== 'prev';
+      var b = h.row(el('span', { 'class': 'rowtext' }, [e.address ? el('span', { 'class': 'mono', text: S.shortId(e.address, 8) }) : 'spender not loaded', el('small', { text: (fwd ? 'open end going forward' : 'open end going back') + ' · ' + plural(e.depth, 'transaction') + ' from the reference' })]),
+        e.amount == null ? '' : S.fmtBtc(e.amount) + ' BTC', 'Show the route to it: what is not on screen is added', function () { if (fwd) showRoute(d.ref, e.id || ID.tx(e.next)); else showRoute(e.id, d.ref); });
+      b.setAttribute('data-offscreen', 'end'); box.appendChild(b);
+    });
+    if (oc.ends.length > 5) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (oc.ends.length - 5) + ' more under Open ends' }));
+    box.appendChild(el('p', { 'class': 'hint', text: 'To see everything at once, switch to the Flow layout and the Focus view off (slow with thousands of vertices).' }));
+  }
+
+  /** A sentence when a wallet has a very long history of which only the newest transactions can be loaded; once per wallet when `once`. '' otherwise. */
+  function hugeNote(id, once) {
+    var n = state.graph.nodes.get(id);
+    if (!n || n.type !== 'addr' || !(n.txCount >= HUGE_TX)) return '';
+    if (once) { if (hugeSeen.has(id)) return ''; hugeSeen.add(id); }
+    return fmtInt(n.txCount) + ' transactions, and only the newest are loaded, so an older payment will not show here. To reach it, follow the money to it from your starting point instead.';
+  }
+  /** What to tell when a vertex was just added: the route to the reference (when `offerRoute`) and a warning about a very long history. null when there is nothing to say. */
+  var lastNote = { id: null, at: 0, note: null };
+  function addedNote(id, offerRoute) {
+    var now = Date.now();
+    if (lastNote.id === id && now - lastNote.at < 3000) return lastNote.note;                    // navigate and the caller that asked for it both ask: one answer, not a warning that the second never sees
+    var off = offerRoute ? routeOffer(id) : null, huge = hugeNote(id, true), note = off || huge ? { text: [off && off.text, huge].filter(Boolean).join(' '), action: off ? off.action : null } : null;
+    lastNote = { id: id, at: now, note: note };
+    return note;
+  }
+
+  /** Where the trail from the reference is still open: outputs never followed, spenders not loaded, the named wallets it ended at, and what sits unspent. */
+  function endsBlock(box, h) {
+    var d = routeData();
+    if (!d.ref) return;
+    var dir = state.openDir === 'prev' ? 'prev' : 'next', od = routeEnds(dir), other = routeEnds(dir === 'next' ? 'prev' : 'next'), fwd = dir === 'next';
+    function has(o) { return !!o && !!(o.ends.length || o.named.length || o.resting.count); }
+    if (!has(od) && !has(other)) return;
+    box.appendChild(h.head('Open ends', 'open'));
+    box.appendChild(el('div', { 'class': 'row wrap', role: 'group', 'aria-label': 'Which way to look from ' + routeName(d.ref) }, [['next', 'Where it went ▶'], ['prev', '◀ Where it came from']].map(function (x) {
+      return el('button', { type: 'button', 'data-dir': x[0], 'aria-pressed': dir === x[0] ? 'true' : 'false', text: x[1], onclick: function () { state.openDir = x[0]; findingsFor = null; updateFindings(); } });
+    })));
+    var total = od.ends.reduce(function (s, e) { return s + (e.amount || 0); }, 0), unchecked = od.ends.filter(function (e) { return e.kind === 'unchecked'; }).length;
+    if (od.ends.length) {
+      box.appendChild(el('p', { 'class': 'hint', text: fwd
+        ? plural(od.ends.length, 'branch', 'branches') + ' from ' + routeName(d.ref) + ' could be followed further' + (total ? ' (' + S.fmtBtc(total) + ' BTC in the outputs)' : '') + ': ' + (unchecked ? plural(unchecked, 'output') + ' never looked up to see whether it was spent' : '')
+          + (unchecked && od.ends.length > unchecked ? ', ' : '') + (od.ends.length > unchecked ? plural(od.ends.length - unchecked, 'spender') + ' not loaded' : '') + '.'
+        : plural(od.ends.length, 'input') + ' behind ' + routeName(d.ref) + ' whose funding transaction is not loaded' + (total ? ' (' + S.fmtBtc(total) + ' BTC)' : '') + '.' }));
+      od.ends.slice(0, 8).forEach(function (e) {
+        var left = el('span', { 'class': 'rowtext' }, [e.address ? el('span', { 'class': 'mono', text: S.shortId(e.address, 8) }) : 'spender not loaded',
+          el('small', { text: (fwd ? (e.kind === 'unchecked' ? 'output of tx ' : 'a spender of tx ') : 'funded by tx ') + S.shortId(e.next, 5) + ' · ' + plural(e.depth, 'transaction') + ' from the reference' })]);
+        box.appendChild(h.row(left, e.amount == null ? '' : S.fmtBtc(e.amount) + ' BTC', fwd ? 'Show the route from the reference to this output' : 'Show the route from this wallet to the reference', function () {
+          if (fwd) showRoute(d.ref, e.id || ID.tx(e.next)); else showRoute(e.id, d.ref);
+        }));
+      });
+      if (od.ends.length > 8) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (od.ends.length - 8) + ' more' }));
+      box.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', 'class': 'primary', 'data-act': 'continue', text: 'Continue from these ' + od.ends.length + (fwd ? ' ▶▶' : ' ◀◀'),
+        title: 'Auto-expand from them with the settings under Auto-expand (hops, limits, stop at labelled wallets). What it finds is shown in the trace.', onclick: function () { expandOpenEnds(od); } })]));
+    } else box.appendChild(el('p', { 'class': 'hint', text: 'Nothing is left open ' + (fwd ? 'after ' : 'behind ') + routeName(d.ref) + ' in what is loaded.' }));
+    var names = new Map();
+    od.named.forEach(function (n) { var x = names.get(n.label) || { count: 0, sats: 0 }; x.count++; x.sats += n.amount || 0; names.set(n.label, x); });
+    if (names.size) box.appendChild(el('p', { 'class': 'hint', text: 'Branches that ended at a named wallet: ' + Array.from(names.keys()).slice(0, 6).map(function (k) { return k + ' (' + S.fmtBtc(names.get(k).sats) + ' BTC)'; }).join(', ') + (names.size > 6 ? ', …' : '') + '.' }));
+    if (fwd && od.resting.count) box.appendChild(el('p', { 'class': 'hint', text: S.fmtBtc(od.resting.sats) + ' BTC sits unspent in ' + plural(od.resting.count, 'output') + '.' }));
+    box.appendChild(el('p', { 'class': 'hint', text: 'Only what is loaded is followed: a wallet with no route may still be connected beyond these.' }));
+  }
+
+  /**
+   * Follow the open ends further with Auto-expand's settings. In the trace the way from the reference to each is shown first and then what it loads
+   * (Ctrl+Z takes each back); the first level only goes along the outputs that were open, not every output of those transactions.
+   */
+  function expandOpenEnds(od) {
+    var g = state.graph, o = Object.assign({}, state.auto), dir = od.dir, sopts = successorOpts(o), d = routeData(), starts = [], seen = {};
+    od.ends.forEach(function (e) { if (e.next && !seen[e.next]) { seen[e.next] = true; starts.push(e.next); } });
+    if (!starts.length || !d.ref) { toast('Nothing to continue from.'); return Promise.resolve(false); }
+    var stepsFor = RT.endsSuccessors(g, od.ends, dir, sopts);
+    stat('open-ends');
+    var walk = null, routes = [];
+    if (traceOn()) {
+      od.ends.forEach(function (e) {
+        var r = dir === 'next' ? RT.find(d.idx, d.ref, e.id || ID.tx(e.next), { hub: routeHub }) : RT.find(d.idx, e.id || ID.tx(e.next), d.ref, { hub: routeHub });
+        if (r) routes.push(r);
+      });
+    }
+    return run('Continue from ' + plural(od.ends.length, 'open end'), function () {
+      var ex = state.explorer;
+      return ex.walk(starts, { dir: dir, hops: o.hops, maxTx: o.maxTx, successors: function (txid, level) { return stepsFor(txid, level); } }).then(function (w) {
+        walk = w;
+        return { added: w.added || 0, addedEdges: 0, requests: w.requests || 0, truncated: !!w.truncated, errors: w.errors || [], failed: w.failed };
+      });
+    }, { maxRequests: o.maxReq }).then(function (r) {
+      if (!r || !walk) return false;
+      var steps = (walk.asked || []).map(function (a) { return { txid: a.txid, level: a.level, res: stepsFor(a.txid, a.level) }; }), msg = autoMessage(walk, steps, dir, o), shownNow = 0;
+      if (traceOn()) {
+        var before = state.trace.shown.size;
+        traceRevealRoutes(routes);                                                  // the way from the reference to each start, so what it loaded has a parent on screen
+        var rev = traceRevealWalk(ID.tx(starts[0]), dir, walk, steps);
+        if (rev.length) { traceRecord({ type: 'reveal', ids: rev.slice(), unfolded: rev.unfolded }); traceChanged(rev, false); }
+        shownNow = state.trace.shown.size - before;
+        msg += ' ' + plural(shownNow, 'vertex', 'vertices') + ' shown (Ctrl+Z takes them back).';
+      } else if (state.focusOn && walk.loadedNew) {
+        state.focusOn = false; $('focusOn').checked = false; savePrefs(); afterGraphChange({ fit: true });
+        msg += ' The Focus view was switched off so the whole path shows.';
+      }
+      findingsFor = null; updateFindings();
+      toast(msg, !!(r.errors || []).filter(function (e) { return !/request cap/.test(e); }).length);
+      return walk.loadedNew > 0 || shownNow > 0;
+    });
+  }
+
   // ---- assistant: the evidence for an AI assistant, an optional model on this computer, and a check of what it answers ----------------------
   var DEFAULT_ENDPOINT = 'http://127.0.0.1:11434/v1';
   function cleanAssist(a) {
@@ -3320,7 +3799,7 @@
   }
   var ai = { busy: null, focus: null };                                                  // busy: the controller of a question in flight
   function assistKnown(a) { var k = KNOWN[a]; return k ? { label: k.label, category: k.category, source: k.pack || k.source || 'built-in list', sanctions: k.sanctions === true, alsoListedAs: k.alt || [] } : null; }
-  function assistSummary() { return AS.summary(state.graph, analysis(), { generated: new Date().toISOString(), title: LB.cleanText($('reportTitle').value, 120), known: assistKnown }); }
+  function assistSummary() { return AS.summary(state.graph, analysis(), { generated: new Date().toISOString(), title: LB.cleanText($('reportTitle').value, 120), known: assistKnown, trace: routeTraceData() }); }
 
   /** The prompt for the chosen task, or null (with a message) when it cannot be made. */
   function assistPrompt() {
@@ -3547,7 +4026,7 @@
   }
 
   /** The Analysis panel: what was found, as lists that select the vertices involved. */
-  var findingsFor = null;
+  var findingsFor = null, findingsStamp = '';
   // ---- what was found, in one strip over the graph ----------------------------------------------------------------------
   var FIND_NAME = { coinjoin: 'COINJOIN?', consolidation: 'CONSOL', batch: 'BATCH', peel: 'PEEL' };
   /**
@@ -3584,13 +4063,22 @@
       add('change', 'Change guesses', chg, AN.COLORS.change, 'outputs guessed to be change', plural(chg.length, 'output') + ' guessed to be change. These are guesses, not findings: follow both outputs. Click to select them.');
     }
     add('known', 'Known wallets', known, '#f2c94c', 'known wallets', plural(known.length, 'wallet') + ' on the built-in list or a label list (a name is a claim, not proof). Click to select them.');
+    var ho = routeHandoffs();
+    if (ho.length) out.push({ key: 'handoff', text: 'Service hand-offs', count: ho.length, ids: [], color: '#f2c94c', bad: false, what: 'hand-offs',
+                              title: plural(ho.length, 'place') + ' where the trail from ' + routeName(routeRefId()) + ' meets a service wallet (an exchange, for example). Click to list them.' });
+    var oe = routeEnds('next');
+    var oc = offscreenInfo();
+    if (offscreenSignificant(oc)) out.push({ key: 'offscreen', text: 'Not on screen', count: oc.left, ids: [], color: '#9aa3ad', bad: false, what: 'vertices not on screen',
+                                              title: fmtInt(oc.left) + ' of the ' + fmtInt(oc.total) + ' vertices loaded are not on screen. Among them: ' + offscreenParts(oc).join(', ') + '. Click to list them.' });
+    if (oe && oe.ends.length) out.push({ key: 'open', text: 'Open ends', count: oe.ends.length, ids: [], color: '#8fd3ff', bad: false, what: 'open ends',
+                                          title: plural(oe.ends.length, 'branch', 'branches') + ' from ' + routeName(routeRefId()) + ' could be followed further (outputs never looked up, spenders not loaded). Click to list them.' });
     return out;
   }
   var findSig = null;
   function updateFindStrip() {
     var box = $('findStrip'), chips = state.graph.nodes.size ? findingChips() : [];
     var sig = chips.map(function (c) { return c.key + ':' + c.count; }).join('|');
-    var total = 0; chips.forEach(function (c) { if (c.key !== 'known') total += c.count; });
+    var total = 0; chips.forEach(function (c) { if (c.key !== 'known' && c.key !== 'open' && c.key !== 'handoff' && c.key !== 'offscreen') total += c.count; });
     $('anCount').textContent = total ? '(' + total + ')' : ''; $('findCount').textContent = total ? '(' + total + ')' : '';
     var was = state.findTotal, forced = state.findForce; state.findTotal = total; if (!chips.length) state.findForce = false;
     if (was !== total || forced !== state.findForce) showInspector(true);                // the panel appears when there is something to show in it, and goes when there is not
@@ -3600,7 +4088,7 @@
     chips.forEach(function (c) {
       var dot = el('span', { 'class': 'dot' }); dot.style.background = c.color;
       box.appendChild(el('button', { type: 'button', 'class': 'findchip' + (c.bad ? ' bad' : ''), 'data-key': c.key, title: c.title, 'aria-label': c.count + ' ' + c.text + ': ' + c.title,
-                                     onclick: function () { var now = findingChips().filter(function (x) { return x.key === c.key; })[0]; if (now) { selectIds(now.ids, now.what); openFindings(now.key); } } }, [dot, c.text, el('b', { text: String(c.count) })]));
+                                     onclick: function () { var now = findingChips().filter(function (x) { return x.key === c.key; })[0]; if (now) { if (now.ids.length) selectIds(now.ids, now.what); openFindings(now.key); } } }, [dot, c.text, el('b', { text: String(c.count) })]));
     });
     if (chips.length) box.appendChild(el('button', { type: 'button', 'class': 'findchip more', 'data-key': 'details', title: 'Open the Findings panel on the right: every finding listed, and the Detections list', onclick: function () { openFindings(); }, text: 'Findings ▸' }));
   }
@@ -3648,21 +4136,31 @@
     updateFindStrip();
     var box = $('anFindings');
     if (!state.graph.nodes.size) { box.textContent = ''; findingsFor = null; detRefresh(); return; }
-    var an = analysis(), byKind = {}, kinds, loaded = 0;
-    if (findingsFor === an && box.firstChild) return;                       // nothing it shows has changed: leave the buttons alone (a replay refreshes many times a second)
-    findingsFor = an; box.textContent = ''; detRefresh();
+    var an = analysis(), byKind = {}, kinds, loaded = 0, stamp = routeStamp();
+    if (findingsFor === an && findingsStamp === stamp && box.firstChild) return;      // nothing it shows has changed: leave the buttons alone (a replay refreshes many times a second)
+    findingsFor = an; findingsStamp = stamp; box.textContent = ''; detRefresh();
     state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded) loaded++; });
     an.tx.forEach(function (r, id) { r.flags.forEach(function (f) { (byKind[f.kind] = byKind[f.kind] || { f: f, ids: [] }).ids.push(id); }); });
     kinds = Object.keys(byKind);
     function row(left, amt, title, fn, copyText, copyWhat) { var b = el('button', { type: 'button', 'class': 'linkrow', title: title, onclick: fn }, [left, el('span', { 'class': 'amt', text: amt })]); return copyText ? withCopy(b, copyText, copyWhat) : b; }
     function more(list, shown) { if (list.length > shown) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (list.length - shown) + ' more' })); }
     function head(text, key) { return el('span', { 'class': 'lbl', text: text, 'data-group': key }); }
+    var rdata = routeData(), ref = rdata.ref, relMap = null;
     function walletRow(n) {
       var k = KNOWN[n.address];
-      return row(el('span', { 'class': 'rowtext' }, [k.label, el('small', { 'class': 'mono', text: S.shortId(n.address, 6) })]), k.pack || 'built-in list', 'Select it and bring it into view', function () { findKeep(n.id); });
+      var main = row(el('span', { 'class': 'rowtext' }, [k.label, el('small', { 'class': 'mono', text: S.shortId(n.address, 6) })]), k.pack || 'built-in list', 'Select it and bring it into view', function () { findKeep(n.id); });
+      var rel = relMap ? relLine(n.id, relMap.get(n.id), ref) : null;
+      return rel ? el('div', { 'class': 'relrow' }, [main, rel]) : main;
     }
     var sanc = [], known = [];
     state.graph.nodes.forEach(function (n) { if (n.type === 'addr' && KNOWN[n.address]) { known.push(n); if (KNOWN[n.address].sanctions) sanc.push(n); } });
+    if (ref && rdata.idx && known.length) relMap = RT.relations(rdata.idx, ref, known.map(function (n) { return n.id; }), { hub: routeHub });
+    if (relMap) {                                                                    // the ones with a route to the reference first, the nearest first
+      var near = function (n) { var r = relMap.get(n.id) || {}, a = r.up ? r.up.hops : 1e9, b = r.down ? r.down.hops : 1e9; return Math.min(a, b); };
+      known.sort(function (a, b) { return near(a) - near(b); }); sanc.sort(function (a, b) { return near(a) - near(b); });
+    }
+    routeBlock(box, { row: row, head: head });
+    offscreenBlock(box, { row: row, head: head });
     if (sanc.length) {
       box.appendChild(head('Sanctions', 'sanctions'));
       sanc.slice(0, 30).forEach(function (n) { box.appendChild(walletRow(n)); }); more(sanc, 30);
@@ -3706,9 +4204,13 @@
     }
     if (known.length) {
       box.appendChild(head('Known wallets', 'known'));
+      box.appendChild(ref ? refPicker(ref) : el('p', { 'class': 'hint', text: 'Start a trace or select a wallet to see how these wallets relate to it.' }));
       known.slice(0, 30).forEach(function (n) { box.appendChild(walletRow(n)); }); more(known, 30);
-      box.appendChild(el('p', { 'class': 'hint', text: 'On the built-in list or a label list you loaded. A name is somebody\'s claim, not proof.' }));
+      box.appendChild(el('p', { 'class': 'hint', text: 'On the built-in list or a label list you loaded. A name is somebody\'s claim, not proof.' + (ref ? ' A route follows the coins that were spent, in order; it is a lead, not proof of who owns what.' : '') }));
     }
+    handoffBlock(box, { row: row, head: head });
+    suggestBlock(box, { row: row, head: head });
+    endsBlock(box, { row: row, head: head });
     var sk = an.clusters.skipped;
     if (sk.coinjoin || sk.excluded) box.appendChild(el('p', { 'class': 'hint', text: (sk.coinjoin ? sk.coinjoin + ' CoinJoin-like transaction' + (sk.coinjoin === 1 ? '' : 's') : '') + (sk.coinjoin && sk.excluded ? ' and ' : '') + (sk.excluded ? sk.excluded + ' you excluded' : '') + ' not used to link addresses.' }));
     if (!kinds.length && !cl.length) box.appendChild(el('p', { 'class': 'hint', text: loaded ? 'Nothing notable in the ' + loaded + ' transaction' + (loaded === 1 ? '' : 's') + ' loaded.' : 'Load transactions to look for patterns.' }));
@@ -3824,16 +4326,19 @@
   }
 
   /** In the Trace layout: show what the walk loaded, placed in columns beside the vertex it came from. Returns the ids shown. */
+  /** Show these vertices (the ones not already shown) next to the one that led to them, in the direction the money moves; what is shown is added to `revealed`. */
+  function tracePut(parentId, ids, dir, revealed) {
+    var g = state.graph, T = state.trace, fresh = [];
+    ids.forEach(function (id) { if (g.nodes.has(id) && !T.shown.has(id) && fresh.indexOf(id) < 0) fresh.push(id); });
+    if (!fresh.length) return;
+    TR.place(T.pos, parentId, dir, { primary: fresh.map(function (id) { return { id: id }; }), secondary: [] }).forEach(function (p, id) { T.pos.set(id, p); });
+    fresh.forEach(function (id) { traceUnfold(id); T.shown.add(id); T.prov.set(id, { via: parentId, dir: dir }); revealed.push(id); });
+  }
   function traceRevealWalk(startId, dir, w, steps) {
     var g = state.graph, T = state.trace, revealed = [], loadedAt = new Set();
     unfoldLog = [];
     w.levels.forEach(function (l) { l.forEach(function (t) { loadedAt.add(t); }); });
-    function put(parentId, ids) {
-      var fresh = []; ids.forEach(function (id) { if (g.nodes.has(id) && !T.shown.has(id) && fresh.indexOf(id) < 0) fresh.push(id); });
-      if (!fresh.length) return;
-      TR.place(T.pos, parentId, dir, { primary: fresh.map(function (id) { return { id: id }; }), secondary: [] }).forEach(function (p, id) { T.pos.set(id, p); });
-      fresh.forEach(function (id) { traceUnfold(id); T.shown.add(id); T.prov.set(id, { via: parentId, dir: dir }); revealed.push(id); });
-    }
+    function put(parentId, ids) { tracePut(parentId, ids, dir, revealed); }
     if (g.nodes.get(startId).type === 'addr') put(startId, (w.levels[0] || []).map(ID.tx));
     steps.forEach(function (st) {
       var tx = ID.tx(st.txid);
@@ -4331,7 +4836,7 @@
   }
 
   // ---- export / import ------------------------------------------------------------------------
-  function viewState() { return { sizeBy: state.sizeBy, trace: traceData(), arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, expandRange: state.expandRange, source: state.source === 'custom' ? 'clearnet' : state.source }; }
+  function viewState() { return { sizeBy: state.sizeBy, trace: traceData(), routeRef: state.routeRef, arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, expandRange: state.expandRange, source: state.source === 'custom' ? 'clearnet' : state.source }; }
 
   function download(name, text, mime) {
     var blob = new Blob([text], { type: mime }), a = el('a', { href: URL.createObjectURL(blob), download: name });
@@ -4370,6 +4875,17 @@
              members: rows.slice(0, 5000).map(function (r) { return { id: r.id, amount: r.amount, time: r.time }; }) };
   }
 
+  /** What the workspace holds that the report (what is on screen) leaves out: { total, left, transactions, wallets, other }, counted over the vertices of the whole graph. */
+  function reportLeftOut(base) {
+    var inReport = new Set(base.nodes.map(function (n) { return n.id; })), r = { total: state.graph.nodes.size, left: 0, transactions: 0, wallets: 0, other: 0 };
+    state.graph.nodes.forEach(function (n) {
+      if (inReport.has(n.id)) return;
+      r.left++;
+      if (n.type === 'tx') r.transactions++; else if (n.type === 'addr') r.wallets++; else r.other++;
+    });
+    return r;
+  }
+
   /** The investigation report: what is on screen, as one file with its evidence embedded. */
   function doReport() {
     var g = state.graph; g.refreshDerived();
@@ -4380,6 +4896,11 @@
     if (base.view) delete base.view.hidden;                                    // what you hid is not part of what is reported
     // the report describes what is on screen: a chain or cluster is cut to the vertices that are shown, so nothing hidden leaks in through them
     var found = RP.analysisFor(an, function (id) { return vis.nodes.has(id); }), atx = found.tx, chains = found.chains, clusters = found.clusters;
+    var trace = routeTraceData(function (id) { return vis.nodes.has(id); }), rf = routeLit();                      // how far the trace got, cut to what is on screen like the rest
+    if (trace && rf && rf.route.vertices.every(function (id) { return vis.nodes.has(id); })) {
+      trace.route = { fromName: routeName(rf.route.from), toName: routeName(rf.route.to), viaHub: rf.route.viaHub.map(routeName),
+                      steps: rf.route.steps.map(function (st) { return { txid: st.txid, time: st.time, nIn: st.nIn, nOut: st.nOut, coinOut: st.coinOut, merges: st.merges, loaded: st.loaded }; }) };
+    }
     var loadedTx = base.nodes.filter(function (n) { return n.type === 'tx' && n.loaded; }).length;
     var groups = traceOn() ? Array.from(state.trace.groups.values()).map(reportGroup).filter(Boolean) : [];
     if (base.view && base.view.trace) { delete base.view.trace.groups; delete base.view.trace.seq; }              // the members of a group are not among this file's vertices: they are listed under groups instead
@@ -4387,9 +4908,12 @@
                       counts: { nodes: base.nodes.length, edges: base.edges.length, transactionsLoaded: loadedTx },
                       analysis: { transactions: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped, thresholds: AN.DEFAULTS } };
     if (groups.length) base.evidence.groups = groups;
+    if (trace) base.evidence.trace = trace;
+    var leftOut = reportLeftOut(base);
+    base.evidence.coverage = leftOut;
     var image = null; try { image = renderer.toDataUrl(); } catch (e) { /* a tainted or empty canvas: the report simply has no picture */ }
     var model = { title: title, preparedBy: by, generated: Date.now(), evidence: base, nodes: base.nodes, edges: base.edges,
-                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups,
+                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups, trace: trace, leftOut: leftOut,
                   known: function (a) { return KNOWN[a] || null; }, packs: reportPacks(), fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {
@@ -4458,6 +4982,7 @@
       state.filter = d; syncFilterControls();
     }
     state.expandRange = cleanRange(v.expandRange); syncExpandChip();
+    state.routeRef = typeof v.routeRef === 'string' && NV.isId(v.routeRef) ? canonicalId(v.routeRef) : null; findingsFor = null;
   }
   function syncFilterControls() {
     var f = state.filter;
