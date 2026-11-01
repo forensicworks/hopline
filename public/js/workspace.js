@@ -559,6 +559,39 @@
     return true;
   }
 
+  /**
+   * An imported workspace file brings its own trace: put it into the current one, below it, as further starting points. What is already
+   * on screen stays where it is, vertices folded into a group of the current trace count as there, and the groups of the file come with
+   * new ids. `data` is the file's trace as saved. Returns how many vertices (groups included) were added to the screen.
+   */
+  function traceMergeImported(data) {
+    var T = state.trace, g = state.graph, inc = null, mine = state.trace;
+    state.trace = emptyTrace();
+    try { inc = loadTraceData(data) ? state.trace : null; } finally { state.trace = mine; }           // the file's trace, checked like any saved one, without touching this one
+    if (!inc) return 0;
+    var folded = new Set(); T.groups.forEach(function (x) { x.members.forEach(function (m) { folded.add(m); }); });
+    var add = Array.from(inc.shown).filter(function (id) { return g.nodes.has(id) && !T.shown.has(id) && !folded.has(id); });
+    var incGroups = Array.from(inc.groups.values()).filter(function (x) { return g.nodes.has(x.anchor); });
+    var minX = Infinity, maxX = -Infinity, minY = Infinity;
+    add.concat(incGroups.map(function (x) { return x.id; })).forEach(function (id) { var p = inc.pos.get(id); if (!p) return; minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); });
+    var b = traceBox(), dx = isFinite(minX) ? b.cx - Math.round((minX + maxX) / 2) : 0, dy = b.bottom + 150 - (isFinite(minY) ? minY : 0);
+    function moved(id) { var p = inc.pos.get(id) || { x: 0, y: 0 }; return { x: p.x + dx, y: p.y + dy }; }
+    add.forEach(function (id) { T.shown.add(id); T.pos.set(id, moved(id)); });
+    add.forEach(function (id) { var pv = inc.prov.get(id); if (pv && T.shown.has(pv.via)) T.prov.set(id, pv); });
+    inc.seeds.forEach(function (id) { if (add.indexOf(id) >= 0 && T.seeds.indexOf(id) < 0) { T.seeds.push(id); state.keep.add(id); } });
+    var groups = 0;
+    incGroups.forEach(function (x) {
+      var members = x.members.filter(function (m) { return g.nodes.has(m) && !T.shown.has(m) && !folded.has(m); });
+      if (!T.shown.has(x.anchor) || members.length < 2) return;
+      var id = 'grp:' + (++T.seq), spec = Object.assign({}, x, { id: id, members: members }), ap = T.pos.get(x.anchor);
+      T.groups.set(id, spec); members.forEach(function (m) { folded.add(m); });
+      T.pos.set(id, add.indexOf(x.anchor) >= 0 ? moved(x.id) : { x: ap.x + (x.dir === 'next' ? 200 : -200), y: ap.y });
+      T.prov.set(id, { via: x.anchor, dir: x.dir }); groups++;
+    });
+    syncSeed();
+    return add.length + groups;
+  }
+
   /** What to start from when the layout is switched on: the selected vertex, else the focus, else the first one loaded. */
   function traceCandidate() {
     var g = state.graph, sel = Array.from(state.selected).filter(walletOrTx)[0];
@@ -5090,19 +5123,27 @@
   function doImport(text) {
     var r;
     try { r = IO.fromJson(text); } catch (e) { toast('Import failed: ' + e.message, true); return; }
-    var wasEmpty = state.graph.nodes.size === 0, g = state.graph, snap = snapshotGraph('Import'), n0 = g.nodes.size;
+    var wasEmpty = state.graph.nodes.size === 0, g = state.graph, snap = snapshotGraph('Import'), n0 = g.nodes.size, fresh = [];
+    r.graph.nodes.forEach(function (n) { if ((n.type === 'tx' || n.type === 'addr') && !g.nodes.has(n.id)) fresh.push(n.id); });
     r.graph.nodes.forEach(function (n) { g.upsertNode(n); });
     r.graph.edges.forEach(function (e) { g.upsertEdge(e); });
     r.graph.nodes.forEach(function (n) { if (n.label !== undefined || n.note !== undefined) { var cur = g.nodes.get(n.id); if (n.label) cur.label = n.label; if (n.note) cur.note = n.note; } });
     if (wasEmpty) applyView(r.view);
     if (wasEmpty && fiatOn()) ensurePrices();
     if (state.focus && !g.nodes.has(state.focus)) state.focus = null;
+    var onTrace = !wasEmpty && traceOn() && state.trace.seed && r.view ? traceMergeImported(r.view.trace) : 0;       // a trace on screen draws only what was revealed in it: the file's own trace is added to it
     traceSanitize(); if (traceOn() && !state.trace.seed) { state.layout = 'flow'; setSeg('layoutSeg', 'data-layout', 'flow'); document.body.classList.remove('trace-on'); }
     if (wasEmpty && state.focus) { state.keep.add(state.focus); state.nav.reset(); visitNav(state.focus); }
     state.layoutRes = null; state.graph.refreshDerived();
     afterGraphChange({ fit: true }); updateNavUi(); updateTraceUi(); scheduleSave();
     pushUndoLoad(snap, '+' + plural(g.nodes.size - n0, 'vertex', 'vertices'));
-    toast('Imported ' + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length);
+    var where = '';
+    if (onTrace) where = ' Its trace (' + plural(onTrace, 'vertex', 'vertices') + ') is shown below the current one.';
+    else if (!wasEmpty && traceOn() && state.trace.seed) {
+      var T = state.trace, off = fresh.filter(function (id) { return !T.shown.has(id); }).length;
+      if (off) where = ' ' + plural(off, 'new vertex', 'new vertices') + (off === 1 ? ' is' : ' are') + ' loaded but not on the trace.';
+    }
+    toast('Imported ' + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + where + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length);
   }
 
   function clearAll() {
