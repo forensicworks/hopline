@@ -89,7 +89,7 @@ def test_the_folded_controls_tab_does_not_cover_the_trace_bar(tpage):
     assert not boxes_overlap(tab, bar), "the tab sits over the bar: %r %r" % (tab, bar)
     stage = tpage.locator("#stage").bounding_box()
     assert bar["x"] + bar["width"] <= stage["x"] + stage["width"] + 0.5, "moving the bar over must not push it past the canvas, over the details panel: %r %r" % (bar, stage)
-    assert tpage.is_visible("#traceInfo") and not boxes_overlap(tab, tpage.locator("#traceInfo").bounding_box()), "the hint line under the buttons is covered"
+    assert bar["height"] < 50, "the bar is one row, not two: %r" % bar
 
 
 def test_the_count_line_says_how_many_vertices_are_loaded_and_how_many_are_shown(tpage):

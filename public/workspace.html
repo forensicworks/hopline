@@ -444,24 +444,26 @@ window.addEventListener('error', function (e) {
     <button type="button" id="inspTab" class="edge-tab right" hidden aria-label="Show details" aria-controls="inspector" title="Show details (D)">‹ <span id="inspTabText">Details</span></button>
     <div id="traceBar" role="group" aria-label="Selection and trace" hidden>
       <span class="tb-title" id="barTitle">Selection</span>
-      <button type="button" id="traceUndo" disabled title="Take back the last step, hide or Re-layout (Ctrl+Z)">⟲ Undo</button>
-      <button type="button" id="traceRedo" disabled title="Put back what Undo took away (Ctrl+Shift+Z or Ctrl+Y)">⟳ Redo</button>
-      <button type="button" id="traceHide" disabled title="Take the selected vertices off the screen (they stay loaded). Delete does the same">Hide selected</button>
+      <button type="button" id="traceUndo" class="icon tb-start" disabled aria-label="Undo" title="Undo the last step, hide or Re-layout (Ctrl+Z)">&#8630;</button>
+      <button type="button" id="traceRedo" class="icon" disabled aria-label="Redo" title="Put back what Undo took away (Ctrl+Shift+Z or Ctrl+Y)">&#8631;</button>
+      <button type="button" id="traceHide" class="tb-start" disabled title="Take the selected vertices off the screen (they stay loaded). Delete does the same">Hide selected</button>
       <button type="button" id="traceKeep" disabled title="Hide everything except the selected vertices">Keep only selected</button>
       <button type="button" id="hiddenBtn" hidden aria-haspopup="menu" title="The vertices you hid: show some or all of them again">Hidden (0) ▾</button>
-      <button type="button" id="selMenu" aria-haspopup="menu" title="Select all wallets, all transactions, everything above an amount, … (Ctrl+A selects everything on screen)">Select ▾</button>
+      <button type="button" id="selMenu" class="tb-start" aria-haspopup="menu" title="Select all wallets, all transactions, everything above an amount, … (Ctrl+A selects everything on screen)">Select ▾</button>
       <button type="button" id="boxSel" aria-pressed="false" title="Draw a box on the graph to select what it covers (B). Shift-drag does the same without switching it on">⬚ Box</button>
-      <label class="trace-only sr-inline" for="traceArrange">Arrange</label>
-      <select id="traceArrange" class="trace-only" title="Where the traced vertices are placed">
-        <option value="columns">Columns (as you build)</option>
-        <option value="flow">Flow (left to right)</option>
-        <option value="timeline">Timeline</option>
-        <option value="timeforce">Timeline + force</option>
-        <option value="force">Force</option>
-        <option value="timeamount">Time × amount</option>
-      </select>
+      <span id="arrangeBox" class="tb-start">
+        <label class="sr" for="traceArrange">Arrange</label>
+        <select id="traceArrange" title="Where the traced vertices are placed">
+          <option value="columns">Columns (as you build)</option>
+          <option value="flow">Flow (left to right)</option>
+          <option value="timeline">Timeline</option>
+          <option value="timeforce">Timeline + force</option>
+          <option value="force">Force</option>
+          <option value="timeamount">Time × amount</option>
+        </select>
+      </span>
       <button type="button" id="traceReset" class="trace-only" title="Back to the single starting vertex">Reset to start</button>
-      <span id="traceInfo"></span>
+      <button type="button" id="barMore" hidden aria-haspopup="menu" aria-label="More" title="More: what does not fit on this row">&#8943;</button>
     </div>
     <div id="stepbar" role="group" aria-label="Follow the money" hidden>
       <div id="stepMenu" role="menu" hidden></div>
@@ -470,7 +472,7 @@ window.addEventListener('error', function (e) {
       <button type="button" id="stepNext" class="stepbtn" aria-haspopup="menu"><span class="lbl">Next</span> <span class="cnt" id="stepNextN"></span> <span class="arrow">▶</span></button>
       <label class="check small" title="Tick to go wallet by wallet; untick to jump from transaction to transaction"><input type="checkbox" id="viaWallets" checked> via wallets</label>
     </div>
-    <div id="hud"><span id="counts"></span></div>
+    <div id="hud"><span id="counts"></span><span id="traceInfo"></span></div>
     <div id="findStrip" role="group" aria-label="What was found in what is loaded" hidden></div>
     <div id="zoomBtns"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="fullControls" class="full-only" aria-label="Controls" aria-expanded="false" aria-controls="side" title="Controls (C): the left panel, over the graph. This button or C closes it."><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><button type="button" id="fullBtn" aria-label="Full screen" aria-pressed="false" title="Full screen (M): the graph alone. Its Controls button (or C) opens the left panel over it. Esc or this button leaves it."><svg class="enter" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg><svg class="exit" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg></button></div>
     <div id="empty">

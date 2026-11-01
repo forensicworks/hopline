@@ -660,10 +660,57 @@
     $('hiddenBtn').hidden = on || !hid; $('hiddenBtn').textContent = 'Hidden (' + hid + ') ▾';
     $('boxSel').setAttribute('aria-pressed', String(state.boxMode));
     $('traceArrange').value = state.arrange;
-    $('traceInfo').textContent = on ? (!T.shown.size ? 'Nothing shown: open a wallet or a transaction.'
+    $('traceInfo').textContent = !has ? '' : on ? (!T.shown.size ? 'Nothing shown: open a wallet or a transaction.'      // it rides on the count line under the canvas, which already says how many are shown
         : T.shown.size === 1 ? 'Click ◀ or ▶ beside the vertex to show what came before or after it.'
-        : T.shown.size + ' vertices shown' + (sel ? ' · ' + sel + ' selected' : ''))
-      : sel ? sel + ' selected' : 'Click, Shift-click or drag a box to select';
+        : sel ? sel + ' selected' : '')
+      : sel ? sel + ' selected' : '';
+    fitBar(); syncBarInset();
+  }
+
+  // ---- the toolbar on one row ------------------------------------------------------------------
+  /** What moves into the ... menu when the canvas is too narrow for the whole row: the least used first. */
+  var BAR_OVER = ['traceReset', 'arrangeBox', 'traceKeep', 'boxSel', 'selMenu'];
+
+  /** The toolbar stays on one row: when the canvas is too narrow for all of it, controls move into the ... menu one at a time, the least used first. */
+  function fitBar() {
+    var bar = $('traceBar'), more = $('barMore');
+    if (bar.hidden) return;
+    BAR_OVER.forEach(function (id) { $(id).classList.remove('tb-over'); });
+    more.hidden = true;
+    function tooWide() { return bar.scrollWidth > bar.clientWidth + 2; }
+    if (!tooWide()) return;
+    more.hidden = false;
+    var moved = 0;
+    for (var i = 0; i < BAR_OVER.length && tooWide(); i++) {
+      var e = $(BAR_OVER[i]);
+      if (!e.getClientRects().length) continue;                                 // not on the row in this layout anyway
+      e.classList.add('tb-over'); moved++;
+    }
+    more.hidden = !moved;
+  }
+
+  /** The toolbar floats over the top of the canvas: fit() and the like keep clear of its row, as they do of the step bar below. */
+  function syncBarInset() {
+    var bar = $('traceBar'), top = bar.hidden ? 0 : bar.offsetTop + bar.offsetHeight + 6;
+    if (Math.abs(top - (renderer.insets.top || 0)) < 1) return;
+    renderer.insets.top = top;
+    if (renderer.autoFit) renderer.fit(); else renderer.dirty = true;
+  }
+
+  /** The ... menu of the toolbar: what did not fit on its row, in the order it has there. */
+  function openBarMore() {
+    var m = $('ctxMenu'), r = $('barMore').getBoundingClientRect();
+    function over(id) { return $(id).classList.contains('tb-over'); }
+    closeStepMenu(); $('tooltip').hidden = true; m.textContent = '';
+    if (over('traceKeep')) ctxItem(m, 'Keep only selected', function () { keepOnly(traceOn() ? traceSelected() : Array.from(state.selected)); }, { disabled: $('traceKeep').disabled, title: $('traceKeep').title });
+    if (over('selMenu')) ctxItem(m, 'Select…', function () { openSelectMenuAt(r); }, { title: $('selMenu').title });
+    if (over('boxSel')) ctxItem(m, 'Box select', function () { setBoxMode(!state.boxMode); }, { glyph: state.boxMode ? '✓' : '', right: 'B', title: $('boxSel').title });
+    if (over('arrangeBox')) {
+      m.appendChild(el('div', { 'class': 'ctxhead', text: 'Arrange' }));
+      Array.prototype.forEach.call($('traceArrange').options, function (o) { ctxItem(m, o.textContent, function () { setArrange(o.value); }, { glyph: o.value === state.arrange ? '✓' : '' }); });
+    }
+    if (over('traceReset')) { m.appendChild(el('div', { 'class': 'sep' })); ctxItem(m, 'Reset to start', traceReset, { danger: true, title: $('traceReset').title }); }
+    placeCtx({ x: r.left, y: r.bottom + 4 });
   }
 
   /** Redraw after the shown set changed. `fit` refits the whole trace; otherwise the view only pans to what was added. */
@@ -1564,8 +1611,9 @@
   }
 
   /** The Select menu: everything on screen, by kind, by amount, by tag. */
-  function openSelectMenu() {
-    var m = $('ctxMenu'), g = state.graph, vis = visibleIds(), r = $('selMenu').getBoundingClientRect();
+  function openSelectMenu() { openSelectMenuAt($('selMenu').getBoundingClientRect()); }
+  function openSelectMenuAt(r) {
+    var m = $('ctxMenu'), g = state.graph, vis = visibleIds();
     closeStepMenu(); $('tooltip').hidden = true; m.textContent = '';
     function ofType(t) { return vis.filter(function (id) { var n = g.nodes.get(id); return n && n.type === t; }); }
     var wallets = ofType('addr'), txs = ofType('tx');
@@ -4534,6 +4582,7 @@
                        handles: traceOn() ? handlesFor : null, handleMore: traceOn() ? handleSummary : null, seedIds: traceOn() ? new Set(state.trace.seeds) : null, noDim: traceOn(), labelAll: traceOn(), nodeNote: traceOn() ? traceNote : null,
                        nodeFlags: state.analysis.flags ? nodeFlags : null, clusterColor: state.analysis.clusters ? clusterColor : null, edgeMark: state.analysis.change ? changeEdgeMark : null });
     document.body.classList.toggle('axis-on', usesAxis());
+    syncBarInset();
     if (o.fit) renderer.fit();
     var fo = focusOpt();
     if (traceOn() && state.trace.seed) {                                      // the group vertices of a trace are drawn but are not loaded vertices: they are counted beside, not in, the shown
@@ -5250,6 +5299,7 @@
     $('traceHide').addEventListener('click', hideSelected);
     $('traceKeep').addEventListener('click', function () { keepOnly(traceOn() ? traceSelected() : Array.from(state.selected)); });
     $('selMenu').addEventListener('click', openSelectMenu);
+    $('barMore').addEventListener('click', openBarMore);
     $('hiddenBtn').addEventListener('click', openHiddenMenu);
     $('boxSel').addEventListener('click', function () { setBoxMode(!state.boxMode); });
     $('traceArrange').addEventListener('change', function () { setArrange(this.value); });
@@ -5384,7 +5434,7 @@
     });
     window.addEventListener('resize', function () { renderer.resize(); drawHistogram(); });
     if (typeof ResizeObserver === 'function') {
-      var ro = new ResizeObserver(function () { renderer.resize(); if (renderer.autoFit) renderer.fit(); drawHistogram(); });
+      var ro = new ResizeObserver(function () { renderer.resize(); fitBar(); syncBarInset(); if (renderer.autoFit) renderer.fit(); drawHistogram(); });
       ro.observe($('stage')); ro.observe($('cv'));                                         // the canvas also changes size when the time line folds away
     }
 

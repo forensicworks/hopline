@@ -111,7 +111,8 @@ def test_a_click_selects_the_transaction_and_brings_it_to_the_middle(fpage, mock
     fpage.click("#detList .detrow[data-id='%s']" % target); settle(fpage)
     assert fpage.evaluate("() => [...window.__hopline.state.selected]") == [target]
     off = fpage.evaluate("""(id) => { const r = window.__hopline.renderer, p = r.positionOf(id);
-        return [Math.abs(r.view.x + p.x * r.view.k - r.w / 2), Math.abs(r.view.y + p.y * r.view.k - (r.h - (r.insets.bottom || 0)) / 2)]; }""", target)
+        const top = r.insets.top || 0;
+        return [Math.abs(r.view.x + p.x * r.view.k - r.w / 2), Math.abs(r.view.y + p.y * r.view.k - (top + (r.h - top - (r.insets.bottom || 0)) / 2))]; }""", target)
     assert off[0] < 3 and off[1] < 3, "centred: %s" % off
     assert [x["id"] for x in rows(fpage) if x["on"]] == [target], "the row of the selected transaction is marked"
     fpage.evaluate("() => window.__hopline.setSel([])"); settle(fpage)

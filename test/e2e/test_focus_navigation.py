@@ -163,8 +163,10 @@ def test_whole_graph_view_still_steps_through_the_trail(fpage):
     p = xy(fpage, NORMAL_ID)
     box = fpage.locator("#cv").bounding_box()
     inset = fpage.evaluate("() => window.__hopline.renderer.insets.bottom")
+    top = fpage.evaluate("() => window.__hopline.renderer.insets.top")
     assert inset > 0, "the step bar is showing, so the middle of the free area is a little higher"
-    assert abs(p["x"] - (box["x"] + box["width"] / 2)) < 3 and abs(p["y"] - (box["y"] + (box["height"] - inset) / 2)) < 3
+    assert top > 0, "and the toolbar is showing, so it is a little lower"
+    assert abs(p["x"] - (box["x"] + box["width"] / 2)) < 3 and abs(p["y"] - (box["y"] + top + (box["height"] - top - inset) / 2)) < 3
     assert counts(fpage)["vnodes"] == counts(fpage)["nodes"]
 
 
