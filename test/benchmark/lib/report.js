@@ -107,13 +107,29 @@ function peelSection(results) {
           })), ''].join('\n');
 }
 
+/** The page of docs/ a run is written to: the real-wallet cases (tier B) have their own, so they never replace the synthetic results. */
+function pageOf(meta) { return meta.tier === 'B' ? 'benchmark-wallets-results.md' : 'benchmark-results.md'; }
+
+/** What the real-wallet numbers cannot say. Fixed text: it belongs to the way the cases are made, not to one run. */
+const TIER_B_LIMITS = [
+  '- **A few wallets.** Each wallet is one program with one set of settings, used by one person; the cases table names them. The intervals are 95% intervals and are wide where the counts are small.',
+  '- **The mix was planned.** The transactions were made to a plan ([benchmark-wallets.md](benchmark-wallets.md)): so many odd and round amounts, so many to the other wallet and to a wallet outside, so many batches and sweeps. A share of the transactions here is therefore not a rate on the chain; compare the tiers, the signs and the wallets with each other, and read the rates of real traffic in [benchmark-base-rates.md](benchmark-base-rates.md).',
+  '- **A test network.** The coins come from a faucet. There are no exchanges, no mixers and no lists of names, so the CoinJoin detector and the known-wallet sign have nothing to do here.',
+  '- **What a transaction was made to be** (batch, consolidation) is what the person who made it recorded. Every other transaction counts as a payment, so a payment that has the shape of a consolidation or a batch shows up as a wrong flag.',
+  '- **Left out of the scoring:** transactions paid in from outside, transactions that spend from two wallets at once, payments to the wallet itself and transactions with two change outputs. They are in the table of the cases under their kind.'];
+
 function toMarkdown(results, meta) {
-  const head = ['# Benchmark results', '',
+  const tierB = meta.tier === 'B';
+  const stamp = table(['', ''], [['Date', meta.date], ['Commit', meta.commit], ['`hopline-analysis.js` SHA-256', '`' + meta.analysisSha.slice(0, 16) + '`'], ['Node', meta.node], ['Cases', meta.cases.map((c) => c.name).join(', ')]]);
+  const cases = table(['Case', 'Transactions', 'Wallets', 'Addresses', 'What the transactions were made to be', 'Made by'],
+    results.map((r, i) => [r.name, String(r.transactions), String(r.wallets), String(r.addresses), Object.keys(r.kinds).sort().map((k) => k + ' ' + r.kinds[k]).join(', '), meta.cases[i].madeBy || '']));
+  const head = tierB ? ['# Benchmark results: real wallet software (tier B)', '',
+    'Written by `node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1 --write-docs`; the method is in [benchmark.md](benchmark.md) and how the transactions were made is in [benchmark-wallets.md](benchmark-wallets.md). These are measurements of a version of the analysis on transactions made by real wallet software on a test network. Nothing here is guessed: an output that pays an address of the sender\'s change chain is its change. The synthetic results are in [benchmark-results.md](benchmark-results.md).', '',
+    stamp, '', '## What these numbers cannot say', '', TIER_B_LIMITS.join('\n'), '',
+    '## The cases', '', cases, ''].concat(meta.cases.filter((c) => c.summary).map((c) => '**' + c.name + '.** ' + c.summary + '\n'))
+  : ['# Benchmark results', '',
     'Written by `node test/benchmark/run.js --write-docs`; the method is in [benchmark.md](benchmark.md). These are measurements of a version of the analysis on synthetic data: read the limits there before reading the numbers.', '',
-    table(['', ''], [['Date', meta.date], ['Commit', meta.commit], ['`hopline-analysis.js` SHA-256', '`' + meta.analysisSha.slice(0, 16) + '`'], ['Node', meta.node], ['Cases', meta.cases.map((c) => c.name).join(', ')]]), '',
-    '## The cases', '',
-    table(['Case', 'Transactions', 'Wallets', 'Addresses', 'What the transactions were made to be', 'Made by'],
-          results.map((r, i) => [r.name, String(r.transactions), String(r.wallets), String(r.addresses), Object.keys(r.kinds).sort().map((k) => k + ' ' + r.kinds[k]).join(', '), meta.cases[i].madeBy || ''])), ''];
+    stamp, '', '## The cases', '', cases, ''];
   return head.concat([changeSection(results),
     flagSection(results, 'coinjoin', 'The CoinJoin detector', 'A transaction is flagged when at least 3 input addresses and at least 3 outputs of exactly the same value to different addresses are present (and the equal outputs are at least half the outputs, or at least 5).'),
     flagSection(results, 'consolidation', 'The consolidation flag', 'Flagged at 5 or more inputs going to 1 or 2 outputs. A sweep of deposit addresses counts as a consolidation here.'),
@@ -121,4 +137,4 @@ function toMarkdown(results, meta) {
     clusterSection(results), peelSection(results)].filter(Boolean)).join('\n') + '\n';
 }
 
-module.exports = { toMarkdown, pool };
+module.exports = { toMarkdown, pool, pageOf };

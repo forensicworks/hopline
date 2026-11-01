@@ -5,7 +5,7 @@ const fs = require('fs'), path = require('path'), os = require('os'), zlib = req
 const { wilson, pct, prop } = require('./benchmark/lib/stats.js');
 const { evaluateCase, evaluateChange, evaluateClusters, analyse } = require('./benchmark/lib/evaluate.js');
 const { loadCase, listCases } = require('./benchmark/lib/cases.js');
-const { toMarkdown, pool } = require('./benchmark/lib/report.js');
+const { toMarkdown, pool, pageOf } = require('./benchmark/lib/report.js');
 const mini = require('./benchmark/lib/mini.js');
 const base = require('./benchmark/lib/base-rates.js');
 
@@ -113,6 +113,18 @@ test('the report names the case, the version it measured and the wrong answers, 
   ['# Benchmark results', 'abc1234', 'mini-change', '## The change guess', '### What each signal is worth', '## The CoinJoin detector', '## Clusters', '## Peel chains', 'equal-payout 1'].forEach((s) => assert.ok(md.includes(s), s));
   assert.match(md, /There were no high guesses\.|high guesses were wrong/);
   assert.ok(!/undefined|NaN/.test(md), 'no hole in a table');
+  assert.ok(!md.includes('What these numbers cannot say'), 'the limits of the real-wallet cases are not on the synthetic page');
+});
+
+test('the real-wallet report (tier B) has its own page, says what its numbers cannot say, and shows what the cases were made to be', () => {
+  const results = [mini.changeCase()].map((c) => evaluateCase(c));
+  const meta = { date: '2026-11-01', commit: 'abc1234', node: 'v0', analysisSha: 'f'.repeat(64), tier: 'B', cases: results.map((r) => ({ name: r.name, madeBy: 'by hand', summary: 'Two wallets, made to a plan.' })) };
+  const md = toMarkdown(results, meta);
+  ['# Benchmark results: real wallet software (tier B)', '## What these numbers cannot say', 'The mix was planned', '**mini-change.** Two wallets, made to a plan.', '## The change guess'].forEach((s) => assert.ok(md.includes(s), s));
+  assert.ok(!/undefined|NaN/.test(md), 'no hole in a table');
+  assert.equal(pageOf(meta), 'benchmark-wallets-results.md');
+  assert.equal(pageOf({ tier: 'A' }), 'benchmark-results.md', 'the synthetic page is only written by the synthetic cases');
+  assert.equal(pageOf({}), 'benchmark-results.md', 'cases of several tiers are not real-wallet cases');
 });
 
 // ---- the cases that are committed (made by tools/bench/make_regtest.py) -----------------------------------------------------------
@@ -167,6 +179,32 @@ test('the committed cases are measured above the floors in floors.json', { skip:
     const f = floors.floors[key];
     if (f.min != null) assert.ok(v >= f.min, key + ' is ' + v.toFixed(4) + ', below its floor ' + f.min + ' (' + f.why + ')');
     if (f.max != null) assert.ok(v <= f.max, key + ' is ' + v.toFixed(4) + ', above its ceiling ' + f.max + ' (' + f.why + ')');
+  });
+});
+
+// ---- real wallet software on a test network (tier B): the truth is the wallets' own change chain ------------------------------------
+const WALLETS = path.join(__dirname, 'benchmark', 'cases', 'wallets-v1'), walletCases = listCases(WALLETS);
+
+test('the committed real-wallet cases say what they are, and what is known about each transaction follows from who spent it', { skip: walletCases.length === 0 }, () => {
+  const KINDS = new Set(['payment', 'batch', 'consolidation', 'incoming', 'mixed', 'self-send', 'unclear']);
+  walletCases.forEach((d) => {
+    const c = loadCase(d), where = c.name + ': ', byId = new Map(c.txs.map((t) => [t.txid, t]));
+    assert.equal(c.meta.tier, 'B', where + 'tier'); assert.equal(c.meta.generator, 'tools/bench/make_wallet_case.py', where + 'generator');
+    assert.equal(c.meta.transactions, c.txs.length, where + 'the count in case.json is the count in the file');
+    assert.equal(byId.size, c.txs.length, where + 'a transaction is listed twice');
+    assert.deepEqual(Object.keys(c.truth.txs).sort(), Array.from(byId.keys()).sort(), where + 'truth and transactions are about the same transactions');
+    assert.ok(!/\b[xtyzuv](prv|pub)[1-9A-HJ-NP-Za-km-z]{20,}/.test(JSON.stringify(c.meta) + JSON.stringify(c.truth)), where + 'a key in a case file: only a hash of the descriptors belongs there');
+    c.txs.forEach((t) => {
+      const e = c.truth.txs[t.txid], senders = new Set(t.vin.map((v) => c.truth.owners[v.prevout.scriptpubkey_address]));
+      assert.ok(KINDS.has(e.kind), where + 'unknown kind ' + e.kind);
+      assert.ok(t.status.confirmed && t.status.block_time > 0 && t.fee > 0, where + 'a transaction that is not confirmed: ' + t.txid);
+      if (e.kind === 'incoming') assert.deepEqual(Array.from(senders), [undefined], where + 'an incoming transaction that spends from one of our wallets');
+      if (['payment', 'batch', 'consolidation', 'self-send', 'unclear'].indexOf(e.kind) >= 0) { assert.equal(senders.size, 1, where + 'a one-sender transaction with several senders'); assert.equal(Array.from(senders)[0], e.wallet, where + 'the sender is the wallet the truth names'); }
+      if (e.change_vout != null) {
+        assert.ok(e.change_vout >= 0 && e.change_vout < t.vout.length, where + 'a change that is not an output');
+        assert.equal(c.truth.owners[t.vout[e.change_vout].scriptpubkey_address], e.wallet, where + 'the change goes to its sender');
+      }
+    });
   });
 });
 

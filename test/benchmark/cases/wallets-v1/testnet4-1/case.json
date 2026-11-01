@@ -1,0 +1,17 @@
+{
+ "api": "https://mempool.space/testnet4/api",
+ "descriptors_sha256": "d97ee6f706c94e7f3afc4a783b64e45d20b27bed46181a6f3551dae9a0282349",
+ "generator": "tools/bench/make_wallet_case.py",
+ "image": "bitcoin/bitcoin:latest",
+ "name": "testnet4-1",
+ "network": "testnet4",
+ "node": "/Satoshi:31.1.0/",
+ "summary": "Sparrow 2.5.5 and Electrum 4.8.3, one native segwit wallet each, paying each other and a third wallet that only received, following docs/benchmark-wallets.md. A batch (6 or more recipients) or a send-everything of 5 or more coins is marked as such by the person who made it (4 batches, 15 consolidations); every other transaction counts as a payment, including two with 5 or more inputs, one output and no change, where the amount was the payment and the wallet kept its other coins (Sparrow 7080ced38210, 16,837 sat; Electrum 861a83023bea, 10,000 sat). The change of each transaction is the output on its change chain.",
+ "tier": "B",
+ "transactions": 286,
+ "wallet_software": {
+  "electrum": "Electrum 4.8.3",
+  "sparrow": "Sparrow 2.5.5"
+ },
+ "wallets": 2
+}

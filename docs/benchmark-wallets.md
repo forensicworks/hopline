@@ -66,7 +66,8 @@ Write `wallets.json`. A wallet that shows **one** descriptor with `<0;1>` in it 
 
 ```bash
 python tools/bench/make_wallet_case.py --config wallets.json --out test/benchmark/cases/wallets-v1/<name>
-node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1
+node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1                  # to the screen
+node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1 --write-docs    # and into docs/benchmark-wallets-results.md
 ```
 
 The tool walks each chain until 20 addresses in a row have no history, reads their transactions, and writes `txs.json.gz`, `truth.json` and `case.json` (with a hash of the descriptors, not the descriptors). It makes about 2 requests per address, paced for a public API.

@@ -4,7 +4,7 @@ Hopline guesses: which output of a transaction is the change, which addresses sh
 
 What it does not measure: the accuracy of the lists of names ([sources.md](../sources.md)). A name there is somebody's claim, and the benchmark only counts how many addresses a list names in a case.
 
-The results are written by the runners: [benchmark-results.md](benchmark-results.md) (the synthetic cases, tier A), [benchmark-base-rates.md](benchmark-base-rates.md) (a sample of the real chain, tier D) and [benchmark-cases.md](benchmark-cases.md) (documented cases, tier C). This file is the method.
+The results are written by the runners: [benchmark-results.md](benchmark-results.md) (the synthetic cases, tier A), [benchmark-wallets-results.md](benchmark-wallets-results.md) (real wallet software on a test network, tier B), [benchmark-base-rates.md](benchmark-base-rates.md) (a sample of the real chain, tier D) and [benchmark-cases.md](benchmark-cases.md) (documented cases, tier C). This file is the method.
 
 ## Status
 
@@ -13,7 +13,7 @@ The results are written by the runners: [benchmark-results.md](benchmark-results
 | 0 | The harness, the metrics, the committed floors the tests keep | done |
 | 1 | A generator of regtest data with known ownership and known change, six scenarios, the first full results | done |
 | D | How often each flag fires on a sample of the real chain, with the flagged ones read by hand | done: 4,674 transactions from 8 blocks, 2013 to 2026 |
-| 2 | Real wallet software on signet or testnet4, truth from the wallets' own change chain | **tool built and tested; no data yet**: it needs a person with real wallets and faucet coins, see [benchmark-wallets.md](benchmark-wallets.md) |
+| 2 | Real wallet software on signet or testnet4, truth from the wallets' own change chain | done for two wallets: Sparrow 2.5.5 and Electrum 4.8.3 on testnet4, 286 transactions, 67 with a known change output, in [benchmark-wallets-results.md](benchmark-wallets-results.md). Core, BlueWallet and a hardware wallet are not measured; see [benchmark-wallets.md](benchmark-wallets.md) for what a person needs to add one |
 | 3 | Documented public cases (court and FBI documents) as case studies | one case done (Colonial Pipeline and DarkSide); the court documents themselves could not be read, see below |
 | 4 | Recalibrating on what the results show, one change at a time, each judged on a sample it was not made on, and a page for readers | two changes made and each tested on a holdout (below), and the one-sign change guess measured; the confidence tiers are not changed; the wiki has a first Accuracy page |
 
@@ -30,7 +30,7 @@ The results are written by the runners: [benchmark-results.md](benchmark-results
 ## Ground truth, in tiers
 
 - **A. Synthetic, on regtest** (built). Bitcoin Core in Docker, wallets with known ownership, every transaction made by a script that knows which output is the change and which wallet owns which address. It checks that the rules do what they say and how sensitive they are, and it can make thousands of labelled decisions. **It only measures my own assumptions about how wallets behave**: the wallets are Bitcoin Core with varied settings, and the scenarios are the ones I thought of.
-- **B. Real wallet software on testnet4 or signet** (tool built, no data yet). Sparrow, Electrum, Core, BlueWallet and a hardware wallet, with free coins. For a wallet whose descriptor is known the derivation path gives the truth exactly (the `/1/` chain is change), so no guessing is needed and no money is spent. `tools/bench/make_wallet_case.py` turns the public descriptors into a case in the format the harness reads; what a person does with the wallets is in [benchmark-wallets.md](benchmark-wallets.md).
+- **B. Real wallet software on testnet4 or signet** (done for two wallets: Sparrow and Electrum on testnet4; Core, BlueWallet and a hardware wallet are not measured yet). Free coins from a faucet. For a wallet whose descriptor is known the derivation path gives the truth exactly (the `/1/` chain is change), so no guessing is needed and no money is spent. `tools/bench/make_wallet_case.py` turns the public descriptors into a case in the format the harness reads; what a person does with the wallets is in [benchmark-wallets.md](benchmark-wallets.md), and the numbers are in [benchmark-wallets-results.md](benchmark-wallets-results.md).
 - **C. Documented public cases** (one case). A public document says where money was and where it ended up. Whether a trace reaches the documented endpoint with each rule, how many wrong branches it takes, how many requests it needs. Reported as case studies, not as statistics. The walk is the workspace's own (`HoplineApi.Explorer.walk` and `HoplineAnalysis.successors`), with the network replaced by a recording of what the API said, so the result does not depend on the day; `node test/benchmark/trace.js --record` asks the API again.
 - **D. Base rates on real traffic** (done). Random pages of 25 consecutive transactions from 8 blocks spread over 2013 to 2026, fetched by `tools/bench/fetch_mainnet_sample.py`. Nobody knows who owns what, so there is no right or wrong: only how often each flag fires, what the change guess rests on, and what the flagged transactions look like. The sample is clustered (neighbours in a block are often related) and a spend is only known when the spender is in the sample.
 
@@ -60,6 +60,7 @@ node test/benchmark/trace.js [--write-docs]                                # the
 node test/benchmark/trace.js --record                                      # ask the public API again and keep the answers
 
 python tools/bench/make_wallet_case.py --config wallets.json --out test/benchmark/cases/wallets-v1/<name>    # real wallets: see benchmark-wallets.md
+node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1 --write-docs                           # the real-wallet cases: writes docs/benchmark-wallets-results.md, never the synthetic page
 ```
 
 `node --test` runs the same cases and fails if a measure falls below the floors (or above the ceilings) in `test/benchmark/floors.json`, so a change to the rules cannot quietly make a guess worse. A floor is only moved with the result that justifies it. The ceilings on `mainnet-sample` are on how often a flag fires on real traffic; for the documented cases, `expect` in each `case.json` pins what each rule did, and the route of a case is checked to be a real chain of spends.
@@ -155,7 +156,7 @@ The roadmap asks whether a change guess that rests on one sign should count as l
 * If one-sign medium guesses were called low, the tiers would read: high 99.9% (903 guesses), medium 99.5% (387), low 90.0% (971). Medium would mean two agreeing signs.
 * On real traffic, 66% of the change guesses rest on one sign, so on real data most "medium" guesses would be called low.
 
-This is a measurement; the rule is **not changed**. The synthetic wallets give "same address type" a good record because most of them change to the type they receive on, and real wallets may not; the real-wallet data ([benchmark-wallets.md](benchmark-wallets.md)) is the test, and is waiting for wallets and faucet coins.
+This is a measurement; the rule is **not changed**. The synthetic wallets give "same address type" a good record because most of them change to the type they receive on, and real wallets may not; the real-wallet data ([benchmark-wallets.md](benchmark-wallets.md)) is the test. The first real-wallet run (2026-11-01, Sparrow and Electrum on testnet4, [benchmark-wallets-results.md](benchmark-wallets-results.md)) found all 24 medium guesses on one sign right, every one of them on "same address type" alone. That does not settle it: both wallets change to the type they receive on, which is the case where that sign cannot fail, so this run could not show the weak case. It stays open until a wallet that changes to another type is measured.
 
 ## Rules the numbers follow
 
