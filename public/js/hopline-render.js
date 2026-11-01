@@ -74,7 +74,7 @@
     this.highlight = null;                    // a vertex outlined from outside the canvas (a list row under the pointer), without selecting it
     this.chain = null;                        // a peel chain picked out from outside: { ids, index: Map(id -> step), path: Set(edge id), pay: Set(edge id), color }
     this.axisPointer = null;                  // x of the pointer while it is over the time axis (top of the canvas): the axis then reads out the time there
-    this.insets = { bottom: 0 };              // canvas rows covered by overlays (the step bar): fit() and centerOn() keep clear of them
+    this.insets = { top: 0, bottom: 0 };       // canvas rows covered by overlays (the toolbar above, the step bar below): fit(), frame() and centerOn() keep clear of them
     this.handleRects = [];                    // expand handles drawn this frame (trace layout): {id, dir, x, y, w, h, tip}
     this.autoFit = false;                     // true while the view is the result of fit(): it is then refitted when the canvas changes size
     this.selected = new Set();
@@ -152,10 +152,10 @@
     this.autoFit = true;
     if (!any) { this.view = { x: this.w / 2, y: this.h / 2, k: 1 }; this.dirty = true; return; }
     var bw = Math.max(maxX - minX, 1), bh = Math.max(maxY - minY, 1);
-    var availH = Math.max(80, this.h - (this.insets.bottom || 0));
+    var top = this.insets.top || 0, availH = Math.max(80, this.h - top - (this.insets.bottom || 0));
     var k = Math.min((this.w - 2 * pad) / bw, (availH - 2 * pad) / bh, 2.2);
     k = Math.max(k, 0.05);
-    this.view = { k: k, x: this.w / 2 - (minX + bw / 2) * k, y: availH / 2 - (minY + bh / 2) * k };
+    this.view = { k: k, x: this.w / 2 - (minX + bw / 2) * k, y: top + availH / 2 - (minY + bh / 2) * k };
     this.dirty = true;
   };
 
@@ -172,15 +172,15 @@
       if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
     });
     if (!any) return;
-    var v = this.view, k = v.k, availH = Math.max(80, this.h - (this.insets.bottom || 0));
+    var top = this.insets.top || 0, v = this.view, k = v.k, availH = Math.max(80, this.h - top - (this.insets.bottom || 0));
     var x0 = minX * k + v.x - pad, x1 = maxX * k + v.x + pad, y0 = minY * k + v.y - pad, y1 = maxY * k + v.y + pad;
     if (x1 - x0 > this.w || y1 - y0 > availH) {                         // does not fit at this zoom: zoom out around the group
       var nk = Math.max(0.05, k * Math.min(this.w / (x1 - x0), availH / (y1 - y0)) * 0.97);
       var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-      this.view = { k: nk, x: this.w / 2 - cx * nk, y: availH / 2 - cy * nk };
+      this.view = { k: nk, x: this.w / 2 - cx * nk, y: top + availH / 2 - cy * nk };
     } else {
       v.x += x0 < 0 ? -x0 : (x1 > this.w ? this.w - x1 : 0);
-      v.y += y0 < 0 ? -y0 : (y1 > availH ? availH - y1 : 0);
+      v.y += y0 < top ? top - y0 : (y1 > top + availH ? top + availH - y1 : 0);
     }
     this.dirty = true;
   };
@@ -189,7 +189,8 @@
   Renderer.prototype.centerOn = function (id) {
     var p = this.target.get(id) || this.cur.get(id);
     if (!p) return;
-    this.view.x = this.w / 2 - p.x * this.view.k; this.view.y = (this.h - (this.insets.bottom || 0)) / 2 - p.y * this.view.k; this.dirty = true; this.autoFit = false;
+    var top = this.insets.top || 0;
+    this.view.x = this.w / 2 - p.x * this.view.k; this.view.y = top + (this.h - top - (this.insets.bottom || 0)) / 2 - p.y * this.view.k; this.dirty = true; this.autoFit = false;
   };
 
   Renderer.prototype.zoomBy = function (factor, cx, cy) {
@@ -248,9 +249,9 @@
     });
     if (!any) return;
     pad = pad == null ? (this.fitPad || 60) + 30 : pad;
-    var bw = Math.max(maxX - minX, 1), bh = Math.max(maxY - minY, 1), availH = Math.max(80, this.h - (this.insets.bottom || 0));
+    var bw = Math.max(maxX - minX, 1), bh = Math.max(maxY - minY, 1), top = this.insets.top || 0, availH = Math.max(80, this.h - top - (this.insets.bottom || 0));
     var k = Math.max(0.05, Math.min((this.w - 2 * pad) / bw, (availH - 2 * pad) / bh, 2.2));
-    this.view = { k: k, x: this.w / 2 - (minX + bw / 2) * k, y: availH / 2 - (minY + bh / 2) * k };
+    this.view = { k: k, x: this.w / 2 - (minX + bw / 2) * k, y: top + availH / 2 - (minY + bh / 2) * k };
     this.autoFit = false; this.dirty = true;
   };
   Renderer.prototype.setHighlight = function (id) { id = id || null; if (this.highlight !== id) { this.highlight = id; this.dirty = true; } };
