@@ -6,7 +6,7 @@ import json
 import pytest
 
 from conftest import NORMAL, OUTSPENDS, ROOT
-from helpers import idle, open_query, settle, toast_text
+from helpers import idle, open_controls, open_query, settle, toast_text
 
 BIG = max(range(len(NORMAL["vout"])), key=lambda i: NORMAL["vout"][i]["value"])
 BIG_ADDR = NORMAL["vout"][BIG]["scriptpubkey_address"]
@@ -27,6 +27,7 @@ def drawn_texts(page):
 
 
 def open_packs(page):
+    open_controls(page)
     page.evaluate("() => { document.getElementById('packSection').open = true; }")
 
 

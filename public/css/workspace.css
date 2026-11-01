@@ -62,6 +62,7 @@ body.insp-collapsed #inspector { display: none; }
 .edge-tab.left { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
 .edge-tab.right { right: 0; top: 130px; border-right: 0; border-radius: 8px 0 0 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .edge-tab[hidden] { display: none; }
+body.side-collapsed #traceBar { left: 84px; max-width: calc(100% - 96px); }                                                                    /* the Controls tab sits on the left edge, over the second row of this bar: start the bar to its right */
 #inspCollapse { position: absolute; right: 38px; top: 6px; }
 
 #traceBar { position: absolute; left: 12px; right: 12px; margin: 0 auto; width: max-content; max-width: calc(100% - 24px); top: 10px; z-index: 12; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -302,7 +303,7 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 .findchip.bad { border-color: #ff4d4f; color: #ff9a9a; background: rgba(60, 20, 24, 0.94); }
 .findchip.more { color: var(--accent); }
 #anCount, #detCount { font-weight: 400; color: var(--dim); }
-#hud { position: absolute; bottom: calc(var(--tb) + 58px); left: 10px; font-size: 12px; color: var(--dim); background: rgba(28,20,29,0.78); padding: 3px 8px; border-radius: 4px; pointer-events: none; }
+#hud { position: absolute; bottom: calc(var(--tb) + 58px); left: 10px; font-size: 13px; color: var(--text); background: rgba(28,20,29,0.78); padding: 3px 8px; border-radius: 4px; pointer-events: none; }
 #zoomBtns { position: absolute; right: 12px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
 #zoomBtns button { width: 32px; height: 32px; padding: 0; font-size: 18px; line-height: 1; }
 #empty { position: absolute; left: 50%; top: calc((100% - var(--tb)) / 2); transform: translate(-50%, -50%); text-align: center; max-width: 440px; padding: 20px; }
@@ -358,6 +359,8 @@ dl.kv dt { color: var(--dim); } dl.kv dd { margin: 0; overflow-wrap: anywhere; }
   .narrow-only { display: inline-block; }
   #side { position: absolute; z-index: 25; top: 0; bottom: 0; left: 0; transform: translateX(-100%); transition: transform 0.15s; width: min(300px, 88vw); }
   body.side-open #side { transform: none; }
+  body.side-collapsed #traceBar { left: 12px; max-width: calc(100% - 24px); }                                                                  /* no tab here */
+  body.side-collapsed #side { display: block; }                                                                  /* here the panel is a drawer behind the Controls button, and its fold button and edge tab are gone: starting folded must not take it away */
   #inspector { position: absolute; z-index: 24; right: 0; left: 0; bottom: var(--tb); width: auto; max-height: 55%; border-left: 0; border-top: 1px solid var(--line); }
 }
 @media (prefers-reduced-motion: reduce) { #side { transition: none; } }
@@ -452,6 +455,7 @@ button.outbound-btn:hover:not(:disabled) { border-color: var(--text); }
 #claudeReviewText { margin: 0; min-height: 160px; max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; font-size: 11.5px; line-height: 1.35; font-family: Consolas, "Courier New", monospace; user-select: text; }
 
 /* Full screen: the graph alone (the details panel still opens when something is selected) */
+body.canvas-full.side-collapsed #traceBar { left: 12px; max-width: calc(100% - 24px); }                                                       /* nor in full screen */
 body.canvas-full #top, body.canvas-full #sideTab, body.canvas-full #trail, body.canvas-full #restore, body.canvas-full #log { display: none !important; }
 /* the Controls stay one button away: the left panel slides over the graph and goes back with Esc */
 .full-only { display: none; }

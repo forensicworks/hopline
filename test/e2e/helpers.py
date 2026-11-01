@@ -6,6 +6,12 @@ def show_findings(page):
     page.evaluate("() => window.__hopline.openFindings()")
 
 
+def open_controls(page):
+    """A new visitor gets the Controls panel folded. Open it, as they would, before driving a switch inside it; already open: nothing to do."""
+    if page.is_visible("#sideTab"):
+        page.click("#sideTab")
+
+
 def idle(page, timeout=15000):
     """Wait until no action is running and the layout animation has finished."""
     page.wait_for_function("() => !window.__hopline.state.busy && !window.__hopline.renderer.anim", timeout=timeout)

@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from conftest import ADDRESS, ADDR_TXS, COINBASE, NORMAL, OPRETURN, OUTSPENDS, SPENDERS, shot
-from helpers import (canvas_has_ink, click_node, counts, idle, node_ids, open_query, selected, set_slider, settle, toast_text, xy)
+from helpers import (canvas_has_ink, click_node, counts, idle, node_ids, open_controls, open_query, selected, set_slider, settle, toast_text, xy)
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
 
@@ -383,7 +383,7 @@ def test_delete_hides_the_selection_and_shift_delete_removes_it(page):
 def test_session_is_saved_and_can_be_restored(ctx, errors):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e)))
     from conftest import PAGE_URL
-    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); p.click("#layoutSeg [data-layout=flow]")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); open_controls(p); p.click("#layoutSeg [data-layout=flow]")
     open_query(p, NORMAL["txid"])
     click_node(p, "addr:" + NORMAL["vout"][0]["scriptpubkey_address"])
     p.fill("#fLabel", "kept across reload"); p.wait_for_timeout(1200)       # autosave is debounced
@@ -442,7 +442,10 @@ def test_narrow_screen_has_no_horizontal_scroll(browser, mock, errors):
     from conftest import PAGE_URL
     p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert p.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1")
+    assert p.is_hidden("#side") or p.evaluate("() => document.getElementById('side').getBoundingClientRect().right <= 0"), "the drawer waits off screen"
     p.click("#btnSide"); assert p.evaluate("() => document.body.classList.contains('side-open')")
+    p.wait_for_function("() => document.getElementById('side').getBoundingClientRect().right > 100")
+    assert p.is_visible("#side") and p.is_visible("#layoutSeg"), "a new visitor starts with the controls folded, and here the Controls button is the only way to them"
     shot(p, "narrow.png")
     c.close()
 

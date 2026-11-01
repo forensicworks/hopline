@@ -6,7 +6,7 @@ import pytest
 
 from chains import IN, OUT, tid, tx
 from conftest import ADDRESS
-from helpers import idle, open_query, settle
+from helpers import idle, open_controls, open_query, settle
 from test_trace import click_handle, shown
 from test_wallet_panel import W_ID
 
@@ -72,6 +72,7 @@ def start(page, mock, trace=False):
     scene(mock)
     open_query(page, W); settle(page)
     if trace:
+        open_controls(page)
         page.click("#layoutSeg [data-layout=trace]"); settle(page)
     page.evaluate("(id) => window.__hopline.setSel([id])", W_ID); settle(page)
 

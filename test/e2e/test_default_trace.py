@@ -73,6 +73,7 @@ def test_a_link_that_names_a_vertex_opens_it_as_a_trace(ctx, errors, suffix):
 
 
 def test_flow_is_one_click_away_on_an_empty_workspace_and_trace_can_be_chosen_again(tpage):
+    tpage.click("#sideTab")                                                                       # the switch lives in the Controls panel, which starts folded
     tpage.click("#layoutSeg [data-layout=flow]"); settle(tpage)
     assert look(tpage)["layout"] == "flow" and not look(tpage)["traceOn"]
     tpage.click("#layoutSeg [data-layout=trace]"); settle(tpage)

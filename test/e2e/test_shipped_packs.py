@@ -9,7 +9,7 @@ import pytest
 
 from chains import IN, tx
 from conftest import NORMAL, ROOT
-from helpers import open_query, settle, toast_text
+from helpers import open_controls, open_query, settle, toast_text
 from test_wallet_history import to
 from test_wallet_page import WALLET_URL, wpage  # noqa: F401  (the fixture is used by name)
 
@@ -47,6 +47,7 @@ def wait_known(page, address):
 
 
 def open_packs(page):
+    open_controls(page)
     page.evaluate("() => { document.getElementById('packSection').open = true; }")
 
 
