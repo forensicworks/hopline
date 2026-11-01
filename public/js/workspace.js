@@ -52,7 +52,7 @@
     source: 'clearnet', fallback: true, customBase: '', keys: {}, keyRemember: false, pace: { concurrency: 8, delayMs: 20 }, capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: !HOSTED,
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
-    rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: false, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true,
+    rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: true, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true,
     trace: emptyTrace(), routeRef: null, routeFocus: null, openDir: 'next',
     undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
@@ -214,7 +214,7 @@
       state.persist = typeof p.persist === 'boolean' ? p.persist : !HOSTED;                  // on a published copy the session is kept only when the visitor ticks it
       state.focusOn = p.focusOn !== false; state.hops = num(p.hops, 1, 3, 2);
       state.fiat = cleanFiat(p.fiat);
-      state.sideCollapsed = p.sideCollapsed === true; state.inspCollapsed = p.inspCollapsed === true; state.tbCollapsed = p.tbCollapsed === true;
+      state.sideCollapsed = p.sideCollapsed !== false; state.inspCollapsed = p.inspCollapsed === true; state.tbCollapsed = p.tbCollapsed === true;
       state.edgeLabels = p.edgeLabels !== false; state.viaWallets = p.viaWallets !== false; state.bundleEdges = p.bundleEdges !== false;
       state.analysis = cleanAnalysis(p.analysis); state.assist = cleanAssist(p.assist); state.auto = cleanAuto(p.auto);
       state.claude = cleanClaude(p.claude); if (state.claude.remember) cl.key = AS.cleanClaudeKey(store.get(CLAUDE_KEY) || '');
@@ -4396,6 +4396,8 @@
   }
 
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many || one + 's'); }
+  /** The line under the canvas: how many vertices are loaded and how many of them are on screen. The difference is what the "Not on screen" chip counts. */
+  function loadedAndShown(loaded, shown) { return fmtInt(loaded) + (loaded === 1 ? ' vertex' : ' vertices') + ' loaded · ' + fmtInt(shown) + ' shown'; }
 
   /** One sentence on what happened, one on why it stopped, and the details of how each branch ended. */
   function autoMessage(w, steps, dir, o) {
@@ -4534,8 +4536,10 @@
     document.body.classList.toggle('axis-on', usesAxis());
     if (o.fit) renderer.fit();
     var fo = focusOpt();
-    if (traceOn() && state.trace.seed) $('counts').textContent = 'Trace from ' + focusLabel(state.trace.seed) + ' · ' + visible.nodes.size + ' shown · ' + Math.max(0, rg.nodes.size - (visible.nodes.size - state.trace.groups.size)) + ' more loaded';
-    else $('counts').textContent = rg.nodes.size ? (fo ? 'Focus: ' + focusLabel(fo.id) + ' · depth ' + fo.hops + ' · ' : '') + visible.nodes.size + ' of ' + rg.nodes.size + ' vertices · ' + visible.edges.size + ' of ' + rg.edges.size + ' edges' : '';
+    if (traceOn() && state.trace.seed) {                                      // the group vertices of a trace are drawn but are not loaded vertices: they are counted beside, not in, the shown
+      var tGroups = state.trace.groups.size;
+      $('counts').textContent = 'Trace from ' + focusLabel(state.trace.seed) + ' · ' + loadedAndShown(rg.nodes.size, Math.max(0, visible.nodes.size - tGroups)) + (tGroups ? ' (+' + plural(tGroups, 'group') + ')' : '');
+    } else $('counts').textContent = rg.nodes.size ? (fo ? 'Focus: ' + focusLabel(fo.id) + ' · depth ' + fo.hops + ' · ' : '') + loadedAndShown(rg.nodes.size, visible.nodes.size) + ' · ' + visible.edges.size + ' of ' + rg.edges.size + ' edges' : '';
     $('empty').hidden = rg.nodes.size > 0;
     updateLegend(); updateFindings(); updateAutoUi(); updateTraceUi();
   }

@@ -123,7 +123,9 @@ def tpage(ctx, errors):
 
 @pytest.fixture
 def fpage(tpage):
-    """A fresh page in the Flow layout with Focus on: the baseline most tests were written for (a new visitor starts in Trace; see tpage)."""
+    """A fresh page in the Flow layout with Focus on: the baseline most tests were written for (a new visitor starts in Trace; see tpage).
+    The Controls panel is opened first: a new visitor gets it folded, and the tests drive the switches inside it."""
+    tpage.click("#sideTab")
     tpage.click("#layoutSeg [data-layout=flow]")
     return tpage
 

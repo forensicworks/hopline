@@ -519,14 +519,16 @@ def test_naming_many_wallets_asks_for_a_second_click_and_can_be_undone(tpage, mo
 
 # ---- what is loaded but not on screen --------------------------------------------------------------------------------------------------
 def more_loaded(page):
-    return int(re.search(r"(\d+) more loaded", page.inner_text("#counts")).group(1))
+    """What the status line leaves out: the vertices loaded minus the ones shown."""
+    m = re.search(r"([\d,]+) vertices? loaded · ([\d,]+) shown", page.inner_text("#counts"))
+    return int(m.group(1).replace(",", "")) - int(m.group(2).replace(",", ""))
 
 
 def test_a_chip_says_how_much_is_loaded_but_not_on_screen_and_the_section_lists_what_is_among_it(tpage, mock):
     trace_case(tpage, mock)
     chip = tpage.inner_text("#findStrip [data-key=offscreen]")
     assert chip.startswith("Not on screen"), chip
-    assert int(re.search(r"(\d+)$", chip).group(1)) == more_loaded(tpage), "the chip counts what the status line calls more loaded"
+    assert int(re.search(r"(\d+)$", chip).group(1)) == more_loaded(tpage), "the chip counts what the status line has loaded and not shown"
     assert tpage.inner_text("#anCount") == "(1)", "it is not a finding: only the change guess is counted"
     assert "known wallets" in tpage.get_attribute("#findStrip [data-key=offscreen]", "title") and "service hand-off" in tpage.get_attribute("#findStrip [data-key=offscreen]", "title")
     tpage.click("#findStrip [data-key=offscreen]"); settle(tpage)

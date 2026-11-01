@@ -5,7 +5,7 @@ import pytest
 
 from chains import peel_chain, tid
 from conftest import NORMAL
-from helpers import click_node, idle, open_query, settle, toast_text, xy
+from helpers import click_node, idle, open_controls, open_query, settle, toast_text, xy
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
 BIG = max(range(len(NORMAL["vout"])), key=lambda i: NORMAL["vout"][i]["value"])
@@ -53,6 +53,7 @@ def traced(fpage, mock, length=8, hops=4, arrangement="columns"):
     """A trace of a peel chain: transactions 10.. with the wallets they paid, shown. Most tests were written around Columns; arrangement=None leaves the one a trace starts in."""
     peel_chain(mock, length)
     open_query(fpage, tid(10))
+    open_controls(fpage)
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
     if arrangement:
         fpage.select_option("#traceArrange", arrangement); settle(fpage)

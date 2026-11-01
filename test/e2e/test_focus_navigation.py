@@ -2,7 +2,7 @@
 import pytest
 
 from conftest import ADDRESS, ADDR_TXS, NORMAL, PAGE_URL, SPENDERS, shot
-from helpers import click_node, counts, idle, open_query, toast_text, xy
+from helpers import click_node, counts, idle, open_controls, open_query, toast_text, xy
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
 SP0, SP1 = "tx:" + SPENDERS[0]["txid"], "tx:" + SPENDERS[1]["txid"]
@@ -195,7 +195,7 @@ def test_a_failed_move_leaves_you_where_you_were(fpage, mock):
 
 def test_reload_offers_the_saved_session_and_keeps_the_focus(ctx, errors):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e)))
-    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); p.click("#layoutSeg [data-layout=flow]")
+    p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); open_controls(p); p.click("#layoutSeg [data-layout=flow]")
     open_query(p, NORMAL["txid"])
     click_node(p, SP0, dbl=True); idle(p)
     p.wait_for_timeout(1200)

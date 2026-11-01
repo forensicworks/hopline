@@ -1,4 +1,6 @@
 """Collapsible panels, the Bitcoin / both / fiat display, and the on-screen Previous / Next buttons."""
+import re
+
 import pytest
 
 from conftest import COINBASE, NORMAL, OUTSPENDS, PAGE_URL, SPENDERS, shot
@@ -50,6 +52,54 @@ def test_the_controls_panel_collapses_and_comes_back(fpage):
     assert fpage.is_visible("#side") and fpage.is_hidden("#sideTab")
     fpage.wait_for_function("(w) => Math.abs(document.getElementById('cv').getBoundingClientRect().width - w) < 2", arg=before)
     assert all_nodes_inside_canvas(fpage)
+
+
+def test_a_new_visitor_gets_the_controls_folded_and_what_they_choose_is_remembered(tpage):
+    folded = "() => document.body.classList.contains('side-collapsed')"
+    assert tpage.evaluate(folded) and tpage.is_hidden("#side") and tpage.is_visible("#sideTab")
+    assert tpage.get_attribute("#sideCollapse", "aria-expanded") == "false"
+    assert tpage.is_visible("#cv"), "the graph has the room"
+    tpage.click("#sideTab")
+    assert tpage.is_visible("#side") and tpage.is_hidden("#sideTab")
+    prefs = tpage.evaluate("() => JSON.parse(localStorage.getItem('hopline.prefs.v1'))")
+    assert prefs["sideCollapsed"] is False, "opening it is a choice, and it is kept"
+    tpage.reload(); tpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    assert not tpage.evaluate(folded) and tpage.is_visible("#side"), "a visitor who opened it finds it open next time"
+
+
+def test_preferences_saved_before_the_default_changed_still_get_the_folded_controls(tpage):
+    """An old save that has no word on the panel is not a choice to keep it open; a saved 'open' still is."""
+    folded = "() => document.body.classList.contains('side-collapsed')"
+    tpage.evaluate("() => { const p = JSON.parse(localStorage.getItem('hopline.prefs.v1') || '{}'); delete p.sideCollapsed; localStorage.setItem('hopline.prefs.v1', JSON.stringify(p)); }")
+    tpage.reload(); tpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    assert tpage.evaluate(folded)
+    tpage.evaluate("() => { const p = JSON.parse(localStorage.getItem('hopline.prefs.v1') || '{}'); p.sideCollapsed = false; localStorage.setItem('hopline.prefs.v1', JSON.stringify(p)); }")
+    tpage.reload(); tpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    assert not tpage.evaluate(folded)
+
+
+def boxes_overlap(a, b):
+    return a["x"] < b["x"] + b["width"] and b["x"] < a["x"] + a["width"] and a["y"] < b["y"] + b["height"] and b["y"] < a["y"] + a["height"]
+
+
+def test_the_folded_controls_tab_does_not_cover_the_trace_bar(tpage):
+    open_query(tpage, NORMAL["txid"])
+    assert tpage.is_visible("#sideTab") and tpage.is_visible("#traceBar")
+    tab, bar = tpage.locator("#sideTab").bounding_box(), tpage.locator("#traceBar").bounding_box()
+    assert not boxes_overlap(tab, bar), "the tab sits over the bar: %r %r" % (tab, bar)
+    stage = tpage.locator("#stage").bounding_box()
+    assert bar["x"] + bar["width"] <= stage["x"] + stage["width"] + 0.5, "moving the bar over must not push it past the canvas, over the details panel: %r %r" % (bar, stage)
+    assert tpage.is_visible("#traceInfo") and not boxes_overlap(tab, tpage.locator("#traceInfo").bounding_box()), "the hint line under the buttons is covered"
+
+
+def test_the_count_line_says_how_many_vertices_are_loaded_and_how_many_are_shown(tpage):
+    open_query(tpage, NORMAL["txid"])
+    loaded, shown = [int(x.replace(",", "")) for x in re.search(r"([\d,]+) vertices? loaded · ([\d,]+) shown", tpage.inner_text("#counts")).groups()]
+    assert loaded == tpage.evaluate("() => window.__hopline.state.graph.nodes.size")
+    assert 1 <= shown < loaded, "a trace shows part of what is loaded"
+    assert "more loaded" not in tpage.inner_text("#counts")
+    tpage.click("#sideTab"); tpage.click("#layoutSeg [data-layout=flow]"); tpage.uncheck("#focusOn")
+    assert re.fullmatch(r"%d vertices loaded · %d shown · \d+ of \d+ edges" % (loaded, loaded), tpage.inner_text("#counts")), tpage.inner_text("#counts")
 
 
 def test_the_details_panel_collapses_to_a_tab_that_names_the_selection(fpage):

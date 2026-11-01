@@ -5,7 +5,7 @@ import re
 import pytest
 
 from chains import tid
-from helpers import settle
+from helpers import open_controls, settle
 from test_pattern_flags import CHAIN_LABEL, scene
 
 MODEL_URL = "http://127.0.0.1:11434/v1"
@@ -49,6 +49,7 @@ def chat(text):
 
 
 def open_ai(page, local=False):
+    open_controls(page)
     page.evaluate("() => { document.getElementById('anSection').open = true; document.getElementById('aiSection').open = true; }")
     if local:
         page.evaluate("() => { document.getElementById('aiLocal').open = true; }")

@@ -6,7 +6,7 @@ import re
 import pytest
 
 from conftest import ADDRESS, NORMAL, PAGE_URL, ROOT
-from helpers import idle, open_query, wallet_export
+from helpers import idle, open_controls, open_query, wallet_export
 from test_wallet_page import WALLET_URL, goto, wpage  # noqa: F401  (the fixture is used by name)
 from test_wallet_sample import SAMPLE, serve_sample
 
@@ -90,7 +90,7 @@ def test_a_published_copy_keeps_no_session_unless_the_visitor_ticks_it(ctx, erro
     assert not p.is_checked("#persist")
     open_query(p, NORMAL["txid"]); p.wait_for_timeout(1300)
     assert p.evaluate("() => localStorage.getItem('hopline.workspace.v1')") is None, "nothing was written to the browser"
-    p.click("summary:has-text('Privacy')"); p.check("#persist"); p.wait_for_timeout(1300)
+    open_controls(p); p.click("summary:has-text('Privacy')"); p.check("#persist"); p.wait_for_timeout(1300)
     assert p.evaluate("() => localStorage.getItem('hopline.workspace.v1')") is not None, "ticking it keeps the session"
     p.reload(); p.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert p.is_checked("#persist") and p.is_visible("#restore"), "the choice is remembered, and the saved session is offered"
