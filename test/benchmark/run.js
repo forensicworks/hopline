@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * The benchmark: every case in a folder, measured, printed, and with --write-docs written to docs/benchmark-results.md.
+ * The benchmark: every case in a folder, measured, printed, and with --write-docs written to docs/benchmark-results.md
+ * (docs/benchmark-wallets-results.md when the cases are the real-wallet ones, tier B).
  *
  *   node test/benchmark/run.js [--cases <folder>] [--write-docs] [--json <file>] [--date YYYY-MM-DD]
  *
@@ -10,7 +11,7 @@
 const fs = require('fs'), path = require('path'), cp = require('child_process');
 const { listCases, loadCase, sha256 } = require('./lib/cases.js');
 const { evaluateCase } = require('./lib/evaluate.js');
-const { toMarkdown } = require('./lib/report.js');
+const { toMarkdown, pageOf } = require('./lib/report.js');
 
 const ROOT = path.join(__dirname, '..', '..'), DEFAULT_CASES = path.join(__dirname, 'cases', 'regtest-v1');
 
@@ -35,9 +36,11 @@ function run(flags) {
   if (!dirs.length) { process.stderr.write('No cases in ' + (flags.cases || DEFAULT_CASES) + '. Make them with tools/bench/make_regtest.py.\n'); process.exit(2); }
   const cases = dirs.map(loadCase);
   const results = cases.map((c) => evaluateCase(c));
+  const tiers = Array.from(new Set(cases.map((c) => c.meta.tier)));
   const meta = { date: flags.date || new Date().toISOString().slice(0, 10), commit: commit(), node: process.version,
                  analysisSha: sha256(fs.readFileSync(path.join(ROOT, 'public', 'js', 'hopline-analysis.js'))),
-                 cases: cases.map((c) => ({ name: c.name, madeBy: (c.meta.generator || '') + (c.meta.seed != null ? ', seed ' + c.meta.seed : ''), files: c.files })) };
+                 tier: tiers.length === 1 ? tiers[0] : undefined,
+                 cases: cases.map((c) => ({ name: c.name, madeBy: (c.meta.generator || '') + (c.meta.seed != null ? ', seed ' + c.meta.seed : ''), summary: c.meta.summary, files: c.files })) };
   return { results, meta, markdown: toMarkdown(results, meta) };
 }
 
@@ -45,7 +48,7 @@ if (require.main === module) {
   const flags = args(process.argv.slice(2)), out = run(flags);
   process.stdout.write(out.markdown);
   if (flags.json) fs.writeFileSync(flags.json, JSON.stringify({ meta: out.meta, results: out.results }, null, 1));
-  if (flags.writeDocs) { fs.writeFileSync(path.join(ROOT, 'docs', 'benchmark-results.md'), out.markdown); process.stderr.write('Wrote docs/benchmark-results.md\n'); }
+  if (flags.writeDocs) { const page = pageOf(out.meta); fs.writeFileSync(path.join(ROOT, 'docs', page), out.markdown); process.stderr.write('Wrote docs/' + page + '\n'); }
 }
 
 module.exports = { run };
