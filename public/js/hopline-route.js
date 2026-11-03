@@ -102,16 +102,19 @@
     return (dir === 'next' ? idx.spenders : idx.payers).get(id) || [];
   }
 
-  /** Breadth-first over the coins from the given transactions: dist = how many transactions it took (a start is 1), via = the link that led to it. */
-  function walk(idx, starts, dir, hub, max) {
+  /**
+   * Breadth-first over the coins from the given transactions: dist = how many transactions it took (a start is 1), via = the link that led to it.
+   * `skip` (a Set of transaction ids) are never entered, which is how a route that avoids them is found.
+   */
+  function walk(idx, starts, dir, hub, max, skip) {
     var dist = new Map(), via = new Map(), queue = [];
-    starts.forEach(function (s) { if (!dist.has(s)) { dist.set(s, 1); via.set(s, null); queue.push(s); } });
+    starts.forEach(function (s) { if (!dist.has(s) && !(skip && skip.has(s))) { dist.set(s, 1); via.set(s, null); queue.push(s); } });
     for (var i = 0; i < queue.length; i++) {
       var t = queue[i], d = dist.get(t);
       if (d >= max) continue;
       ((dir === 'next' ? idx.succ : idx.pred).get(t) || []).forEach(function (l) {
         var nxt = dir === 'next' ? l.to : l.from;
-        if (dist.has(nxt)) return;
+        if (dist.has(nxt) || (skip && skip.has(nxt))) return;
         if (hub && hub(l.address)) return;                                     // a service wallet mixes everyone's coins: the route stops there
         dist.set(nxt, d + 1); via.set(nxt, l); queue.push(nxt);
       });
@@ -122,8 +125,8 @@
   function hubIn(links, hub) { var out = []; links.forEach(function (l) { if (hub && hub(l.address) && out.indexOf(l.address) < 0) out.push(l.address); }); return out; }
 
   // ---- finding a route ------------------------------------------------------------------------------
-  function attempt(idx, fromId, toId, hub, max) {
-    var w = walk(idx, startsFor(idx, fromId, 'next'), 'next', hub, max), goal = null;
+  function attempt(idx, fromId, toId, hub, max, skip) {
+    var w = walk(idx, startsFor(idx, fromId, 'next'), 'next', hub, max, skip), goal = null;
     if (/^tx:/.test(toId)) { if (w.dist.has(toId)) goal = toId; }
     else (idx.payers.get(toId) || []).forEach(function (t) { if (w.dist.has(t) && (!goal || w.dist.get(t) < w.dist.get(goal))) goal = t; });
     return goal ? build(idx, fromId, toId, goal, w) : null;
@@ -131,17 +134,45 @@
 
   /**
    * The shortest route the money took from `fromId` to `toId` (a wallet or a transaction each), or null when there is none in what
-   * is loaded. opts: { hub, max }. Without a way round, a route that crosses a service wallet is returned with `viaHub` naming it.
+   * is loaded. opts: { hub, max, skip (a Set of transaction ids the route must not use) }. Without a way round, a route that crosses a service wallet is
+   * returned with `viaHub` naming it.
    * { from, to, vertices: [ids in order], edges: [edge ids], txs: [ids], hops, steps: [...], first, last, mixing: [steps that merge many inputs], viaHub: [wallet ids] }
    */
   function find(idx, fromId, toId, opts) {
     opts = opts || {};
     if (!fromId || !toId || fromId === toId) return null;
-    var max = opts.max || MAX_TXS, r = attempt(idx, fromId, toId, opts.hub, max);
+    var max = opts.max || MAX_TXS, r = attempt(idx, fromId, toId, opts.hub, max, opts.skip);
     if (r || !opts.hub) return r;
-    r = attempt(idx, fromId, toId, null, max);
+    r = attempt(idx, fromId, toId, null, max, opts.skip);
     if (r) r.viaHub = hubIn(r.links, opts.hub);
     return r && r.viaHub.length ? r : null;
+  }
+
+  /**
+   * The routes between two vertices, the shortest first, as many as `count` (5 by default, at most 10): { routes: [the shape find returns], more }.
+   * The first is find's. Each further one is the shortest that avoids one transaction of a route already found (and, from there, of the next ones), so every
+   * route differs from the others in at least one transaction. A route that is only found across a service wallet comes after those that are not.
+   * `more` says that candidates were left when the count was reached. It is not a promise that these are every route there is.
+   * opts: { hub, max, count }.
+   */
+  function findMany(idx, fromId, toId, opts) {
+    opts = opts || {};
+    var want = Math.max(1, Math.min(10, opts.count == null ? 5 : opts.count)), first = find(idx, fromId, toId, opts);
+    if (!first) return { routes: [], more: false };
+    var found = [], pool = [{ route: first, ban: new Set() }], seen = new Set([first.txs.join('>')]);
+    function rank(a, b) { return (a.route.viaHub.length ? 1 : 0) - (b.route.viaHub.length ? 1 : 0) || a.route.hops - b.route.hops || (a.route.first == null ? 1e15 : a.route.first) - (b.route.first == null ? 1e15 : b.route.first); }
+    while (pool.length && found.length < want) {
+      pool.sort(rank);
+      var cur = pool.shift();
+      found.push(cur.route);
+      cur.route.txs.forEach(function (t) {
+        if (cur.ban.has(t) || t === fromId || t === toId) return;                       // a transaction that is an end of the question is on every route
+        var ban = new Set(cur.ban); ban.add(t);
+        var r = find(idx, fromId, toId, Object.assign({}, opts, { skip: ban })), key = r ? r.txs.join('>') : '';
+        if (r && !seen.has(key)) { seen.add(key); pool.push({ route: r, ban: ban }); }
+      });
+    }
+    return { routes: found, more: pool.length > 0 };
   }
 
   function build(idx, fromId, toId, goal, w) {
@@ -493,6 +524,6 @@
              openEnds: { next: endsSummary(openEnds(idx, refId, 'next', { stop: opts.stop, max: opts.max }), has), prev: endsSummary(openEnds(idx, refId, 'prev', { stop: opts.stop, max: opts.max }), has) } };
   }
 
-  return { MAX_TXS: MAX_TXS, MERGE_INPUTS: MERGE_INPUTS, isHub: isHub, nameOf: nameOf, listedName: listedName, referenceOf: referenceOf, index: index, find: find, relations: relations, openEnds: openEnds,
+  return { MAX_TXS: MAX_TXS, MERGE_INPUTS: MERGE_INPUTS, isHub: isHub, nameOf: nameOf, listedName: listedName, referenceOf: referenceOf, index: index, find: find, findMany: findMany, relations: relations, openEnds: openEnds,
            handoffs: handoffs, endsSuccessors: endsSuccessors, pickEnds: pickEnds, timeWindow: timeWindow, endRank: endRank, connect: connect, trace: trace, offscreen: offscreen };
 }));

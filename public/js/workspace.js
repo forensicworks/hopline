@@ -3623,7 +3623,7 @@
     return rd;
   }
   /** What the route part of the Findings depends on besides the analysis: the reference, the stop rule, the direction of the open ends, the route that is lit. */
-  function routeStamp() { var rf = routeLit(); return routeData().key + '|' + state.openDir + '|' + (rf ? rf.route.from + '>' + rf.route.to : '') + '|' + offscreenKey(); }
+  function routeStamp() { var rf = routeLit(); return routeData().key + '|' + state.openDir + '|' + (rf ? rf.route.from + '>' + rf.route.to + '#' + rf.at : '') + '|' + offscreenKey(); }
   /** Where the trail from the reference is still open, forward ('next') or backward ('prev'). null without a reference. */
   function routeEnds(dir) {
     var d = routeData();
@@ -3633,6 +3633,7 @@
     return d.ends[dir];
   }
 
+  var routeSeq = 0;
   /** The route that is lit, or null; one whose vertices are gone (deleted, another workspace) clears itself. */
   function routeLit() {
     var rf = state.routeFocus;
@@ -3685,7 +3686,7 @@
       return false;
     }
     stat('route-show');
-    state.chainFocus = null; state.routeFocus = { route: r };
+    state.chainFocus = null; state.routeFocus = { route: r, alts: null, at: ++routeSeq };
     var added = traceOn() ? traceRevealRoutes([r]) : 0;
     applyChain(); findingsFor = null; updateFindings(); openFindings('route');
     var vis = renderer.data ? renderer.data.visible.nodes : null, on = vis ? r.vertices.filter(function (id) { return vis.has(id); }) : r.vertices;
@@ -3763,9 +3764,56 @@
     if (r.viaHub.length) box.appendChild(el('p', { 'class': 'hint warn' }, [el('b', { text: 'Only found across ' + r.viaHub.map(routeName).join(', ') + '. ' }), 'A service wallet mixes everyone\'s coins, so this is not evidence of a link.']));
     if (r.mixing.length) box.appendChild(el('p', { 'class': 'hint', text: 'Step ' + r.steps.map(function (s, i) { return s.merges ? i + 1 : 0; }).filter(Boolean).join(', ') + ' merge' + (r.mixing.length === 1 ? 's' : '') + ' many inputs: coins of other origins join the route there, so it shows where these coins could have gone, not that all of that money did.' }));
     box.appendChild(el('p', { 'class': 'hint', text: 'Each step is the transaction that spent the coin before it, so the money could have travelled this way. It does not say who controls the wallets in between.' }));
+    if (rf.alts && rf.alts.sig !== state.anSig) rf.alts = null;                       // something was loaded or changed since: the list may be out of date
     box.appendChild(el('div', { 'class': 'insp-actions' }, [
       el('button', { type: 'button', text: 'Copy route', onclick: function () { copy(routeText(r), 'the route'); } }),
+      el('button', { type: 'button', 'data-more-routes': 'find', text: rf.alts ? 'Search again' : 'Find other routes', title: 'Look in what is loaded for up to four more routes between the same two vertices, each avoiding a transaction of the ones found before',
+                     onclick: findOtherRoutes }),
       el('button', { type: 'button', text: 'Clear', title: 'Take the highlight off', onclick: clearChain })]));
+    if (rf.alts) {
+      var list = rf.alts.routes, key = r.txs.join('>');
+      box.appendChild(h.head(list.length > 1 ? 'Routes found (' + list.length + ')' : 'Other routes', 'routes'));
+      if (list.length > 1) list.forEach(function (alt, i) {
+        var notes = [];
+        if (alt.viaHub.length) notes.push('only across a service wallet');
+        if (alt.mixing.length) notes.push(plural(alt.mixing.length, 'step') + ' merge' + (alt.mixing.length === 1 ? 's' : '') + ' many inputs');
+        var lit = alt.txs.join('>') === key;
+        var left = el('span', { 'class': 'rowtext' }, ['Route ' + (i + 1) + ' · ' + plural(alt.hops, 'transaction') + (alt.first == null ? '' : ' · ' + S.fmtTime(alt.first) + (alt.last !== alt.first ? ' → ' + S.fmtTime(alt.last) : '')),
+          notes.length ? el('small', { text: notes.join(' · ') }) : null]);
+        var row = h.row(left, lit ? 'shown' : '', lit ? 'The route that is lit now' : 'Light this route', function () { if (!lit) lightRoute(alt); });
+        row.setAttribute('data-route', String(i + 1)); if (lit) row.setAttribute('aria-current', 'true');
+        box.appendChild(row);
+      });
+      box.appendChild(el('p', { 'class': 'hint', text: list.length > 1
+        ? 'Shortest first, a route across a service wallet after the others. Each differs from the rest in at least one transaction. ' + (rf.alts.more ? 'More exist than the ' + list.length + ' listed; ' : 'These are the routes found in what is loaded: ') + 'a route that needs something not loaded yet is not in the list (Open ends show where the trail could go on).'
+        : 'No other route in what is loaded: every other way round was tried by leaving out one transaction of this one at a time. Open ends show where the trail could go on.' }));
+    }
+  }
+
+  /** Look for more routes between the two ends of the lit one and list them under it. */
+  function findOtherRoutes() {
+    var rf = routeLit(), d = routeData();
+    if (!rf || !d.idx) return;
+    var many = RT.findMany(d.idx, rf.route.from, rf.route.to, { hub: routeHub, count: 5 });
+    stat('route-more');
+    rf.alts = { routes: many.routes, more: many.more, sig: state.anSig }; rf.at = ++routeSeq;
+    findingsFor = null; updateFindings(); openFindings('routes');
+    toast(many.routes.length > 1 ? plural(many.routes.length, 'route') + ' between ' + routeName(rf.route.from) + ' and ' + routeName(rf.route.to) + (many.more ? ', and more exist' : '') + '. Click one in the Findings to light it.'
+                                  : 'No other route in what is loaded.', false);
+  }
+
+  /** Light another of the routes found: it replaces the one that is lit, and in the Trace layout what is not on screen is added (Ctrl+Z takes it back). */
+  function lightRoute(r) {
+    var rf = routeLit();
+    if (!rf) return;
+    stat('route-switch');
+    state.routeFocus = { route: r, alts: rf.alts, at: ++routeSeq };
+    var added = traceOn() ? traceRevealRoutes([r]) : 0;
+    applyChain(); findingsFor = null; updateFindings(); openFindings('routes');
+    var vis = renderer.data ? renderer.data.visible.nodes : null, on = vis ? r.vertices.filter(function (id) { return vis.has(id); }) : r.vertices;
+    if (on.length) renderer.frame(on);
+    toast('Route: ' + plural(r.hops, 'transaction') + (r.viaHub.length ? ', only across ' + r.viaHub.map(routeName).join(', ') + ', a service wallet' : '') + '.' + (added ? ' ' + plural(added, 'vertex', 'vertices') + ' shown (Ctrl+Z takes them back).' : '')
+      + (on.length < r.vertices.length && !traceOn() ? ' Some of it is hidden by the Focus view, a filter or the time bar.' : ''), !!r.viaHub.length);
   }
 
   // ---- service hand-offs, suggested names, searching for a route, large wallets ---------------------------------------------------------------
