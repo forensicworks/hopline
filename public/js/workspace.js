@@ -3861,10 +3861,10 @@
   function handoffBlock(box, h) {
     var rows = routeHandoffs(), d = routeData();
     if (!rows.length) return;
-    var swaps = rows.some(handoffSwap), named = rows.some(handoffNamed), wide = named || swaps;
-    box.appendChild(h.head(wide ? 'Hand-offs' : 'Service hand-offs', 'handoff'));
-    box.appendChild(el('p', { 'class': 'hint', text: 'Where the trail from ' + routeName(d.ref) + ' meets ' + (wide ? 'a service wallet (money going into it is a deposit, coming out of it a withdrawal)' + (named ? ', a wallet on a sanctions or ransomware list that the trail passes through' : '') + (swaps ? ', or a transaction whose OP_RETURN asks for a swap into another chain (the memo says where it is to be paid out: a lead to follow there)' : '') + ', oldest first.'
-      : 'a service wallet, oldest first: money going into one (a deposit) or coming out of one (a withdrawal).') }));
+    var swaps = rows.some(handoffSwap), named = rows.some(handoffNamed);
+    box.appendChild(h.head(named || swaps ? 'Hand-offs' : 'Service hand-offs', 'handoff'));
+    box.appendChild(el('p', { 'class': 'hint', text: 'Where the trail from ' + routeName(d.ref) + ' meets ' + (named ? 'a wallet that a list names, oldest first: a service wallet (money going into it is a deposit, coming out of it a withdrawal), or a wallet on a sanctions or ransomware list that the trail passes through.'
+      : 'a service wallet, oldest first: money going into one (a deposit) or coming out of one (a withdrawal).') + (swaps ? ' A row marked swap memo is a transaction whose OP_RETURN asks for a swap into another chain or carries a cross-chain request ID: money went into a swap or a transfer there, and a swap memo says where it is to be paid out (a lead to follow on that chain).' : '') }));
     rows.slice(0, 12).forEach(function (r) {
       var deposit = r.dir === 'deposit', nm = handoffNamed(r), sw = handoffSwap(r);
       var left = el('span', { 'class': 'rowtext' }, [(deposit ? '▶ ' : '◀ ') + r.service,
