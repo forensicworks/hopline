@@ -497,7 +497,7 @@
     }
     var stats = opts.after ? Promise.resolve(true) : ex.client.address(addr).then(function (a) {
       total = (a.chain_stats ? a.chain_stats.tx_count : 0) + (a.mempool_stats ? a.mempool_stats.tx_count : 0);
-      ex.graph.addAddressStats(addr, a, { at: Math.floor(Date.now() / 1000), source: srcOf(ex, a) });
+      ex.graph.addAddressStats(addr, a, { at: Math.floor(Date.now() / 1000), source: srcOf(ex, a), history: true });
       return true;
     }, function (e) {
       if (e && (e.status === 400 || e.kind === 'notfound')) errors.push('"' + addr + '" is not a valid Bitcoin address (the server rejected it)');

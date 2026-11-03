@@ -65,6 +65,7 @@
     if ('spendsCheckedAt' in c && !int(c.spendsCheckedAt, 0, 4102444800)) delete c.spendsCheckedAt;
     ['fundedSum', 'spentSum', 'mempoolFundedSum', 'mempoolSpentSum'].forEach(function (k) { if (k in c && !int(c[k], 0, 2100000000000000)) delete c[k]; });
     if ('statsAt' in c && !int(c.statsAt, 0, 4102444800)) delete c.statsAt;
+    if ('balanceOnly' in c && c.balanceOnly !== true) delete c.balanceOnly;
     if ('statsSource' in c && !(typeof c.statsSource === 'string' && c.statsSource.length <= 300 && /^https?:\/\/[^\s<>"']+$/i.test(c.statsSource))) delete c.statsSource;
     if ('source' in c && !(typeof c.source === 'string' && c.source.length <= 300 && /^https?:\/\/[^\s<>"']+$/i.test(c.source))) delete c.source;
     if ('seqs' in c) c.seqs = Array.isArray(c.seqs) ? c.seqs.filter(function (s) { return int(s, 0, 4294967295); }).slice(0, 4) : [];
@@ -126,11 +127,15 @@
     return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
   function row(cells) { return cells.join(','); }
+  /** What outside sources said about a wallet, in one cell, source by source: "Arkham Intelligence: Binance · Hot Wallet (cex) [2026-10-29 12:00:00 UTC] | Other: no entry". */
+  function lookupsText(n) {
+    return Ext.entries(n).map(function (e) { return e.sourceName + ': ' + (e.found ? e.label + (e.category ? ' (' + e.category + ')' : '') : 'no entry') + (e.at ? ' [' + Style.fmtTimeFull(e.at) + ']' : ''); }).join(' | ');
+  }
 
   var NODE_COLS = ['id', 'type', 'label', 'note', 'address', 'txid', 'vout', 'script_type', 'time_unix', 'time_utc', 'height', 'confirmed',
                    'first_seen_unix', 'last_seen_unix', 'received_sat', 'sent_sat', 'degree', 'op_return_text', 'op_return_hex',
                    'tag', 'color', 'shape', 'ext_arkham_name', 'ext_arkham_type', 'ext_arkham_label',
-                   'patterns', 'cluster', 'cluster_size', 'excluded_from_clustering', 'data_source', 'retrieved_unix', 'retrieved_utc', 'version', 'locktime', 'balance_sat', 'balance_pending_sat', 'balance_as_of_utc'];
+                   'patterns', 'cluster', 'cluster_size', 'excluded_from_clustering', 'data_source', 'retrieved_unix', 'retrieved_utc', 'version', 'locktime', 'balance_sat', 'balance_pending_sat', 'balance_as_of_utc', 'ext_lookups'];
   var EDGE_COLS = ['edge_id', 'txid', 'kind', 'source', 'source_label', 'target', 'target_label', 'amount_sat', 'amount_btc', 'time_unix', 'time_utc',
                    'confirmed', 'spent', 'spent_by_txid', 'fiat_value', 'fiat_currency', 'fiat_price_per_btc', 'fiat_basis', 'likely_change'];
 
@@ -163,7 +168,7 @@
                         cell(n.tag), cell(n.color), cell(n.shape), cell(ark.name), cell(ark.type), cell(ark.label),
                         cell(an.patterns), cell(an.cluster), cell(an.clusterSize), cell(n.noCluster === true ? 'true' : ''),
                         cell(n.source), cell(n.fetchedAt), cell(n.fetchedAt != null ? Style.fmtTimeFull(n.fetchedAt) : ''), cell(n.version), cell(n.locktime),
-                        cell(bal ? bal.confirmed : ''), cell(bal ? bal.pending : ''), cell(bal && n.statsAt != null ? Style.fmtTimeFull(n.statsAt) : '')]));
+                        cell(bal ? bal.confirmed : ''), cell(bal ? bal.pending : ''), cell(bal && n.statsAt != null ? Style.fmtTimeFull(n.statsAt) : ''), cell(lookupsText(n))]));
       });
     }
     return lines.join('\r\n') + '\r\n';

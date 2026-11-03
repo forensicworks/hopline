@@ -73,7 +73,7 @@
     if (!n || (n.type !== 'tx' && n.type !== 'addr')) return { ids: [], known: 0, unknown: false, outside: 0 };
     var ids = [], outside = 0;
     neighbours(graph, id, dir).forEach(function (r) { if (shown.has(r.id)) return; if (inRange(r, range)) ids.push(r.id); else outside++; });
-    var unknown = n.type === 'tx' ? n.loaded === false : (n.txCount == null || !!n.histNext);
+    var unknown = n.type === 'tx' ? n.loaded === false : (!Model.historyRead(n) || !!n.histNext);
     return { ids: ids, known: ids.length, unknown: unknown, outside: outside };
   }
 

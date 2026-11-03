@@ -309,3 +309,25 @@ test('address stats give a balance: confirmed, unconfirmed apart, and null until
   g.addAddressStats('C', {}, {});
   assert.equal(balanceOf(g.node(ID.addr('C'))), null); assert.equal(g.node(ID.addr('C')).txCount, 0);
 });
+
+test('a balance read alone does not count as the wallet\'s history being read', () => {
+  const { historyRead } = require('../public/js/hopline-model.js');
+  const stats = { chain_stats: { funded_txo_sum: 900000, spent_txo_sum: 900000, tx_count: 4 }, mempool_stats: {} };
+  const g = new Graph();
+  g.upsertNode({ id: ID.addr('A'), type: 'addr', address: 'A' });
+  assert.equal(historyRead(g.node(ID.addr('A'))), false, 'nothing asked for');
+  g.addAddressStats('A', stats, { at: 1 });
+  const a = g.node(ID.addr('A'));
+  assert.equal(a.txCount, 4); assert.equal(a.balanceOnly, true); assert.equal(historyRead(a), false, 'it knows how many transactions there are, and has none of them');
+  g.addAddressStats('A', stats, { at: 2 });
+  assert.equal(historyRead(g.node(ID.addr('A'))), false, 'a second balance read changes nothing');
+  g.addAddressStats('A', stats, { at: 3, history: true });
+  assert.equal(historyRead(g.node(ID.addr('A'))), true, 'read together with the transactions'); assert.equal('balanceOnly' in g.node(ID.addr('A')), false);
+  g.addAddressStats('A', stats, { at: 4 });
+  assert.equal(historyRead(g.node(ID.addr('A'))), true, 'and a later balance read does not undo that');
+  g.addAddressStats('B', stats, { at: 1, history: true });
+  assert.equal(historyRead(g.node(ID.addr('B'))), true);
+  g.upsertNode({ id: ID.addr('OLD'), type: 'addr', address: 'OLD', txCount: 9 });                      // a file or a session from before the difference was kept
+  assert.equal(historyRead(g.node(ID.addr('OLD'))), true);
+  assert.equal(historyRead(null), false); assert.equal(historyRead({ type: 'tx', txCount: 3 }), false);
+});

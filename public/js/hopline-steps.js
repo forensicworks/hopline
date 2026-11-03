@@ -116,7 +116,7 @@
     if (rows.some(function (r) { return r.type === 'unspent'; })) return 'Unspent so far: the coins have not moved';
     if (n.type === 'tx' && n.loaded === false) return 'Not loaded yet: move to this transaction first';
     if (n.type === 'tx' && dir === 'next' && !n.outspendsLoaded) return 'Spending information not loaded yet';
-    if (n.type === 'addr' && n.txCount == null) return 'History of this wallet is not loaded: use Load history';
+    if (n.type === 'addr' && !Model.historyRead(n)) return 'History of this wallet is not loaded: use Load history';
     return dir === 'prev' ? 'Nothing before this in what is loaded' : 'Nothing after this in what is loaded';
   }
 

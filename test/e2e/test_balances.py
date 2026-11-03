@@ -150,3 +150,99 @@ def test_hostile_balance_values_in_an_imported_file_are_dropped(fpage, mock):
     assert all(k not in n for k in ("fundedSum", "spentSum", "mempoolFundedSum", "statsAt", "statsSource"))
     select(fpage, SMALL_ADDR)
     assert "not loaded yet" in insp(fpage)
+
+
+def switch_auto(page, on=True):
+    page.evaluate("(on) => { const c = document.getElementById('autoBalance'); c.checked = on; c.dispatchEvent(new Event('change')); }", on); settle(page)
+
+
+def test_selecting_a_wallet_does_not_read_its_balance_when_the_setting_is_off(fpage, mock):
+    open_query(fpage, NORMAL["txid"])
+    stats(mock, SMALL_ADDR, 200000, 150000)
+    switch_auto(fpage, False)
+    n = len(mock.requests)
+    select(fpage, SMALL_ADDR); fpage.wait_for_timeout(700); idle(fpage)
+    assert [p for _, p in mock.requests[n:]] == [] and "not loaded yet" in insp(fpage)
+
+
+def test_with_the_setting_on_selecting_one_wallet_reads_its_balance_once_and_quietly(fpage, mock):
+    open_query(fpage, NORMAL["txid"])
+    stats(mock, SMALL_ADDR, 200000, 150000)
+    switch_auto(fpage)
+    n = len(mock.requests)
+    select(fpage, SMALL_ADDR)
+    fpage.wait_for_function("(a) => window.__hopline.state.graph.nodes.get('addr:' + a).statsAt != null", arg=SMALL_ADDR, timeout=15000); idle(fpage); settle(fpage)
+    assert [p for _, p in mock.requests[n:]] == ["/address/" + SMALL_ADDR], "one request, no history"
+    assert "0.00050000 BTC" in insp(fpage) and "not loaded yet" not in insp(fpage)
+    assert "Read the balance" not in toast_text(fpage), "no message for a read nobody asked for"
+    select(fpage, BIG_ADDR); select(fpage, SMALL_ADDR); fpage.wait_for_timeout(700); idle(fpage)
+    assert [p for _, p in mock.requests[n:]].count("/address/" + SMALL_ADDR) == 1, "a wallet whose balance is known is not asked again"
+
+
+def test_the_setting_never_reads_for_a_box_of_wallets_or_a_wallet_that_failed_before(fpage, mock):
+    open_query(fpage, NORMAL["txid"])
+    switch_auto(fpage)
+    n = len(mock.requests)
+    select(fpage, SMALL_ADDR, BIG_ADDR); fpage.wait_for_timeout(700); idle(fpage)
+    assert [p for _, p in mock.requests[n:]] == [], "two wallets selected: nothing is read by itself"
+    mock.fail["/address/" + SMALL_ADDR] = 500                                                # the server fails for this wallet
+    select(fpage, SMALL_ADDR)
+    fpage.wait_for_timeout(1500); idle(fpage)
+    first = [p for _, p in mock.requests[n:]].count("/address/" + SMALL_ADDR)
+    select(fpage, BIG_ADDR); select(fpage, SMALL_ADDR); fpage.wait_for_timeout(1500); idle(fpage)
+    assert [p for _, p in mock.requests[n:]].count("/address/" + SMALL_ADDR) == first, "a failed read is not retried by itself; the button is still there"
+    assert fpage.locator("#inspBody button:has-text('Load balance')").count() == 1
+
+
+def trace_to_wallets(page):
+    """The Trace layout: the transaction, then the two wallets it paid. Only the transaction's own data is loaded, not the wallets' histories."""
+    page.click("#sideTab") if page.is_visible("#sideTab") else None
+    open_query(page, NORMAL["txid"])
+    page.click("#layoutSeg [data-layout=trace]"); settle(page)
+    page.evaluate("(id) => window.__hopline.traceExpand(id, 'next')", "tx:" + NORMAL["txid"]); idle(page); settle(page)
+
+
+def test_a_wallet_whose_balance_alone_was_read_still_has_its_history_to_load_when_you_follow_it_forward(fpage, mock):
+    from conftest import SPENDERS
+    spender = next(t for t in SPENDERS if t["vin"][0]["prevout"].get("scriptpubkey_address") == BIG_ADDR)
+    stats(mock, BIG_ADDR, 2104530, 2104530)                                          # it received 0.021 and spent all of it: the balance is 0
+    mock.routes["/address/" + BIG_ADDR + "/txs"] = [spender, NORMAL]
+    mock.fail["/tx/%s/outspends" % NORMAL["txid"]] = 500                             # nothing in the graph says the coins were spent
+    trace_to_wallets(fpage)
+    switch_auto(fpage, False)
+    select(fpage, BIG_ADDR)
+    fpage.click("#inspBody button:has-text('Load balance')"); idle(fpage); settle(fpage)
+    t = insp(fpage)
+    assert "0.00000000 BTC" in t and "received 0.02104530 BTC, sent 0.02104530 BTC" in t
+    assert "not in the graph yet" in t.lower() and "sent 0.02104530 BTC: press Load history to bring it in" in t, "it says the graph is missing what the totals count"
+    assert "history not loaded: press Load history" in t
+    assert fpage.locator("#inspBody button:has-text('Load history')").count() == 1 and fpage.is_enabled("#inspBody button:has-text('Load history')"), "reading the balance did not load the history"
+    n = len(mock.requests)
+    fpage.evaluate("(id) => window.__hopline.traceExpand(id, 'next')", "addr:" + BIG_ADDR); idle(fpage); settle(fpage)
+    assert "/address/%s/txs" % BIG_ADDR in [p for _, p in mock.requests[n:]], "following the wallet forward asks for its history, which the balance did not"
+    shown = set(fpage.evaluate("() => [...window.__hopline.renderer.data.visible.nodes]"))
+    assert "tx:" + spender["txid"] in shown, "and the transaction that spent it appears"
+    select(fpage, BIG_ADDR)
+    t = insp(fpage)
+    assert "not in the graph yet" not in t.lower() and "(all loaded)" in t, "once the history is in there is nothing left to say"
+
+
+def test_a_new_visitor_has_the_balance_read_when_one_wallet_is_selected(newpage, mock):
+    open_query(newpage, NORMAL["txid"])
+    stats(mock, SMALL_ADDR, 200000, 150000)
+    assert newpage.evaluate("() => document.getElementById('autoBalance').checked") is True, "on by default"
+    n = len(mock.requests)
+    select(newpage, SMALL_ADDR)
+    newpage.wait_for_function("(a) => window.__hopline.state.graph.nodes.get('addr:' + a).statsAt != null", arg=SMALL_ADDR, timeout=15000); idle(newpage); settle(newpage)
+    assert [p for _, p in mock.requests[n:]] == ["/address/" + SMALL_ADDR], "one request, no history"
+    assert "0.00050000 BTC" in insp(newpage) and "not loaded yet" not in insp(newpage)
+    assert "history not loaded: press Load history" in insp(newpage), "and it does not pretend the history came with it"
+
+
+def test_switching_it_off_is_remembered_and_an_older_saved_setting_gets_the_default(newpage, mock):
+    switch_auto(newpage, False)
+    newpage.reload(); newpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    assert newpage.evaluate("() => document.getElementById('autoBalance').checked") is False, "a choice made is kept"
+    newpage.evaluate("() => localStorage.setItem('hopline.prefs.v1', JSON.stringify({ stepSize: 5 }))")                 # settings saved before there was such a setting
+    newpage.reload(); newpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    assert newpage.evaluate("() => document.getElementById('autoBalance').checked") is True

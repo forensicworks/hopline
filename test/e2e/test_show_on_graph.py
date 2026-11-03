@@ -62,7 +62,8 @@ def test_show_on_graph_brings_all_the_ticked_ones_in_and_moves_the_view_to_them(
     start(fpage, mock)
     hide(fpage, HIDE)
     tick(fpage, 106, 107)
-    assert buttons(fpage) == ["Show on graph (2)", "Select on graph", "Copy ids", "Clear"]
+    assert buttons(fpage) == ["Show on graph (2)", "As one vertex", "Select on graph", "Copy ids", "Clear"], "'As one vertex' is there, and off while the Focus view is off"
+    assert fpage.is_disabled("#inspBody .walletpick >> text=As one vertex")
     assert "not on screen" in fpage.get_attribute("#inspBody .walletpick >> text=Show on graph", "title") or True
     fpage.click("#inspBody .walletpick >> text=Show on graph"); settle(fpage)
     on = on_screen(fpage)
@@ -107,10 +108,12 @@ def test_everything_ticked_is_on_screen_already_the_view_just_moves(fpage, mock)
     assert fpage.evaluate("() => window.__hopline.state.hidden.size") == 0
 
 
-def test_the_buttons_for_a_group_vertex_stay_in_the_trace_layout(fpage, mock):
+def test_a_group_vertex_outside_a_trace_needs_the_focus_view_because_it_stands_for_what_the_focus_view_keeps_off(fpage, mock):
     start(fpage, mock)
     tick(fpage, 106, 107)
-    assert "As one vertex" not in buttons(fpage)
+    b = fpage.locator("#inspBody .walletpick >> text=As one vertex")
+    assert b.count() == 1 and b.is_disabled()
+    assert "Focus view" in b.get_attribute("title"), "it says what it needs"
 
 
 def test_select_on_graph_is_still_there_and_selects_them(fpage, mock):

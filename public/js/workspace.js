@@ -53,12 +53,12 @@
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: true, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true,
-    trace: emptyTrace(), routeRef: null, routeFocus: null, openDir: 'next',
+    trace: emptyTrace(), vgroups: new Map(), vseq: 0, routeRef: null, routeFocus: null, openDir: 'next',
     undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
-    stepMode: 'ask', stepSize: 5, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
+    stepMode: 'ask', stepSize: 5, autoBalance: true, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
-    ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: false, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
+    ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: {}, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
     busy: false, playMs: 90, layoutRes: null, client: null, explorer: null, tb: { min: null, max: null }, amountMax: 0, playTimer: null,
     log: []
@@ -194,7 +194,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, autoBalance: state.autoBalance, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -203,7 +203,7 @@
       if (A.PRESETS[p.source]) state.source = p.source;
       state.fallback = p.fallback !== false;
       if (p.stepMode === 'ask' || p.stepMode === 'batch' || p.stepMode === 'all') state.stepMode = p.stepMode;
-      state.stepSize = num(p.stepSize, 1, 50, 5); state.arrowsInRange = p.arrowsInRange !== false;
+      state.stepSize = num(p.stepSize, 1, 50, 5); state.autoBalance = p.autoBalance !== false; state.arrowsInRange = p.arrowsInRange !== false;
       state.groupRows = p.groupRows !== false; state.groupBy = cleanGroupBy(p.groupBy); state.dustSats = num(p.dustSats, 0, 1000000000, 10000);
       if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old' || p.chooseSort === 'known') state.chooseSort = p.chooseSort;
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
@@ -237,7 +237,8 @@
     if (state.source === 'custom' && !/^https?:\/\//i.test(state.customBase.trim())) { toast('Enter the URL of your Esplora API first (https://… or http://…).', true); return Promise.resolve(null); }
     state.busy = true;
     var c = state.client; c.resume(); c.resetCount(); c.maxRequests = (o && o.maxRequests) || state.capReq;
-    showProgress(title); updateUndoLoad();
+    if (!(o && o.quiet)) showProgress(title);
+    updateUndoLoad();
     var wasEmpty = state.graph.nodes.size === 0, snap = snapshotGraph(title), g0 = state.graph, n0 = g0.nodes.size, e0 = g0.edges.size, big = null;
     if (o && o.before && snap && !snap.tooBig) {                                                         // the caller changed the focus before running: undo goes back to what it was
       if ('focus' in o.before) snap.focus = o.before.focus;
@@ -258,7 +259,7 @@
       var errs = (r.errors || []).filter(function (e) { return !/request cap/.test(e); });
       if (errs.length) msg += ' ' + errs.length + ' request(s) failed: ' + errs[0] + (errs.length > 1 ? ' …' : '');
       if (big) msg += ' That is a lot: Undo load takes it back.';
-      toast(msg, !!errs.length || !!r.failed, big);
+      if (!(o && o.quiet) || errs.length || r.failed) toast(msg, !!errs.length || !!r.failed, big);
       return r;
     }).catch(function (e) {
       toast(title + ' failed: ' + (e && e.message ? e.message : e), true); return null;
@@ -397,13 +398,13 @@
 
   /** What the graph shows before the time range is applied: every other filter, limited to the focus neighbourhood. */
   function scope(extra) {
-    return F.computeVisible(viewGraph(), Object.assign({}, state.filter, { timeFrom: null, timeTo: null }, extra || {}), state.keep, focusOpt(), traceOnly(), hiddenOpt());
+    return computeView(Object.assign({}, state.filter, { timeFrom: null, timeTo: null }, extra || {}), state.keep, focusOpt(), traceOnly(), hiddenOpt());
   }
 
   function needsLoad(id) {
     var n = state.graph.nodes.get(id), kind = id.slice(0, id.indexOf(':'));
     if (kind === 'tx') return !n || !n.loaded || !n.outspendsLoaded;
-    if (kind === 'addr') return !n || n.txCount == null;
+    if (kind === 'addr') return !n || !M.historyRead(n);
     return false;
   }
   function loaderFor(id) {
@@ -415,7 +416,7 @@
         if (node && r) { node.histNext = r.last || null; node.histDone = !r.last && !r.truncated && !(r.errors && r.errors.length); }
         return r;
       });
-    }, done: function (n) { return !!(n && n.txCount != null); } };
+    }, done: function (n) { return M.historyRead(n); } };
     return null;
   }
 
@@ -834,7 +835,7 @@
     var m = $('ctxMenu'); m.textContent = ''; m.classList.add('choosing'); closeStepMenu(); $('tooltip').hidden = true;
     m.appendChild(el('div', { 'class': 'ctxhead', text: (grp ? 'Choose from the group · ' : 'Choose what to show ' + (dir === 'next' ? '▶' : '◀') + ' · ') + rows.length + ' hidden' }));
     m.appendChild(el('div', { 'class': 'chooserinfo', text: summaryText(sm) + (h.outside ? ' · ' + h.outside + ' more fall outside ' + rangeWhat() + ' and are not listed' : '') }));
-    if (!grp && n.type === 'addr' && !n.histDone && (n.histNext || n.txCount == null)) {            // the wallet has more history than is loaded: the list can fetch it
+    if (!grp && n.type === 'addr' && !n.histDone && (n.histNext || !M.historyRead(n))) {            // the wallet has more history than is loaded: the list can fetch it
       m.appendChild(el('div', { 'class': 'choosermore' }, [
         el('button', { type: 'button', 'class': 'loadmore', text: 'Load more history', title: 'Fetch the next ' + plural(state.capPages * 25, 'transaction') + ' of this wallet, then open this list again',
                        onclick: function () { closeCtx(); loadMoreHistory(id).then(function () { traceChoose(id, dir, at, opts); }); } }),
@@ -1032,11 +1033,11 @@
   }
   /** The graph as the canvas draws it: the real one, plus a vertex and an edge for each group in the trace. The real graph is not touched. */
   function viewGraph() {
-    var g = state.graph, T = state.trace;
-    if (!traceOn() || !T.groups.size) return g;
+    var g = state.graph, groups = traceOn() ? Array.from(state.trace.groups.values()) : activeViewGroups();
+    if (!groups.length) return g;
     var v = Object.create(Object.getPrototypeOf(g));
     v.nodes = new Map(g.nodes); v.edges = new Map(g.edges); v.adj = new Map(g.adj);
-    T.groups.forEach(function (grp) {
+    groups.forEach(function (grp) {
       var gv = groupVertex(grp); if (!gv) return;
       v.nodes.set(gv.node.id, gv.node); v.edges.set(gv.edge.id, gv.edge); v.adj.set(gv.node.id, new Set([gv.edge.id]));
       var adj = new Set(v.adj.get(grp.anchor) || []); adj.add(gv.edge.id); v.adj.set(grp.anchor, adj);        // a copy: the real graph's set stays as it is
@@ -1044,7 +1045,110 @@
     return v;
   }
   /** The vertex of a group by id, or undefined (for the tooltip, the details and the menu). */
-  function groupNodeOf(id) { var grp = state.trace.groups.get(id), gv = grp && groupVertex(grp); return gv ? gv.node : undefined; }
+  function groupNodeOf(id) { var grp = groupSpec(id), gv = grp && groupVertex(grp); return gv ? gv.node : undefined; }
+
+  // ---- view groups: neighbours the Focus view keeps off the screen, shown as ONE vertex (Flow, Timeline and Force) --------------
+  // In the Trace layout a group stands for hidden neighbours of a vertex (state.trace.groups). In the other layouts the same device is kept here: it stands for
+  // neighbours of a vertex on the screen that the Focus view keeps off it, so a busy wallet is not buried by them and the Focus view need not be switched off just to
+  // see that they exist. Like a trace group it is a view device: saved with the session and the JSON file, drawn, never written into the graph, and its members stay
+  // off the screen until you open it. Opening it shows them (which switches the Focus view off, as + show does); with the Focus view off there is nothing left to
+  // stand for and the groups open.
+  /** The spec of a group vertex in the layout that is showing: a trace group in the Trace layout, a view group elsewhere. */
+  function groupSpec(gid) { return traceOn() ? state.trace.groups.get(gid) : state.vgroups.get(gid); }
+  function isGroupVertex(id) { return !!groupSpec(id); }
+  /** The vertices that view groups keep off the screen. */
+  function viewGroupMembers() {
+    var s = new Set(); if (traceOn()) return s;
+    state.vgroups.forEach(function (grp) { grp.members.forEach(function (m) { s.add(m); }); });
+    return s;
+  }
+  /** The view groups that are drawn: those whose vertex is not hidden (a group goes with the vertex it hangs from). */
+  function activeViewGroups() {
+    var out = []; if (traceOn()) return out;
+    state.vgroups.forEach(function (grp) { if (state.graph.nodes.has(grp.anchor) && !state.hidden.has(grp.anchor)) out.push(grp); });
+    return out;
+  }
+  /**
+   * F.computeVisible over what the canvas draws. In the Trace layout the groups are part of the graph. Elsewhere a view group is added to what is visible when the vertex it
+   * hangs from is: the Focus view cuts the graph at its hops, and a group is exactly what sits beyond them, so it must not be cut by them.
+   */
+  function computeView(filter, keep, focus, only, hidden) {
+    if (traceOn() || !state.vgroups.size) return F.computeVisible(viewGraph(), filter, keep, focus, only, hidden);
+    var vis = F.computeVisible(state.graph, filter, keep, focus, only, hidden);
+    activeViewGroups().forEach(function (grp) {
+      var gv = vis.nodes.has(grp.anchor) ? groupVertex(grp) : null;
+      if (gv) { vis.nodes.add(gv.node.id); vis.edges.add(gv.edge.id); }
+    });
+    return vis;
+  }
+  /** Before every draw: a view group needs the Focus view on, its vertex in the workspace, and at least two members that are still its neighbours and were not made the focus. */
+  function cleanViewGroups() {
+    if (!state.vgroups.size || traceOn()) return;
+    if (!state.focusOn) { state.vgroups.clear(); return; }
+    var g = state.graph;
+    Array.from(state.vgroups.keys()).forEach(function (gid) {
+      var grp = state.vgroups.get(gid);
+      if (!g.nodes.has(grp.anchor)) { state.vgroups.delete(gid); state.selected.delete(gid); state.pinned.delete(gid); return; }
+      var nb = TR.neighbours(g, grp.anchor, grp.dir);
+      grp.members = grp.members.filter(function (m) { return nb.has(m) && m !== state.focus; });
+      if (grp.members.length < 2) { state.vgroups.delete(gid); state.selected.delete(gid); state.pinned.delete(gid); }
+    });
+  }
+  /** Fold neighbours of `anchor` that are not on the screen into one vertex beside it. Returns the group's id, or null (and says why). */
+  function viewMakeGroup(anchor, dir, ids, spec) {
+    var g = state.graph; spec = spec || {};
+    if (traceOn()) return null;
+    if (!state.focusOn) { toast('A group stands for what the Focus view keeps off the screen: switch the Focus view on first.', true); return null; }
+    var vis = renderer.data ? renderer.data.visible.nodes : new Set();
+    if (!g.nodes.has(anchor) || !vis.has(anchor)) { toast('A group hangs from a vertex on the screen: this one is not on it.', true); return null; }
+    var taken = new Set(); state.vgroups.forEach(function (x) { if (x.anchor === anchor && x.dir === dir) x.members.forEach(function (m) { taken.add(m); }); });
+    var nb = TR.neighbours(g, anchor, dir), members = [];
+    ids.forEach(function (id) { if (nb.has(id) && !vis.has(id) && !taken.has(id) && members.indexOf(id) < 0) members.push(id); });
+    if (members.length < 2) { toast('A group needs at least two vertices that are not on the screen.'); return null; }
+    var id; do { id = 'grp:' + (++state.vseq); } while (state.vgroups.has(id));
+    var made = { id: id, anchor: anchor, dir: dir, kind: spec.kind === 'party' || spec.kind === 'small' || (spec.kind === 'time' && GR.isBucketKey(spec.bucket)) ? spec.kind : 'picked', party: spec.party || null, members: members };
+    if (made.kind === 'time') made.bucket = spec.bucket;
+    state.vgroups.set(id, made);
+    state.selected = new Set([id]); state.selectedEdge = null;
+    afterGraphChange({ fit: false }); syncSelection(); scheduleSave();
+    toast('Folded ' + plural(members.length, 'vertex', 'vertices') + ' into one. Open the group to show them (that switches the Focus view off).');
+    return id;
+  }
+  /** Open a view group: its members are shown on the graph (the Focus view goes off if it is what kept them away), and the group is gone. */
+  function viewExpandGroup(gid) {
+    var grp = state.vgroups.get(gid); if (!grp) return false;
+    var ids = grp.members.slice();
+    state.vgroups.delete(gid); state.selected.delete(gid); state.pinned.delete(gid);
+    afterGraphChange({ fit: false });
+    showOnGraph(ids);
+    syncSelection(); scheduleSave();
+    return true;
+  }
+  function viewDropGroup(gid) { if (!state.vgroups.delete(gid)) return; state.selected.delete(gid); state.pinned.delete(gid); afterGraphChange({ fit: false }); syncSelection(); scheduleSave(); }
+  /** The groups of the other layouts as they are saved: what they stand for, and what you wrote on them. */
+  function viewGroupData() {
+    if (!state.vgroups.size) return undefined;
+    var out = []; state.vgroups.forEach(function (grp) { var c = groupSpecClone(grp); out.push(c); });
+    return out;
+  }
+  /** Read saved view groups back: only well-formed ones (an id of our own kind, a vertex id, a direction, a list of vertex ids); refresh drops the rest. */
+  function loadViewGroups(list) {
+    state.vgroups = new Map(); state.vseq = 0;
+    if (!Array.isArray(list)) return;
+    list.slice(0, 200).forEach(function (x) {
+      if (!x || typeof x !== 'object' || !GR.isGroupId(x.id) || state.vgroups.has(x.id) || typeof x.anchor !== 'string' || !NV.isId(x.anchor) || (x.dir !== 'next' && x.dir !== 'prev') || !Array.isArray(x.members)) return;
+      var members = x.members.filter(function (m) { return typeof m === 'string' && NV.isId(m); }).slice(0, 5000).map(canonicalId);
+      if (members.length < 2) return;
+      var spec = { id: x.id, anchor: canonicalId(x.anchor), dir: x.dir, kind: x.kind === 'party' || x.kind === 'small' || (x.kind === 'time' && GR.isBucketKey(x.bucket)) ? x.kind : 'picked', party: typeof x.party === 'string' && NV.isId(x.party) ? canonicalId(x.party) : null, members: members };
+      if (spec.kind === 'time') spec.bucket = x.bucket;
+      if (typeof x.label === 'string' && x.label) spec.label = LB.cleanText(x.label, 120);
+      if (typeof x.note === 'string' && x.note) spec.note = x.note.slice(0, 4000);
+      if (typeof x.tag === 'string' && x.tag) spec.tag = x.tag.slice(0, 40);
+      if (typeof x.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(x.color)) spec.color = x.color;
+      if (typeof x.shape === 'string' && x.shape) spec.shape = x.shape.slice(0, 20);
+      state.vgroups.set(spec.id, spec); state.vseq = Math.max(state.vseq, Number(x.id.slice(4)));
+    });
+  }
 
   function traceDropGroup(id) { var T = state.trace; T.groups.delete(id); T.pos.delete(id); T.prov.delete(id); state.selected.delete(id); }
   /** Forget groups whose anchor is gone, and members that are no longer neighbours or are shown; a group of fewer than two is no group. */
@@ -1409,10 +1513,10 @@
     sc.hidden = !plain; sc.title = 'Copy ' + what; sc.setAttribute('aria-label', 'Copy ' + what); sc.onclick = plain ? function () { copy(plain, what); sc.classList.add('done'); setTimeout(function () { sc.classList.remove('done'); }, 1200); } : null;
     var amt = '';
     if (n.type === 'tx') amt = (n.time != null ? S.fmtTime(n.time, false) + ' · ' : n.confirmed === false ? 'unconfirmed · ' : '') + (n.loaded ? amountText(n.valueOut, n.time) : 'not loaded');
-    else if (n.type === 'addr') amt = 'received ' + mixText(S.fmtBtc(n.received) + ' BTC', fiatSum(n, true)) + (n.txCount != null ? ' · ' + fmtInt(n.txCount) + ' txs on chain' : ' · history not loaded');
+    else if (n.type === 'addr') amt = 'received ' + mixText(S.fmtBtc(n.received) + ' BTC', fiatSum(n, true)) + (n.txCount != null ? ' · ' + fmtInt(n.txCount) + ' txs on chain' + (M.historyRead(n) ? '' : ', history not loaded') : ' · history not loaded');
     $('stepAmt').textContent = amt;
     var load = $('stepLoad');
-    load.hidden = !(n.type === 'addr' && (n.txCount == null || n.histNext));
+    load.hidden = !(n.type === 'addr' && (!M.historyRead(n) || n.histNext));
     load.textContent = n.histNext ? 'Load more history' : 'Load history';
   }
 
@@ -1516,7 +1620,13 @@
   // ---- hiding and selecting, in every layout -----------------------------------------------------
   // Hiding never deletes: a hidden vertex stays loaded, every hide can be undone, and what you hid is saved with the session.
   // (In the Trace layout the same buttons work on what the trace shows: see traceHideIds.)
-  function hiddenOpt() { return traceOn() || !state.hidden.size ? null : state.hidden; }
+  function hiddenOpt() {
+    if (traceOn()) return null;
+    var extra = viewGroupMembers();
+    if (!extra.size) return state.hidden.size ? state.hidden : null;
+    var s = new Set(state.hidden); extra.forEach(function (m) { s.add(m); });
+    return s;
+  }
   function hiddenCount() { var k = 0; state.hidden.forEach(function (id) { if (state.graph.nodes.has(id)) k++; }); return k; }
   function visibleIds() { return renderer && renderer.data ? Array.from(renderer.data.visible.nodes) : []; }
   function afterHide() { afterGraphChange(); syncSelection(); scheduleSave(); }
@@ -1604,6 +1714,23 @@
     if (!addrs.length) { toast('Select wallets to read the balance of.'); return Promise.resolve(null); }
     return run('Read ' + plural(addrs.length, 'balance'), function () { return state.explorer.loadBalances(addrs, 100); }).then(function (r) { showInspector(true); return r; });
   }
+  var autoBal = { timer: null, tried: new Set() };
+  /**
+   * With "Read the balance when I select a wallet" on: one wallet selected, no balance read yet, nothing else running -> read it (one request, no history), quietly.
+   * Waits a moment so a click that is followed by another does not cost a request, asks once per wallet (a failure is not retried by itself) and never runs
+   * for a box of wallets, a transaction or a wallet that is not loaded.
+   */
+  function autoBalanceSoon() {
+    clearTimeout(autoBal.timer);
+    if (!state.autoBalance || state.selected.size !== 1) return;
+    var id = Array.from(state.selected)[0];
+    autoBal.timer = setTimeout(function () {
+      var n = state.graph.nodes.get(id);
+      if (!state.autoBalance || state.busy || !n || n.type !== 'addr' || !state.selected.has(id) || state.selected.size !== 1 || balanceOf(n) || autoBal.tried.has(n.address)) return;
+      autoBal.tried.add(n.address);
+      run('Read the balance', function () { return state.explorer.loadBalances([n.address], 100); }, { quiet: true }).then(function () { showInspector(true); });
+    }, 350);
+  }
   function balanceText(b) { return S.fmtBtc(b.confirmed) + ' BTC'; }
   /** The balance rows of one wallet's details, or what to do to get them. */
   function balanceRows(dl, n, box) {
@@ -1615,6 +1742,9 @@
     kvf(dl, 'Balance', balanceText(b), fiatToday(b.confirmed));
     if (b.pending) kv(dl, 'Unconfirmed', (b.pending > 0 ? '+' : '') + S.fmtBtc(b.pending) + ' BTC (not in the balance above)');
     kv(dl, 'On chain', 'received ' + S.fmtBtc(b.received) + ' BTC, sent ' + S.fmtBtc(b.sent) + ' BTC');
+    var lostOut = b.sent - (n.sent || 0), lostIn = b.received - (n.received || 0);                  // the server counts all of its history; the graph only what is loaded
+    if (!n.histDone && (lostOut > 0 || lostIn > 0))
+      kv(dl, 'Not in the graph yet', [lostOut > 0 ? 'sent ' + S.fmtBtc(lostOut) + ' BTC' : '', lostIn > 0 ? 'received ' + S.fmtBtc(lostIn) + ' BTC' : ''].filter(Boolean).join(', ') + ': press ' + (n.histNext ? 'Load more history' : 'Load history') + ' to bring it in');
     if (n.statsAt != null) kv(dl, 'Balance as of', S.fmtTimeFull(n.statsAt) + (n.statsSource ? ' from ' + n.statsSource.replace(/^https?:\/\//i, '').replace(/\/api\/?$/, '') : ''));
     return null;
   }
@@ -1841,7 +1971,7 @@
   function syncSelection() {
     renderer.setSelection(Array.from(state.selected)); renderer.selectedEdge = state.selectedEdge;
     if (!holdRight && (state.selected.size || state.selectedEdge)) state.rightTab = 'details';
-    showInspector(); updateTraceUi(); updateAutoUi(); detMarkSel();
+    showInspector(); updateTraceUi(); updateAutoUi(); detMarkSel(); autoBalanceSoon();
   }
 
   /** Put text on the clipboard. `what` names it in the message ("address", "3 transaction ids"). Falls back to the old way where the clipboard API is not offered. */
@@ -2176,53 +2306,73 @@
   // ---- external lookups (on request, one wallet) ----------------------------------------------
   function proxyUrlOk(u) { return /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?(\/.*)?$/i.test(u) || /^https:\/\/[^\s/]+(\/.*)?$/i.test(u); }
 
+  /** One block per source in the registry (HoplineExternal): a button to ask it, and what it said, each on its own card. Nothing is asked until you press a button. */
   function externalCard(n) {
-    var ark = n.ext && n.ext.arkham, box = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'External sources' })]);
-    box.appendChild(el('div', { 'class': 'insp-actions' }, [
-      el('button', { type: 'button', id: 'btnArkham', text: ark ? 'Look up again in Arkham' : 'Look up in Arkham', title: 'Sends this wallet\'s address to Arkham Intelligence, through your local proxy', onclick: function () { lookupArkham(n.id); } })]));
-    if (ark) box.appendChild(arkhamCard(n, ark));
+    var box = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'External sources' })]);
+    XT.list().forEach(function (s) {
+      var ext = n.ext && n.ext[s.id], cap = s.id.charAt(0).toUpperCase() + s.id.slice(1);
+      box.appendChild(el('div', { 'class': 'insp-actions' }, [
+        el('button', { type: 'button', id: 'btn' + cap, text: (ext ? 'Look up again in ' : 'Look up in ') + s.short, title: sourceTip(s), onclick: function () { lookupSource(s.id, n.id); } })]));
+      if (ext) box.appendChild(sourceCard(n, s.id, ext));
+    });
     return box;
   }
+  function sourceTip(s) { return 'Sends this wallet\'s address to ' + s.name + (s.id === 'arkham' ? ', through your local proxy' : ''); }
 
-  function arkhamCard(n, a) {
-    var card = el('div', { 'class': 'extcard' }), dl = el('dl', { 'class': 'kv' });
-    card.appendChild(el('h4', {}, [el('span', { text: 'Arkham Intelligence' }), el('small', { text: a.at ? S.fmtTime(a.at, false) : '' })]));
-    if (!a.found) card.appendChild(el('p', { 'class': 'hint', text: 'Arkham has no entry for this wallet.' }));
+  /** What a source said about a wallet: the rows it chooses to show, then buttons that apply it only when pressed, and the reply as it came. */
+  function sourceCard(n, sid, ext) {
+    var def = XT.source(sid), c = XT.describe(sid, ext), card = el('div', { 'class': 'extcard' }), dl = el('dl', { 'class': 'kv' });
+    card.appendChild(el('h4', {}, [el('span', { text: def.name }), el('small', { text: c.at ? S.fmtTime(c.at, false) : '' })]));
+    if (!c.found) card.appendChild(el('p', { 'class': 'hint', text: def.short + ' has no entry for this wallet.' }));
     else {
-      kv(dl, 'Entity', a.name); kv(dl, 'Type', a.type); kv(dl, 'Label', a.label); kv(dl, 'Tags', (a.tags || []).join(', ')); kv(dl, 'Predicted', a.predicted); kv(dl, 'Website', a.website); kv(dl, 'Note', a.note);
+      (typeof def.fields === 'function' ? def.fields(ext) : [['Name', c.label], ['Category', c.category], ['Tags', c.tags.join(', ')], ['Note', c.note]]).forEach(function (r) { kv(dl, r[0], r[1]); });
       card.appendChild(dl);
     }
-    var acts = [];
-    var text = [a.name, a.label].filter(Boolean).join(' · ').slice(0, 120);
-    if (a.found && text) acts.push(el('button', { type: 'button', text: 'Use as label', title: 'Set your label to “' + text + '”', onclick: function () { state.graph.annotate(n.id, text, n.note); showInspector(); refresh(); scheduleSave(); } }));
-    if (a.suggest && TG.preset(a.suggest)) acts.push(el('button', { type: 'button', text: 'Tag as ' + a.suggest, title: 'Suggested from Arkham\'s entity type: ' + TG.preset(a.suggest).name, onclick: function () { TG.apply(n, { tag: a.suggest }); showInspector(); refresh(); scheduleSave(); } }));
-    acts.push(el('button', { type: 'button', text: 'Remove result', onclick: function () { delete n.ext.arkham; if (!Object.keys(n.ext).length) delete n.ext; showInspector(); refresh(); scheduleSave(); } }));
+    var acts = [], text = c.label.slice(0, 120);
+    if (c.found && text) acts.push(el('button', { type: 'button', text: 'Use as label', title: 'Set your label to “' + text + '”', onclick: function () { state.graph.annotate(n.id, text, n.note); showInspector(); refresh(); scheduleSave(); } }));
+    if (c.suggest && TG.preset(c.suggest)) acts.push(el('button', { type: 'button', text: 'Tag as ' + c.suggest, title: 'Suggested from ' + def.short + '\'s category: ' + TG.preset(c.suggest).name, onclick: function () { TG.apply(n, { tag: c.suggest }); showInspector(); refresh(); scheduleSave(); } }));
+    acts.push(el('button', { type: 'button', text: 'Remove result', onclick: function () { delete n.ext[sid]; if (!Object.keys(n.ext).length) delete n.ext; showInspector(); refresh(); scheduleSave(); } }));
     card.appendChild(el('div', { 'class': 'insp-actions' }, acts));
-    if (a.raw) card.appendChild(el('details', {}, [el('summary', { text: 'Raw reply' }), el('pre', { text: a.raw })]));
+    if (ext.raw) card.appendChild(el('details', {}, [el('summary', { text: 'Raw reply' }), el('pre', { text: ext.raw })]));
     return card;
   }
 
-  function lookupArkham(id) {
-    var n = state.graph.nodes.get(id), x = state.ext;
+  /** What a source needs from this page to be asked: the lookup proxy and its token (Arkham), and a fetch. */
+  function sourceCtx() { return { fetch: window.fetch.bind(window), proxy: state.ext.proxy, token: state.ext.token }; }
+  /** Where to send the person when a source is not set up yet. */
+  function sourceSetup(sid) { if (sid === 'arkham') { setSideCollapsed(false); $('extSection').open = true; $('arkToken').focus(); } }
+
+  /**
+   * Ask one source about one wallet, on request. The confirmation is asked once per source for the page's lifetime; the answer is kept on the wallet under the source's id
+   * and applied to nothing: the buttons on its card do that.
+   */
+  function lookupSource(sid, id) {
+    var n = state.graph.nodes.get(id), x = state.ext, def = XT.source(sid);
+    if (!def) { toast('Unknown source.', true); return; }
     if (!n || n.type !== 'addr') { toast('Look-ups are for wallets: choose a wallet.', true); return; }
-    if (state.source === 'tor') { toast('Look-ups are switched off while the data source is Tor: they would go outside Tor and tell Arkham which wallet you are looking at.', true); return; }
-    if (!x.token) {
-      toast('Set up the lookup proxy first (Controls › External sources): run tools/arkham_proxy.py and enter its URL and token.', true);
-      setSideCollapsed(false); $('extSection').open = true; $('arkToken').focus(); return;
-    }
+    if (def.third !== false && state.source === 'tor') { toast('Look-ups are switched off while the data source is Tor: they would go outside Tor and tell ' + def.short + ' which wallet you are looking at.', true); return; }
     if (x.busy) { toast('A look-up is already running.', true); return; }
-    if (!x.consented) {
-      if (!window.confirm('This sends the wallet address\n\n' + n.address + '\n\nto Arkham Intelligence (through your local proxy). Continue?')) return;
-      x.consented = true;
-    }
-    x.busy = true; toast('Asking Arkham about ' + S.shortId(n.address, 8) + '…');
-    XT.lookupArkham({ fetch: window.fetch.bind(window), base: x.proxy, token: x.token, address: n.address }).then(function (r) {
-      var node = state.graph.nodes.get(id);
-      if (node) { node.ext = node.ext || {}; node.ext.arkham = r.ext; }
-      toast(r.found ? 'Arkham: ' + (r.ext.name || r.ext.label || 'tagged wallet') + (r.ext.type ? ' (' + r.ext.type + ')' : '') + '. Use the buttons in the details to apply it.' : 'Arkham has no entry for this wallet.');
+    x.busy = true;
+    XT.lookupMany(sid, [n.address], { ctx: sourceCtx(), confirm: function (d, addrs) {
+      if (!x.consented[sid]) {
+        if (!window.confirm('This sends the wallet address\n\n' + addrs[0] + '\n\nto ' + d.name + (sid === 'arkham' ? ' (through your local proxy)' : '') + '. Continue?')) return false;
+        x.consented[sid] = true;
+      }
+      toast('Asking ' + def.short + ' about ' + S.shortId(addrs[0], 8) + '…');
+      return true;
+    } }).then(function (r) {
+      var res = r.results[0], node = state.graph.nodes.get(id);
+      if (r.stopped === 'declined' || !res) return;
+      if (res.error) { toast((res.error && res.error.message) || 'The look-up failed.', true); return; }
+      if (node) { node.ext = node.ext || {}; node.ext[sid] = res.ext; }
+      toast(res.found ? def.short + ': ' + (typeof def.headline === 'function' ? def.headline(res.ext) : XT.describe(sid, res.ext).label) + '. Use the buttons in the details to apply it.' : def.short + ' has no entry for this wallet.');
       showInspector(); refresh(); scheduleSave();
-    }, function (e) { toast((e && e.message) || 'The look-up failed.', true); }).then(function () { x.busy = false; });
+    }, function (e) {
+      toast((e && e.message) || 'The look-up failed.', true);
+      if (e && e.kind === 'setup') sourceSetup(sid);
+    }).then(function () { x.busy = false; });
   }
+  function lookupArkham(id) { return lookupSource('arkham', id); }
 
   // ---- right-click menu -----------------------------------------------------------------------
   function closeCtx() { var m = $('ctxMenu'); m.classList.remove('choosing'); if (!m.hidden) { m.hidden = true; m.textContent = ''; } }
@@ -2259,17 +2409,18 @@
 
   /** The right-click menu of a group vertex. */
   function groupCtx(gid, m, at) {
-    var grp = state.trace.groups.get(gid), gn = groupNodeOf(gid); if (!grp || !gn) return;
-    var rows = groupRows(grp), N = state.stepSize;
+    var grp = groupSpec(gid), gn = groupNodeOf(gid); if (!grp || !gn) return;
+    var rows = groupRows(grp), N = state.stepSize, trace = traceOn();
     m.appendChild(el('div', { 'class': 'ctxhead', text: 'Group · ' + gn.groupText }));
-    if (rows.length > N) ctxItem(m, 'Show the largest ' + N, function () { traceExpandGroup(gid, { limit: N }); }, { title: 'The rest stay in the group' });
-    ctxItem(m, 'Show all ' + rows.length, function () { traceExpandGroup(gid, {}); });
-    if (rows.length > 2) ctxItem(m, 'Choose which…', function () { traceChoose(grp.anchor, grp.dir, at, { group: gid }); }, { keep: true });
+    if (!trace) ctxItem(m, 'Show all ' + rows.length + ' on the graph', function () { viewExpandGroup(gid); }, { title: 'If the Focus view is what keeps them off, it is switched off' });
+    if (trace && rows.length > N) ctxItem(m, 'Show the largest ' + N, function () { traceExpandGroup(gid, { limit: N }); }, { title: 'The rest stay in the group' });
+    if (trace) ctxItem(m, 'Show all ' + rows.length, function () { traceExpandGroup(gid, {}); });
+    if (trace && rows.length > 2) ctxItem(m, 'Choose which…', function () { traceChoose(grp.anchor, grp.dir, at, { group: gid }); }, { keep: true });
     m.appendChild(el('div', { 'class': 'sep' }));
     var anchorIsAddr = state.graph.nodes.get(grp.anchor).type === 'addr', what = plural(rows.length, anchorIsAddr ? 'transaction id' : 'address', anchorIsAddr ? undefined : 'addresses');
     ctxItem(m, 'Copy ' + what, function () { copy(rows.map(function (r) { return plainId(r.id); }).join(NL), what); });
     m.appendChild(el('div', { 'class': 'sep' }));
-    ctxItem(m, 'Hide group', function () { traceHideIds([gid]); }, { danger: true, title: 'What is in it stays hidden (Ctrl+Z brings it back)' });
+    ctxItem(m, trace ? 'Hide group' : 'Remove group', function () { if (trace) traceHideIds([gid]); else viewDropGroup(gid); }, { danger: true, title: trace ? 'What is in it stays hidden (Ctrl+Z brings it back)' : 'What is in it stays off the screen, as the Focus view keeps it' });
     placeCtx(at);
   }
 
@@ -2300,7 +2451,7 @@
       }
       placeCtx(at); return;
     }
-    if (ids.length === 1 && traceOn() && state.trace.groups.has(ids[0])) { groupCtx(ids[0], m, at); return; }
+    if (ids.length === 1 && isGroupVertex(ids[0])) { groupCtx(ids[0], m, at); return; }
     var n = g.nodes.get(ids[0]); if (!n) return;
     m.appendChild(el('div', { 'class': 'ctxhead', text: (KIND_NAME[n.type] || 'Vertex') + ' · ' + focusLabel(n.id).replace(/^tx /, '') }));
     if (traceOn() && (n.type === 'tx' || n.type === 'addr')) {
@@ -2324,8 +2475,9 @@
     }
     if (n.type === 'addr') {
       ctxItem(m, n.histNext ? 'Load more history' : 'Load history', function () { expandNode(n.id); }, { disabled: !!n.histDone });
-      ctxItem(m, n.ext && n.ext.arkham ? 'Look up again in Arkham…' : 'Look up in Arkham…', function () { lookupArkham(n.id); },
-              { right: 'external', title: 'Sends this wallet\'s address to Arkham Intelligence, through your local proxy' });
+      XT.list().forEach(function (s) {
+        ctxItem(m, (n.ext && n.ext[s.id] ? 'Look up again in ' : 'Look up in ') + s.short + '…', function () { lookupSource(s.id, n.id); }, { right: 'external', title: sourceTip(s) });
+      });
     }
     if (n.type === 'tx' || n.type === 'addr') {
       var au = state.auto;
@@ -2569,6 +2721,17 @@
         else if (m.length === 1) putOnTrace(m);
       });
     }
+    /** Fold these transactions, which are not on the screen, into one vertex beside this wallet (the other layouts): one group per direction. */
+    function putAsViewGroup(g, list) {
+      ['next', 'prev'].forEach(function (d) {
+        var m = list.filter(function (r) { return canShow(r) && (r.sent > 0 ? 'next' : 'prev') === d; });
+        if (m.length >= 2) viewMakeGroup(n.id, d, m.map(function (r) { return r.id; }), { kind: g.kind, party: g.party, bucket: g.bucket });
+        else if (m.length === 1) showOnGraph([m[0].id]);
+      });
+    }
+    /** Whether a group can be made here: the Focus view is on (it is what keeps them off the screen) and this wallet is on the screen. */
+    function viewGroupOk() { return !traceOn() && state.focusOn && !!renderer.data && renderer.data.visible.nodes.has(n.id); }
+    var VG_TITLE = 'Needs the Focus view on, this wallet on the screen and at least two of these that are not on the screen';
     /** A tick box for these transactions (one row, or every member of a group): ticked when all are, half-ticked when some are. */
     function tickBox(ids, label) {
       var cb = el('input', { type: 'checkbox', 'class': 'rowtick', 'aria-label': label });
@@ -2601,6 +2764,8 @@
         pickActs.appendChild(btn('Show on graph (' + k + ')', off.length ? plural(off.length, 'of these is', 'of these are') + ' not on screen: ' + (off.length === 1 ? 'it is' : 'they are') + ' brought in (shown again if you hid ' + (off.length === 1 ? 'it' : 'them') + ', or the Focus view is switched off), and the view moves to take them in'
                                                                   : 'They are all on screen: the view moves to take them in',
           function () { showOnGraph(list.map(function (r) { return r.id; })); }, false));
+        pickActs.appendChild(btn('As one vertex', off.length > 1 && viewGroupOk() ? 'Fold the ' + off.length + ' of these that are not on the screen into ONE vertex beside this wallet (open it later to show them)' : VG_TITLE,
+          function () { clearTicks(off); putAsViewGroup({ kind: 'picked', party: null }, off); }, off.length < 2 || !viewGroupOk()));
         pickActs.appendChild(btn('Select on graph', 'Select these transactions on the graph (the ones that are on screen)', function () { selectIds(list.map(function (r) { return r.id; }), 'the ticked transactions'); }, false));
       }
       pickActs.appendChild(btn('Copy ids', 'One transaction id per line', function () { copy(list.map(function (r) { return r.txid; }).join(NL), plural(k, 'transaction id')); }, false));
@@ -2641,6 +2806,11 @@
         acts.push(el('button', { type: 'button', 'class': 'showbtn', text: '+ all ' + off.length, title: 'Put all of them on the trace', onclick: function () { putOnTrace(off); } }));
         if (off.length > 1) acts.push(el('button', { type: 'button', 'class': 'showbtn', text: '◼ as one', title: 'Put them on the trace as ONE vertex (it can be opened later)', onclick: function () { putAsGroup(g, off); } }));
         wrap.appendChild(el('div', { 'class': 'groupacts' }, acts));
+      }
+      var offView = g.members.filter(canShow);
+      if (offView.length > 1 && viewGroupOk()) {                                       // not a trace: the ones the Focus view keeps off the screen can stand as one vertex
+        wrap.appendChild(el('div', { 'class': 'groupacts' }, [el('span', { 'class': 'hint', text: 'Not on the screen:' }),
+          el('button', { type: 'button', 'class': 'showbtn', text: '◼ as one', title: 'Fold the ' + offView.length + ' that are not on the screen into ONE vertex beside this wallet (open it later to show them)', onclick: function () { putAsViewGroup(g, offView); } })]));
       }
       if (open) {
         var cap = V.groupMore[g.key] || 40, list = el('div', { 'class': 'groupmembers' });
@@ -2690,7 +2860,7 @@
       if (items.length > V.more) list.appendChild(el('button', { type: 'button', 'class': 'moreRows', text: 'Show ' + Math.min(40, items.length - V.more) + ' more (' + (items.length - V.more) + ' not listed)', onclick: function () { V.more += 40; draw(); } }));
       if (!items.length) list.appendChild(el('div', { 'class': 'hint', text: 'None of these.' }));
       box.appendChild(list);
-      if (n.type === 'addr' && !n.histDone && (n.histNext || n.txCount == null)) {                              // there is more of this wallet's history than is listed
+      if (n.type === 'addr' && !n.histDone && (n.histNext || !M.historyRead(n))) {                              // there is more of this wallet's history than is listed
         box.appendChild(el('div', { 'class': 'moreHistory' }, [
           el('button', { type: 'button', 'class': 'loadmore', text: 'Load more history', title: 'Fetch the next ' + plural(state.capPages * 25, 'transaction') + ' of this wallet', onclick: function () { loadMoreHistory(n.id); } }),
           el('span', { 'class': 'hint', text: n.txCount != null ? fmtInt(n.txCount) + ' on chain, ' + plural(rows.length, 'transaction') + ' listed' : 'its history may not be fully loaded' })]));
@@ -2738,8 +2908,7 @@
   /** The details of a selected group vertex: what it stands for, and how to show some or all of it. */
   /** Your label, tag, colour and notes for a group vertex: kept with the group in the trace (and the saved session), never written into the graph. */
   function groupAnnotateBox(gid) {
-    var T = state.trace;
-    function spec() { return T.groups.get(gid); }
+    function spec() { return groupSpec(gid); }
     var lab = el('input', { type: 'text', id: 'fLabel', maxlength: '120', placeholder: 'Your label (shown on the graph)' });
     var note = el('textarea', { id: 'fNote', maxlength: '4000', placeholder: 'Notes' });
     lab.value = spec().label || ''; note.value = spec().note || '';
@@ -2751,12 +2920,12 @@
       refresh(); scheduleSave();
     }
     lab.addEventListener('input', apply); note.addEventListener('input', apply);
-    return el('div', { 'class': 'insp-section' }, [el('label', { 'for': 'fLabel', 'class': 'lbl', text: 'Label' }), lab, tagControls([gid], function (id) { return T.groups.get(id); }),
+    return el('div', { 'class': 'insp-section' }, [el('label', { 'for': 'fLabel', 'class': 'lbl', text: 'Label' }), lab, tagControls([gid], function (id) { return groupSpec(id); }),
                                                   el('label', { 'for': 'fNote', 'class': 'lbl', text: 'Notes' }), note]);
   }
 
   function showGroup(gid, box) {
-    var T = state.trace, grp = T.groups.get(gid), gn = groupNodeOf(gid), g = state.graph;
+    var trace = traceOn(), grp = groupSpec(gid), gn = groupNodeOf(gid), g = state.graph;
     if (!grp || !gn) { $('inspector').hidden = true; return; }
     var anchor = g.nodes.get(grp.anchor), rows = groupRows(grp), st = GR.stats(rows), N = state.stepSize;
     var noun = anchor.type === 'addr' ? 'transaction' : grp.dir === 'next' ? 'output' : 'input';
@@ -2772,20 +2941,24 @@
     if (grp.kind === 'time' && grp.bucket) kv(dl, 'Period', GR.bucketLabel(grp.bucket) + ' (UTC)');
     box.appendChild(dl);
     var acts = [];
+    if (!trace) {
+      acts.push(el('button', { type: 'button', text: 'Show all ' + rows.length + ' on the graph', title: 'Show them on the graph; if the Focus view is what keeps them off, it is switched off', onclick: function () { viewExpandGroup(gid); } }));
+    } else {
     if (rows.length > N) acts.push(el('button', { type: 'button', text: 'Show the largest ' + N, title: 'Put the largest ' + N + ' on the trace; the rest stay in the group', onclick: function () { traceExpandGroup(gid, { limit: N }); } }));
     acts.push(el('button', { type: 'button', text: 'Show all ' + rows.length, title: 'Put every one of them on the trace', onclick: function () { traceExpandGroup(gid, {}); } }));
     if (rows.length > 2) acts.push(el('button', { type: 'button', text: 'Choose which…', onclick: function (ev) { var r = ev.currentTarget.getBoundingClientRect(); traceChoose(grp.anchor, grp.dir, { x: r.left, y: r.bottom + 4 }, { group: gid }); } }));
+    }
     box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
     box.appendChild(el('div', { 'class': 'insp-actions' }, [
       el('button', { type: 'button', text: 'Copy ' + plural(rows.length, anchor.type === 'addr' ? 'transaction id' : 'address', anchor.type === 'addr' ? undefined : 'addresses'), title: 'One per line', onclick: function () { copy(rows.map(function (r) { return plainId(r.id); }).join(NL), plural(rows.length, anchor.type === 'addr' ? 'transaction id' : 'address', anchor.type === 'addr' ? undefined : 'addresses')); } }),
-      el('button', { type: 'button', text: 'Hide group', title: 'Take the group off the screen; what is in it stays hidden (Ctrl+Z brings it back)', onclick: function () { traceHideIds([gid]); } })]));
+      el('button', { type: 'button', text: trace ? 'Hide group' : 'Remove group', title: trace ? 'Take the group off the screen; what is in it stays hidden (Ctrl+Z brings it back)' : 'Take the group away; what is in it stays off the screen, as the Focus view keeps it', onclick: function () { if (trace) traceHideIds([gid]); else viewDropGroup(gid); } })]));
     var cap = (state.groupCap && state.groupCap[gid]) || 40, list = el('div', { 'class': 'linkrows' });
     rows.slice(0, cap).forEach(function (r) {
       var kids = [el('span', { 'class': 'who' }, [focusLabel(r.id)])];
       if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time, false) }));
       kids.push(el('span', { 'class': 'amt', text: S.fmtBtc(r.amount) + ' BTC' }));
       list.appendChild(el('div', { 'class': 'rowcopy' }, [el('div', { 'class': 'linkrow plain', title: r.id }, kids),
-        el('button', { type: 'button', 'class': 'showbtn', text: '+ show', title: 'Put just this one on the trace', onclick: function () { traceExpandGroup(gid, { ids: [r.id] }); } }),
+        trace ? el('button', { type: 'button', 'class': 'showbtn', text: '+ show', title: 'Put just this one on the trace', onclick: function () { traceExpandGroup(gid, { ids: [r.id] }); } }) : null,
         copyBtn(plainId(r.id), r.type === 'tx' ? 'transaction id' : 'address')]));
     });
     if (rows.length > cap) list.appendChild(el('button', { type: 'button', 'class': 'moreRows', text: 'Show ' + Math.min(40, rows.length - cap) + ' more (' + (rows.length - cap) + ' not listed)',
@@ -2799,7 +2972,7 @@
     if (view === 'findings') { insp.hidden = false; return; }
     if (soft && box.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && state.selected.size === 1) return;   // user is typing
     box.textContent = '';
-    var gsel = traceOn() ? Array.from(state.selected).filter(function (id) { return state.trace.groups.has(id); }) : [];
+    var gsel = Array.from(state.selected).filter(isGroupVertex);
     if (gsel.length === 1 && state.selected.size === 1) { insp.hidden = false; return showGroup(gsel[0], box); }
     var ids = Array.from(state.selected).filter(function (id) { return g.nodes.has(id); });
     if (!ids.length && state.selectedEdge && g.edges.has(state.selectedEdge)) { insp.hidden = false; return showEdge(g.edges.get(state.selectedEdge)); }
@@ -2885,7 +3058,7 @@
       var balButton = balanceRows(dl, n, box);
       kv(dl, 'First seen', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
       kv(dl, 'Last seen', n.lastSeen != null ? S.fmtTime(n.lastSeen) : null);
-      if (n.txCount != null) kv(dl, 'Transactions', fmtInt(n.txCount) + ' on chain' + (n.histNext || !n.histDone ? '' : ' (all loaded)'));
+      if (n.txCount != null) kv(dl, 'Transactions', fmtInt(n.txCount) + ' on chain' + (n.histNext || !n.histDone ? (M.historyRead(n) ? '' : ', history not loaded: press Load history') : ' (all loaded)'));
       box.appendChild(dl);
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), balButton]));
       var ta2 = traceActions(n); if (ta2) box.appendChild(ta2);
@@ -4222,7 +4395,7 @@
   var holdRight = 0;                                                                     // while the Findings act on the graph (select, go to), a selection does not switch the panel to Details
   function detailsAvailable() {
     var g = state.graph;
-    if (state.selected.size === 1 && traceOn() && state.trace.groups.has(Array.from(state.selected)[0])) return true;
+    if (state.selected.size === 1 && isGroupVertex(Array.from(state.selected)[0])) return true;
     if (Array.from(state.selected).some(function (id) { return g.nodes.has(id); })) return true;
     return !!(state.selectedEdge && g.edges.has(state.selectedEdge));
   }
@@ -4531,7 +4704,7 @@
       }
       return Promise.resolve().then(function () {
         var nd = g.nodes.get(id);
-        if (nd.type === 'addr' && !txNeighbourIds(id, dir, 1).length && (nd.txCount == null || nd.histNext)) {            // nothing known on this side yet: ask for the wallet's history
+        if (nd.type === 'addr' && !txNeighbourIds(id, dir, 1).length && (!M.historyRead(nd) || nd.histNext)) {            // nothing known on this side yet: ask for the wallet's history
           return ex.expandAddress(nd.address, { pages: state.capPages, cap: state.capPages * 25, after: nd.histNext || undefined }).then(function (r) {
             nd.histNext = r.last || null; nd.histDone = !r.last && !r.truncated && !(r.errors && r.errors.length); add(r);
           });
@@ -4561,9 +4734,10 @@
   function seedPositions(structural) {
     var start = new Map(), rnd = L.rng(5);
     structural.nodes.forEach(function (id) { var p = renderer.positionOf(id); if (p) start.set(id, { x: p.x, y: p.y }); });
+    var drawn = viewGraph();
     structural.nodes.forEach(function (id) {
       if (start.has(id)) return;
-      var near = state.graph.edgesOf(id).map(function (e) { return start.get(e.source === id ? e.target : e.source); }).filter(Boolean)[0];
+      var near = drawn.edgesOf(id).map(function (e) { return start.get(e.source === id ? e.target : e.source); }).filter(Boolean)[0];
       if (near) start.set(id, { x: near.x + (rnd() - 0.5) * 80, y: near.y + (rnd() - 0.5) * 80 });
     });
     return start;
@@ -4572,7 +4746,8 @@
   /** o: { relayout, fit, instant } */
   function refresh(o) {
     o = o || {};
-    var rg = state.graph, g = viewGraph(), f = state.filter;                  // g: the real graph plus the group vertices of a trace; rg: only what is on the chain
+    cleanViewGroups();
+    var rg = state.graph, g = viewGraph(), f = state.filter;                  // g: the real graph plus the group vertices of a trace or of the other layouts; rg: only what is on the chain
     edgeLabelCache.clear();
     renderer.fitPad = traceOn() ? 120 : 60;                                  // a trace needs room for the expand handles beside the outer vertices
     renderer.insets.bottom = state.focus && g.nodes.has(state.focus) && !traceOn() ? Math.max(84, $('stepbar').offsetHeight + 22) : 0;       // keep the graph clear of the step bar
@@ -4608,7 +4783,7 @@
       state.pinned.forEach(function (p, id) { if (state.layoutRes.pos.has(id)) state.layoutRes.pos.set(id, { x: p.x, y: p.y }); });
       renderer.setPositions(state.layoutRes.pos, !!o.instant || !renderer.cur.size);
     }
-    var visible = F.computeVisible(g, f, state.keep, focusOpt(), traceOnly(), hiddenOpt());
+    var visible = computeView(f, state.keep, focusOpt(), traceOnly(), hiddenOpt());
     renderer.setData({ graph: g, visible: visible, style: style, known: KNOWN, lockX: lockedToTime, axis: timeScaleOn() && state.layoutRes ? state.layoutRes.axis : marksOn() ? { mode: 'marks' } : null,
                        range: { from: f.timeFrom, to: f.timeTo }, showLabels: state.showLabels, focusId: focusOpt() ? state.focus : null,
                        edgeLabel: state.edgeLabels ? edgeLabelFor : null, bundle: state.bundleEdges,
@@ -4967,7 +5142,7 @@
   }
 
   // ---- export / import ------------------------------------------------------------------------
-  function viewState() { return { sizeBy: state.sizeBy, trace: traceData(), routeRef: state.routeRef, arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, expandRange: state.expandRange, source: state.source === 'custom' ? 'clearnet' : state.source }; }
+  function viewState() { return { sizeBy: state.sizeBy, trace: traceData(), vgroups: viewGroupData(), routeRef: state.routeRef, arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, expandRange: state.expandRange, source: state.source === 'custom' ? 'clearnet' : state.source }; }
 
   function download(name, text, mime) {
     var blob = new Blob([text], { type: mime }), a = el('a', { href: URL.createObjectURL(blob), download: name });
@@ -5006,6 +5181,13 @@
              members: rows.slice(0, 5000).map(function (r) { return { id: r.id, amount: r.amount, time: r.time }; }) };
   }
 
+  /** What third-party services said about the wallets in the report (what is on screen): HoplineExternal.entries of each wallet, in the order of the wallets. */
+  function reportLookups(nodes) {
+    var out = [];
+    nodes.forEach(function (n) { if (n.type === 'addr' && n.ext) XT.entries(n).forEach(function (e) { out.push(e); }); });
+    return out;
+  }
+
   /** What the workspace holds that the report (what is on screen) leaves out: { total, left, transactions, wallets, other }, counted over the vertices of the whole graph. */
   function reportLeftOut(base) {
     var inReport = new Set(base.nodes.map(function (n) { return n.id; })), r = { total: state.graph.nodes.size, left: 0, transactions: 0, wallets: 0, other: 0 };
@@ -5020,7 +5202,7 @@
   /** The investigation report: what is on screen, as one file with its evidence embedded. */
   function doReport() {
     var g = state.graph; g.refreshDerived();
-    var vis = F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt());
+    var vis = computeView(state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt());
     if (!vis.nodes.size) { toast('Nothing on screen to put in a report.', true); return Promise.resolve(false); }
     var an = analysis(), title = LB.cleanText($('reportTitle').value, 120) || 'Hopline investigation report', by = LB.cleanText($('reportBy').value, 80);
     var base = JSON.parse(IO.toJson(g, { only: vis, view: viewState(), source: sourceBase() }));
@@ -5044,7 +5226,7 @@
     base.evidence.coverage = leftOut;
     var image = null; try { image = renderer.toDataUrl(); } catch (e) { /* a tainted or empty canvas: the report simply has no picture */ }
     var model = { title: title, preparedBy: by, generated: Date.now(), evidence: base, nodes: base.nodes, edges: base.edges,
-                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups, trace: trace, leftOut: leftOut,
+                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups, trace: trace, leftOut: leftOut, lookups: reportLookups(base.nodes),
                   known: function (a) { return KNOWN[a] || null; }, packs: reportPacks(), fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {
@@ -5076,7 +5258,7 @@
     if (!g.nodes.size) { toast('Nothing to export yet.', true); return; }
     if (kind === 'report') { $('exportMenu').open = false; doReport(); return; }
     g.refreshDerived(); stat('export-' + kind);
-    var only = $('exportVisible').checked ? F.computeVisible(g, state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()) : null;
+    var only = $('exportVisible').checked ? computeView(state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()) : null;
     if (only && kind === 'json' && traceOn()) only = withGroupMembers(only);
     var name = 'hopline-' + stamp();
     if (fiatOn() && !fiatLoaded() && (kind === 'csv-edges' || kind === 'graphml')) toast('Prices are not loaded, so the fiat columns are empty.', true);
@@ -5092,6 +5274,7 @@
   function applyView(v) {
     if (!v || typeof v !== 'object') return;
     var traceOk = loadTraceData(v.trace);
+    loadViewGroups(v.vgroups);
     if (ARRANGE[v.arrange]) state.arrange = v.arrange;
     if (Array.isArray(v.hidden)) { state.hidden = new Set(v.hidden.filter(function (id) { return typeof id === 'string' && NV.isId(id); }).slice(0, 5000).map(canonicalId)); state.hideUndo = []; state.hideRedo = []; }
     if (v.layout === 'trace' && !traceOk) v = Object.assign({}, v, { layout: 'flow' });
@@ -5152,7 +5335,7 @@
     setGraph(new M.Graph()); state.keep = new Set(); state.pinned = new Map(); state.selected = new Set(); state.selectedEdge = null;
     state.filter.timeFrom = null; state.filter.timeTo = null; state.expandRange = null; syncExpandChip();
     state.focus = null; state.nav.reset();
-    state.trace = emptyTrace(); state.hidden = new Set(); state.hideUndo = []; state.hideRedo = []; state.arrange = DEFAULT_ARRANGE;
+    state.trace = emptyTrace(); state.vgroups = new Map(); state.hidden = new Set(); state.hideUndo = []; state.hideRedo = []; state.arrange = DEFAULT_ARRANGE;
     try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the old hash stays, harmless */ }
     renderer.cur = new Map(); renderer.target = new Map(); renderer.anim = null;
     afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); store.del(SAVE_KEY); log('Workspace cleared');
@@ -5207,12 +5390,12 @@
       onHandle: function (id, dir, shift, at) { if (shift) traceChoose(id, dir === 'left' ? 'prev' : 'next', at); else traceExpand(id, dir === 'left' ? 'prev' : 'next', { at: at }); },
       onContext: openCtx,
       onBox: function (ids, additive) { setSel(additive ? Array.from(state.selected).concat(ids) : ids); },
-      onExpand: function (id) { if (traceOn() && state.trace.groups.has(id)) traceExpandGroup(id, { limit: state.stepSize }); else if (traceOn()) traceExpand(id, 'next'); else if (state.focusOn) navigate(id); else expandNode(id, 'both'); }
+      onExpand: function (id) { if (traceOn() && state.trace.groups.has(id)) traceExpandGroup(id, { limit: state.stepSize }); else if (!traceOn() && state.vgroups.has(id)) viewExpandGroup(id); else if (traceOn()) traceExpand(id, 'next'); else if (state.focusOn) navigate(id); else expandNode(id, 'both'); }
     });
     if (!A.PRESETS.tor) { var torOpt = document.querySelector('#source option[value="tor"]'); if (torOpt) torOpt.remove(); }          // a published copy does not offer Tor
     loadPrefs();
     makeClient();
-    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
+    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('autoBalance').checked = state.autoBalance; $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets; $('bundleEdges').checked = state.bundleEdges;
@@ -5421,6 +5604,7 @@
       $(p[0]).addEventListener('change', function () { state.filter[p[1]] = this.checked; refresh({ relayout: p[1] === 'showData' || p[1] === 'showNonstd' }); scheduleSave(); });
     });
     $('arrowsInRange').addEventListener('change', function () { state.arrowsInRange = this.checked; savePrefs(); renderer.dirty = true; showInspector(true); });
+    $('autoBalance').addEventListener('change', function () { state.autoBalance = this.checked; savePrefs(); if (this.checked) autoBalanceSoon(); });
     $('groupRows').addEventListener('change', function () { state.groupRows = this.checked; savePrefs(); showInspector(true); });
     $('groupBy').addEventListener('change', function () { state.groupBy = cleanGroupBy(this.value); savePrefs(); showInspector(true); });
     $('dustSats').addEventListener('change', function () { state.dustSats = num(this.value, 0, 1000000000, 10000); this.value = state.dustSats; savePrefs(); showInspector(true); });

@@ -210,14 +210,19 @@
 
   /**
    * Ingest GET /address/<addr> (the totals the server keeps for an address): what it ever received and spent on chain, and the
-   * same for unconfirmed transactions. meta = { at: unix seconds it was read, source: the API }. See balanceOf.
+   * same for unconfirmed transactions. meta = { at: unix seconds it was read, source: the API, history: true when the wallet's
+   * transactions are read with it }. Without that the wallet is marked balanceOnly: the totals say how many transactions it has
+   * and what it holds, but none of its history is loaded (see historyRead). See balanceOf.
    */
   Graph.prototype.addAddressStats = function (addr, a, meta) {
-    var cs = (a && a.chain_stats) || {}, ms = (a && a.mempool_stats) || {};
+    var cs = (a && a.chain_stats) || {}, ms = (a && a.mempool_stats) || {}, cur = this.nodes.get(ID.addr(addr));
     function num(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
-    return this.upsertNode({ id: ID.addr(addr), type: 'addr', address: addr, txCount: (num(cs.tx_count) || 0) + (num(ms.tx_count) || 0),
-                             fundedSum: num(cs.funded_txo_sum), spentSum: num(cs.spent_txo_sum), mempoolFundedSum: num(ms.funded_txo_sum), mempoolSpentSum: num(ms.spent_txo_sum),
-                             statsAt: meta && meta.at != null ? meta.at : null, statsSource: meta && meta.source ? meta.source : null });
+    var only = !(meta && meta.history) && !(cur && cur.txCount != null && !cur.balanceOnly);          // a wallet whose history was asked for stays so
+    var node = this.upsertNode({ id: ID.addr(addr), type: 'addr', address: addr, balanceOnly: only ? true : null, txCount: (num(cs.tx_count) || 0) + (num(ms.tx_count) || 0),
+                                 fundedSum: num(cs.funded_txo_sum), spentSum: num(cs.spent_txo_sum), mempoolFundedSum: num(ms.funded_txo_sum), mempoolSpentSum: num(ms.spent_txo_sum),
+                                 statsAt: meta && meta.at != null ? meta.at : null, statsSource: meta && meta.source ? meta.source : null });
+    if (!only) delete node.balanceOnly;
+    return node;
   };
 
   /**
@@ -229,6 +234,12 @@
     var confirmed = n.fundedSum - n.spentSum, pending = (n.mempoolFundedSum || 0) - (n.mempoolSpentSum || 0);
     return { confirmed: confirmed, pending: pending, total: confirmed + pending, received: n.fundedSum, sent: n.spentSum };
   }
+
+  /**
+   * Has the transaction history of this wallet been asked for? Its transaction count alone does not say so: the totals the server
+   * keeps (what a balance read brings) include it, and then the transactions themselves are still to load.
+   */
+  function historyRead(n) { return !!n && n.type === 'addr' && n.txCount != null && !n.balanceOnly; }
 
   /** Ingest GET /tx/<id>/outspends: marks which outputs are spent, and by whom (with the spender's time). */
   Graph.prototype.addOutspends = function (txid, outspends) {
@@ -358,5 +369,5 @@
     return g;
   };
 
-  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf };
+  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf, historyRead: historyRead };
 }));
