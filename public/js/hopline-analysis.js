@@ -23,10 +23,11 @@
     consolidation: { minIn: 5, maxOut: 2 },             // many inputs gathered into one or two outputs
     batch: { minOut: 6, maxIn: 3 },                     // a few inputs paying many outputs
     coinjoin: { minIn: 3, minEqual: 3 },                // several owners' inputs, several outputs of exactly the same value to different addresses
+    round: { minZeros: 4, minSats: 1000000 },           // an output that is a multiple of 10,000 satoshis (0.0001 BTC) and at least 0.01 BTC: an amount somebody chose
     peel: { maxRatio: 0.5, minLength: 4, minSmall: 1000 } // one input, two outputs, the small one at most half the large and not dust (satoshis); this many in a row
   };
 
-  var COLORS = { consolidation: '#b58cff', batch: '#6be675', coinjoin: '#ff7aa2', peel: '#ffb347', change: '#ff9f43' };
+  var COLORS = { consolidation: '#b58cff', batch: '#6be675', coinjoin: '#ff7aa2', peel: '#ffb347', change: '#ff9f43', round: '#2ec4b6' };
   var CONFIDENCE = { low: 1, medium: 2, high: 3 };
   // one colour per peel chain, picked from the chain's own start so it stays the same whatever else is loaded
   var CHAIN_COLORS = ['#ffb347', '#4dd0e1', '#f48fb1', '#c5e1a5', '#ce93d8', '#fff176', '#90caf9', '#ff8a65'];
@@ -126,6 +127,25 @@
     return { equal: eq.count, amount: eq.amount, inputs: owners, outputs: outs.length };
   }
 
+  /**
+   * An amount somebody chose rather than a wallet computed: an output that is a round number (at least `minZeros` zeros at the end, in satoshis, and at least `minSats`).
+   * Often the payment, with the other output the change; it can as well be a service paying a fixed amount, a policy or a test, so it says nothing about who or what chose it.
+   * Left out, because a machine made them: a transaction that is already a CoinJoin-like, consolidation or batch, one with the same amount to three or more different
+   * recipients, and one that spends from a service wallet (opts.service(address): an exchange paying out or sweeping). A round payment INTO a service wallet is kept.
+   * Returns { kind: 'round', ... } or null.
+   */
+  function roundFlag(v, opts) {
+    var cfg = Object.assign({}, DEFAULTS.round, opts && opts.round), outs = payOuts(v);
+    var round = outs.filter(function (o) { return o.amount >= cfg.minSats && trailingZeros(o.amount) >= cfg.minZeros; });
+    if (!round.length || mostEqual(outs).count >= 3) return null;
+    if (opts && typeof opts.service === 'function' && v.inputs.some(function (i) { return i.address && opts.service(i.address); })) return null;
+    round.sort(function (a, b) { return b.amount - a.amount; });
+    var amounts = []; round.forEach(function (o) { if (amounts.indexOf(o.amount) < 0) amounts.push(o.amount); });
+    return { kind: 'round', short: 'ROUND ' + btc(round[0].amount), color: COLORS.round, amount: round[0].amount,
+             title: 'Round amount: ' + amounts.map(btc).join(', ') + '. A number somebody chose, where a wallet computes an amount such as change to the last satoshi. Often the payment, with the other output the change; '
+                    + 'it can also be a service paying a fixed amount, a policy or a test, so it does not say who or what chose it.' };
+  }
+
   /** The patterns a single transaction shows by itself. Peel chains need several transactions: see peelChains. */
   function classify(v, opts) {
     var flags = [];
@@ -142,6 +162,7 @@
       flags.push({ kind: 'batch', short: 'BATCH ' + nIn + '→' + outs.length, color: COLORS.batch,
                    title: 'Batch payment: ' + nIn + ' input' + (nIn === 1 ? '' : 's') + ' paying ' + outs.length + ' outputs. Typical of an exchange or service paying many people at once.' });
     }
+    if (!flags.length) { var rnd = roundFlag(v, opts); if (rnd) flags.push(rnd); }
     return flags;
   }
 
@@ -457,7 +478,7 @@
   }
 
   return {
-    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
+    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, roundFlag: roundFlag, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
     CHANGE_SIGNALS: CHANGE_SIGNALS, signalOf: signalOf, peelStep: peelStep, peelChains: peelChains, clusters: clusters, suggestNames: suggestNames, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
   };
 }));
