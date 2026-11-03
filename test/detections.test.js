@@ -53,7 +53,7 @@ test('detections: one row per flag, oldest first', () => {
   const d = Det.build(g, an);
   assert.deepEqual(d.rows.map((r) => r.id), [early, ...chain, late]);
   assert.ok(d.rows.every((r, i) => i === 0 || d.rows[i - 1].time <= r.time));
-  assert.deepEqual(d.counts, { peel: 5, consolidation: 2, batch: 0, coinjoin: 0, total: 7 });
+  assert.deepEqual(d.counts, { peel: 5, consolidation: 2, batch: 0, coinjoin: 0, round: 0, total: 7 });
 });
 
 test('detections: a transaction that has not been confirmed comes last, and a flag keeps its colour and short text', () => {
@@ -122,4 +122,16 @@ test('detections: an empty graph, or no analysis, lists nothing', () => {
   assert.deepEqual(Det.build(new Graph(), An.analyse(new Graph())).rows, []);
   const d = Det.build(null, null);
   assert.deepEqual(d.rows, []); assert.deepEqual(d.chains, []); assert.equal(d.counts.total, 0);
+});
+
+test('detections: a round amount is a kind of its own, listed and counted like the others', () => {
+  const g = new Graph(), tid2 = (n) => ('0' + n.toString(16)).slice(-2).repeat(32);
+  g.addTx({ txid: tid2(1), fee: 200, weight: 800, status: { confirmed: true, block_height: 1, block_time: 1650000000 },
+            vin: [{ txid: tid2(90), vout: 0, is_coinbase: false, prevout: { scriptpubkey_address: 'bc1qinxxxxxxxxxxxxxxxxxx', scriptpubkey_type: 'v0_p2wpkh', value: 150000000 } }],
+            vout: [{ scriptpubkey_address: 'bc1qpayxxxxxxxxxxxxxxxxx', scriptpubkey_type: 'v0_p2wpkh', value: 100000000 }, { scriptpubkey_address: 'bc1qchgxxxxxxxxxxxxxxxxx', scriptpubkey_type: 'v0_p2wpkh', value: 49990000 }] });
+  const d = Det.build(g, An.analyse(g, {}));
+  assert.deepEqual(d.rows.map((r) => [r.kind, r.short]), [['round', 'ROUND 1 BTC']]); assert.equal(d.counts.round, 1); assert.equal(d.counts.total, 1);
+  assert.ok(Det.KINDS.indexOf('round') >= 0);
+  assert.equal(Det.pick(d.rows, { kind: 'round' }).length, 1); assert.equal(Det.pick(d.rows, { kind: 'peel' }).length, 0);
+  assert.equal(Det.build(g, An.analyse(g, {}), { kinds: { round: false } }).rows.length, 0, 'switched off, it is left out of the rows');
 });

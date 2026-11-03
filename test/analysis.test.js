@@ -560,3 +560,66 @@ test('suggestNames: a CoinJoin-like transaction and one you excluded are not use
   assert.equal(an.clusters.list.length, 0);
   assert.deepEqual(An.suggestNames(g, an.clusters, (id) => (id === ID.addr(a('w1')) ? 'Name' : null)).suggestions, []);
 });
+
+// ---- round amounts ------------------------------------------------------------------------------
+const kindsOf = (flags) => flags.map((f) => f.kind);
+
+test('round amount: an output that is a round number is flagged with its amount, and an odd payment is not', () => {
+  const g = new Graph();
+  const one = add(g, 1, [IN(90, 0, a('in1'), 150000000)], [OUT(a('pay'), 100000000), OUT(a('chg'), 49998500)]);
+  const f = An.classify(An.txView(g, one));
+  assert.deepEqual(kindsOf(f), ['round']); assert.equal(f[0].short, 'ROUND 1 BTC'); assert.equal(f[0].amount, 100000000);
+  assert.match(f[0].title, /somebody chose/); assert.match(f[0].title, /does not say who or what chose it/);
+  const half = add(g, 2, [IN(91, 0, a('in2'), 80000000)], [OUT(a('p2'), 50000000), OUT(a('c2'), 29998000)]);
+  assert.equal(An.classify(An.txView(g, half))[0].short, 'ROUND 0.5 BTC');
+  const ten = add(g, 3, [IN(92, 0, a('in3'), 1500000000)], [OUT(a('p3'), 1000000000), OUT(a('c3'), 499990000)]);
+  assert.equal(An.classify(An.txView(g, ten))[0].short, 'ROUND 10 BTC');
+  const odd = add(g, 4, [IN(93, 0, a('in4'), 150000000)], [OUT(a('p4'), 123456789), OUT(a('c4'), 26543000)]);
+  assert.deepEqual(An.classify(An.txView(g, odd)), [], 'an odd amount says nothing');
+});
+
+test('round amount: the smallest amount and the number of zeros are settings', () => {
+  const g = new Graph();
+  const small = add(g, 1, [IN(90, 0, a('in1'), 900000)], [OUT(a('pay'), 500000), OUT(a('chg'), 399000)]);              // 0.005 BTC
+  assert.deepEqual(An.classify(An.txView(g, small)), [], 'below 0.01 BTC');
+  assert.deepEqual(kindsOf(An.classify(An.txView(g, small), { round: { minSats: 500000 } })), ['round'], 'unless the smallest amount is lowered');
+  const four = add(g, 2, [IN(91, 0, a('in2'), 2000000)], [OUT(a('p2'), 1230000), OUT(a('c2'), 769000)]);              // 0.0123 BTC: four zeros
+  assert.deepEqual(kindsOf(An.classify(An.txView(g, four))), ['round']);
+  assert.deepEqual(An.classify(An.txView(g, four), { round: { minZeros: 5 } }), [], 'five zeros are asked for');
+  const three = add(g, 3, [IN(92, 0, a('in3'), 2000000)], [OUT(a('p3'), 1234000), OUT(a('c3'), 765000)]);             // three zeros
+  assert.deepEqual(An.classify(An.txView(g, three)), []);
+  assert.deepEqual(kindsOf(An.classify(An.txView(g, three), { round: { minZeros: 3 } })), ['round']);
+});
+
+test('round amount: left out when a machine made it', () => {
+  const g = new Graph();
+  const consol = add(g, 1, [1, 2, 3, 4, 5].map((n) => IN(80 + n, 0, a('k' + n), 30000000)), [OUT(a('sink'), 100000000), OUT(a('chg'), 49990000)]);
+  assert.deepEqual(kindsOf(An.classify(An.txView(g, consol))), ['consolidation'], 'a consolidation is that and nothing more');
+  const batch = add(g, 2, [IN(90, 0, a('in'), 900000000)], [OUT(a('o1'), 100000000)].concat([2, 3, 4, 5, 6].map((n) => OUT(a('o' + n), 12345 * n))));
+  assert.deepEqual(kindsOf(An.classify(An.txView(g, batch))), ['batch'], 'so is a batch payment');
+  const mix = add(g, 3, [1, 2, 3].map((n) => IN(70 + n, 0, a('w' + n), 150000000)), [1, 2, 3].map((n) => OUT(a('e' + n), 100000000)).concat([OUT(a('chg1'), 49990000)]));
+  assert.deepEqual(kindsOf(An.classify(An.txView(g, mix))), ['coinjoin']);
+  const fixed = add(g, 4, [IN(60, 0, a('src'), 500000000)], [1, 2, 3].map((n) => OUT(a('r' + n), 100000000)).concat([OUT(a('chg2'), 199990000)]));
+  assert.deepEqual(An.classify(An.txView(g, fixed)), [], 'the same round amount to three different recipients is a fixed payout');
+  const two = add(g, 5, [IN(61, 0, a('src2'), 300000000)], [1, 2].map((n) => OUT(a('t' + n), 100000000)).concat([OUT(a('chg3'), 99990000)]));
+  assert.deepEqual(kindsOf(An.classify(An.txView(g, two))), ['round'], 'two recipients of the same amount are still somebody choosing');
+});
+
+test('round amount: a service paying out or sweeping is left out, a payment into a service is not', () => {
+  const g = new Graph();
+  const id = add(g, 1, [IN(90, 0, a('exch'), 400000000)], [OUT(a('cust'), 100000000), OUT(a('chg'), 299990000)]);
+  const svc = (addr) => addr === a('exch');
+  assert.deepEqual(kindsOf(An.classify(An.txView(g, id))), ['round'], 'without a service list it is flagged');
+  assert.deepEqual(An.classify(An.txView(g, id), { service: svc }), [], 'spending from a service wallet: an exchange paying out');
+  const dep = add(g, 2, [IN(91, 0, a('person'), 400000000)], [OUT(a('exch'), 100000000), OUT(a('chg2'), 299990000)]);
+  assert.deepEqual(kindsOf(An.classify(An.txView(g, dep), { service: svc })), ['round'], 'a round deposit into a service is the kind of thing this is for');
+});
+
+test('round amount: several round outputs name the largest and list every amount, and an OP_RETURN output is not an amount', () => {
+  const g = new Graph();
+  const id = add(g, 1, [IN(90, 0, a('in'), 400000000)], [OUT(a('big'), 200000000), OUT(a('mid'), 50000000), OUT(a('chg'), 149991234), { data: true }]);
+  const f = An.classify(An.txView(g, id));
+  assert.equal(f.length, 1); assert.equal(f[0].short, 'ROUND 2 BTC'); assert.match(f[0].title, /2 BTC, 0\.5 BTC/);
+  const res = An.analyse(g, {});
+  assert.equal(res.counts.flagged, 1); assert.deepEqual(kindsOf(res.tx.get(id).flags), ['round']);
+});

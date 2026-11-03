@@ -54,7 +54,7 @@
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: true, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true,
     trace: emptyTrace(), vgroups: new Map(), vseq: 0, routeRef: null, routeFocus: null, openDir: 'next',
-    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
+    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
     stepMode: 'ask', stepSize: 5, autoBalance: true, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
@@ -190,7 +190,9 @@
   function cleanAnalysis(a) {
     a = a && typeof a === 'object' ? a : {};
     var k = a.kinds && typeof a.kinds === 'object' ? a.kinds : {};
-    return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false, kinds: { peel: k.peel !== false, consolidation: k.consolidation !== false, batch: k.batch !== false, coinjoin: k.coinjoin !== false } };
+    var r = a.round && typeof a.round === 'object' ? a.round : {};
+    return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false, kinds: { peel: k.peel !== false, consolidation: k.consolidation !== false, batch: k.batch !== false, coinjoin: k.coinjoin !== false, round: k.round !== false },
+             round: { minZeros: num(r.minZeros, 3, 6, 4), minSats: num(r.minSats, 1, 2100000000000000, 1000000) } };
   }
 
   function savePrefs() {
@@ -3383,7 +3385,7 @@
   // ---- analysis: patterns, likely change, clusters ----------------------------------------------
   // All of it is a guess from what is loaded; every result carries its reasons (see hopline-analysis.js).
   var CLUSTER_COLORS = ['#00d1b2', '#ff7aa2', '#ffd23f', '#7aa2ff', '#b58cff', '#ff9f43', '#6be675', '#e0e0e0'];
-  var FLAG_NAME = { consolidation: 'CONSOL', batch: 'BATCH', coinjoin: 'COINJOIN?', peel: 'PEEL' };
+  var FLAG_NAME = { consolidation: 'CONSOL', batch: 'BATCH', coinjoin: 'COINJOIN?', peel: 'PEEL', round: 'ROUND' };
 
   /** What marks a wallet as already known: your label, your tag, or the known list. null when nothing does. */
   function markOf(address) {
@@ -3400,9 +3402,9 @@
       if (n.type === 'tx') { if (n.loaded) loaded++; if (n.outspendsLoaded) outs++; if (n.noCluster) excluded++; }
       else if (n.label || n.tag) marked++;
     });
-    var sig = g.nodes.size + '/' + g.edges.size + '/' + loaded + '/' + outs + '/' + marked + '/' + excluded + '/' + state.knownVersion;
+    var rd = state.analysis.round, sig = g.nodes.size + '/' + g.edges.size + '/' + loaded + '/' + outs + '/' + marked + '/' + excluded + '/' + state.knownVersion + '/' + rd.minZeros + '/' + rd.minSats;
     if (!state.an || state.anSig !== sig || state.anGraph !== g) {
-      state.an = AN.analyse(g, { known: function (a) { return !!markOf(a); } }); state.anSig = sig; state.anGraph = g;
+      state.an = AN.analyse(g, { known: function (a) { return !!markOf(a); }, service: function (a) { return routeHub(ID.addr(a)); }, round: { minZeros: rd.minZeros, minSats: rd.minSats } }); state.anSig = sig; state.anGraph = g;
     }
     return state.an;
   }
@@ -3434,7 +3436,7 @@
 
   // ---- detections: every pattern found, oldest first ------------------------------------------------
   var DET_ROWS = 400;                                                                   // rows drawn at once; Select these and Copy list still take all of them
-  var DET_KINDS = [['all', 'All'], ['peel', 'PEEL'], ['consolidation', 'CONSOL'], ['batch', 'BATCH'], ['coinjoin', 'COINJOIN?']];
+  var DET_KINDS = [['all', 'All'], ['peel', 'PEEL'], ['consolidation', 'CONSOL'], ['batch', 'BATCH'], ['coinjoin', 'COINJOIN?'], ['round', 'ROUND']];
   var det = { kind: 'all', chain: '', data: null, an: null, graph: null, rows: [] };
   function detOpenNow() { return $('detSection').open; }
   /** The detections of the current analysis; built again only when the analysis was. */
@@ -4381,7 +4383,7 @@
   /** The Analysis panel: what was found, as lists that select the vertices involved. */
   var findingsFor = null, findingsStamp = '';
   // ---- what was found, in one strip over the graph ----------------------------------------------------------------------
-  var FIND_NAME = { coinjoin: 'COINJOIN?', consolidation: 'CONSOL', batch: 'BATCH', peel: 'PEEL' };
+  var FIND_NAME = { coinjoin: 'COINJOIN?', consolidation: 'CONSOL', batch: 'BATCH', peel: 'PEEL', round: 'ROUND' };
   /**
    * The findings as chips, most important first: [{ key, text, count, ids, color, bad, what, title }]. They count what is loaded and found (the switches under Analysis only
    * decide what is drawn on the graph), and a click selects the vertices they count. Wallets on a sanctions list come first; known wallets are listed last and are not a finding.
@@ -4396,7 +4398,7 @@
     add('sanctions', 'Sanctions', sanc, '#ff4d4f', 'wallets on a sanctions list', 'Wallets on a sanctions list (a list\'s claim: open its source before relying on it). Click to select them.', true);
     {
       an.tx.forEach(function (r, id) { r.flags.forEach(function (f) { (byKind[f.kind] = byKind[f.kind] || { f: f, ids: [] }).ids.push(id); }); });
-      ['coinjoin', 'consolidation', 'batch'].forEach(function (k) {
+      ['coinjoin', 'consolidation', 'batch', 'round'].forEach(function (k) {
         if (byKind[k]) add(k, FIND_NAME[k], byKind[k].ids, byKind[k].f.color, FIND_NAME[k] + ' transactions', plural(byKind[k].ids.length, 'transaction') + ' flagged ' + FIND_NAME[k] + '. Click to select them.');
       });
       if (byKind.peel && an.chains.length) {
@@ -4648,7 +4650,8 @@
     $('autoHops').value = a.hops; $('autoFollow').value = a.follow; $('autoMaxTx').value = a.maxTx; $('autoMaxReq').value = a.maxReq; $('autoPerTx').value = a.perTx; $('autoMin').value = a.minSats;
     $('autoStopLabel').checked = a.stopLabel; $('autoStopMix').checked = a.stopMix;
     $('anFlags').checked = state.analysis.flags; $('anChange').checked = state.analysis.change; $('anClusters').checked = state.analysis.clusters;
-    $('anKPeel').checked = state.analysis.kinds.peel; $('anKConsol').checked = state.analysis.kinds.consolidation; $('anKBatch').checked = state.analysis.kinds.batch; $('anKCoinjoin').checked = state.analysis.kinds.coinjoin; syncAssistUi();
+    $('anKPeel').checked = state.analysis.kinds.peel; $('anKConsol').checked = state.analysis.kinds.consolidation; $('anKBatch').checked = state.analysis.kinds.batch; $('anKCoinjoin').checked = state.analysis.kinds.coinjoin; $('anKRound').checked = state.analysis.kinds.round;
+    $('anRoundMin').value = String(state.analysis.round.minSats / 1e8); $('anRoundZeros').value = String(state.analysis.round.minZeros); syncAssistUi();
     updateAutoUi();
   }
   function updateAutoUi() {
@@ -5482,8 +5485,15 @@
     ['autoHops', 'autoFollow', 'autoMaxTx', 'autoMaxReq', 'autoPerTx', 'autoMin', 'autoStopLabel', 'autoStopMix'].forEach(function (id) { $(id).addEventListener('change', readAuto); });
     $('autoGo').addEventListener('click', function () { var id = autoTarget(); if (id) autoExpand(id); });
     wireDetections(); wireAssistant();
-    [['anKPeel', 'peel'], ['anKConsol', 'consolidation'], ['anKBatch', 'batch'], ['anKCoinjoin', 'coinjoin']].forEach(function (p) {
+    [['anKPeel', 'peel'], ['anKConsol', 'consolidation'], ['anKBatch', 'batch'], ['anKCoinjoin', 'coinjoin'], ['anKRound', 'round']].forEach(function (p) {
       $(p[0]).addEventListener('change', function () { state.analysis.kinds[p[1]] = this.checked; savePrefs(); refresh(); });
+    });
+    ['anRoundMin', 'anRoundZeros'].forEach(function (id) {                                // what counts as a round amount: the smallest one (in BTC) and how round (a multiple of ...)
+      $(id).addEventListener('change', function () {
+        var btc = parseFloat($('anRoundMin').value);
+        state.analysis.round = { minZeros: num($('anRoundZeros').value, 3, 6, 4), minSats: isFinite(btc) && btc > 0 ? Math.max(1, Math.min(2100000000000000, Math.round(btc * 1e8))) : 1000000 };
+        syncAutoUi(); savePrefs(); refresh();
+      });
     });
     [['anFlags', 'flags'], ['anChange', 'change'], ['anClusters', 'clusters']].forEach(function (p) {
       $(p[0]).addEventListener('change', function () { state.analysis[p[1]] = this.checked; savePrefs(); edgeLabelCache.clear(); refresh(); });
