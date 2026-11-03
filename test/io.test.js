@@ -356,3 +356,11 @@ test('the reference that was picked survives an export and an import, and an id 
   const text = IO.toJson(g, { view: { routeRef: 'addr:bc1qabc', focus: 'addr:bc1qabc' } });
   assert.equal(IO.fromJson(text).view.routeRef, 'addr:bc1qabc');
 });
+
+test('handoffsCsv: a swap-memo row says so in its kind and leaves the amount and the service wallet empty', () => {
+  const rows = [{ kind: 'swap', dir: 'deposit', service: 'Swap memo: into ETH.WBTC, paid out to 0xabc', address: null, txid: 'ef'.repeat(32), time: 1650000000, amount: null, outputs: 0, walletAddress: 'bc1qbefore', depth: 2, nIn: 1, nOut: 3, merges: false }];
+  const line = IO.handoffsCsv(rows).split('\r\n')[1], cells = line.split(',');
+  assert.equal(cells[cells.length - 1], 'swap memo');
+  assert.ok(line.startsWith('deposit,"Swap memo: into ETH.WBTC, paid out to 0xabc",,'), line);
+  assert.ok(line.includes(',1650000000,2022-04-15 05:20 UTC,,,0,bc1qbefore,2,1,3,false,'), 'no amount, neither in satoshis nor in BTC: ' + line);
+});

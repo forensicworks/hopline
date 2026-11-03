@@ -144,6 +144,13 @@
     return '';
   }
 
+  var RELAY_PAGE = 'https://relay.link/transaction/';
+  /**
+   * Relay's page for a request ID (the "0x" and 64 hex digits some Bitcoin payments carry in an OP_RETURN), or ''. Opening it tells Relay which request you are looking at, so the
+   * pages offer it only when the data source is not Tor.
+   */
+  function relayUrl(id) { return typeof id === 'string' && /^0x[0-9a-fA-F]{64}$/.test(id) ? RELAY_PAGE + id.toLowerCase() : ''; }
+
   /** GET /health on the proxy: { ok, keyConfigured, upstream }. */
   function proxyHealth(opts) {
     var base = String(opts.base || '').replace(/\/+$/, '');
@@ -226,5 +233,5 @@
     fields: function (a) { return [['Entity', a.name], ['Type', a.type], ['Label', a.label], ['Tags', (a.tags || []).join(', ')], ['Predicted', a.predicted], ['Website', a.website], ['Note', a.note]]; }
   });
 
-  return { SOURCES: SOURCES, register: register, unregister: unregister, source: source, list: list, describe: describe, entries: entries, lookupMany: lookupMany, parseArkham: parseArkham, tagFor: tagFor, toExt: toExt, cleanExt: cleanExt, lookupArkham: lookupArkham, proxyHealth: proxyHealth, arkhamUrl: arkhamUrl, ARKHAM_EXPLORER: ARKHAM_EXPLORER, RAW_LIMIT: RAW_LIMIT };
+  return { relayUrl: relayUrl, SOURCES: SOURCES, register: register, unregister: unregister, source: source, list: list, describe: describe, entries: entries, lookupMany: lookupMany, parseArkham: parseArkham, tagFor: tagFor, toExt: toExt, cleanExt: cleanExt, lookupArkham: lookupArkham, proxyHealth: proxyHealth, arkhamUrl: arkhamUrl, ARKHAM_EXPLORER: ARKHAM_EXPLORER, RAW_LIMIT: RAW_LIMIT };
 }));

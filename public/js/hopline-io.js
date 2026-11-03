@@ -180,8 +180,8 @@
   function handoffsCsv(rows) {
     var lines = [row(HANDOFF_COLS)];
     (rows || []).forEach(function (r) {
-      lines.push(row([cell(r.dir), cell(r.service), cell(r.address), cell(r.txid), cell(r.time), cell(r.time != null ? Style.fmtTime(r.time) : ''), cell(r.amount, true), cell(Style.fmtBtc(r.amount), true),
-                      cell(r.outputs, true), cell(r.walletAddress || ''), cell(r.depth, true), cell(r.nIn), cell(r.nOut), cell(r.merges), cell(r.kind === 'named' ? 'named' : 'service')]));
+      lines.push(row([cell(r.dir), cell(r.service), cell(r.address), cell(r.txid), cell(r.time), cell(r.time != null ? Style.fmtTime(r.time) : ''), cell(r.amount, true), cell(r.amount == null ? null : Style.fmtBtc(r.amount), true),
+                      cell(r.outputs, true), cell(r.walletAddress || ''), cell(r.depth, true), cell(r.nIn), cell(r.nOut), cell(r.merges), cell(r.kind === 'named' ? 'named' : r.kind === 'swap' ? 'swap memo' : 'service')]));
     });
     return lines.join('\r\n') + '\r\n';
   }

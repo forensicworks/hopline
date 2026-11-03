@@ -623,3 +623,88 @@ test('round amount: several round outputs name the largest and list every amount
   const res = An.analyse(g, {});
   assert.equal(res.counts.flagged, 1); assert.deepEqual(kindsOf(res.tx.get(id).flags), ['round']);
 });
+
+// ---- swap memos ---------------------------------------------------------------------------------
+const DEST = '0x' + '11'.repeat(20);
+const MEMO = '=:ETH.WBTC:' + DEST + ':1234e4/3/10:aff:5';                            // invented: the shape THORChain documents, not a real transaction
+const opReturn = (text) => { const b = Buffer.from(text, 'utf8'); return '6a' + (b.length <= 75 ? '' : '4c') + b.length.toString(16).padStart(2, '0') + b.toString('hex'); };
+function addMemo(g, n, ins, outs, memo, time) {
+  const t = esplora(n, ins, outs.concat([{ data: true }]), time);
+  t.vout[t.vout.length - 1].scriptpubkey = opReturn(memo);
+  g.addTx(t);
+  return ID.tx(tid(n));
+}
+
+test('swapMemo: the fields of a THORChain-format swap memo, whichever way the function is written', () => {
+  assert.deepEqual(An.swapMemo(MEMO), { asset: 'ETH.WBTC', chain: 'ETH', dest: DEST, limit: '1234e4', interval: '3', quantity: '10', affiliate: 'aff', fee: '5' });
+  assert.equal(An.swapMemo('SWAP:BTC.BTC:' + a('dest') + ':0').limit, '0');
+  assert.equal(An.swapMemo('swap:ETH.ETH:' + DEST).dest, DEST);
+  assert.equal(An.swapMemo('s:ETH.USDT-0XDAC17F958D2EE523A2206206994597C13D831EC7:' + DEST + ':100/1/0').quantity, '0', '0 parts: the network chooses');
+  assert.equal(An.swapMemo('=:e:' + DEST + ':').chain, 'e', 'the one-letter form of an asset, with a destination that is long enough to be an address');
+  assert.equal(An.swapMemo('=:ETH.ETH:').dest, '', 'no destination written');
+});
+
+test('swapMemo: other text is not a swap memo', () => {
+  ['hello', 'OUT:' + 'ab'.repeat(32), '=:ETH.WBTC', '=:ETH.WBTC:has space', '=:e:short', 'x=:ETH.ETH:' + DEST, '+:ETH.ETH:' + DEST, 'a:b:c', ':::', '=:ETH.ETH:' + DEST + ':1:2:3:4:5:6:7', null, undefined, 42, '']
+    .forEach((t) => assert.equal(An.swapMemo(t), null, String(t)));
+});
+
+test('classify: a swap memo is flagged with where the payment goes and that it is only the sender\'s word, and it comes with the shape of the transaction', () => {
+  const g = new Graph();
+  const plain = addMemo(g, 1, [IN(80, 0, a('src'), 5000000)], [OUT(a('vault'), 3123456), OUT(a('back'), 1870123)], MEMO);
+  const f = An.classify(An.txView(g, plain));
+  assert.deepEqual(f.map((x) => x.kind), ['swap']);
+  assert.equal(f[0].short, 'SWAP → ETH'); assert.equal(f[0].color, An.COLORS.swap);
+  assert.equal(f[0].memo.dest, DEST);
+  assert.match(f[0].title, /into ETH\.WBTC, paid out to 0x1111/); assert.match(f[0].title, /limit 1234e4, streamed in 10 parts, every 3 blocks, affiliate aff \(5 basis points\)/);
+  assert.match(f[0].title, /does not show that the swap was carried out/);
+  const many = Array.from({ length: 6 }, (_, i) => IN(60 + i, 0, a('c' + i), 10000));
+  const sweep = addMemo(g, 2, many, [OUT(a('vault2'), 59000)], MEMO);
+  assert.deepEqual(An.classify(An.txView(g, sweep)).map((x) => x.kind), ['consolidation', 'swap'], 'a consolidation that also carries a memo has both');
+  const roundPay = addMemo(g, 3, [IN(70, 0, a('src3'), 150000000)], [OUT(a('vault3'), 100000000), OUT(a('back3'), 49990123)], MEMO);
+  assert.deepEqual(An.classify(An.txView(g, roundPay)).map((x) => x.kind), ['round', 'swap'], 'and a round payment too');
+});
+
+test('classify: no flag without a memo, for another memo, for a memo that is not in an OP_RETURN, or when the transaction is incomplete', () => {
+  const g = new Graph();
+  const hello = add(g, 1, [IN(80, 0, a('src'), 5000000)], [OUT(a('x'), 3123457)]);
+  assert.deepEqual(An.classify(An.txView(g, hello)), []);
+  const other = addMemo(g, 2, [IN(81, 0, a('src2'), 5000000)], [OUT(a('x2'), 3123457), OUT(a('y2'), 1812345)], 'OUT:' + 'ab'.repeat(32));
+  assert.deepEqual(An.classify(An.txView(g, other)), []);
+  const swapped = addMemo(g, 3, [IN(82, 0, a('src3'), 5000000)], [OUT(a('x3'), 3123457), OUT(a('y3'), 1812345)], MEMO);
+  g.removeEdge('out:' + tid(3) + ':0');
+  assert.deepEqual(An.classify(An.txView(g, swapped)), [], 'nothing is concluded from incomplete data');
+});
+
+test('swapOf: the memo with the output it is in, and none for a transaction that is not loaded', () => {
+  const g = new Graph();
+  const id = addMemo(g, 1, [IN(80, 0, a('src'), 5000000)], [OUT(a('vault'), 3123457), OUT(a('back'), 1812345)], MEMO);
+  const m = An.swapOf(An.txView(g, id));
+  assert.equal(m.vout, 2); assert.equal(m.id, ID.data(tid(1), 2)); assert.equal(m.asset, 'ETH.WBTC');
+  assert.equal(An.swapOf(An.txView(g, ID.tx(tid(80)))), null);
+  assert.equal(An.swapOf(null), null);
+});
+
+// ---- cross-chain request IDs --------------------------------------------------------------------
+const RID = '0x' + 'ab'.repeat(32);                                                  // invented: the shape of a request ID, not a real one
+
+test('requestIdMemo: "0x" and 64 hex digits and nothing else', () => {
+  assert.deepEqual(An.requestIdMemo(RID), { requestId: RID });
+  assert.equal(An.requestIdMemo('0x' + 'AB'.repeat(32)).requestId, RID, 'kept in lower case');
+  assert.equal(An.requestIdMemo('  ' + RID + ' ').requestId, RID, 'a space around it does not matter');
+  [RID + 'a', RID.slice(0, -1), 'ab'.repeat(33), '0x' + 'zz'.repeat(32), 'id: ' + RID, RID + ' ' + RID, '', null, undefined, 42]
+    .forEach((t) => assert.equal(An.requestIdMemo(t), null, String(t)));
+});
+
+test('classify: a request ID in an OP_RETURN is flagged as a lead about the wallet paid, not as a finding', () => {
+  const g = new Graph();
+  const id = addMemo(g, 1, [IN(80, 0, a('src'), 5000000)], [OUT(a('svc'), 3123457), OUT(a('back'), 1812345)], RID);
+  const f = An.classify(An.txView(g, id));
+  assert.deepEqual(f.map((x) => x.kind), ['swap']); assert.equal(f[0].short, 'SWAP ID'); assert.equal(f[0].color, An.COLORS.swap);
+  assert.equal(f[0].memo.form, 'request'); assert.equal(f[0].memo.requestId, RID);
+  assert.ok(f[0].title.indexOf(RID) >= 0); assert.match(f[0].title, /does not say where the money went/); assert.match(f[0].title, /anyone can write the same text/);
+  assert.equal(An.swapLabel(f[0].memo), 'Cross-chain request: ID 0xabababab…ababab');
+  assert.equal(An.swapOf(An.txView(g, id)).form, 'request');
+  const thor = addMemo(g, 2, [IN(81, 0, a('src2'), 5000000)], [OUT(a('v2'), 3123457), OUT(a('b2'), 1812345)], MEMO);
+  assert.equal(An.swapOf(An.txView(g, thor)).form, 'thorchain'); assert.match(An.swapLabel(An.swapOf(An.txView(g, thor))), /^Swap memo: into ETH\.WBTC/);
+});

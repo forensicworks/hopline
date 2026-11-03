@@ -36,6 +36,7 @@
     consolidation: 'Many inputs gathered into one or two outputs. Usually one owner tidying up their coins.',
     batch: 'A few inputs paying many outputs. Typical of an exchange or service paying many people at once.',
     coinjoin: 'Several wallets\' inputs and several outputs of exactly the same value to different addresses. The addresses spent together are probably different owners.',
+    swap: 'An OP_RETURN that asks THORChain to swap the payment into an asset on another chain (a swap memo: the asset, the address it is to be paid out to, the limit, the streaming split and an affiliate), or that carries the request ID of a cross-chain service such as Relay (0x and 64 hex digits, which says nothing about where the money went). It is what the sender wrote, not proof that anything was carried out; the payment to the service is another output of the transaction.',
     round: 'An output that is a round amount: a number somebody chose, where a wallet computes an amount such as change to the last satoshi. Often the payment, with the other output the change. A service paying a fixed amount, a policy or a test gives the same, so it does not say who or what chose it.'
   };
   var NOTES = [

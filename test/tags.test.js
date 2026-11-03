@@ -102,3 +102,9 @@ test('resolve and summarise', () => {
   assert.equal(s.find((x) => x.tag === 'THREAT').color, '#000000', 'a vertex colour overrides the preset in the legend');
   assert.equal(s.find((x) => x.tag === 'EXCH').shape, 'hexagon');
 });
+
+test('SWAP: a preset for a swap or bridge service, with its own colour and shape', () => {
+  const p = T.preset('SWAP');
+  assert.equal(p.name, 'Swap / bridge'); assert.match(p.color, /^#[0-9a-f]{6}$/); assert.ok(T.SHAPES.indexOf(p.shape) >= 0);
+  assert.equal(T.cleanTag('swap'), 'SWAP', 'typed in any case it is the preset');
+});
