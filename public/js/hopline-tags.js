@@ -24,6 +24,7 @@
     { id: 'MARKET',   name: 'Darknet market',              color: '#ff5fa2', shape: 'cross' },
     { id: 'SERVICE',  name: 'Service / merchant',          color: '#20c9c9', shape: 'square' },
     { id: 'GAMBLING', name: 'Gambling',                    color: '#ff9f43', shape: 'cross' },
+    { id: 'SWAP',     name: 'Swap / bridge',               color: '#d98a3d', shape: 'hexagon' },     // a service that moves value to another chain
     { id: 'WATCH',    name: 'To review',                   color: '#ffffff', shape: 'circle' }
   ];
 

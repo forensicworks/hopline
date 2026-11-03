@@ -54,7 +54,7 @@
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: true, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true,
     trace: emptyTrace(), vgroups: new Map(), vseq: 0, routeRef: null, routeFocus: null, openDir: 'next',
-    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
+    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true, swap: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
     stepMode: 'ask', stepSize: 5, autoBalance: true, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
@@ -191,7 +191,7 @@
     a = a && typeof a === 'object' ? a : {};
     var k = a.kinds && typeof a.kinds === 'object' ? a.kinds : {};
     var r = a.round && typeof a.round === 'object' ? a.round : {};
-    return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false, kinds: { peel: k.peel !== false, consolidation: k.consolidation !== false, batch: k.batch !== false, coinjoin: k.coinjoin !== false, round: k.round !== false },
+    return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false, kinds: { peel: k.peel !== false, consolidation: k.consolidation !== false, batch: k.batch !== false, coinjoin: k.coinjoin !== false, round: k.round !== false, swap: k.swap !== false },
              round: { minZeros: num(r.minZeros, 3, 6, 4), minSats: num(r.minSats, 1, 2100000000000000, 1000000) } };
   }
 
@@ -2237,6 +2237,13 @@
     if (!n || state.source === 'tor') return '';
     return n.type === 'tx' ? XT.arkhamUrl('tx', n.txid) : n.type === 'addr' ? XT.arkhamUrl('address', n.address) : '';
   }
+  var RELAY_TITLE = 'Opens Relay\'s page for this request in a new tab. Relay is told which request you are looking at; no key or proxy is used. The page says which other chain the money went to and the address it was paid out to.';
+  /** Relay's page for the request ID a transaction carries in its OP_RETURN, or null (not for Tor, as for Arkham). */
+  function relayLink(n) {
+    if (!n || n.type !== 'tx' || state.source === 'tor') return null;
+    var m = AN.swapOf(AN.txView(state.graph, n.id)), href = m && m.form === 'request' ? XT.relayUrl(m.requestId) : '';
+    return href ? el('a', { href: href, target: '_blank', rel: 'noopener noreferrer', title: RELAY_TITLE, text: 'Look up in Relay ↗' }) : null;
+  }
   function arkhamLink(n) {
     var href = arkhamHref(n);
     return href ? el('a', { href: href, target: '_blank', rel: 'noopener noreferrer', title: ARKHAM_TITLE, text: 'Check in Arkham ↗' }) : null;
@@ -3025,7 +3032,7 @@
         el('button', { type: 'button', text: '↔ Both', onclick: function () { expandNode(n.id, 'both'); } })
       ]));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
-        el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), arkhamLink(n), hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])
+        el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), arkhamLink(n), relayLink(n), hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])
       ]));
       box.appendChild(autoButtons(n));
       (txAnalysisSection(n) || []).forEach(function (s) { box.appendChild(s); });
@@ -3386,7 +3393,7 @@
   // ---- analysis: patterns, likely change, clusters ----------------------------------------------
   // All of it is a guess from what is loaded; every result carries its reasons (see hopline-analysis.js).
   var CLUSTER_COLORS = ['#00d1b2', '#ff7aa2', '#ffd23f', '#7aa2ff', '#b58cff', '#ff9f43', '#6be675', '#e0e0e0'];
-  var FLAG_NAME = { consolidation: 'CONSOL', batch: 'BATCH', coinjoin: 'COINJOIN?', peel: 'PEEL', round: 'ROUND' };
+  var FLAG_NAME = { consolidation: 'CONSOL', batch: 'BATCH', coinjoin: 'COINJOIN?', peel: 'PEEL', round: 'ROUND', swap: 'SWAP' };
 
   /** What marks a wallet as already known: your label, your tag, or the known list. null when nothing does. */
   function markOf(address) {
@@ -3437,7 +3444,7 @@
 
   // ---- detections: every pattern found, oldest first ------------------------------------------------
   var DET_ROWS = 400;                                                                   // rows drawn at once; Select these and Copy list still take all of them
-  var DET_KINDS = [['all', 'All'], ['peel', 'PEEL'], ['consolidation', 'CONSOL'], ['batch', 'BATCH'], ['coinjoin', 'COINJOIN?'], ['round', 'ROUND']];
+  var DET_KINDS = [['all', 'All'], ['peel', 'PEEL'], ['consolidation', 'CONSOL'], ['batch', 'BATCH'], ['coinjoin', 'COINJOIN?'], ['round', 'ROUND'], ['swap', 'SWAP']];
   var det = { kind: 'all', chain: '', data: null, an: null, graph: null, rows: [] };
   function detOpenNow() { return $('detSection').open; }
   /** The detections of the current analysis; built again only when the analysis was. */
@@ -3831,9 +3838,11 @@
   /** Whether a hand-off row is a wallet a list names that is not a service (a sanctions or ransomware entry). */
   function handoffNamed(r) { return r.kind === 'named'; }
   /** What the hand-offs are called: "service hand-off" while they are all services, "hand-off" once a named wallet is among them. */
-  function handoffWord(rows) { return rows.some(handoffNamed) ? 'hand-off' : 'service hand-off'; }
+  function handoffWord(rows) { return rows.some(handoffNamed) || rows.some(handoffSwap) ? 'hand-off' : 'service hand-off'; }
   /** The money's direction in words: a deposit or a withdrawal for a service, going into or coming out of the wallet for a named one. */
+  function handoffSwap(r) { return r.kind === 'swap'; }
   function handoffDir(r, short) {
+    if (handoffSwap(r)) return short ? 'swap memo' : 'into a swap to another chain';
     if (handoffNamed(r)) return r.dir === 'deposit' ? (short ? 'went into it' : 'into the wallet') : (short ? 'came out of it' : 'out of the wallet');
     return short ? (r.dir === 'deposit' ? 'deposit' : 'withdrawal') : (r.dir === 'deposit' ? 'into the service' : 'out of the service');
   }
@@ -3842,8 +3851,8 @@
     var head = ['direction', named ? 'name' : 'service', named ? 'wallet' : 'service wallet', 'transaction', 'time (UTC)', 'amount (BTC)', 'wallet before a deposit / after a withdrawal', 'transactions from the reference'];
     if (named) head.splice(1, 0, 'kind');
     return [head.join('\t')].concat(rows.map(function (r) {
-      var cells = [handoffDir(r), r.service, r.address, r.txid, r.time != null ? S.fmtTimeFull(r.time) : '', S.fmtBtc(r.amount), r.walletAddress || '', r.depth];
-      if (named) cells.splice(1, 0, handoffNamed(r) ? 'named by a list' : 'service');
+      var cells = [handoffDir(r), r.service, r.address || '', r.txid, r.time != null ? S.fmtTimeFull(r.time) : '', S.fmtBtc(r.amount), r.walletAddress || '', r.depth];
+      if (named) cells.splice(1, 0, handoffNamed(r) ? 'named by a list' : handoffSwap(r) ? 'swap memo' : 'service');
       return cells.join('\t');
     })).join(NL);
   }
@@ -3851,19 +3860,20 @@
   function handoffBlock(box, h) {
     var rows = routeHandoffs(), d = routeData();
     if (!rows.length) return;
-    var named = rows.some(handoffNamed);
-    box.appendChild(h.head(named ? 'Hand-offs' : 'Service hand-offs', 'handoff'));
-    box.appendChild(el('p', { 'class': 'hint', text: 'Where the trail from ' + routeName(d.ref) + ' meets ' + (named ? 'a wallet that a list names, oldest first: a service wallet (money going into it is a deposit, coming out of it a withdrawal), or a wallet on a sanctions or ransomware list that the trail passes through.'
+    var swaps = rows.some(handoffSwap), named = rows.some(handoffNamed), wide = named || swaps;
+    box.appendChild(h.head(wide ? 'Hand-offs' : 'Service hand-offs', 'handoff'));
+    box.appendChild(el('p', { 'class': 'hint', text: 'Where the trail from ' + routeName(d.ref) + ' meets ' + (wide ? 'a service wallet (money going into it is a deposit, coming out of it a withdrawal)' + (named ? ', a wallet on a sanctions or ransomware list that the trail passes through' : '') + (swaps ? ', or a transaction whose OP_RETURN asks for a swap into another chain (the memo says where it is to be paid out: a lead to follow there)' : '') + ', oldest first.'
       : 'a service wallet, oldest first: money going into one (a deposit) or coming out of one (a withdrawal).') }));
     rows.slice(0, 12).forEach(function (r) {
-      var deposit = r.dir === 'deposit', nm = handoffNamed(r);
+      var deposit = r.dir === 'deposit', nm = handoffNamed(r), sw = handoffSwap(r);
       var left = el('span', { 'class': 'rowtext' }, [(deposit ? '▶ ' : '◀ ') + r.service,
         el('small', { text: (nm ? 'named wallet · ' : '') + handoffDir(r, true) + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') + (r.walletAddress ? ' · ' + (deposit ? 'from ' : 'to ') + S.shortId(r.walletAddress, 8) : '') + (r.merges ? ' · merges inputs' : '') })]);
-      var b = h.row(left, S.fmtBtc(r.amount) + ' BTC', 'Show the route ' + (deposit ? 'from the reference to this ' : 'from this ') + (nm ? 'wallet' : 'service wallet') + (deposit ? '' : ' to the reference'), function () {
+      var b = h.row(left, sw ? '' : S.fmtBtc(r.amount) + ' BTC', 'Show the route ' + (deposit ? 'from the reference to this ' : 'from this ') + (sw ? 'transaction' : nm ? 'wallet' : 'service wallet') + (deposit ? '' : ' to the reference'), function () {
         if (deposit) showRoute(d.ref, r.id); else showRoute(r.id, d.ref);
       }, r.txid, 'transaction id', [r.id, ID.tx(r.txid)], '#f2c94c');
       b.setAttribute('data-handoff', r.dir);
       if (nm) b.setAttribute('data-named', '1');
+      if (sw) b.setAttribute('data-swap', '1');
       box.appendChild(b);
     });
     if (rows.length > 12) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (rows.length - 12) + ' more in the copy and the CSV' }));
@@ -4385,7 +4395,7 @@
   /** The Analysis panel: what was found, as lists that select the vertices involved. */
   var findingsFor = null, findingsStamp = '';
   // ---- what was found, in one strip over the graph ----------------------------------------------------------------------
-  var FIND_NAME = { coinjoin: 'COINJOIN?', consolidation: 'CONSOL', batch: 'BATCH', peel: 'PEEL', round: 'ROUND' };
+  var FIND_NAME = { coinjoin: 'COINJOIN?', consolidation: 'CONSOL', batch: 'BATCH', peel: 'PEEL', round: 'ROUND', swap: 'SWAP' };
 
   // ---- a finding under the pointer shows where it is, and a vertex under the pointer shows its findings -------------------------------------------------
   // Pointing at (or focusing) a chip or a row that stands for vertices rings them in the finding's colour and fades the rest of the graph until the pointer leaves, after a
@@ -4447,8 +4457,10 @@
     add('sanctions', 'Sanctions', sanc, '#ff4d4f', 'wallets on a sanctions list', 'Wallets on a sanctions list (a list\'s claim: open its source before relying on it). Click to select them.', true);
     {
       an.tx.forEach(function (r, id) { r.flags.forEach(function (f) { (byKind[f.kind] = byKind[f.kind] || { f: f, ids: [] }).ids.push(id); }); });
-      ['coinjoin', 'consolidation', 'batch', 'round'].forEach(function (k) {
-        if (byKind[k]) add(k, FIND_NAME[k], byKind[k].ids, byKind[k].f.color, FIND_NAME[k] + ' transactions', plural(byKind[k].ids.length, 'transaction') + ' flagged ' + FIND_NAME[k] + '. Click to select them.');
+      ['coinjoin', 'consolidation', 'batch', 'round', 'swap'].forEach(function (k) {
+        if (byKind[k]) add(k, FIND_NAME[k], byKind[k].ids, byKind[k].f.color, k === 'swap' ? 'transactions with a swap memo or a cross-chain request ID' : FIND_NAME[k] + ' transactions',
+                           k === 'swap' ? plural(byKind[k].ids.length, 'transaction') + ' with a swap memo in THORChain\'s format (an OP_RETURN asking for the payment to be swapped into an asset on another chain, and the address it is to be paid out to) or a cross-chain request ID (the text a service such as Relay writes so that its request can be found). What the sender wrote, not proof that anything was carried out. Click to select them.'
+                                        : plural(byKind[k].ids.length, 'transaction') + ' flagged ' + FIND_NAME[k] + '. Click to select them.');
       });
       if (byKind.peel && an.chains.length) {
         var pids = []; an.chains.forEach(function (c) { c.ids.forEach(function (id) { if (pids.indexOf(id) < 0) pids.push(id); }); });
@@ -4706,7 +4718,7 @@
     $('autoHops').value = a.hops; $('autoFollow').value = a.follow; $('autoMaxTx').value = a.maxTx; $('autoMaxReq').value = a.maxReq; $('autoPerTx').value = a.perTx; $('autoMin').value = a.minSats;
     $('autoStopLabel').checked = a.stopLabel; $('autoStopMix').checked = a.stopMix;
     $('anFlags').checked = state.analysis.flags; $('anChange').checked = state.analysis.change; $('anClusters').checked = state.analysis.clusters;
-    $('anKPeel').checked = state.analysis.kinds.peel; $('anKConsol').checked = state.analysis.kinds.consolidation; $('anKBatch').checked = state.analysis.kinds.batch; $('anKCoinjoin').checked = state.analysis.kinds.coinjoin; $('anKRound').checked = state.analysis.kinds.round;
+    $('anKPeel').checked = state.analysis.kinds.peel; $('anKConsol').checked = state.analysis.kinds.consolidation; $('anKBatch').checked = state.analysis.kinds.batch; $('anKCoinjoin').checked = state.analysis.kinds.coinjoin; $('anKRound').checked = state.analysis.kinds.round; $('anKSwap').checked = state.analysis.kinds.swap;
     $('anRoundMin').value = String(state.analysis.round.minSats / 1e8); $('anRoundZeros').value = String(state.analysis.round.minZeros); syncAssistUi();
     updateAutoUi();
   }
@@ -5541,7 +5553,7 @@
     ['autoHops', 'autoFollow', 'autoMaxTx', 'autoMaxReq', 'autoPerTx', 'autoMin', 'autoStopLabel', 'autoStopMix'].forEach(function (id) { $(id).addEventListener('change', readAuto); });
     $('autoGo').addEventListener('click', function () { var id = autoTarget(); if (id) autoExpand(id); });
     wireDetections(); wireAssistant();
-    [['anKPeel', 'peel'], ['anKConsol', 'consolidation'], ['anKBatch', 'batch'], ['anKCoinjoin', 'coinjoin'], ['anKRound', 'round']].forEach(function (p) {
+    [['anKPeel', 'peel'], ['anKConsol', 'consolidation'], ['anKBatch', 'batch'], ['anKCoinjoin', 'coinjoin'], ['anKRound', 'round'], ['anKSwap', 'swap']].forEach(function (p) {
       $(p[0]).addEventListener('change', function () { state.analysis.kinds[p[1]] = this.checked; savePrefs(); refresh(); });
     });
     ['anRoundMin', 'anRoundZeros'].forEach(function (id) {                                // what counts as a round amount: the smallest one (in BTC) and how round (a multiple of ...)

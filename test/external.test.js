@@ -220,3 +220,10 @@ test('Arkham goes through the same contract: not set up, not confirmed, then one
   assert.equal(X.source('arkham').headline(r.results[0].ext), 'Binance (cex)');
   assert.deepEqual(X.source('arkham').fields(r.results[0].ext).map((x) => x[0]), ['Entity', 'Type', 'Label', 'Tags', 'Predicted', 'Website', 'Note']);
 });
+
+test('relayUrl builds a link to Relay\'s page for a request ID, and for nothing else', () => {
+  const id = '0x' + 'ab'.repeat(32);
+  assert.equal(X.relayUrl(id), 'https://relay.link/transaction/' + id);
+  assert.equal(X.relayUrl('0x' + 'AB'.repeat(32)), 'https://relay.link/transaction/' + id, 'lower case');
+  ['', null, undefined, 42, id + 'a', id.slice(0, -1), 'ab'.repeat(33), '0x' + 'zz'.repeat(32), id + '/../x', 'javascript:alert(1)'].forEach((x) => assert.equal(X.relayUrl(x), '', String(x)));
+});

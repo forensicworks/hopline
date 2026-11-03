@@ -625,3 +625,57 @@ test('find: skip leaves transactions out, and a route that needs one is not foun
   assert.equal(R.find(idx, A('a'), A('z'), { skip: new Set([T(2), T(5)]) }), null);
   assert.equal(R.find(idx, A('a'), A('z'), { skip: new Set([T(1)]) }), null, 'a skipped start has nothing to start from');
 });
+
+// ---- swap memos and the SWAP tag ---------------------------------------------------------------------
+const memoOut = (text) => { const b = Buffer.from(text, 'utf8'); return { scriptpubkey: '6a' + b.length.toString(16).padStart(2, '0') + b.toString('hex'), scriptpubkey_type: 'op_return', value: 0 }; };
+const SWAP_DEST = '0x' + '33'.repeat(20);
+
+test('isHub: a wallet tagged SWAP is a service, so a route ends there and a hand-off is reported', () => {
+  const g = new Graph();
+  g.addTx(esplora(1, 1000, [[90, 0, 'src', 900]], [['vault', 500], ['back', 390]]));
+  g.upsertNode({ id: A('vault'), type: 'addr', address: addr('vault'), tag: 'SWAP' });
+  assert.equal(R.isHub(g, null, A('vault')), true);
+  assert.equal(R.isHub(g, null, A('back')), false);
+  g.upsertNode({ id: A('back'), type: 'addr', address: addr('back'), tag: 'WATCH' });
+  assert.equal(R.isHub(g, null, A('back')), false, 'a tag that is not a service is not one');
+});
+
+test('handoffs: a transaction on the trail that carries a swap memo is a row of its own kind, with the memo in words and no amount', () => {
+  const g = new Graph();
+  g.addTx(esplora(1, 1000, [[90, 0, 'ran', 900]], [['mid', 800]]));                                // ran -> mid
+  const t = esplora(2, 2000, [[1, 0, 'mid', 800]], [['vault', 500], ['back', 290]]);               // mid -> a payment to a service and the change, and a memo
+  t.vout.push(memoOut('=:ETH.WBTC:' + SWAP_DEST + ':100/2/5:aff:10'));
+  g.addTx(t);
+  g.addOutspends(tid(1), [{ spent: true, txid: tid(2), vin: 0, status: { confirmed: true, block_time: 2000 } }]);
+  g.addOutspends(tid(2), [{ spent: false }, { spent: false }, { spent: false }]);
+  const rows = R.handoffs(R.index(g), A('ran'), { hub: () => false, stop: () => null });
+  assert.equal(rows.length, 1);
+  const r = rows[0];
+  assert.equal(r.kind, 'swap'); assert.equal(r.dir, 'deposit'); assert.equal(r.id, T(2)); assert.equal(r.txid, tid(2)); assert.equal(r.amount, null); assert.equal(r.time, 2000);
+  assert.match(r.service, /^Swap memo: into ETH\.WBTC, paid out to 0x3333/); assert.match(r.service, /streamed in 5 parts, every 2 blocks, affiliate aff \(10 basis points\)/);
+  assert.equal(r.wallet, A('mid')); assert.equal(r.depth, 2);
+  assert.equal(r.memo.asset, 'ETH.WBTC');
+  assert.equal(JSON.parse(JSON.stringify(rows)).length, 1, 'plain data: it survives JSON');
+});
+
+test('handoffs: no swap row for a transaction without a memo, one that is the reference itself, or one the trail does not reach', () => {
+  const g = new Graph();
+  const t = esplora(2, 2000, [[1, 0, 'mid', 800]], [['vault', 500], ['back', 290]]);
+  t.vout.push(memoOut('=:ETH.WBTC:' + SWAP_DEST));
+  g.addTx(t);
+  g.addTx(esplora(5, 3000, [[91, 0, 'other', 800]], [['elsewhere', 700]]));
+  const none = R.handoffs(R.index(g), A('other'), { hub: () => false, stop: () => null });
+  assert.deepEqual(none, [], 'the trail from `other` never reaches the transaction with the memo');
+  assert.deepEqual(R.handoffs(R.index(g), T(2), { hub: () => false, stop: () => null }), [], 'the reference is where the trail starts, not a place it meets');
+});
+
+test('handoffs: a request ID in an OP_RETURN is a swap row too, labelled as a cross-chain request', () => {
+  const g = new Graph();
+  g.addTx(esplora(1, 1000, [[90, 0, 'ran', 900]], [['mid', 800]]));
+  const t = esplora(2, 2000, [[1, 0, 'mid', 800]], [['svc', 500], ['back', 290]]);
+  t.vout.push(memoOut('0x' + 'cd'.repeat(32)));
+  g.addTx(t);
+  g.addOutspends(tid(1), [{ spent: true, txid: tid(2), vin: 0, status: { confirmed: true, block_time: 2000 } }]);
+  const rows = R.handoffs(R.index(g), A('ran'), { hub: () => false, stop: () => null });
+  assert.equal(rows.length, 1); assert.equal(rows[0].kind, 'swap'); assert.equal(rows[0].service, 'Cross-chain request: ID 0xcdcdcdcd…cdcdcd'); assert.equal(rows[0].memo.form, 'request');
+});

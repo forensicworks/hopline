@@ -4,7 +4,9 @@
  * EVERYTHING HERE IS A HEURISTIC. Each result carries the reasons it was reached so a person can judge it; none of it
  * is proof of who controls what. In particular:
  *   - change guess       which output of a transaction most likely returns to the sender (never "certain")
- *   - patterns           consolidation, batch payment, CoinJoin-like, peel chain (a chain of single-coin payments)
+ *   - patterns           consolidation, batch payment, CoinJoin-like, peel chain (a chain of single-coin payments), round amount,
+ *                        and a swap memo (an OP_RETURN that asks THORChain to swap the payment into another chain's asset, or carries the request ID of a
+ *                        cross-chain service such as Relay)
  *   - clusters           addresses spent together in one transaction (the "common-input" rule), leaving out
  *                        transactions that look like CoinJoins and any you excluded by hand
  *   - successors         which way an automatic expansion should go from a transaction, and why it stops
@@ -27,7 +29,7 @@
     peel: { maxRatio: 0.5, minLength: 4, minSmall: 1000 } // one input, two outputs, the small one at most half the large and not dust (satoshis); this many in a row
   };
 
-  var COLORS = { consolidation: '#b58cff', batch: '#6be675', coinjoin: '#ff7aa2', peel: '#ffb347', change: '#ff9f43', round: '#2ec4b6' };
+  var COLORS = { consolidation: '#b58cff', batch: '#6be675', coinjoin: '#ff7aa2', peel: '#ffb347', change: '#ff9f43', round: '#2ec4b6', swap: '#7aa2ff' };
   var CONFIDENCE = { low: 1, medium: 2, high: 3 };
   // one colour per peel chain, picked from the chain's own start so it stays the same whatever else is loaded
   var CHAIN_COLORS = ['#ffb347', '#4dd0e1', '#f48fb1', '#c5e1a5', '#ce93d8', '#fff176', '#90caf9', '#ff8a65'];
@@ -146,6 +148,82 @@
                     + 'it can also be a service paying a fixed amount, a policy or a test, so it does not say who or what chose it.' };
   }
 
+  // ---- swaps -------------------------------------------------------------------------------------------
+  var SWAP_FN = { '=': 1, 's': 1, 'swap': 1 };
+  /**
+   * A swap memo in THORChain's format in the text of an OP_RETURN: FUNCTION:ASSET:DESTINATION[:LIMIT[/INTERVAL/QUANTITY][:AFFILIATE[:FEE]]], where FUNCTION is "=", "s" or "swap".
+   * Returns { asset, chain (the part of the asset before the dot), dest, limit, interval, quantity, affiliate, fee } (every field a string, empty when the memo has none), or null
+   * when the text is not one. It is what the sender WROTE: it shows the sender asked for a swap, not that one was carried out (a swap that cannot be done is refunded), and nothing in
+   * it is checked against the chain it names. An asset written out (ETH.WBTC) is enough; the one-letter forms (e) are taken only with a destination long enough to be an address.
+   */
+  function swapMemo(text) {
+    if (typeof text !== 'string') return null;
+    var p = text.trim().split(':');
+    if (p.length < 3 || p.length > 8 || !SWAP_FN[p[0].toLowerCase()]) return null;
+    var asset = p[1], dest = p[2], written = /[.\/~]/.test(asset);
+    if (!/^[A-Za-z0-9]{1,12}(?:[.\/~][A-Za-z0-9_-]{1,80})?$/.test(asset)) return null;
+    if (dest !== '' && !/^[A-Za-z0-9._-]{1,100}$/.test(dest)) return null;
+    if (!written && dest.length < 20) return null;
+    var m = { asset: asset, chain: asset.split(/[.\/~]/)[0], dest: dest, limit: '', interval: '', quantity: '', affiliate: '', fee: '' };
+    var lim = /^([0-9]+(?:\.[0-9]+)?(?:e[0-9]{1,2})?)?(?:\/([0-9]+)\/([0-9]+))?$/i.exec(p[3] || '');
+    if (lim) { m.limit = lim[1] || ''; m.interval = lim[2] || ''; m.quantity = lim[3] || ''; }
+    if (/^[A-Za-z0-9._\/-]{0,100}$/.test(p[4] || '')) m.affiliate = p[4] || '';
+    if (/^[0-9\/]{0,20}$/.test(p[5] || '')) m.fee = p[5] || '';
+    return m;
+  }
+  /**
+   * A request ID written as text in an OP_RETURN: "0x" and 64 hex digits, nothing else. This is what a cross-chain service (Relay is one) writes on a Bitcoin payment so that its
+   * request can be found on its side; it says nothing about where the money went. Anyone can write the same text, so it is a lead about the wallet that was paid, not a finding.
+   * Returns { requestId (lower case) } or null.
+   */
+  function requestIdMemo(text) {
+    if (typeof text !== 'string') return null;
+    var s = text.trim();
+    return /^0x[0-9a-fA-F]{64}$/.test(s) ? { requestId: s.toLowerCase() } : null;
+  }
+  /**
+   * The swap memo or the request ID in one of a transaction's OP_RETURN outputs, with the output it is in, or null: { form: 'thorchain', ...swapMemo } or { form: 'request', requestId },
+   * and { vout, id } (the output and its vertex).
+   */
+  function swapOf(v) {
+    var hit = null;
+    if (!v || v.coinbase) return null;
+    v.outputs.forEach(function (o) {
+      if (hit || o.type !== 'data') return;
+      var n = v.graph.nodes.get(o.id), m = n ? swapMemo(n.dataText) : null;
+      if (m) m.form = 'thorchain';
+      else if (n && (m = requestIdMemo(n.dataText))) m.form = 'request';
+      if (m) { m.vout = o.vout; m.id = o.id; hit = m; }
+    });
+    return hit;
+  }
+  function shortId(x) { return x.slice(0, 10) + '…' + x.slice(-6); }
+  /** What a memo says, in words: for a swap, where the payment is to be swapped to, how, and the fee asked for; for a request ID, the ID. */
+  function swapText(m) {
+    if (m.form === 'request') return 'request ID ' + m.requestId;
+    var bits = ['into ' + m.asset];
+    if (m.dest) bits.push('paid out to ' + m.dest);
+    if (m.limit) bits.push('limit ' + m.limit);
+    if (m.interval) bits.push(m.quantity === '0' ? 'streamed in parts the network chooses, every ' + m.interval + ' blocks' : 'streamed in ' + m.quantity + ' parts, every ' + m.interval + ' blocks');
+    if (m.affiliate) bits.push('affiliate ' + m.affiliate + (m.fee ? ' (' + m.fee + ' basis points)' : ''));
+    return bits.join(', ');
+  }
+  /** The memo as a line of a list: "Swap memo: into ETH.WBTC, paid out to ..." or "Cross-chain request: ID 0xabababab...ababab". */
+  function swapLabel(m) { return m.form === 'request' ? 'Cross-chain request: ID ' + shortId(m.requestId) : 'Swap memo: ' + swapText(m); }
+  /** A transaction whose OP_RETURN asks for a swap or carries a cross-chain request ID: { kind: 'swap', ... } or null. A claim by the sender, as the title says. */
+  function swapFlag(v) {
+    var m = swapOf(v);
+    if (!m) return null;
+    if (m.form === 'request') {
+      return { kind: 'swap', short: 'SWAP ID', color: COLORS.swap, memo: m,
+               title: 'A request ID in an OP_RETURN: ' + m.requestId + '. A cross-chain service (Relay is one) writes this on a Bitcoin payment so that its request can be found on its side. It does not say where the money went, '
+                      + 'and anyone can write the same text, so check who owns the wallet that was paid. Look the ID up on the service\'s own page (Look up in Relay, in the details of the transaction) to see the other chain and the address it was paid out to: a lead to follow there, not a finding here.' };
+    }
+    return { kind: 'swap', short: 'SWAP → ' + m.chain.toUpperCase(), color: COLORS.swap, memo: m,
+             title: 'Swap memo in THORChain\'s format: ' + swapText(m) + '. It is what the sender wrote: it does not show that the swap was carried out (a swap that cannot be done is refunded), '
+                    + 'and the payment to the service is one of the other outputs of the transaction. Whoever is paid out on the other chain is a lead to follow there, not a finding here.' };
+  }
+
   /** The patterns a single transaction shows by itself. Peel chains need several transactions: see peelChains. */
   function classify(v, opts) {
     var flags = [];
@@ -163,6 +241,7 @@
                    title: 'Batch payment: ' + nIn + ' input' + (nIn === 1 ? '' : 's') + ' paying ' + outs.length + ' outputs. Typical of an exchange or service paying many people at once.' });
     }
     if (!flags.length) { var rnd = roundFlag(v, opts); if (rnd) flags.push(rnd); }
+    var swp = swapFlag(v); if (swp) flags.push(swp);                                        // a memo is said outright, so it goes with whatever shape the transaction has
     return flags;
   }
 
@@ -478,7 +557,7 @@
   }
 
   return {
-    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, roundFlag: roundFlag, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
+    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, roundFlag: roundFlag, swapMemo: swapMemo, requestIdMemo: requestIdMemo, swapOf: swapOf, swapText: swapText, swapLabel: swapLabel, swapFlag: swapFlag, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
     CHANGE_SIGNALS: CHANGE_SIGNALS, signalOf: signalOf, peelStep: peelStep, peelChains: peelChains, clusters: clusters, suggestNames: suggestNames, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
   };
 }));

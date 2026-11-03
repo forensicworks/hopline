@@ -13,7 +13,7 @@
  * looked up, spenders and funders that are not loaded.
  *
  * `hub(vertexId)` is supplied by the caller: true for a wallet that is a service (the page uses the known list and the tags
- * EXCH, MIXER, SERVICE, MARKET, GAMBLING). Ransomware and sanctions entries are not services, so a route may pass them.
+ * EXCH, MIXER, SERVICE, MARKET, GAMBLING, SWAP). Ransomware and sanctions entries are not services, so a route may pass them.
  * isHub, nameOf and referenceOf are those rules for a graph and the lists of names, so the page and the command-line tool agree.
  */
 (function (root, factory) {
@@ -26,7 +26,7 @@
   var MAX_TXS = 60;                                   // no route is searched beyond this many transactions
   var MERGE_INPUTS = 5;                               // a transaction with this many inputs or more mixes the coins of its route with others
 
-  var SERVICE_TAGS = { EXCH: 1, MIXER: 1, SERVICE: 1, MARKET: 1, GAMBLING: 1 };
+  var SERVICE_TAGS = { EXCH: 1, MIXER: 1, SERVICE: 1, MARKET: 1, GAMBLING: 1, SWAP: 1 };
 
   function push(map, key, value) { var l = map.get(key); if (!l) map.set(key, l = []); if (l.indexOf(value) < 0) l.push(value); }
 
@@ -270,6 +270,7 @@
         continue;
       }
       reached.txs++;
+      if (opts.visit) opts.visit(t, d, node, side.get(t) || null);                         // the caller sees each loaded transaction the trail reaches
       if (forward) {
         rec.outs.forEach(function (e) {
           var target = graph.nodes.get(e.target);
@@ -309,6 +310,9 @@
   // ---- where the money meets a service ---------------------------------------------------------------
   /**
    * The places where money from the reference went into a service wallet (a deposit) or money from one came into the trail (a withdrawal), oldest first.
+   * A transaction on the trail forward whose OP_RETURN asks for a swap (a THORChain-format memo, see AN.swapMemo) or carries a cross-chain request ID (AN.requestIdMemo) is a row of
+   * kind 'swap': the money went into a swap or a transfer to another chain, and a swap memo names where it is to be paid out. Its service is the memo in words, its id the transaction,
+   * and its amount is not known (the memo does not say which output pays the service).
    * opts: { hub(vertexId), stop(vertexId) -> name, listed(vertexId) -> the name a list gives a wallet that is not a service, max }. Several outputs of one
    * transaction to one wallet are one row. The trail is followed THROUGH every wallet that is not a service, whatever its name or tag (a victim wallet you
    * tagged, a ransom address on a list): only a service ends a branch, because only a service mixes everyone's coins. A wallet that `listed` names (a sanctions
@@ -327,7 +331,15 @@
     var refs = Array.isArray(refIds) ? refIds : [refIds];
     var listed = opts.listed ? function (id) { return refs.indexOf(id) >= 0 ? null : opts.listed(id); } : null;       // the reference is where the trail starts, not a place it meets
     [['next', 'deposit'], ['prev', 'withdrawal']].forEach(function (d) {
-      var oe = openEnds(idx, refIds, d[0], { stop: services, pass: listed, max: opts.max }), by = new Map();
+      var visit = d[0] !== 'next' ? null : function (t, depth, node, wallet) {
+        if (refs.indexOf(t) >= 0) return;
+        var m = AN.swapOf(AN.txView(graph, t));
+        if (!m) return;
+        var w = wallet ? graph.nodes.get(wallet) : null;
+        rows.push({ kind: 'swap', dir: 'deposit', service: AN.swapLabel(m), id: t, address: null, txid: t.slice(3), time: node.time == null ? null : node.time, amount: null, outputs: 0, wallet: wallet, walletAddress: w && w.address ? w.address : null,
+                    depth: depth, nIn: node.nIn == null ? null : node.nIn, nOut: node.nOut == null ? null : node.nOut, merges: node.nIn != null && node.nIn >= MERGE_INPUTS, memo: m });
+      };
+      var oe = openEnds(idx, refIds, d[0], { stop: services, pass: listed, max: opts.max, visit: visit }), by = new Map();
       oe.named.forEach(function (n) {
         var key = n.txid + '|' + n.id, r = by.get(key);
         if (!r) {

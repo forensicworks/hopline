@@ -6,7 +6,7 @@
  *     rows    one per flag per transaction, oldest first (an unconfirmed transaction last):
  *             { id, txid, time, height, kind, short, color, chain, step, of, reason }
  *     chains  every possible peel chain (not only the longest), longest first, with the time it ran from and to
- *     counts  { peel, consolidation, batch, coinjoin, round, total } of the rows, before any filter
+ *     counts  { peel, consolidation, batch, coinjoin, round, swap, total } of the rows, before any filter
  *   kinds   which kinds to include ({ peel: false } leaves peel steps out); all by default
  *   fmt     sats -> text for the amounts in the reasons (default: a plain number of sats)
  *   pick(rows, { kind, chain }) keeps one kind and / or one chain's rows.
@@ -18,8 +18,8 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var KINDS = ['peel', 'consolidation', 'batch', 'coinjoin', 'round'];
-  var ORDER = { coinjoin: 0, consolidation: 1, batch: 2, peel: 3, round: 4 };
+  var KINDS = ['peel', 'consolidation', 'batch', 'coinjoin', 'round', 'swap'];
+  var ORDER = { coinjoin: 0, consolidation: 1, batch: 2, peel: 3, round: 4, swap: 5 };
 
   function plainSats(n) { return n + ' sats'; }
 
@@ -33,7 +33,7 @@
   function build(graph, an, opts) {
     opts = opts || {};
     var fmt = typeof opts.fmt === 'function' ? opts.fmt : plainSats, kinds = opts.kinds || {};
-    var rows = [], counts = { peel: 0, consolidation: 0, batch: 0, coinjoin: 0, round: 0, total: 0 }, chains = [];
+    var rows = [], counts = { peel: 0, consolidation: 0, batch: 0, coinjoin: 0, round: 0, swap: 0, total: 0 }, chains = [];
     if (!graph || !an) return { rows: rows, chains: chains, counts: counts };
     var byLabel = new Map(); (an.chains || []).forEach(function (ch) { byLabel.set(ch.label, ch); });
 
