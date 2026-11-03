@@ -98,7 +98,7 @@ body.trace-on #stepbar { display: none !important; }
 .chooserfoot { display: flex; gap: 6px; padding: 6px 4px 2px; border-top: 1px solid var(--line); margin-top: 4px; }
 .chooserfoot button { padding: 4px 10px; font-size: 12px; }
 #ctxMenu .chooserfoot button, #ctxMenu .chooser label { display: flex; }
-#stepbar { position: absolute; left: 12px; right: 12px; margin: 0 auto; width: max-content; bottom: calc(var(--tb) + 10px); z-index: 22; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+#stepbar { position: relative; align-self: center; width: max-content; z-index: 22; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
            max-width: calc(100% - 24px); padding: 7px 10px; background: rgba(46, 31, 46, 0.96); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
 #stepbar[hidden] { display: none; }
 .stepbtn { padding: 8px 14px; font-weight: 700; background: var(--panel-2); display: inline-flex; align-items: center; gap: 7px; min-width: 120px; justify-content: center; }
@@ -122,7 +122,7 @@ body.trace-on #stepbar { display: none !important; }
 .steprow .amt { flex: none; color: var(--accent); font-variant-numeric: tabular-nums; text-align: right; font-size: 12px; }
 .steprow.info { border-style: dashed; color: var(--dim); cursor: default; }
 .steprow.info:hover { border-color: var(--line); }
-@media (max-width: 900px) { #sideCollapse, #sideTab { display: none !important; } #stepbar { bottom: calc(var(--tb) + 6px); } }
+@media (max-width: 900px) { #sideCollapse, #sideTab { display: none !important; } }
 .fiat.primary { margin-left: 0; font-weight: 600; }
 
 #ctxMenu { position: fixed; z-index: 60; min-width: 230px; max-width: 320px; max-height: 80vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 5px; box-shadow: 0 10px 28px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 1px; }
@@ -303,7 +303,11 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 #stage { flex: 1; position: relative; min-width: 0; background: var(--bg); }
 #cv { position: absolute; inset: 0 0 var(--tb) 0; width: 100%; height: calc(100% - var(--tb)); display: block; cursor: grab; }
 /* what was found: chips over the graph, above the counts; a click selects what they count */
-#findStrip { position: absolute; left: 10px; bottom: calc(var(--tb) + 86px); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: calc(100% - 130px); z-index: 4; }
+/* The counts, the chips and the Previous / Next bar are one stack just above the time bar (the toast on top of it), so none of them can sit on another. */
+#lower { position: absolute; left: 10px; right: 10px; bottom: calc(var(--tb) + 8px); display: flex; flex-direction: column; align-items: stretch; gap: 6px; z-index: 22; pointer-events: none; }
+#lower > * { pointer-events: auto; }
+#infoRow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; pointer-events: none; }
+#findStrip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; z-index: 4; pointer-events: auto; }
 .linkrow.on { outline: 1px solid var(--accent); background: var(--panel-2); }
 .findchip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12px; border-radius: 12px; background: rgba(28, 20, 29, 0.94); border: 1px solid var(--line); color: var(--text); cursor: pointer; }
 .findchip:hover, .findchip:focus-visible { border-color: var(--accent); }
@@ -312,7 +316,7 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 .findchip.bad { border-color: #ff4d4f; color: #ff9a9a; background: rgba(60, 20, 24, 0.94); }
 .findchip.more { color: var(--accent); }
 #anCount, #detCount { font-weight: 400; color: var(--dim); }
-#hud { position: absolute; bottom: calc(var(--tb) + 58px); left: 10px; max-width: calc(100% - 130px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--text); background: rgba(28,20,29,0.78); padding: 3px 8px; border-radius: 4px; pointer-events: none; }
+#hud { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--text); background: rgba(28,20,29,0.78); padding: 3px 8px; border-radius: 4px; pointer-events: none; }
 #zoomBtns { position: absolute; right: 12px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
 #zoomBtns button { width: 32px; height: 32px; padding: 0; font-size: 18px; line-height: 1; }
 #empty { position: absolute; left: 50%; top: calc((100% - var(--tb)) / 2); transform: translate(-50%, -50%); text-align: center; max-width: 440px; padding: 20px; }
@@ -321,7 +325,7 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 #tooltip { position: fixed; z-index: 40; pointer-events: none; background: #120c13; border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; max-width: 360px; font-size: 12px; line-height: 1.4; box-shadow: 0 4px 14px rgba(0,0,0,0.5); overflow-wrap: anywhere; }
 #tooltip b { color: var(--accent); }
 #progress { position: absolute; left: 50%; top: 82px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; padding: 6px 12px; display: flex; gap: 10px; align-items: center; z-index: 20; }
-#toast { position: absolute; left: 50%; bottom: calc(var(--tb) + 100px); transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; padding: 8px 14px; max-width: min(640px, 90%); z-index: 20; overflow-wrap: anywhere; }
+#toast { position: relative; align-self: center; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; padding: 8px 14px; max-width: min(640px, 90%); z-index: 20; overflow-wrap: anywhere; }
 #toast.bad { border-left-color: var(--danger); }
 
 #timebar { position: absolute; left: 0; right: 0; bottom: 0; height: var(--tb); background: var(--panel); border-top: 1px solid var(--line); padding: 8px 16px 10px; display: flex; flex-direction: column; gap: 4px; }
@@ -468,6 +472,7 @@ body.canvas-full #top, body.canvas-full #sideTab, body.canvas-full #trail, body.
 /* the Controls stay one button away: the left panel slides over the graph and goes back with Esc */
 .full-only { display: none; }
 body.canvas-full .full-only { display: inline-flex; align-items: center; justify-content: center; }
+body.canvas-full .edge-tab.right { top: 160px; }                                                       /* the zoom buttons are four tall in full screen: do not sit on the last one */
 body.canvas-full #side { display: block !important; position: absolute; z-index: 26; top: 0; bottom: 0; left: 0; width: min(300px, 88vw); transform: translateX(-100%); visibility: hidden; transition: transform 0.15s, visibility 0s 0.15s; }
 body.canvas-full.full-side-open #side { transform: none; visibility: visible; transition: transform 0.15s; box-shadow: 4px 0 18px rgba(0, 0, 0, 0.55); }
 @media (prefers-reduced-motion: reduce) { body.canvas-full #side, body.canvas-full.full-side-open #side { transition: none; } }

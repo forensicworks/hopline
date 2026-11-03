@@ -204,7 +204,7 @@ window.addEventListener('error', function (e) {
         </select>
         <label class="check" title="Colours the output that most likely returns to the sender"><input type="checkbox" id="anChange" checked> Mark the likely change output</label>
         <label class="check" title="Addresses spent together in one transaction (the common-input rule), CoinJoins excluded"><input type="checkbox" id="anClusters" checked> Show address clusters</label>
-        <p class="hint">What was found is listed in the <b>Findings</b> panel on the right, and counted in the strip over the graph.</p>
+        <p class="hint">What was found is listed in the <b>Findings</b> panel on the right, and counted in the strip of chips at the bottom of the graph, beside the counts of what is loaded and shown, just above the time line.</p>
         <button type="button" id="anOpenFindings">Open the findings ▸</button>
       </div>
     </details>
@@ -473,15 +473,20 @@ window.addEventListener('error', function (e) {
       <button type="button" id="traceReset" class="trace-only" title="Back to the single starting vertex">Reset to start</button>
       <button type="button" id="barMore" hidden aria-haspopup="menu" aria-label="More" title="More: what does not fit on this row">&#8943;</button>
     </div>
-    <div id="stepbar" role="group" aria-label="Follow the money" hidden>
-      <div id="stepMenu" role="menu" hidden></div>
-      <button type="button" id="stepPrev" class="stepbtn" aria-haspopup="menu"><span class="arrow">◀</span> <span class="lbl">Previous</span> <span class="cnt" id="stepPrevN"></span></button>
-      <div id="stepHere"><span id="stepKind" class="kind"></span> <b id="stepName"></b> <button type="button" id="stepCopy" class="copybtn" hidden></button> <span id="stepAmt"></span> <button type="button" id="stepLoad" hidden>Load history</button></div>
-      <button type="button" id="stepNext" class="stepbtn" aria-haspopup="menu"><span class="lbl">Next</span> <span class="cnt" id="stepNextN"></span> <span class="arrow">▶</span></button>
-      <label class="check small" title="Tick to go wallet by wallet; untick to jump from transaction to transaction"><input type="checkbox" id="viaWallets" checked> via wallets</label>
+    <div id="lower">
+      <div id="toast" role="status" aria-live="polite" hidden></div>
+      <div id="infoRow">
+        <div id="findStrip" role="group" aria-label="What was found in what is loaded" hidden></div>
+        <div id="hud"><span id="counts"></span><span id="traceInfo"></span></div>
+      </div>
+      <div id="stepbar" role="group" aria-label="Follow the money" hidden>
+        <div id="stepMenu" role="menu" hidden></div>
+        <button type="button" id="stepPrev" class="stepbtn" aria-haspopup="menu"><span class="arrow">◀</span> <span class="lbl">Previous</span> <span class="cnt" id="stepPrevN"></span></button>
+        <div id="stepHere"><span id="stepKind" class="kind"></span> <b id="stepName"></b> <button type="button" id="stepCopy" class="copybtn" hidden></button> <span id="stepAmt"></span> <button type="button" id="stepLoad" hidden>Load history</button></div>
+        <button type="button" id="stepNext" class="stepbtn" aria-haspopup="menu"><span class="lbl">Next</span> <span class="cnt" id="stepNextN"></span> <span class="arrow">▶</span></button>
+        <label class="check small" title="Tick to go wallet by wallet; untick to jump from transaction to transaction"><input type="checkbox" id="viaWallets" checked> via wallets</label>
+      </div>
     </div>
-    <div id="hud"><span id="counts"></span><span id="traceInfo"></span></div>
-    <div id="findStrip" role="group" aria-label="What was found in what is loaded" hidden></div>
     <div id="zoomBtns"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="fullControls" class="full-only" aria-label="Controls" aria-expanded="false" aria-controls="side" title="Controls (C): the left panel, over the graph. This button or C closes it."><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><button type="button" id="fullBtn" aria-label="Full screen" aria-pressed="false" title="Full screen (M): the graph alone. Its Controls button (or C) opens the left panel over it. Esc or this button leaves it."><svg class="enter" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg><svg class="exit" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg></button></div>
     <div id="empty">
       <h2>Follow the money</h2>
@@ -492,7 +497,6 @@ window.addEventListener('error', function (e) {
     <div id="chainChip" hidden role="status"><span id="chainChipName"></span><span id="chainChipText"></span><button type="button" id="chainChipClear" class="icon-only" aria-label="Clear the chain highlight" title="Clear the highlight">×</button></div>
     <div id="tooltip" role="tooltip" hidden></div>
     <div id="progress" hidden><span id="progressText"></span> <button type="button" id="cancel">Cancel</button></div>
-    <div id="toast" role="status" aria-live="polite" hidden></div>
 
     <div id="timebar" aria-label="Time range">
       <div class="tb-head">

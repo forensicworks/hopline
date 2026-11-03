@@ -127,9 +127,22 @@ def test_the_strip_stays_in_full_screen_and_its_findings_chip_opens_the_panel(fp
     assert fpage.is_visible("#findPane") and fpage.is_visible("#detList")
 
 
-def test_the_strip_sits_clear_of_the_counts_and_inside_the_graph(fpage, mock):
+def test_the_strip_and_the_counts_share_one_row_clear_of_each_other_just_above_the_time_bar(fpage, mock):
     consolidation(mock)
     open_query(fpage, tid(30)); settle(fpage)
-    s = fpage.locator("#findStrip").bounding_box(); h = fpage.locator("#hud").bounding_box(); c = fpage.locator("#cv").bounding_box()
-    assert s["y"] + s["height"] <= h["y"] + 1, "above the counts"
+    s = fpage.locator("#findStrip").bounding_box(); h = fpage.locator("#hud").bounding_box(); c = fpage.locator("#cv").bounding_box(); t = fpage.locator("#timebar").bounding_box()
+    apart = s["x"] + s["width"] <= h["x"] + 1 or h["x"] + h["width"] <= s["x"] + 1 or s["y"] + s["height"] <= h["y"] + 1 or h["y"] + h["height"] <= s["y"] + 1
+    assert apart, "the chips and the counts do not sit on each other"
     assert s["x"] >= c["x"] and s["x"] + s["width"] <= c["x"] + c["width"]
+    bar = fpage.locator("#stepbar").bounding_box()
+    assert bar["y"] >= s["y"] + s["height"] - 1 and bar["y"] >= h["y"] + h["height"] - 1, "the Previous / Next bar is below both: nothing is on top of it"
+    assert bar["y"] + bar["height"] <= t["y"] and t["y"] - (bar["y"] + bar["height"]) < 20, "and it is just above the time bar"
+
+
+def test_in_the_trace_layout_the_strip_and_the_counts_are_just_above_the_time_bar(tpage, mock):
+    consolidation(mock)
+    open_query(tpage, tid(30)); settle(tpage)
+    assert tpage.is_hidden("#stepbar")
+    s = tpage.locator("#findStrip").bounding_box(); h = tpage.locator("#hud").bounding_box(); t = tpage.locator("#timebar").bounding_box()
+    low = max(s["y"] + s["height"], h["y"] + h["height"])
+    assert low <= t["y"] and t["y"] - low < 20, "nothing sits between them and the time bar: %s" % (t["y"] - low)
