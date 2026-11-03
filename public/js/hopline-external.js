@@ -1,5 +1,14 @@
 /*
- * Hopline external lookups: ask a third-party service about ONE wallet, on request. Never run over the whole graph.
+ * Hopline external lookups: ask a third-party service about wallets, on request. Never run over the whole graph.
+ *
+ * ONE CONTRACT FOR EVERY SOURCE. A source is registered with register({ id, name, short, third, ready(ctx), lookup(address, ctx), clean(ext), describe(ext), fields(ext), headline(ext) }):
+ *   lookup   Promise<{ found, ext }> for one address; `ext` is what is kept on the wallet, under node.ext[id], one entry per source.
+ *   clean    validates an `ext` read from a file (unknown fields are dropped); the entries a file carries for sources that are not registered are dropped.
+ *   describe the same plain-text claim for every source: { found, label, category, tags, note, suggest (a tag preset id or ''), at }. A claim, never a fact.
+ *   third    true (the default) when the address leaves this computer: lookupMany then refuses to run unless the caller's confirm() says yes, every time it is called.
+ * lookupMany(id, addresses, opts) is the one way to ask: sequential, paced by the source, stopped by the first error that would repeat (token, key, rate, proxy, timeout), and
+ * never applying anything: what it returns is stored by the caller and applied by the person, with a button. entries(node) reads every stored result the same way, for the
+ * details, the report and the exports. A pack (a list that comes with the page or that you import) is the offline kind of source and lives in hopline-packs.js.
  *
  * Arkham Intelligence has no CORS headers, so a web page cannot call it. The lookup goes to a small local proxy
  * (tools/arkham_proxy.py) that holds the API key in an environment variable and forwards only
@@ -73,18 +82,20 @@
     return p;
   }
 
-  /** Validate an `ext` object read from a file. Unknown sources and unknown fields are dropped. */
+  /** Validate the Arkham entry of an `ext` read from a file. */
+  function cleanArkham(a) {
+    if (!isObj(a)) return null;
+    var c = { found: a.found === true, name: text(a.name), type: text(a.type, 40), label: text(a.label), website: text(a.website, 200), note: text(a.note, 300),
+              predicted: text(a.predicted), at: typeof a.at === 'number' && isFinite(a.at) ? Math.floor(a.at) : 0, raw: typeof a.raw === 'string' ? a.raw.slice(0, RAW_LIMIT + 1) : '',
+              tags: (Array.isArray(a.tags) ? a.tags : []).map(function (t) { return text(t, 40); }).filter(Boolean).slice(0, 12) };
+    c.suggest = Tags.preset(a.suggest) ? a.suggest : '';
+    return c;
+  }
+  /** Validate an `ext` object read from a file: each registered source cleans its own entry; unknown sources and unknown fields are dropped. */
   function cleanExt(ext) {
     if (!isObj(ext)) return null;
     var out = {};
-    if (isObj(ext.arkham)) {
-      var a = ext.arkham;
-      var c = { found: a.found === true, name: text(a.name), type: text(a.type, 40), label: text(a.label), website: text(a.website, 200), note: text(a.note, 300),
-                predicted: text(a.predicted), at: typeof a.at === 'number' && isFinite(a.at) ? Math.floor(a.at) : 0, raw: typeof a.raw === 'string' ? a.raw.slice(0, RAW_LIMIT + 1) : '',
-                tags: (Array.isArray(a.tags) ? a.tags : []).map(function (t) { return text(t, 40); }).filter(Boolean).slice(0, 12) };
-      c.suggest = Tags.preset(a.suggest) ? a.suggest : '';
-      out.arkham = c;
-    }
+    REG.forEach(function (d, id) { if (isObj(ext[id])) { var c = d.clean(ext[id]); if (c) out[id] = c; } });
     return Object.keys(out).length ? out : null;
   }
 
@@ -144,5 +155,76 @@
     }, function (e) { throw fail('proxy', 'Could not reach the proxy at ' + base + '. Is tools/arkham_proxy.py running? (' + (e && e.message ? e.message : e) + ')'); });
   }
 
-  return { SOURCES: SOURCES, parseArkham: parseArkham, tagFor: tagFor, toExt: toExt, cleanExt: cleanExt, lookupArkham: lookupArkham, proxyHealth: proxyHealth, arkhamUrl: arkhamUrl, ARKHAM_EXPLORER: ARKHAM_EXPLORER, RAW_LIMIT: RAW_LIMIT };
+  // ---- the registry: one contract for every source -------------------------------------------------------------------
+  var REG = new Map();
+  /** Add a source. A source without `clean` or `describe` cannot be stored or shown, so it is refused. */
+  function register(def) {
+    if (!def || typeof def.id !== 'string' || !/^[a-z][a-z0-9-]{1,30}$/.test(def.id)) throw new Error('A source needs an id of lower case letters, digits and hyphens.');
+    ['lookup', 'clean', 'describe'].forEach(function (f) { if (typeof def[f] !== 'function') throw new Error('The source "' + def.id + '" needs a ' + f + '() function.'); });
+    var d = Object.assign({ name: def.id, short: '', third: true }, def);
+    d.short = d.short || d.name;
+    REG.set(d.id, d);
+    SOURCES[d.id] = { id: d.id, name: d.name };
+    return d;
+  }
+  function unregister(id) { REG.delete(id); delete SOURCES[id]; }
+  function source(id) { return REG.get(id) || null; }
+  /** The registered sources, in the order they were added: [{ id, name, short, third }]. */
+  function list() { return Array.from(REG.values()).map(function (d) { return { id: d.id, name: d.name, short: d.short, third: d.third !== false }; }); }
+  /** What a stored result says, the same for every source: { source, sourceName, found, label, category, tags[], note, suggest, at }, or null for an unknown source. */
+  function describe(id, ext) {
+    var d = REG.get(id); if (!d || !isObj(ext)) return null;
+    var c = d.describe(ext) || {};
+    return { source: id, sourceName: d.name, found: c.found === true, label: text(c.label, 200), category: text(c.category, 60), tags: (Array.isArray(c.tags) ? c.tags : []).map(function (t) { return text(t, 40); }).filter(Boolean).slice(0, 12),
+             note: text(c.note, 300), suggest: Tags.preset(c.suggest) ? c.suggest : '', at: typeof c.at === 'number' && isFinite(c.at) ? c.at : 0 };
+  }
+  /** Every stored result on a wallet vertex, described: [{ source, sourceName, address, found, label, category, tags, note, suggest, at }], in the order of the registry. */
+  function entries(node) {
+    var out = []; if (!node || !isObj(node.ext)) return out;
+    REG.forEach(function (d, id) {
+      if (!isObj(node.ext[id])) return;
+      var c = describe(id, node.ext[id]); if (c) { c.address = node.address || ''; out.push(c); }
+    });
+    return out;
+  }
+  var FATAL = { token: 1, key: 1, rate: 1, proxy: 1, timeout: 1, setup: 1 };      // errors that would repeat for the next address: the run stops at the first
+  /**
+   * Ask a source about some wallets, one after the other. opts: { ctx (what the source needs: fetch, the proxy and token ...), confirm(def, addresses) -> true to go on,
+   * cancelled() -> true to stop, onResult(result) }. A source that sends addresses to a third party is not asked without a confirm() that returns true.
+   * Resolves { results: [{ address, found, ext, error }], stopped: null | 'declined' | 'cancelled' | 'failed', error } and never applies anything.
+   */
+  function lookupMany(id, addresses, opts) {
+    opts = opts || {};
+    var d = REG.get(id);
+    if (!d) return Promise.reject(fail('bad', 'Unknown source "' + id + '".'));
+    var seen = {}, list = (addresses || []).filter(function (a) { return typeof a === 'string' && a && !seen[a] && (seen[a] = 1); });
+    if (!list.length) return Promise.resolve({ results: [], stopped: null, error: null });
+    var miss = typeof d.ready === 'function' ? d.ready(opts.ctx || {}) : '';
+    if (miss) return Promise.reject(fail('setup', miss));
+    if (d.third !== false && (typeof opts.confirm !== 'function' || opts.confirm(d, list) !== true)) return Promise.resolve({ results: [], stopped: 'declined', error: null });
+    var results = [], stopped = null, error = null, i = 0;
+    return (function step() {
+      if (i >= list.length) return Promise.resolve({ results: results, stopped: stopped, error: error });
+      if (typeof opts.cancelled === 'function' && opts.cancelled()) { stopped = 'cancelled'; return Promise.resolve({ results: results, stopped: stopped, error: error }); }
+      var a = list[i++];
+      return d.lookup(a, opts.ctx || {}).then(function (r) {
+        var res = { address: a, found: !!r.found, ext: r.ext, error: null }; results.push(res); if (opts.onResult) opts.onResult(res);
+      }, function (e) {
+        var res = { address: a, found: false, ext: null, error: e }; results.push(res); if (opts.onResult) opts.onResult(res);
+        if (e && FATAL[e.kind]) { stopped = 'failed'; error = e; }
+      }).then(function () { return stopped ? { results: results, stopped: stopped, error: error } : step(); });
+    }());
+  }
+
+  register({
+    id: 'arkham', name: 'Arkham Intelligence', short: 'Arkham', third: true,
+    ready: function (ctx) { return !ctx.token ? 'Set up the lookup proxy first (Controls › External sources): run tools/arkham_proxy.py and enter its URL and token.' : ''; },
+    lookup: function (address, ctx) { return lookupArkham({ fetch: ctx.fetch, base: ctx.proxy, token: ctx.token, address: address }); },
+    clean: cleanArkham,
+    describe: function (a) { return { found: a.found === true, label: [a.name, a.label].filter(Boolean).join(' · '), category: a.type, tags: a.tags, note: a.note, suggest: a.suggest, at: a.at }; },
+    headline: function (a) { return (a.name || a.label || 'tagged wallet') + (a.type ? ' (' + a.type + ')' : ''); },
+    fields: function (a) { return [['Entity', a.name], ['Type', a.type], ['Label', a.label], ['Tags', (a.tags || []).join(', ')], ['Predicted', a.predicted], ['Website', a.website], ['Note', a.note]]; }
+  });
+
+  return { SOURCES: SOURCES, register: register, unregister: unregister, source: source, list: list, describe: describe, entries: entries, lookupMany: lookupMany, parseArkham: parseArkham, tagFor: tagFor, toExt: toExt, cleanExt: cleanExt, lookupArkham: lookupArkham, proxyHealth: proxyHealth, arkhamUrl: arkhamUrl, ARKHAM_EXPLORER: ARKHAM_EXPLORER, RAW_LIMIT: RAW_LIMIT };
 }));

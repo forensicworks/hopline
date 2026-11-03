@@ -4,21 +4,13 @@ Ideas and known gaps for Hopline, in no particular order inside each section. No
 
 ## Data sources and intelligence
 
-- [ ] **One interface for sources of wallet names.** Label packs, the local Arkham proxy and any future source would follow one contract (a list of addresses in, entries with label, category, source and time out), with the result kept per source on the wallet and the sources named in the report. The rules stay as they are: a name is a claim, nothing is applied automatically, and a lookup that sends an address to a third party asks first. Today Arkham is a special case in `public/js/hopline-external.js`. **M**
 - [ ] **Check the Arkham look-ups against a real API key.** The reply is parsed from the field names Arkham documents; the raw reply is always kept on the wallet, so a mismatch is visible. If a real reply looks different, the parsing needs a small fix. **S**
 - [ ] **Settle the built-in wallet list** (`public/data/known-addresses.js`). Reviewed for what a computer can check (checksums, spelling, `python tools/review_known_addresses.py`). Still open: 11 addresses carry a second owner as an alternative name, one differs from the mining-pools list, and no entry has a source or a date; a name is a claim, not proof. **S**
 - [ ] **More shipped packs.** OFAC and the UK Sanctions List (both sanctions lists, switched on), Ransomwhere (CC BY 4.0), the mining pools list (MIT) and a chosen part of the GraphSense tag packs (MIT) ship now, the last three switched off (see [sources.md](sources.md)). The same files and list can carry other open sources, each with its licence, credit and date shown: Israel's seizure orders (published as documents, mostly Tether), more GraphSense packs once where their tags come from has been read, and a pack of your own cases from seizure documents. A source goes in only after its terms are read, as one more entry in `SOURCES` in `tools/build_packs.py`, and the weekly refresh workflow then keeps it current; the pack format already has the fields (`licence`, `attribution`, `asOf`, `sourceUrl`). **M**
 
-## Wallet overview (`public/wallet.html`)
-
-- [ ] **The chart and the counterparties in the chosen currency.** The ledger can show amounts in a currency; the balance chart and the biggest-counterparties list are in Bitcoin only. **S**
-- [ ] **Follow a wallet cluster further on its own.** *Look further* loads the newest transactions of up to 25 other wallets each time it is pressed; following the group several rounds deep, with a clear stop, is not built, and the group is only as complete as what was loaded. **M**
-- [ ] **Read a wallet's balance automatically when it is selected.** The details now say "not loaded yet: press Load balance to read it"; reading it by itself is one request per wallet you click on, which matters on a rate-limited public API. **S**
-
 ## Workspace
 
 - [ ] **A change guess on one sign counts as low.** A guess that rests on a single sign (the only output of the inputs' address type, or a known wallet on the other side) is still called medium and is followed by Auto-expand. On the synthetic cases a medium guess on one sign is right 89.5% of the time, on two signs 99.5%, and the weak one is "same address type" alone (84%); on real traffic 66% of the guesses rest on one sign (`docs/benchmark-results.md`). Capping them at low would make medium mean two agreeing signs. Decide with the real-wallet data (`docs/benchmark-wallets.md`), which is the first labelled data that is not synthetic. The first run (Sparrow and Electrum on testnet4, `docs/benchmark-wallets-results.md`) found all 24 medium guesses on one sign right, but both wallets change to the type they receive on, so the weak case was not tested; a wallet that changes to another type is needed before deciding. **S**
-- [ ] **As one vertex outside the Trace layout.** *Show on graph* and *+ show* work in every layout now; folding rows into one group vertex (*As one vertex*) still exists only in the Trace layout. **M**
 
 ## Bigger projects
 

@@ -308,6 +308,9 @@ test('balances are exported, survive a round trip, and hostile values are droppe
   Object.assign(bad, { fundedSum: -1, spentSum: 1.5, mempoolFundedSum: 1e20, mempoolSpentSum: 'a lot', statsAt: 'yesterday', statsSource: 'javascript:alert(1)' });
   const clean = IO.fromJson(JSON.stringify(doc)).graph.node(ID.addr('A'));
   ['fundedSum', 'spentSum', 'mempoolFundedSum', 'mempoolSpentSum', 'statsAt', 'statsSource'].forEach((k) => assert.equal(clean[k], undefined, k));
+  assert.equal(back.balanceOnly, true, 'a wallet whose balance alone was read stays so through a file');
+  Object.assign(bad, { balanceOnly: 'yes' });
+  assert.equal(IO.fromJson(JSON.stringify(doc)).graph.node(ID.addr('A')).balanceOnly, undefined, 'only true means anything');
 });
 
 test('handoffsCsv: one row per hand-off with its columns, and a name that could run as a formula is defused', () => {
@@ -323,6 +326,19 @@ test('handoffsCsv: one row per hand-off with its columns, and a name that could 
   assert.ok(lines[2].includes(',,5,0.00000005,1,,1,6,1,true'), 'no time and no wallet are empty cells: ' + lines[2]);
   assert.equal(lines[3], '', 'the file ends with a line break');
   assert.equal(IO.handoffsCsv([]), IO.HANDOFF_COLS.join(',') + '\r\n');
+});
+
+test('the node CSV names what each outside source said about a wallet in one cell, source by source, that a spreadsheet cannot run', () => {
+  const g = new Graph();
+  g.upsertNode({ id: ID.addr('A'), type: 'addr', address: 'A', ext: { arkham: { found: true, name: '=HYPERLINK("http://x")', type: 'cex', label: 'Hot', at: 1700000000, tags: [] } } });
+  g.upsertNode({ id: ID.addr('B'), type: 'addr', address: 'B', ext: { arkham: { found: false, at: 1700000000 } } });
+  g.upsertNode({ id: ID.addr('C'), type: 'addr', address: 'C' });
+  const rows = parseCsv(IO.toCsv(g, 'nodes')), col = rows[0].indexOf('ext_lookups');
+  assert.equal(IO.NODE_COLS[IO.NODE_COLS.length - 1], 'ext_lookups', 'added at the end: the columns a script already reads stay where they were');
+  const by = (id) => rows.find((r) => r[0] === ID.addr(id))[col];
+  assert.equal(by('A'), 'Arkham Intelligence: =HYPERLINK("http://x") · Hot (cex) [2023-11-14 22:13:20 UTC]', 'the cell starts with the source, never with the name, so a name that begins with = cannot start a formula');
+  assert.equal(by('B'), 'Arkham Intelligence: no entry [2023-11-14 22:13:20 UTC]');
+  assert.equal(by('C'), '', 'a wallet nobody was asked about has an empty cell');
 });
 
 test('handoffsCsv: the kind column says service, or named for a wallet a sanctions or ransomware list names', () => {

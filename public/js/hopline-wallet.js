@@ -200,7 +200,7 @@
       var n = g.nodes.get(g.addTx(t)), f = opts.fetched && opts.fetched.get(t.txid);
       if (n && f) { n.source = f.source; n.fetchedAt = f.at; }
     });
-    if (opts.stats) g.addAddressStats(address, opts.stats, { at: opts.at, source: opts.source });
+    if (opts.stats) g.addAddressStats(address, opts.stats, { at: opts.at, source: opts.source, history: true });
     g.refreshDerived();
     return g;
   }

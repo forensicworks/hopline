@@ -90,6 +90,25 @@
     });
   }
 
+  /**
+   * The outside look-ups in the report: what third-party services said about wallets on screen, asked for one wallet at a time on request (HoplineExternal.entries).
+   * `model.lookups` is [{ address, source, sourceName, found, label, category, tags, note, at }]. Returns { sources: [text per source], rows }, or null when there are none.
+   */
+  function lookupInfo(model) {
+    var list = (model.lookups || []).filter(function (l) { return l && l.address && l.source; });
+    if (!list.length) return null;
+    var by = {}, order = [];
+    list.forEach(function (l) {
+      var b = by[l.source]; if (!b) { b = by[l.source] = { name: l.sourceName || l.source, asked: 0, named: 0, first: null, last: null }; order.push(l.source); }
+      b.asked++; if (l.found) b.named++;
+      if (l.at) { b.first = b.first == null ? l.at : Math.min(b.first, l.at); b.last = b.last == null ? l.at : Math.max(b.last, l.at); }
+    });
+    return { sources: order.map(function (id) {
+      var b = by[id], when = b.first == null ? '' : b.first === b.last ? ', asked ' + Style.fmtTimeFull(b.first) : ', asked between ' + Style.fmtTimeFull(b.first) + ' and ' + Style.fmtTimeFull(b.last);
+      return b.name + ' - ' + plural(b.asked, 'wallet') + ' asked, ' + b.named + ' named' + when;
+    }), rows: list };
+  }
+
   function amountCell(model, sats, time) {
     var fx = model.fiat ? model.fiat(sats, time) : '';
     return esc(Style.fmtBtc(sats)) + ' BTC' + (fx ? ' <span class="hint">· ' + esc(fx) + '</span>' : '');
@@ -297,13 +316,25 @@
     });
     h.push('</table>' + (wallets.length > MAX_WALLETS ? '<p class="hint">Showing the ' + MAX_WALLETS + ' wallets that received most; the embedded data has all ' + wallets.length + '.</p>' : ''));
 
+    var lk = lookupInfo(model);
+    if (lk) {
+      h.push('<h2>Outside look-ups</h2><p class="hint">What third-party services said about wallets in this report. Each wallet was sent to the service on request, one at a time, and nothing a service said was applied to a wallet automatically. A name is that service\'s claim, not proof.</p><ul>'
+        + lk.sources.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'
+        + '<table><tr><th>Address</th><th>Source</th><th>Said</th><th>Category</th><th>Tags</th><th>Asked</th></tr>');
+      lk.rows.slice(0, MAX_WALLETS).forEach(function (l) {
+        h.push('<tr><td><code>' + esc(l.address) + '</code></td><td>' + esc(l.sourceName || l.source) + '</td><td>' + (l.found ? esc(l.label || '') + (l.note ? ' <span class="hint">' + esc(l.note) + '</span>' : '') : '<span class="hint">no entry</span>') + '</td><td>'
+          + esc(l.category || '') + '</td><td>' + esc((l.tags || []).join(', ')) + '</td><td>' + esc(l.at ? t(l.at) : '') + '</td></tr>');
+      });
+      h.push('</table>' + (lk.rows.length > MAX_WALLETS ? '<p class="hint">The first ' + MAX_WALLETS + ' of ' + lk.rows.length + ' are listed; the embedded data has them all.</p>' : ''));
+    }
+
     h.push('<h2>Method and limits</h2><ul>'
       + '<li><b>Data:</b> transactions, amounts, times and spending status were read from the source named in the summary at the retrieval times shown. "Unspent" means unspent when its status was last checked, not now. A wallet\'s <i>Received</i> and <i>Sent</i> count only the transactions in this report; its <i>Balance</i> is what the server reported for the whole address at the time shown, and is not read for every wallet.</li>'
       + '<li><b>Patterns</b> are rules over the loaded transactions: consolidation (5 or more inputs into 1 or 2 outputs), batch payment (up to 3 inputs, 6 or more outputs), CoinJoin-like (3 or more input wallets and several outputs of exactly the same value to different addresses), peel chain (4 or more linked one-input, two-output transactions whose small output is at most half the large one and not dust-sized).</li>'
       + '<li><b>Likely change</b> weighs: the output address is also an input; the only output of the same address type as the inputs; a round payment amount; the other output paying a known or tagged wallet; an output smaller than every input; the spender having the same wallet habits. Each reason is listed beside the finding. Close calls are not named, and neither are two outputs within 1% of each other unless one address is also an input (an even split looks like two payments). Only a strong guess is called likely; the rest are called possible, and a lead to follow from both outputs.</li>'
       + '<li><b>Clusters</b> use the common-input rule (inputs spent together share an owner). A CoinJoin, a PayJoin or a shared wallet can break it.</li>'
       + (model.trace ? '<li><b>Routes, hand-offs and open ends</b> follow each coin to the transaction that spent it (never a match of addresses), within what was loaded and on screen. A route is not carried across a service wallet unless there is no other way, and then it says so; a step that merges many inputs is named, because coins of other origins join there. A route shows that the money could have travelled that way, not who controls the wallets between. "No route" and a missing hand-off only mean none was found in the loaded transactions.</li>' : '')
-      + '<li>Only loaded transactions can be analysed; loading more can add, change or remove a finding. Names from label packs are third-party claims, shown with the pack they came from.</li>'
+      + '<li>Only loaded transactions can be analysed; loading more can add, change or remove a finding. Names from label packs' + (lk ? ' and from outside look-ups' : '') + ' are third-party claims, shown with the pack or the service they came from.</li>'
       + (model.fiatNote ? '<li><b>Fiat values</b> are indicative: ' + esc(model.fiatNote) + ' Quote an exchange\'s price for the exact moment where it matters.</li>' : '') + '</ul>');
 
     h.push('<h2>Integrity</h2><p>The evidence data embedded in this file (every vertex and movement above, with where and when it was fetched, and the settings used) has this SHA-256:</p><p class="hash" id="evidence-hash">' + esc(hash) + '</p>'

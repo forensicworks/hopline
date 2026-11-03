@@ -111,14 +111,22 @@ def ctx(browser, mock):
 
 
 @pytest.fixture
-def tpage(ctx, errors):
-    """A fresh page exactly as a new visitor gets it: the Trace layout, nothing loaded."""
+def newpage(ctx, errors):
+    """A fresh page exactly as a new visitor gets it: the Trace layout, nothing loaded, and the setting that reads the balance of a selected wallet on."""
     p = ctx.new_page()
     p.on("pageerror", lambda e: errors.append("pageerror: " + str(e)))
     p.on("console", lambda m: errors.append("console: " + m.text) if m.type == "error" else None)
     p.goto(PAGE_URL)
     p.wait_for_function("window.__hopline && window.__hopline.renderer")
     return p
+
+
+@pytest.fixture
+def tpage(newpage):
+    """A fresh page as a new visitor gets it (the Trace layout, nothing loaded), except that selecting a wallet does not read its balance by itself:
+    most tests count the requests they cause and read the messages they show. The tests of that setting use newpage."""
+    newpage.evaluate("() => { const c = document.getElementById('autoBalance'); c.checked = false; c.dispatchEvent(new Event('change')); }")
+    return newpage
 
 
 @pytest.fixture

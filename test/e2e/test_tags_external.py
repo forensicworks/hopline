@@ -441,3 +441,34 @@ def test_the_real_proxy_works_with_the_real_page_and_the_key_never_reaches_the_p
         assert "REAL-KEY-123" not in page_state
     finally:
         p.close(); srv.shutdown(); srv.server_close(); up.shutdown(); up.server_close()
+
+
+def test_the_report_names_the_outside_source_and_what_it_said_and_the_csv_has_it_in_one_cell(fpage, arkham, tmp_path):
+    from test_report import make_report, verify
+    open_query(fpage, NORMAL["txid"])
+    set_up_proxy(fpage)
+    select_only(fpage, BIG_ADDR)
+    fpage.on("dialog", lambda d: d.accept())
+    fpage.click("#btnArkham"); fpage.wait_for_function("(id) => !!window.__hopline.state.graph.nodes.get(id).ext", arg=BIG_ADDR); settle(fpage)
+    p = make_report(fpage, tmp_path)
+    html = p.read_text(encoding="utf-8")
+    body = html.split('<script type="application/json"')[0]
+    assert "<h2>Outside look-ups</h2>" in body and "Arkham Intelligence - 1 wallet asked, 1 named, asked " in body
+    assert BIG_ADDR[5:] in body and "Binance" in body and "Hot Wallet" in body and "cex" in body
+    assert "nothing a service said was applied to a wallet automatically" in body
+    r = verify(p)
+    assert r.returncode == 0 and "OK:" in r.stdout, r.stdout + r.stderr
+    fpage.click("#exportMenu summary")
+    with fpage.expect_download() as dl:
+        fpage.click("[data-export=csv-nodes]")
+    q = tmp_path / "nodes.csv"; dl.value.save_as(q)
+    rows = list(csv.reader(io.StringIO(q.read_text(encoding="utf-8-sig"))))
+    cell = [r[rows[0].index("ext_lookups")] for r in rows[1:] if r[0] == BIG_ADDR][0]
+    assert cell.startswith("Arkham Intelligence: Binance") and "(cex)" in cell, cell
+
+
+def test_the_report_has_no_look_up_section_when_nobody_was_asked(fpage, tmp_path):
+    from test_report import make_report
+    open_query(fpage, NORMAL["txid"])
+    body = make_report(fpage, tmp_path).read_text(encoding="utf-8").split('<script type="application/json"')[0]
+    assert "Outside look-ups" not in body and "outside look-ups" not in body

@@ -49,6 +49,8 @@ test('hidden counts what is not shown yet, and says when more may exist beyond w
   // a wallet whose history was never loaded: what is known may be only part of it
   const b = TR.hidden(g, shown, ID.addr('B'), 'next');
   assert.deepEqual([b.known, b.unknown, TR.handleLabel(b)], [1, true, '1+']);
+  g.addAddressStats('C', { chain_stats: { funded_txo_sum: 300, spent_txo_sum: 300, tx_count: 2 }, mempool_stats: {} }, { at: 1 });
+  assert.equal(TR.hidden(g, shown, ID.addr('C'), 'next').unknown, true, 'only its balance was read: its transactions still have to be loaded');
   g.node(ID.addr('B')).txCount = 2;
   assert.deepEqual([TR.hidden(g, shown, ID.addr('B'), 'next').unknown, TR.handleLabel(TR.hidden(g, shown, ID.addr('B'), 'next'))], [false, '1']);
   g.node(ID.addr('B')).histNext = 'abc';

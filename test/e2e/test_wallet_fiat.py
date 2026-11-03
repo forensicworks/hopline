@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from chains import IN, OUT, tx
+from chains import IN, OUT, tid, tx
 from conftest import ADDRESS, ADDR_TXS, HIST, PRICES_NOW, fx
 from helpers import wallet_export
 from test_fiat_sources import price_at
@@ -271,3 +271,73 @@ def test_the_currency_choice_sits_above_the_figures_it_changes(wpage):
     goto(wpage)
     top = wpage.evaluate("() => { const b = document.getElementById('fiatBar').getBoundingClientRect(), k = document.getElementById('sBalance').getBoundingClientRect(); return b.bottom <= k.top; }")
     assert top and wpage.is_visible("#fiatCur")
+
+
+# ---- the curve, the axis and the order of the counterparties follow the currency -------------------------------------------------
+def two_payers(mock, a_btc, b_btc):
+    """Two wallets paid W: A in a month when the price was low, B in a month when it was high. Returns (low time, high time, A, B)."""
+    import calendar
+    days = [calendar.timegm((2022, m, 15, 12, 0, 0)) for m in range(1, 13)]
+    low, high = min(days, key=price_at), max(days, key=price_at)
+    A, B = "bc1q" + "a" * 38, "bc1q" + "b" * 38
+    ids = []
+    for k, (payer, btc_, when) in enumerate([(A, a_btc, low), (B, b_btc, high)]):
+        o = OUT("x", int(btc_ * 1e8)); o["scriptpubkey_address"] = ADDRESS
+        ids.append(tx(mock, 300 + k, [IN(290 + k, 0, "x", int(btc_ * 1e8) + 1000)], [o]))
+        mock.routes["/tx/" + tid(300 + k)]["status"]["block_time"] = when
+        mock.routes["/tx/" + tid(300 + k)]["vin"][0]["prevout"]["scriptpubkey_address"] = payer
+    mock.routes["/address/" + ADDRESS + "/txs"] = [mock.routes["/tx/" + tid(301)], mock.routes["/tx/" + tid(300)]]
+    return low, high, A, B
+
+
+def counterparty_order(page):
+    return page.eval_on_selector_all("#cp .cprow", "els => els.map(e => e.dataset.address)")
+
+
+def spy_on_text(page):
+    page.add_init_script("window.__texts = []; const o = CanvasRenderingContext2D.prototype.fillText; CanvasRenderingContext2D.prototype.fillText = function (t, ...a) { window.__texts.push(String(t)); return o.call(this, t, ...a); };")
+
+
+def test_in_the_currency_alone_the_axis_of_the_chart_is_in_the_currency(ctx, wpage):
+    spy_on_text(wpage)
+    prefs(ctx, {"currency": "USD", "basis": "each", "show": "fiat", "ref": None})
+    goto(wpage); wait_prices(wpage); wpage.wait_for_timeout(300)
+    wpage.evaluate("() => { window.__texts = []; }")
+    wpage.select_option("#fiatBasis", "each"); wpage.select_option("#fiatShow", "fiat"); wpage.wait_for_timeout(300)
+    texts = wpage.evaluate("() => window.__texts")
+    assert any(t.startswith("$") for t in texts), "the axis labels are amounts in dollars: " + str(texts[:12])
+    assert not any("BTC" in t for t in texts if t.strip().startswith(("0.", "1.", "2."))), texts[:12]
+    assert "The axis is in USD" in wpage.inner_text("#chartText")
+
+
+def test_with_bitcoin_or_both_the_chart_stays_in_bitcoin(ctx, wpage):
+    spy_on_text(wpage)
+    prefs(ctx, {"currency": "USD", "basis": "each", "show": "both", "ref": None})
+    goto(wpage); wait_prices(wpage); wpage.wait_for_timeout(300)
+    wpage.evaluate("() => { window.__texts = []; }")
+    wpage.select_option("#fiatShow", "both"); wpage.wait_for_timeout(300)
+    assert not any(t.startswith("$") for t in wpage.evaluate("() => window.__texts")), "no dollar amount on the axis"
+    assert "The axis is in" not in wpage.inner_text("#chartText")
+
+
+def test_in_the_currency_alone_the_biggest_counterparties_are_those_that_moved_the_most_in_the_currency(ctx, wpage, mock):
+    low, high, A, B = two_payers(mock, 1.0, 0.8)
+    assert price_at(high) * 0.8 > price_at(low) * 1.0 * 1.1, "the fixture needs a price rise big enough to turn the order over"
+    prefs(ctx, {"currency": "USD", "basis": "each", "show": "both", "ref": None})
+    goto(wpage); wait_prices(wpage)
+    assert counterparty_order(wpage) == [A, B], "in Bitcoin A moved more (1.0 against 0.8)"
+    wpage.select_option("#fiatShow", "fiat"); wpage.wait_for_timeout(300)
+    assert counterparty_order(wpage) == [B, A], "in dollars B moved more, at the higher price"
+    widths = wpage.eval_on_selector_all("#cp .cprow .bar i", "els => els.map(e => parseInt(e.style.width))")
+    assert widths[0] == 100 and widths[1] < 100, widths
+    wpage.select_option("#fiatShow", "btc"); wpage.wait_for_timeout(300)
+    assert counterparty_order(wpage) == [A, B], "back to Bitcoin: back to the Bitcoin order"
+
+
+def test_when_a_price_is_missing_the_order_and_the_chart_stay_in_bitcoin(ctx, wpage, mock):
+    two_payers(mock, 1.0, 0.8)
+    mock.fail["/v1/historical-price?currency=USD"] = 500
+    prefs(ctx, {"currency": "USD", "basis": "each", "show": "fiat", "ref": None})
+    goto(wpage); wpage.wait_for_timeout(1500)
+    assert counterparty_order(wpage)[0] == "bc1q" + "a" * 38, "no prices: the Bitcoin order"
+    assert "The axis is in" not in wpage.inner_text("#chartText")
