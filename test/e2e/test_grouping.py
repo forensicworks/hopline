@@ -118,8 +118,10 @@ def test_group_similar_rows_can_be_switched_off_in_the_list_and_in_the_settings_
     assert heads(fpage).count() == 0 and not fpage.is_checked("#groupRows")
     assert len(row_titles(fpage)) == 27
     fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    idle(fpage)                                                                                  # the page opens the vertex in the address again after a reload: wait for that load before clicking
     assert fpage.evaluate("() => window.__hopline.state.groupRows") is False
     fpage.evaluate("() => [...document.querySelectorAll('details')].find(d => d.querySelector('summary').textContent.trim() === 'Expansion limits').open = true")
+    fpage.wait_for_selector("#groupRows", state="visible")
     fpage.check("#groupRows")
     assert fpage.evaluate("() => window.__hopline.state.groupRows") is True
 
