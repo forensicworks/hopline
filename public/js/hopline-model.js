@@ -241,6 +241,21 @@
    */
   function historyRead(n) { return !!n && n.type === 'addr' && n.txCount != null && !n.balanceOnly; }
 
+  /**
+   * Could more of this wallet's transactions exist than the graph holds, going `dir` ('next': what it spent, 'prev': what it received, none: either)?
+   * Yes while a further page of its history is waiting, or its history was never asked for. Then its totals decide when they were read: what the
+   * graph holds of what it received (spent) adding up to what the server counts means nothing is left that way, and a wallet that never spent
+   * has nothing going forward.
+   */
+  function historyOpen(n, dir) {
+    if (!n || n.type !== 'addr') return false;
+    if (n.histNext) return true;
+    if (historyRead(n)) return false;
+    if (n.fundedSum == null || n.spentSum == null) return true;
+    var spends = (n.sent || 0) < n.spentSum + (n.mempoolSpentSum || 0), funds = (n.received || 0) < n.fundedSum + (n.mempoolFundedSum || 0);
+    return dir === 'next' ? spends : dir === 'prev' ? funds : spends || funds;
+  }
+
   /** Ingest GET /tx/<id>/outspends: marks which outputs are spent, and by whom (with the spender's time). */
   Graph.prototype.addOutspends = function (txid, outspends) {
     var g = this;
@@ -369,5 +384,5 @@
     return g;
   };
 
-  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf, historyRead: historyRead };
+  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf, historyRead: historyRead, historyOpen: historyOpen };
 }));

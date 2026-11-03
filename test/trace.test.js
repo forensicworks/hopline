@@ -51,6 +51,10 @@ test('hidden counts what is not shown yet, and says when more may exist beyond w
   assert.deepEqual([b.known, b.unknown, TR.handleLabel(b)], [1, true, '1+']);
   g.addAddressStats('C', { chain_stats: { funded_txo_sum: 300, spent_txo_sum: 300, tx_count: 2 }, mempool_stats: {} }, { at: 1 });
   assert.equal(TR.hidden(g, shown, ID.addr('C'), 'next').unknown, true, 'only its balance was read: its transactions still have to be loaded');
+  g.addAddressStats('F', { chain_stats: { funded_txo_sum: 50, spent_txo_sum: 0, tx_count: 1 }, mempool_stats: {} }, { at: 1 });
+  g.refreshDerived();
+  assert.equal(TR.hidden(g, shown, ID.addr('F'), 'next').unknown, false, 'its balance was read and it never spent: nothing is hidden going forward');
+  assert.equal(TR.handleLabel(TR.hidden(g, shown, ID.addr('F'), 'next')), '');
   g.node(ID.addr('B')).txCount = 2;
   assert.deepEqual([TR.hidden(g, shown, ID.addr('B'), 'next').unknown, TR.handleLabel(TR.hidden(g, shown, ID.addr('B'), 'next'))], [false, '1']);
   g.node(ID.addr('B')).histNext = 'abc';

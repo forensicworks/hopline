@@ -246,3 +246,42 @@ def test_switching_it_off_is_remembered_and_an_older_saved_setting_gets_the_defa
     newpage.evaluate("() => localStorage.setItem('hopline.prefs.v1', JSON.stringify({ stepSize: 5 }))")                 # settings saved before there was such a setting
     newpage.reload(); newpage.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert newpage.evaluate("() => document.getElementById('autoBalance').checked") is True
+
+
+def wallet_paid_once(mock, n, who, value, spent_by=None):
+    """Transaction n pays one wallet `value`; the wallet's own totals are served as the server would keep them. Nothing in the graph says it was spent."""
+    from chains import IN, OUT, addr, tx
+    tx(mock, n, [IN(90 + n, 0, "src%d" % n, value + 100)], [OUT(who, value)])
+    mock.routes["/address/" + addr(who)] = {"address": addr(who), "chain_stats": {"tx_count": 1 + (spent_by is not None), "funded_txo_sum": value, "spent_txo_sum": value if spent_by else 0,
+                                                                              "funded_txo_count": 1, "spent_txo_count": 1 if spent_by else 0}, "mempool_stats": {"tx_count": 0}}
+    return "addr:" + addr(who)
+
+
+def test_the_question_mark_goes_when_the_balance_read_on_select_shows_nothing_more_to_load(newpage, mock):
+    from chains import tid
+    from test_trace import handle
+    free = wallet_paid_once(mock, 1, "free", 900)                                   # received once, never spent
+    gone = wallet_paid_once(mock, 2, "gone", 800, spent_by=3)                       # received once and spent it all, in a transaction nobody loaded
+    mock.fail["/tx/%s/outspends" % tid(2)] = 500                                    # so nothing in the graph says it was spent
+    for n, wid in ((1, free), (2, gone)):
+        open_query(newpage, tid(n))
+        newpage.evaluate("(id) => window.__hopline.traceExpand(id, 'next')", "tx:" + tid(n)); idle(newpage); settle(newpage)
+        assert handle(newpage, wid, "right")["label"] == "?", "before anything is known about the wallet, whether it spent is a question"
+        select(newpage, wid[5:])
+        newpage.wait_for_function("(id) => window.__hopline.state.graph.nodes.get(id).statsAt != null", arg=wid, timeout=15000); idle(newpage); settle(newpage)
+    assert handle(newpage, free, "right") is None, "its totals say it never spent: nothing is left forward"
+    assert handle(newpage, gone, "right")["label"] == "?", "it spent coins that are not in the graph: the question stays"
+    select(newpage, free[5:])
+    t = insp(newpage)
+    assert "all of them are in the graph" in t and "history not loaded" not in t
+    select(newpage, gone[5:])
+    assert "history not loaded: press Load history" in insp(newpage)
+
+
+def test_the_progress_box_is_below_the_toolbar_and_not_over_it(fpage):
+    open_query(fpage, NORMAL["txid"])
+    fpage.evaluate("() => { document.getElementById('progressText').textContent = 'Search for a route: round 2…'; document.getElementById('progress').hidden = false; }")
+    for layout in ("trace", "timeline", "flow", "force"):
+        fpage.click("#layoutSeg [data-layout=%s]" % layout); settle(fpage)
+        box = fpage.evaluate("() => { const r = document.getElementById('progress').getBoundingClientRect(), b = document.getElementById('traceBar').getBoundingClientRect(); return [r.top, b.bottom, r.height]; }")
+        assert box[2] > 0 and box[1] > 0 and box[0] >= box[1], "in %s the progress box starts at %s, below the toolbar that ends at %s" % (layout, box[0], box[1])

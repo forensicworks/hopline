@@ -100,6 +100,8 @@ test('unknown vertex or direction gives no rows; empty reasons name the cause', 
   assert.match(Steps.emptyReason(g, ID.addr('Q'), 'next'), /History of this wallet is not loaded/);
   g.addAddressStats('Q', { chain_stats: { funded_txo_sum: 5, spent_txo_sum: 5, tx_count: 2 }, mempool_stats: {} }, { at: 1 });
   assert.match(Steps.emptyReason(g, ID.addr('Q'), 'next'), /History of this wallet is not loaded/, 'its balance was read, its transactions were not');
+  g.addAddressStats('R', { chain_stats: { funded_txo_sum: 5, spent_txo_sum: 0, tx_count: 1 }, mempool_stats: {} }, { at: 1 });
+  assert.match(Steps.emptyReason(g, ID.addr('R'), 'next'), /Never spent/, 'the server counts no spending from it');
   g.addAddressStats('Q', { chain_stats: { funded_txo_sum: 5, spent_txo_sum: 5, tx_count: 2 }, mempool_stats: {} }, { at: 2, history: true });
   assert.match(Steps.emptyReason(g, ID.addr('Q'), 'next'), /Nothing after this in what is loaded/);
   assert.equal(Steps.emptyReason(g, 'nope', 'next'), 'Nothing selected');

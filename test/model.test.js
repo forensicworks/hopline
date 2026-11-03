@@ -331,3 +331,21 @@ test('a balance read alone does not count as the wallet\'s history being read', 
   assert.equal(historyRead(g.node(ID.addr('OLD'))), true);
   assert.equal(historyRead(null), false); assert.equal(historyRead({ type: 'tx', txCount: 3 }), false);
 });
+
+test('historyOpen: the totals of a wallet say whether more of its transactions can exist in a direction', () => {
+  const { historyOpen } = require('../public/js/hopline-model.js');
+  const w = (o) => Object.assign({ id: 'addr:w', type: 'addr', address: 'w', received: 0, sent: 0 }, o);
+  assert.equal(historyOpen(w({}), 'next'), true, 'nothing known: it may have anything'); assert.equal(historyOpen(w({}), 'prev'), true);
+  assert.equal(historyOpen(null, 'next'), false); assert.equal(historyOpen({ type: 'tx' }, 'next'), false);
+  const read = { txCount: 2, balanceOnly: true, fundedSum: 900, spentSum: 0, mempoolFundedSum: 0, mempoolSpentSum: 0 };
+  assert.equal(historyOpen(w(Object.assign({ received: 900 }, read)), 'next'), false, 'it never spent: nothing goes forward');
+  assert.equal(historyOpen(w(Object.assign({ received: 900 }, read)), 'prev'), false, 'and everything it received is in the graph');
+  assert.equal(historyOpen(w(Object.assign({ received: 500 }, read)), 'prev'), true, 'received more than the graph holds');
+  assert.equal(historyOpen(w(Object.assign({ received: 500 }, read))), true, 'either direction');
+  const spent = Object.assign({}, read, { spentSum: 900 });
+  assert.equal(historyOpen(w(Object.assign({ received: 900 }, spent)), 'next'), true, 'it spent coins that are not in the graph');
+  assert.equal(historyOpen(w(Object.assign({ received: 900, sent: 900 }, spent)), 'next'), false, 'and once the graph holds all of that');
+  assert.equal(historyOpen(w(Object.assign({ received: 900 }, read, { mempoolSpentSum: 40 })), 'next'), true, 'unconfirmed spending counts');
+  assert.equal(historyOpen(w(Object.assign({ received: 900, histNext: 'abc' }, read)), 'next'), true, 'a further page of history is waiting');
+  assert.equal(historyOpen(w({ txCount: 2, received: 1, sent: 0, fundedSum: 900, spentSum: 900 }), 'next'), false, 'its history was asked for: the page says what is left');
+});
