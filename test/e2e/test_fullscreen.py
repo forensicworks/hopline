@@ -240,3 +240,17 @@ def test_the_fold_button_in_the_drawer_closes_it_and_does_not_change_the_saved_c
     assert fpage.evaluate("() => window.__hopline.state.sideCollapsed") is False
     fpage.click("#fullBtn"); settle(fpage)
     assert fpage.is_visible("#side"), "the panel is back as it was"
+
+
+def test_the_findings_tab_does_not_sit_on_a_button_when_the_findings_are_folded_in_full_screen(fpage):
+    from helpers import open_query
+    from conftest import NORMAL
+    open_query(fpage, NORMAL["txid"])
+    fpage.click("#fullBtn"); settle(fpage)
+    assert fpage.evaluate("() => document.body.classList.contains('canvas-full')")
+    fpage.evaluate("() => window.__hopline.state.inspCollapsed || document.getElementById('inspCollapse').click()"); settle(fpage)
+    fpage.wait_for_selector("#inspTab:not([hidden])", timeout=5000)
+    tab = fpage.locator("#inspTab").bounding_box()
+    for id_ in ("zoomIn", "zoomOut", "fullControls", "fullBtn"):
+        b = fpage.locator("#" + id_).bounding_box()
+        assert b["y"] + b["height"] <= tab["y"] or tab["y"] + tab["height"] <= b["y"] or b["x"] + b["width"] <= tab["x"], "the tab is on the %s button: %s %s" % (id_, tab, b)
