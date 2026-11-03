@@ -52,7 +52,7 @@
     source: 'clearnet', fallback: true, customBase: '', keys: {}, keyRemember: false, pace: { concurrency: 8, delayMs: 20 }, capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: !HOSTED,
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
-    rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: true, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true,
+    rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: true, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true, hoverPreview: true,
     trace: emptyTrace(), vgroups: new Map(), vseq: 0, routeRef: null, routeFocus: null, openDir: 'next',
     undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true, swap: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
@@ -196,7 +196,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, autoBalance: state.autoBalance, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, autoBalance: state.autoBalance, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, hoverPreview: state.hoverPreview, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -217,7 +217,7 @@
       state.focusOn = p.focusOn !== false; state.hops = num(p.hops, 1, 3, 2);
       state.fiat = cleanFiat(p.fiat);
       state.sideCollapsed = p.sideCollapsed !== false; state.inspCollapsed = p.inspCollapsed === true; state.tbCollapsed = p.tbCollapsed === true;
-      state.edgeLabels = p.edgeLabels !== false; state.viaWallets = p.viaWallets !== false; state.bundleEdges = p.bundleEdges !== false;
+      state.edgeLabels = p.edgeLabels !== false; state.viaWallets = p.viaWallets !== false; state.bundleEdges = p.bundleEdges !== false; state.hoverPreview = p.hoverPreview !== false;
       state.analysis = cleanAnalysis(p.analysis); state.assist = cleanAssist(p.assist); state.auto = cleanAuto(p.auto);
       state.claude = cleanClaude(p.claude); if (state.claude.remember) cl.key = AS.cleanClaudeKey(store.get(CLAUDE_KEY) || '');
       state.reportBy = typeof p.reportBy === 'string' ? LB.cleanText(p.reportBy, 80) : '';
@@ -697,9 +697,10 @@
     $('boxSel').setAttribute('aria-pressed', String(state.boxMode));
     $('traceArrange').value = state.arrange;
     $('traceInfo').textContent = !has ? '' : on ? (!T.shown.size ? 'Nothing shown: open a wallet or a transaction.'      // it rides on the count line under the canvas, which already says how many are shown
-        : T.shown.size === 1 ? 'Click ◀ or ▶ beside the vertex to show what came before or after it.'
+        : T.shown.size === 1 ? 'Click ◀ or ▶ beside the vertex to show more.'
         : sel ? sel + ' selected' : '')
       : sel ? sel + ' selected' : '';
+    $('hud').title = $('hud').textContent;                                       // the full counts, when the time bar has no room for them
     fitBar(); syncBarInset();
   }
 
@@ -4408,6 +4409,7 @@
   function previewFor(node, get) {
     var base = node.title || '';
     function enter() {
+      if (!state.hoverPreview) return;
       var c = get(); if (!c || !c.ids || !c.ids.length) return;
       var shown = hlOnScreen(c.ids);
       node.title = (base ? base + ' ' : '') + '(' + shown + ' of ' + c.ids.length + ' on screen)';
@@ -4432,6 +4434,7 @@
   }
   /** The vertex under the pointer on the graph (or none): mark the chips and rows that count it, and unmark the ones marked before. */
   function markFindingsFor(id) {
+    if (!state.hoverPreview) id = null;
     if (id === hlMarkedFor) return;
     hlMarkedFor = id;
     hlMarked.forEach(function (e) { e.classList.remove('hl'); }); hlMarked = [];
@@ -4920,8 +4923,8 @@
     var fo = focusOpt();
     if (traceOn() && state.trace.seed) {                                      // the group vertices of a trace are drawn but are not loaded vertices: they are counted beside, not in, the shown
       var tGroups = state.trace.groups.size;
-      $('counts').textContent = 'Trace from ' + focusLabel(state.trace.seed) + ' · ' + loadedAndShown(rg.nodes.size, Math.max(0, visible.nodes.size - tGroups)) + (tGroups ? ' (+' + plural(tGroups, 'group') + ')' : '');
-    } else $('counts').textContent = rg.nodes.size ? (fo ? 'Focus: ' + focusLabel(fo.id) + ' · depth ' + fo.hops + ' · ' : '') + loadedAndShown(rg.nodes.size, visible.nodes.size) + ' · ' + visible.edges.size + ' of ' + rg.edges.size + ' edges' : '';
+      setCounts('Trace from ' + focusLabel(state.trace.seed) + ' · ', loadedAndShown(rg.nodes.size, Math.max(0, visible.nodes.size - tGroups)) + (tGroups ? ' (+' + plural(tGroups, 'group') + ')' : ''));
+    } else setCounts(rg.nodes.size && fo ? 'Focus: ' + focusLabel(fo.id) + ' · depth ' + fo.hops + ' · ' : '', rg.nodes.size ? loadedAndShown(rg.nodes.size, visible.nodes.size) + ' · ' + visible.edges.size + ' of ' + rg.edges.size + ' edges' : '');
     $('empty').hidden = rg.nodes.size > 0;
     updateLegend(); updateFindings(); updateAutoUi(); updateTraceUi();
   }
@@ -5031,6 +5034,12 @@
     if (b.pending) info += ' · ' + b.pending + ' unconfirmed';
     if (b.min != null && b.min === b.max) info += ' · all in one moment, nothing to slide';
     $('tbInfo').textContent = info;
+  }
+  /** The counts on the time bar's header row: the numbers stay whole, and the lead ("Focus: ..." or "Trace from ...") is cut first when the row is short of room. */
+  function setCounts(lead, rest) {
+    var c = $('counts'); c.textContent = '';
+    if (lead) { var l = document.createElement('span'); l.className = 'lead'; l.textContent = lead; c.appendChild(l); }
+    if (rest) { var r = document.createElement('span'); r.className = 'rest'; r.textContent = rest; c.appendChild(r); }
   }
   function syncTimeLabels() {
     var b = state.tb, f = state.filter, on = timebarEnabled();
@@ -5523,7 +5532,7 @@
     $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('autoBalance').checked = state.autoBalance; $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
-    $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets; $('bundleEdges').checked = state.bundleEdges;
+    $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets; $('bundleEdges').checked = state.bundleEdges; $('hoverPreview').checked = state.hoverPreview;
     setSideCollapsed(state.sideCollapsed); setInspCollapsed(state.inspCollapsed); setTbCollapsed(state.tbCollapsed);
     loadPacks(); initShipped(); renderPacks();
     document.body.classList.toggle('trace-on', traceOn()); setSeg('layoutSeg', 'data-layout', state.layout); updateScaleRow();
@@ -5624,6 +5633,7 @@
     $('inspTab').addEventListener('click', function () { setInspCollapsed(false); });
     $('edgeLabels').addEventListener('change', function () { state.edgeLabels = this.checked; savePrefs(); refresh(); });
     $('bundleEdges').addEventListener('change', function () { state.bundleEdges = this.checked; savePrefs(); edgeLabelCache.clear(); refresh(); showInspector(true); });
+    $('hoverPreview').addEventListener('change', function () { state.hoverPreview = this.checked; savePrefs(); if (!this.checked) { previewOff(); markFindingsFor(null); } });
     Array.prototype.forEach.call($('showSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setShow(b.getAttribute('data-show')); }); });
     $('btnAmounts').addEventListener('click', function () { setShow({ both: 'fiat', fiat: 'btc', btc: 'both' }[state.fiat.show] || 'both'); });
     $('navBack').addEventListener('click', function () { stepNav(-1); });

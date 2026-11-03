@@ -158,6 +158,7 @@ window.addEventListener('error', function (e) {
         </div>
         <label class="check"><input type="checkbox" id="showLabels" checked> Show ids when zoomed in</label>
         <label class="check"><input type="checkbox" id="edgeLabels" checked> Show amounts on the edges</label>
+        <label class="check" title="Pointing at a chip or a row of the Findings or Detections rings the vertices it stands for and fades the rest of the graph; pointing at a vertex marks the chips and rows that count it. It only looks: nothing is selected, loaded or moved. Off: nothing happens when the pointer passes over them"><input type="checkbox" id="hoverPreview" checked> Show where a finding is when the pointer is on it</label>
         <label class="check" title="Several coins between the same two vertices (for example 14 inputs of one transaction that came from one wallet) are drawn as one arrow labelled with their number and total; the details list each coin. Off: one arrow per coin, one on top of the other"><input type="checkbox" id="bundleEdges" checked> One arrow for coins between the same two vertices</label>
         <div id="legend" class="legend" aria-label="Legend"></div>
       </div>
@@ -205,7 +206,7 @@ window.addEventListener('error', function (e) {
         </select>
         <label class="check" title="Colours the output that most likely returns to the sender"><input type="checkbox" id="anChange" checked> Mark the likely change output</label>
         <label class="check" title="Addresses spent together in one transaction (the common-input rule), CoinJoins excluded"><input type="checkbox" id="anClusters" checked> Show address clusters</label>
-        <p class="hint">What was found is listed in the <b>Findings</b> panel on the right, and counted in the strip of chips at the bottom of the graph, beside the counts of what is loaded and shown, just above the time line. Point at a chip or at a row of the Findings or Detections (or focus it with the keyboard) to see where it is: the vertices it stands for get a ring in the finding's colour and the rest of the graph fades until you move away, and its tooltip says how many of them are on screen. Point at a vertex to see which chips and rows count it. This only looks: nothing is selected, loaded or moved.</p>
+        <p class="hint">What was found is listed in the <b>Findings</b> panel on the right, and counted in the strip of chips at the bottom of the graph, just above the time line, which carries the counts of what is loaded and shown. Point at a chip or at a row of the Findings or Detections (or focus it with the keyboard) to see where it is: the vertices it stands for get a ring in the finding's colour and the rest of the graph fades until you move away, and its tooltip says how many of them are on screen. Point at a vertex to see which chips and rows count it. This only looks: nothing is selected, loaded or moved.</p>
         <button type="button" id="anOpenFindings">Open the findings ▸</button>
       </div>
     </details>
@@ -476,10 +477,7 @@ window.addEventListener('error', function (e) {
     </div>
     <div id="lower">
       <div id="toast" role="status" aria-live="polite" hidden></div>
-      <div id="infoRow">
-        <div id="findStrip" role="group" aria-label="What was found in what is loaded" hidden></div>
-        <div id="hud"><span id="counts"></span><span id="traceInfo"></span></div>
-      </div>
+      <div id="findStrip" role="group" aria-label="What was found in what is loaded" hidden></div>
       <div id="stepbar" role="group" aria-label="Follow the money" hidden>
         <div id="stepMenu" role="menu" hidden></div>
         <button type="button" id="stepPrev" class="stepbtn" aria-haspopup="menu"><span class="arrow">◀</span> <span class="lbl">Previous</span> <span class="cnt" id="stepPrevN"></span></button>
@@ -505,7 +503,7 @@ window.addEventListener('error', function (e) {
         <span id="tbFrom" class="tb-date">—</span><span class="tb-dash">→</span><span id="tbTo" class="tb-date">—</span>
         <span id="tbInfo" class="hint"></span>
         <span id="expandChip" class="expandchip" hidden><span id="expandChipText"></span><button type="button" id="expandChipClear" class="icon-only" aria-label="Clear the range the arrows reach" title="Clear the range the arrows reach">×</button></span>
-        <span class="spacer"></span>
+        <span id="hud"><span id="counts"></span><span id="traceInfo"></span></span>
         <button type="button" id="tbPlay" title="Replay the graph growing through time">▶ Replay</button>
         <button type="button" id="tbReset">Reset</button>
         <button type="button" id="tbCollapse" class="collapse-btn" aria-expanded="true" aria-controls="tbBody" aria-label="Hide the time line" title="Hide the time line (T)">▾</button>
