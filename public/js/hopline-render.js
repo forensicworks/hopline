@@ -72,6 +72,8 @@
     this.anim = null;
     this.hover = { node: null, edge: null };
     this.highlight = null;                    // a vertex outlined from outside the canvas (a list row under the pointer), without selecting it
+    this.preview = null;                      // { ids: Set, color }: what a chip or a row under the pointer stands for: ringed in its colour, the rest faded (see setPreview)
+    this.previewDrawn = 0;                    // how many rings the last frame drew
     this.chain = null;                        // a peel chain picked out from outside: { ids, index: Map(id -> step), path: Set(edge id), pay: Set(edge id), color }
     this.axisPointer = null;                  // x of the pointer while it is over the time axis (top of the canvas): the axis then reads out the time there
     this.insets = { top: 0, bottom: 0 };       // canvas rows covered by overlays (the toolbar above, the step bar below): fit(), frame() and centerOn() keep clear of them
@@ -255,6 +257,16 @@
     this.autoFit = false; this.dirty = true;
   };
   Renderer.prototype.setHighlight = function (id) { id = id || null; if (this.highlight !== id) { this.highlight = id; this.dirty = true; } };
+  /**
+   * Pick out several vertices from outside the canvas, while the pointer is on a chip or a list row that stands for them: a ring in `color` around each, and everything
+   * that is not near them fades (the selection, a lit chain and the pointer on the graph do not count while it is on). Nothing is selected, loaded, shown or moved.
+   * ids: an array or a Set; none (or null) takes it off.
+   */
+  Renderer.prototype.setPreview = function (ids, color) {
+    var set = ids && (ids.size || ids.length) ? new Set(ids) : null;
+    if (!set && !this.preview) return;
+    this.preview = set ? { ids: set, color: color || null } : null; this.dirty = true;
+  };
 
   Renderer.prototype._setHover = function (node, edge, evt) {
     if (this.hover.node !== node || this.hover.edge !== edge) { this.hover = { node: node, edge: edge }; this.dirty = true; }
@@ -484,6 +496,11 @@
     if (d.focusId && focusIds.size === 1 && focusIds.has(d.focusId)) focusIds.clear();      // the focus view is already narrowed to this vertex: do not fade the next steps
     var chain = this.chain && this.chain.ids.some(function (id) { return d.visible.nodes.has(id); }) ? this.chain : null;     // a chain with nothing on screen fades nothing
     if (chain) chain.ids.forEach(function (id) { if (d.visible.nodes.has(id)) focusIds.add(id); });                          // it and what touches it stay, the rest fades
+    var preview = null;
+    if (this.preview) {                                                                      // a chip or a row is under the pointer: its vertices stay, what is not near them fades
+      var pin = []; this.preview.ids.forEach(function (id) { if (d.visible.nodes.has(id)) pin.push(id); });
+      if (pin.length) { preview = this.preview; focusIds = new Set(pin); }
+    }
     var near = focusIds.size ? neighbourhood(g, focusIds) : null;
     var hotEdge = this.hover.edge;
 
@@ -524,7 +541,7 @@
       var mark = markHere;                                                  // e.g. the output that most likely returns to the sender
       var onPath = pathHere, onPay = payHere;
       var colour = onPath || onPay ? chain.color : mark || st.edgeColor(e) || th.edge;
-      ctx.globalAlpha = hotHere || onPath ? 1 : (inFocus ? (near ? 0.95 : 0.55) : 0.08);
+      ctx.globalAlpha = hotHere || onPath ? 1 : (inFocus ? (near ? 0.95 : 0.55) : (preview ? 0.14 : 0.08));
       if (mark && inFocus && ctx.globalAlpha < 0.9) ctx.globalAlpha = 0.9;
       ctx.strokeStyle = parts ? (hotHere ? th.select : colour) : (id === hotEdge ? th.select : colour);
       ctx.lineWidth = onPath ? w + 1.5 : w;
@@ -579,14 +596,14 @@
 
     // nodes
     var labels = [], badges = [], pills = [], flagItems = [], stepNums = [], notes = [];
-    this.handleRects = [];
+    this.handleRects = []; this.previewDrawn = 0;
     d.visible.nodes.forEach(function (id) {
       var n = g.nodes.get(id), p = self.cur.get(id); if (!p) return;
       var P = self._toScreen(p), r = st.nodeRadius(n) * s;
       if (P.x < -r - 4 || P.y < -r - 4 || P.x > self.w + r + 4 || P.y > self.h + r + 4) return;
       var dimmed = near && !near.has(id), colour = st.nodeColor(n);
       var hollow = n.type === 'tx' && n.loaded === false;
-      ctx.globalAlpha = dimmed ? 0.15 : 1;
+      ctx.globalAlpha = dimmed ? (preview ? 0.3 : 0.15) : 1;
       shape(ctx, kindOf(n), P.x, P.y, r);
       if (hollow) { ctx.fillStyle = 'rgba(28,20,29,0.9)'; ctx.fill(); ctx.strokeStyle = colour; ctx.lineWidth = 2; ctx.setLineDash([3, 2]); ctx.stroke(); ctx.setLineDash([]); }
       else {
@@ -603,6 +620,10 @@
         ctx.stroke();
       }
       if (id === self.highlight) { shape(ctx, kindOf(n), P.x, P.y, r + 7); ctx.lineWidth = 3; ctx.strokeStyle = th.select; ctx.setLineDash([]); ctx.stroke(); }
+      if (preview && preview.ids.has(id)) {                                 // what the pointer is on stands for this vertex: a ring in the finding's colour
+        ctx.save(); shape(ctx, kindOf(n), P.x, P.y, r + 8); ctx.lineWidth = 3.5; ctx.strokeStyle = preview.color || th.select; ctx.shadowColor = preview.color || th.select; ctx.shadowBlur = 10;
+        ctx.setLineDash([]); ctx.stroke(); ctx.restore(); self.previewDrawn++;
+      }
       if (known && known.sanctions) { shape(ctx, kindOf(n), P.x, P.y, r + 6.5); ctx.lineWidth = 3; ctx.strokeStyle = '#ff4d4f'; ctx.setLineDash([]); ctx.stroke(); }      // on a sanctions list (according to a pack)
       var ring = d.clusterColor && n.type === 'addr' ? d.clusterColor(id) : null;
       if (ring) {                                                           // a dashed ring in the cluster's colour: addresses spent together
