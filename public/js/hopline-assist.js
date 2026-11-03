@@ -35,7 +35,8 @@
     peel: 'A run of transactions that each pay a smaller amount out of a single coin and pass the rest on. Ordinary wallets paying out of one coin look the same.',
     consolidation: 'Many inputs gathered into one or two outputs. Usually one owner tidying up their coins.',
     batch: 'A few inputs paying many outputs. Typical of an exchange or service paying many people at once.',
-    coinjoin: 'Several wallets\' inputs and several outputs of exactly the same value to different addresses. The addresses spent together are probably different owners.'
+    coinjoin: 'Several wallets\' inputs and several outputs of exactly the same value to different addresses. The addresses spent together are probably different owners.',
+    round: 'An output that is a round amount: a number somebody chose, where a wallet computes an amount such as change to the last satoshi. Often the payment, with the other output the change. A service paying a fixed amount, a policy or a test gives the same, so it does not say who or what chose it.'
   };
   var NOTES = [
     'Every pattern, change guess and cluster is a heuristic computed from the transactions that were loaded. None of it proves who controls what.',
