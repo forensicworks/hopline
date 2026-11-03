@@ -224,6 +224,22 @@ test('report: a wallet a list names that is not a service is a row marked named,
   assert.ok(!html.replace(/<script type="application\/json"[\s\S]*$/, '').includes('Ransomware <b>'), 'nothing from outside is HTML');
 });
 
+test('report: outside look-ups name each source, how many wallets it was asked about and when, and everything from outside is escaped', () => {
+  const lookups = [
+    { address: 'bc1qone', source: 'arkham', sourceName: 'Arkham Intelligence', found: true, label: 'Binance <b>Hot</b>', category: 'cex', tags: ['CEX', 'Hot wallet'], note: 'Exchange', at: 1700000000 },
+    { address: 'bc1qtwo', source: 'arkham', sourceName: 'Arkham Intelligence', found: false, label: '', category: '', tags: [], note: '', at: 1700003600 },
+    { address: 'bc1qone', source: 'other', sourceName: 'Other <i>list</i>', found: true, label: 'Pool', category: 'pool', tags: [], note: '', at: 0 }];
+  const model = modelOf(sample(), { lookups }), html = RP.render(model, RP.evidenceText(model.evidence), 'a'.repeat(64));
+  assert.ok(html.includes('<h2>Outside look-ups</h2>'));
+  assert.ok(html.includes('Arkham Intelligence - 2 wallets asked, 1 named, asked between 2023-11-14 22:13:20 UTC and 2023-11-14 23:13:20 UTC'), 'each source, with how many wallets and when');
+  assert.ok(html.includes('Other &lt;i&gt;list&lt;/i&gt; - 1 wallet asked, 1 named'), 'a source with no time says nothing about when');
+  assert.ok(html.includes('Binance &lt;b&gt;Hot&lt;/b&gt;') && html.includes('<span class="hint">no entry</span>') && html.includes('CEX, Hot wallet'));
+  assert.ok(!/Binance <b>Hot|Other <i>list/.test(html.replace(/<script type="application\/json"[\s\S]*$/, '')), 'nothing from outside is HTML');
+  assert.ok(html.includes('nothing a service said was applied to a wallet automatically') && html.includes('and from outside look-ups are third-party claims'));
+  const none = modelOf(sample(), {}), plain = RP.render(none, RP.evidenceText(none.evidence), 'a'.repeat(64));
+  assert.ok(!plain.includes('Outside look-ups') && !plain.includes('outside look-ups'), 'no look-up, no section and no line about it');
+});
+
 test('report: without a trace there is no such section and no line about it in the limits', () => {
   const model = modelOf(sample(), {}), html = RP.render(model, RP.evidenceText(model.evidence), 'a'.repeat(64));
   assert.ok(!html.includes('How far the trace got') && !html.includes('Routes, hand-offs and open ends'));

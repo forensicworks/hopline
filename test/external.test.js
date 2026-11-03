@@ -120,3 +120,103 @@ test('arkhamUrl builds a link to the Arkham page for a wallet or a Bitcoin trans
   assert.equal(X.arkhamUrl('address', tx), 'https://arkm.com/explorer/address/' + tx, 'a hex string is also a possible address text: only the kind decides');
   assert.ok(X.ARKHAM_EXPLORER.startsWith('https://') && X.ARKHAM_EXPLORER.endsWith('/'));
 });
+
+
+// ---- one contract for every source -----------------------------------------------------------------------------------
+/** A second source that only exists in the test: a service the addresses go to (third: true), or a list asked offline (third: false). */
+function fakeSource(over) {
+  const calls = [];
+  const def = Object.assign({
+    id: 'fakelist', name: 'A fake list', short: 'Fake', third: true,
+    lookup: (address) => { calls.push(address); return Promise.resolve({ found: address.startsWith('a'), ext: { found: address.startsWith('a'), who: 'Fake ' + address, kind: 'exchange', at: 1700000000, junk: 'x'.repeat(5000) } }); },
+    clean: (e) => (e && typeof e === 'object' ? { found: e.found === true, who: String(e.who || '').slice(0, 80), kind: String(e.kind || '').slice(0, 40), at: Number(e.at) || 0 } : null),
+    describe: (e) => ({ found: e.found, label: e.who, category: e.kind, tags: ['T1'], at: e.at, suggest: 'EXCH' })
+  }, over || {});
+  def.calls = calls;
+  return def;
+}
+
+test('a source is registered with a contract, and one without is refused', () => {
+  assert.throws(() => X.register({ id: 'Bad Id', name: 'x', lookup() {}, clean() {}, describe() {} }), /id of lower case/);
+  assert.throws(() => X.register({ id: 'nolookup', name: 'x', clean() {}, describe() {} }), /needs a lookup/);
+  assert.throws(() => X.register({ id: 'nodescribe', name: 'x', lookup() {}, clean() {} }), /needs a describe/);
+  assert.deepEqual(X.list().map((s) => s.id), ['arkham'], 'nothing was added by the refused ones');
+  assert.deepEqual(X.list()[0], { id: 'arkham', name: 'Arkham Intelligence', short: 'Arkham', third: true });
+});
+
+test('a registered source is kept per wallet, cleaned from a file by its own rules, and described the same way as Arkham', () => {
+  const f = fakeSource(); X.register(f);
+  try {
+    assert.deepEqual(X.list().map((s) => s.id), ['arkham', 'fakelist']);
+    const ext = X.cleanExt({ fakelist: { found: true, who: 'Exchange Z', kind: 'exchange', at: 1700000000, junk: 'ignored' }, arkham: { found: true, name: 'Binance', type: 'cex', at: 1700000100 }, unknown: { found: true } });
+    assert.deepEqual(Object.keys(ext).sort(), ['arkham', 'fakelist'], 'a source that is not registered is dropped');
+    assert.equal(ext.fakelist.junk, undefined, 'and a field the source does not know is dropped');
+    const node = { type: 'addr', address: 'bc1qxyz', ext };
+    const es = X.entries(node);
+    assert.deepEqual(es.map((e) => [e.source, e.sourceName, e.label, e.category, e.found, e.address]), [['arkham', 'Arkham Intelligence', 'Binance', 'cex', true, 'bc1qxyz'], ['fakelist', 'A fake list', 'Exchange Z', 'exchange', true, 'bc1qxyz']]);
+    assert.deepEqual(es[1].tags, ['T1']); assert.equal(es[1].suggest, 'EXCH');
+    assert.deepEqual(X.entries({ type: 'addr', address: 'a' }), []); assert.deepEqual(X.entries(null), []);
+  } finally { X.unregister('fakelist'); }
+  assert.deepEqual(X.list().map((s) => s.id), ['arkham']);
+  assert.equal(X.cleanExt({ fakelist: { found: true, who: 'x' } }), null, 'once it is gone its entries are not kept');
+});
+
+test('lookupMany: a source that sends addresses away is not asked unless the caller says yes, and says what it would send', async () => {
+  const f = fakeSource(); X.register(f);
+  try {
+    let asked = null;
+    let r = await X.lookupMany('fakelist', ['a1', 'a1', 'b2'], { ctx: {} });
+    assert.deepEqual([r.stopped, r.results.length, f.calls.length], ['declined', 0, 0], 'no confirm(): nothing is sent');
+    r = await X.lookupMany('fakelist', ['a1'], { ctx: {}, confirm: () => false });
+    assert.deepEqual([r.stopped, f.calls.length], ['declined', 0], 'the caller said no');
+    r = await X.lookupMany('fakelist', ['a1'], { ctx: {}, confirm: () => 'yes' });
+    assert.equal(r.stopped, 'declined', 'only true counts as yes');
+    r = await X.lookupMany('fakelist', ['a1', 'a1', 'b2'], { ctx: {}, confirm: (def, list) => { asked = [def.id, list]; return true; } });
+    assert.deepEqual(asked, ['fakelist', ['a1', 'b2']], 'the confirmation sees the source and the addresses, each once');
+    assert.deepEqual(f.calls, ['a1', 'b2'], 'one after the other, in order');
+    assert.deepEqual(r.results.map((x) => [x.address, x.found]), [['a1', true], ['b2', false]]);
+    assert.equal(r.stopped, null);
+    assert.ok(r.results[0].ext.junk, 'what comes back is not applied or cleaned here: the caller stores it');
+  } finally { X.unregister('fakelist'); }
+});
+
+test('lookupMany: an offline source needs no confirmation, an error that would repeat stops the run, one that would not does not', async () => {
+  const local = fakeSource({ id: 'locallist', name: 'A local list', third: false }); X.register(local);
+  const flaky = fakeSource({ id: 'flaky', name: 'Flaky', lookup: (a) => { flaky.calls.push(a); return a === 'k' ? Promise.reject(Object.assign(new Error('no key'), { kind: 'key' })) : a === 'u' ? Promise.reject(Object.assign(new Error('upstream'), { kind: 'upstream' })) : Promise.resolve({ found: true, ext: { found: true } }); } }); X.register(flaky);
+  try {
+    let r = await X.lookupMany('locallist', ['a1'], { ctx: {} });
+    assert.deepEqual([r.stopped, r.results.length], [null, 1], 'a list on this computer is not a third party');
+    r = await X.lookupMany('flaky', ['x', 'u', 'y', 'k', 'z'], { ctx: {}, confirm: () => true });
+    assert.deepEqual(flaky.calls, ['x', 'u', 'y', 'k'], 'a failed address is recorded and the run goes on; a rejected key stops it, and z is never sent');
+    assert.deepEqual(r.results.map((x) => [x.address, x.error ? x.error.kind : null]), [['x', null], ['u', 'upstream'], ['y', null], ['k', 'key']]);
+    assert.equal(r.stopped, 'failed'); assert.equal(r.error.kind, 'key');
+    flaky.calls.length = 0; let n = 0;
+    r = await X.lookupMany('flaky', ['a', 'b', 'c'], { ctx: {}, confirm: () => true, cancelled: () => n++ >= 1 });
+    assert.deepEqual([r.stopped, flaky.calls], ['cancelled', ['a']], 'cancelling stops between two requests');
+  } finally { X.unregister('locallist'); X.unregister('flaky'); }
+});
+
+test('lookupMany: a source that is not set up says so before anything is sent, and an unknown source is refused', async () => {
+  const f = fakeSource({ ready: (ctx) => (ctx.key ? '' : 'Enter the key first.') }); X.register(f);
+  try {
+    await assert.rejects(X.lookupMany('fakelist', ['a1'], { ctx: {}, confirm: () => assert.fail('asked to confirm a lookup that cannot run') }), (e) => e.kind === 'setup' && /Enter the key/.test(e.message));
+    assert.equal(f.calls.length, 0);
+    const r = await X.lookupMany('fakelist', ['a1'], { ctx: { key: 'k' }, confirm: () => true });
+    assert.equal(r.results.length, 1);
+  } finally { X.unregister('fakelist'); }
+  await assert.rejects(X.lookupMany('nobody', ['a1'], { confirm: () => true }), /Unknown source/);
+  assert.deepEqual(await X.lookupMany('arkham', [], { ctx: { token: 't' }, confirm: () => true }), { results: [], stopped: null, error: null });
+});
+
+test('Arkham goes through the same contract: not set up, not confirmed, then one request with the token', async () => {
+  await assert.rejects(X.lookupMany('arkham', ['a'.repeat(30)], { ctx: { proxy: 'http://127.0.0.1:8787' }, confirm: () => true }), (e) => e.kind === 'setup' && /lookup proxy/.test(e.message));
+  const f = fakeFetch(() => resp(200, SAMPLE)), ctx = { fetch: f, proxy: 'http://127.0.0.1:8787', token: 'T' };
+  assert.equal((await X.lookupMany('arkham', ['a'.repeat(30)], { ctx, confirm: () => false })).stopped, 'declined');
+  assert.equal(f.calls.length, 0);
+  const r = await X.lookupMany('arkham', ['a'.repeat(30)], { ctx, confirm: () => true });
+  assert.equal(f.calls.length, 1); assert.equal(f.calls[0].init.headers['X-Hopline-Token'], 'T');
+  const c = X.describe('arkham', r.results[0].ext);
+  assert.deepEqual([c.found, c.label, c.category, c.tags.includes('CEX'), c.suggest], [true, 'Binance · Hot Wallet', 'cex', true, 'EXCH']);
+  assert.equal(X.source('arkham').headline(r.results[0].ext), 'Binance (cex)');
+  assert.deepEqual(X.source('arkham').fields(r.results[0].ext).map((x) => x[0]), ['Entity', 'Type', 'Label', 'Tags', 'Predicted', 'Website', 'Note']);
+});
