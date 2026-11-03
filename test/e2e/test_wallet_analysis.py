@@ -328,6 +328,44 @@ def test_look_further_loads_the_newest_transactions_of_the_others_and_the_group_
     assert count(wpage) == 2, "the wallet's own list is not changed by looking at the others"
 
 
+def test_follow_further_goes_round_after_round_until_the_group_stops_growing_and_says_so(wpage, mock):
+    ring(mock)
+    goto(wpage)
+    before = len(mock.requests)
+    wpage.click("#clFollow")
+    wpage.wait_for_function("() => /^Followed/.test(document.getElementById('message').textContent)", timeout=30000)
+    text = wpage.inner_text("#message")
+    assert "Followed 2 rounds (3 requests, 3 wallets looked at): the group grew from 3 to 4 wallets." in text, text
+    assert "Stopped: the last round added no wallet to the group." in text
+    asked = [p for h, p in mock.requests[before:]]
+    assert asked == ["/address/%s/txs" % X1, "/address/%s/txs" % X2, "/address/%s/txs" % X3], asked
+    assert members(wpage) == [W, X1, X2, X3] and wpage.is_hidden("#clBar") and wpage.is_enabled("#clFollow")
+
+
+def test_follow_further_stops_at_the_number_of_rounds_asked_for_and_can_go_on(wpage, mock):
+    ring(mock)
+    goto(wpage)
+    wpage.fill("#clRounds", "1"); wpage.click("#clFollow")
+    wpage.wait_for_function("() => /^Followed/.test(document.getElementById('message').textContent)", timeout=30000)
+    text = wpage.inner_text("#message")
+    assert "Followed 1 round (2 requests, 2 wallets looked at): the group grew from 3 to 4 wallets." in text and "Stopped: the round asked for is done." in text, text
+    wpage.click("#clFollow")
+    wpage.wait_for_function("() => /^Followed 1 round [(]1 request/.test(document.getElementById('message').textContent)", timeout=30000)
+    assert "the group stayed at 4 wallets. Stopped: the last round added no wallet to the group." in wpage.inner_text("#message"), "it goes on from where it was: only the wallet not looked at yet"
+    wpage.click("#clFollow")
+    assert "newest transactions of every wallet in the group are loaded" in wpage.inner_text("#message")
+
+
+def test_follow_further_can_be_cancelled_between_requests_and_keeps_what_came(wpage, mock):
+    ring(mock)
+    goto(wpage)
+    wpage.click("#clFollow")
+    wpage.wait_for_selector("#clBar:not([hidden])", timeout=15000)
+    wpage.click("#clCancel")
+    wpage.wait_for_function("() => /Stopped after/.test(document.getElementById('message').textContent) || /^Followed/.test(document.getElementById('message').textContent)", timeout=30000)
+    assert wpage.is_hidden("#clBar") and wpage.is_enabled("#clFollow") and wpage.is_enabled("#clRounds")
+
+
 def test_read_balances_asks_for_each_wallet_and_adds_them_up(wpage, mock):
     ring(mock)
     goto(wpage)
@@ -401,6 +439,7 @@ def test_a_coinjoin_looking_transaction_joins_nothing_and_is_counted(wpage, mock
     assert "No other wallet was spent together with this one in the 1 loaded transactions" in wpage.inner_text("#clIntro")
     assert "1 transaction that looks like a CoinJoin was left out" in wpage.inner_text("#clIntro")
     assert members(wpage) == [W] and wpage.is_hidden("#clLook") and wpage.is_hidden("#clBalances") and wpage.is_hidden("#clCopy") and wpage.is_hidden("#clOpen")
+    assert wpage.is_hidden("#clFollow") and wpage.is_hidden("#clRoundsWrap"), "nothing to follow for a wallet that is alone"
 
 
 def test_a_wallet_in_the_group_that_is_on_a_sanctions_list_is_called_out(ctx, wpage, mock):

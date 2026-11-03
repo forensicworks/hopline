@@ -374,8 +374,15 @@
     if (!s.points.length) return;
     var P = s.points, t0 = P[0].time, t1 = P[P.length - 1].time;
     if (t1 <= t0) t1 = t0 + 86400;                                                     // all in one moment: give it a day's width
-    var lo = Math.min(0, s.start.balance), hi = Math.max(0, s.start.balance), low = s.start.balance, high = s.start.balance, lowAt = s.start.time, highAt = s.start.time;
-    P.forEach(function (p) { lo = Math.min(lo, p.balance); hi = Math.max(hi, p.balance); if (p.balance < low) { low = p.balance; lowAt = p.time; } if (p.balance > high) { high = p.balance; highAt = p.time; } });
+    // In the currency alone (Show: the currency), the curve is the value of the balance after each transaction at the price chosen for that moment, and so is the axis; if a price is
+    // missing anywhere it stays in Bitcoin and says so. With Bitcoin, or Bitcoin and the currency, the curve is in Bitcoin and the tooltip carries the currency.
+    var wantFiat = fiatOn() && state.fiat.show === 'fiat', fiatPlot = wantFiat && [{ balance: s.start.balance, time: s.start.time }].concat(P).every(function (q) { return !!fx(q.balance, q.time); });
+    function pv(b, t) { return fiatPlot ? fx(b, t).value : b; }
+    var v0 = pv(s.start.balance, s.start.time), lo = Math.min(0, v0), hi = Math.max(0, v0), low = v0, high = v0, lowAt = s.start.time, highAt = s.start.time, lowS = s.start.balance, highS = s.start.balance;
+    P.forEach(function (p) {
+      var v = pv(p.balance, p.time); lo = Math.min(lo, v); hi = Math.max(hi, v);
+      if (v < low) { low = v; lowAt = p.time; lowS = p.balance; } if (v > high) { high = v; highAt = p.time; highS = p.balance; }
+    });
     if (hi === lo) hi = lo + 1;
     var w = Math.max(280, Math.floor(cv.clientWidth || (cv.parentNode && cv.parentNode.clientWidth) || 640)), h = chart.h, dpr = window.devicePixelRatio || 1;
     chart.w = w;
@@ -390,23 +397,30 @@
     [lo, lo + (hi - lo) / 2, hi].forEach(function (v) {
       var y = Math.round(Y(v)) + 0.5;
       g.strokeStyle = grid; g.beginPath(); g.moveTo(L, y); g.lineTo(w - R, y); g.stroke();
-      g.fillStyle = dim; g.textAlign = 'right'; g.fillText(S.fmtBtcShort(Math.round(v)), L - 6, y);
+      g.fillStyle = dim; g.textAlign = 'right'; g.fillText(fiatPlot ? fiatShort(v) : S.fmtBtcShort(Math.round(v)), L - 6, y);
     });
     g.textBaseline = 'top';
     g.textAlign = 'left'; g.fillText(S.fmtTime(t0, false), L, h - B + 7);
     g.textAlign = 'right'; g.fillText(S.fmtTime(P[P.length - 1].time, false), w - R, h - B + 7);
     // the balance is steady between two transactions: a step line, with the area under it lightly filled
-    var prev = s.start.balance, path = new Path2D(), fill = new Path2D();
+    var prev = v0, path = new Path2D(), fill = new Path2D();
     path.moveTo(X(t0), Y(prev)); fill.moveTo(X(t0), Y(Math.max(lo, 0))); fill.lineTo(X(t0), Y(prev));
-    P.forEach(function (p) { path.lineTo(X(p.time), Y(prev)); path.lineTo(X(p.time), Y(p.balance)); fill.lineTo(X(p.time), Y(prev)); fill.lineTo(X(p.time), Y(p.balance)); prev = p.balance; });
+    P.forEach(function (p) { var v = pv(p.balance, p.time); path.lineTo(X(p.time), Y(prev)); path.lineTo(X(p.time), Y(v)); fill.lineTo(X(p.time), Y(prev)); fill.lineTo(X(p.time), Y(v)); prev = v; });
     fill.lineTo(X(t1), Y(prev)); fill.lineTo(X(t1), Y(Math.max(lo, 0))); fill.closePath(); path.lineTo(X(t1), Y(prev));
     g.globalAlpha = 0.16; g.fillStyle = accent; g.fill(fill); g.globalAlpha = 1;
     g.strokeStyle = accent; g.lineWidth = 1.6; g.lineJoin = 'round'; g.stroke(path);
-    chart.pts = P.map(function (p) { return { x: X(p.time), y: Y(p.balance), p: p }; });
+    chart.pts = P.map(function (p) { return { x: X(p.time), y: Y(pv(p.balance, p.time)), p: p }; });
     if (P.length <= 150) { g.fillStyle = accent; chart.pts.forEach(function (q) { g.beginPath(); g.arc(q.x, q.y, 2.2, 0, 6.2832); g.fill(); }); }
     var note = historyComplete() ? '' : ' Only part of the history is loaded: the balance before it is worked back from today\'s balance. Load all for the whole picture.';
-    var text = 'The balance after each of the ' + fmtInt(P.length) + ' confirmed transactions loaded, from ' + S.fmtTime(t0, false) + ' to ' + S.fmtTime(P[P.length - 1].time, false) + '. Highest ' + amt(high, highAt) + ', lowest ' + amt(low, lowAt) + '. Hover for a transaction, click it to find it below.' + note;
+    var text = 'The balance after each of the ' + fmtInt(P.length) + ' confirmed transactions loaded, from ' + S.fmtTime(t0, false) + ' to ' + S.fmtTime(P[P.length - 1].time, false) + '. Highest ' + amt(highS, highAt) + ', lowest ' + amt(lowS, lowAt) + '. Hover for a transaction, click it to find it below.' + note
+      + (fiatPlot ? ' The axis is in ' + state.fiat.currency + ': the balance after each transaction at ' + (state.fiat.basis === 'today' ? 'today\'s price' : state.fiat.basis === 'ref' ? 'the price of the moment chosen in the workspace' : 'the price of its own moment') + '.'
+         : wantFiat ? ' A price is missing for some of these moments, so the chart is in Bitcoin.' : '');
     $('chartText').textContent = text; cv.setAttribute('aria-label', 'Balance over time. ' + text);
+  }
+  /** A value in the chosen currency for an axis: "$12.5K", "¥3.1M"; the full format where the browser cannot abbreviate. */
+  function fiatShort(v) {
+    try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: state.fiat.currency, notation: 'compact', maximumFractionDigits: 1 }).format(v); }
+    catch (e) { return PR.format(v, state.fiat.currency); }
   }
   function chartNearest(clientX) {
     var cv = $('chart'), x = clientX - cv.getBoundingClientRect().left, pts = chart.pts, lo = 0, hi = pts.length - 1;
@@ -467,17 +481,22 @@
     state.dir = 'all'; $('fText').value = a; onFilter();
     var sec = $('ledgerSec'); if (sec.scrollIntoView) sec.scrollIntoView({ block: 'start' });
   }
+  function wantFiatOrder() { return fiatOn() && state.fiat.show === 'fiat'; }
   function drawCounterparties() {
     var list = W.counterparties(state.led.rows, state.addr, known), box = $('cp'), more = $('cpMore'), note = $('cpNote');
     box.textContent = ''; more.hidden = true; note.hidden = true; $('cpSec').hidden = !list.length;
     if (!list.length) return;
-    var top = list[0].volume || 1, n = Math.min(state.cpShown, list.length, CP_MAX);
-    var fv = fxByWallet(new Set(list.slice(0, n).map(function (c) { return c.address; })));
+    // In the currency alone the biggest are those that moved the most in the currency (the price changes over the years, so the order can differ); Bitcoin first otherwise,
+    // and always when a price is missing for any of them
+    var fvAll = wantFiatOrder() ? fxByWallet(new Set(list.map(function (c) { return c.address; }))) : new Map(), byFiat = fvAll.size === list.length, vol = function (c) { var f = fvAll.get(c.address); return f.inV + f.outV; };
+    if (byFiat) list = list.map(function (c, i) { return { c: c, i: i }; }).sort(function (a, b) { return vol(b.c) - vol(a.c) || a.i - b.i; }).map(function (x) { return x.c; });
+    var top = (byFiat ? vol(list[0]) : list[0].volume) || 1, n = Math.min(state.cpShown, list.length, CP_MAX);
+    var fv = byFiat ? fvAll : fxByWallet(new Set(list.slice(0, n).map(function (c) { return c.address; })));
     list.slice(0, n).forEach(function (c, i) {
       var nums = [plural(c.txs, 'transaction')], f = fv.get(c.address);
       if (c.asInput) nums.push('paid in ' + mix(c.asInput, f && fxValue(f.inV, f.approx)));
       if (c.asOutput) nums.push('received ' + mix(c.asOutput, f && fxValue(f.outV, f.approx)));
-      var bar = el('span', { 'class': 'bar', 'aria-hidden': 'true' }), fillBar = el('i'); fillBar.style.width = Math.max(2, Math.round(c.volume / top * 100)) + '%'; bar.appendChild(fillBar);
+      var bar = el('span', { 'class': 'bar', 'aria-hidden': 'true' }), fillBar = el('i'); fillBar.style.width = Math.max(2, Math.round((byFiat ? vol(c) : c.volume) / top * 100)) + '%'; bar.appendChild(fillBar);
       box.appendChild(el('div', { 'class': 'cprow' + (c.sanctions ? ' sanctioned' : ''), 'data-address': c.address }, [
         el('span', { 'class': 'rank', text: String(i + 1) }),
         el('div', { 'class': 'cpwho' }, [c.label ? el('span', { 'class': 'lbl', title: nameTip(c), text: c.label }) : null, c.category ? el('span', { 'class': 'chip dim', text: c.category }) : null,
@@ -526,7 +545,7 @@
   }
 
   // ---- the whole wallet: addresses spent together ------------------------------------------------------------------------
-  var CL_ROUND = 25, CL_BALANCES = 50, CL_SHOW = 12;
+  var CL_ROUND = 25, CL_BALANCES = 50, CL_SHOW = 12, CL_MAX_REQ = 250, CL_MAX_WALLETS = 500;                 // Follow further: at most this many requests in all, and it stops when the group reaches this size
   var cl = { extra: new Map(), looked: new Set(), bal: new Map(), running: false, cancel: false, shown: CL_SHOW, last: null };
   function clusterTxs() {
     var all = state.txs.slice(), seen = new Set(all.map(function (t) { return t.txid; }));
@@ -561,8 +580,8 @@
     tot.hidden = withBal.length < 2 || n === 1;
     if (!tot.hidden) { var held = withBal.reduce(function (s, a) { return s + (a === state.addr ? W.summary(state.stats).balance : cl.bal.get(a)); }, 0); tot.textContent = 'Together the ' + withBal.length + ' wallets read hold ' + mix(held, fxNow(held)) + (fiatOn() && fxNow(held) ? ' (at today\'s price)' : '') + (withBal.length < n ? ' (' + fmtInt(n - withBal.length) + ' not read yet)' : '') + '.'; }
     var busy = cl.running || state.busy, alone = n === 1;
-    $('clLook').disabled = busy || alone; $('clBalances').disabled = busy || alone; $('clCopy').disabled = alone;
-    $('clLook').hidden = alone; $('clBalances').hidden = alone; $('clCopy').hidden = alone; $('clOpen').hidden = alone;
+    $('clLook').disabled = busy || alone; $('clFollow').disabled = busy || alone; $('clRounds').disabled = busy; $('clBalances').disabled = busy || alone; $('clCopy').disabled = alone;
+    $('clLook').hidden = alone; $('clFollow').hidden = alone; $('clRoundsWrap').hidden = alone; $('clBalances').hidden = alone; $('clCopy').hidden = alone; $('clOpen').hidden = alone;
     $('clOpen').href = clusterOpenHref(members);
     $('clOpen').textContent = (n > 10 ? 'Open the first 10 in the workspace' : 'Open in workspace') + ' ↗';
   }
@@ -587,6 +606,34 @@
       message('Looked at ' + plural(list.length, 'wallet') + ': the group ' + (now > before ? 'grew from ' + before + ' to ' + now + ' wallets.' : 'did not grow (' + now + ' wallets).'));
     });
   }
+  /**
+   * Look further, round after round: each round loads the newest transactions of up to 25 wallets of the group that were not looked at yet, and the group is worked out again.
+   * It stops, and says which of these it was: the group did not grow in the last round; every wallet was looked at; the rounds asked for were done; the request limit or the
+   * size limit was reached (a group that large is probably a service, not one owner); Cancel; a request failed. What was loaded stays.
+   */
+  function followFurther() {
+    if (cl.running || !cl.last) return;
+    var rounds = Math.max(1, Math.min(20, parseInt($('clRounds').value, 10) || 5)), startSize = cl.last.members.length, startLooked = cl.looked.size, f = { round: 0, reqs: 0 };
+    $('clRounds').value = rounds;
+    function summary(why) {
+      var now = computeCluster().members.length;
+      return 'Followed ' + plural(f.round, 'round') + ' (' + plural(f.reqs, 'request') + ', ' + plural(cl.looked.size - startLooked, 'wallet') + ' looked at): the group ' + (now > startSize ? 'grew from ' + startSize + ' to ' + now + ' wallets' : 'stayed at ' + now + ' wallets') + '. ' + why;
+    }
+    function next() {
+      var members = computeCluster().members, list = members.filter(function (a) { return a !== state.addr && !cl.looked.has(a); }).slice(0, CL_ROUND);
+      if (f.round > 0 && members.length === f.size) { message(summary('Stopped: the last round added no wallet to the group.')); return; }
+      if (members.length >= CL_MAX_WALLETS) { message(summary('Stopped: the group reached ' + CL_MAX_WALLETS + ' wallets. A group that large is probably a service or a shared wallet, not one owner.'), true); return; }
+      if (!list.length) { message(summary('Stopped: the newest transactions of every wallet in the group are loaded.')); return; }
+      if (f.round >= rounds) { message(summary('Stopped: ' + (rounds === 1 ? 'the round asked for is' : 'the ' + rounds + ' rounds asked for are') + ' done. Follow further goes on from here.')); return; }
+      if (f.reqs >= CL_MAX_REQ) { message(summary('Stopped: the limit of ' + CL_MAX_REQ + ' requests was reached.'), true); return; }
+      list = list.slice(0, Math.max(1, Math.min(list.length, CL_MAX_REQ - f.reqs)));
+      f.round++; f.size = members.length;
+      clWalk(list, 'Round ' + f.round + ' of up to ' + rounds + ', loading transactions', 'load the transactions of', function (a) {
+        return state.client.addressTxs(a).then(function (txs) { cl.extra.set(a, txs); cl.looked.add(a); f.reqs++; });
+      }, next);
+    }
+    next();
+  }
   function readBalances() {
     if (cl.running || !cl.last) return;
     var list = cl.last.members.filter(function (a) { return a !== state.addr && !cl.bal.has(a); }).slice(0, CL_BALANCES);
@@ -597,6 +644,7 @@
   }
   function wireCluster() {
     $('clLook').addEventListener('click', lookFurther);
+    $('clFollow').addEventListener('click', followFurther);
     $('clBalances').addEventListener('click', readBalances);
     $('clCancel').addEventListener('click', function () { cl.cancel = true; $('clText').textContent = 'Stopping after this request…'; });
     $('clMore').addEventListener('click', function () { cl.shown += 50; drawCluster(); });
