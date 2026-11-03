@@ -1,4 +1,5 @@
 """Pointing at a finding shows where it is (a ring in its colour, the rest faded) and pointing at a vertex shows its findings. It only looks: nothing is selected, loaded or moved."""
+import json
 import re
 
 import pytest
@@ -135,3 +136,48 @@ def test_the_routes_in_the_list_ring_their_route(tpage, mock):
     wait_preview(tpage)
     ids = set(preview(tpage)["ids"])
     assert {"tx:" + tid(n) for n in (1, 4, 5, 6)} <= ids and not ({"tx:" + tid(n) for n in (2, 3)} & ids), ids
+
+
+def test_it_can_be_switched_off_and_nothing_is_ringed_marked_or_counted_in_the_tooltip(fpage, mock):
+    consolidation(mock)
+    open_query(fpage, tid(30))
+    fpage.evaluate("() => window.__hopline.openFindings()"); settle(fpage)
+    fpage.uncheck("#hoverPreview")
+    assert fpage.evaluate("() => window.__hopline.state.hoverPreview") is False
+    before = look(fpage)
+    fpage.hover("#findStrip [data-key=consolidation]")
+    fpage.wait_for_timeout(400)
+    assert preview(fpage) is None, "no ring and nothing fades"
+    assert "on screen" not in (fpage.get_attribute("#findStrip [data-key=consolidation]", "title") or "")
+    fpage.mouse.move(5, 5)
+    fpage.hover("#detList .detrow")
+    fpage.wait_for_timeout(400)
+    assert preview(fpage) is None
+    fpage.evaluate("() => window.__hopline.renderer.fit()"); settle(fpage)
+    p = xy(fpage, CONSOL)
+    fpage.mouse.move(p["x"] - 30, p["y"] - 30); fpage.mouse.move(p["x"], p["y"], steps=4)
+    fpage.wait_for_timeout(400)
+    assert fpage.locator(".hl").count() == 0, "pointing at a vertex marks nothing"
+    assert look(fpage)[:3] == before[:3]
+
+
+def test_switching_it_off_takes_away_what_is_showing_and_on_again_brings_it_back(fpage, mock):
+    consolidation(mock)
+    open_query(fpage, tid(30))
+    fpage.hover("#findStrip [data-key=consolidation]")
+    wait_preview(fpage)
+    fpage.uncheck("#hoverPreview")
+    wait_preview(fpage, on=False)
+    fpage.check("#hoverPreview")
+    fpage.mouse.move(5, 5)
+    fpage.hover("#findStrip [data-key=consolidation]")
+    wait_preview(fpage)
+    assert preview(fpage)["ids"] == [CONSOL]
+
+
+def test_the_choice_is_remembered_and_it_is_on_for_a_new_visitor(fpage, mock):
+    assert fpage.is_checked("#hoverPreview") and fpage.evaluate("() => window.__hopline.state.hoverPreview") is True
+    fpage.uncheck("#hoverPreview")
+    assert json.loads(fpage.evaluate("() => localStorage.getItem('hopline.prefs.v1')"))["hoverPreview"] is False
+    fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
+    assert fpage.evaluate("() => window.__hopline.state.hoverPreview") is False and not fpage.is_checked("#hoverPreview")
