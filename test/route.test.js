@@ -562,3 +562,66 @@ test('offscreen: how much is loaded that the canvas does not show, and what the 
   assert.equal(R.offscreen(g, everything, null, null).left, 0, 'works without an analysis or a list');
   assert.deepEqual(R.offscreen(g, new Set(), null, null).patterns, {});
 });
+
+// ---- more than one route ------------------------------------------------------------------------
+/** a pays b and c in tx 1; b -> d -> z (txs 2, 3: three transactions in all); c -> e -> f -> z (txs 4, 5, 6: four in all). */
+function twoRoutes() {
+  const g = new Graph();
+  g.addTx(esplora(1, 1000, [[90, 0, 'a', 1000]], [['b', 400], ['c', 590]]));
+  g.addTx(esplora(2, 2000, [[1, 0, 'b', 400]], [['d', 390]]));
+  g.addTx(esplora(3, 3000, [[2, 0, 'd', 390]], [['z', 380]]));
+  g.addTx(esplora(4, 2500, [[1, 1, 'c', 590]], [['e', 580]]));
+  g.addTx(esplora(5, 3500, [[4, 0, 'e', 580]], [['f', 570]]));
+  g.addTx(esplora(6, 4500, [[5, 0, 'f', 570]], [['z', 560]]));
+  return g;
+}
+
+test('findMany: the shortest route first, then the next that differs in a transaction, and nothing repeated', () => {
+  const idx = R.index(twoRoutes()), many = R.findMany(idx, A('a'), A('z'));
+  assert.deepEqual(many.routes.map((r) => r.txs), [[T(1), T(2), T(3)], [T(1), T(4), T(5), T(6)]]);
+  assert.deepEqual(many.routes.map((r) => r.hops), [3, 4]); assert.equal(many.more, false);
+  assert.deepEqual(many.routes[0], R.find(idx, A('a'), A('z')), 'the first is the route find gives');
+  assert.deepEqual(many.routes[1].vertices, [A('a'), T(1), A('c'), T(4), A('e'), T(5), A('f'), T(6), A('z')]);
+  assert.ok(many.routes[1].edges.every((e) => idx.graph.edges.has(e)), 'every edge of the second route is in the graph');
+});
+
+test('findMany: a count limits it and says when it left some, and ten is the most', () => {
+  const g = new Graph(), outs = [1, 2, 3, 4, 5, 6, 7].map((i) => ['b' + i, 100]);
+  g.addTx(esplora(1, 1000, [[90, 0, 'a', 800]], outs));
+  [1, 2, 3, 4, 5, 6, 7].forEach((i) => g.addTx(esplora(10 + i, 2000 + i, [[1, i - 1, 'b' + i, 100]], [['z', 90]])));
+  const idx = R.index(g);
+  const few = R.findMany(idx, A('a'), A('z'), { count: 3 });
+  assert.equal(few.routes.length, 3); assert.equal(few.more, true, 'more were left');
+  assert.equal(new Set(few.routes.map((r) => r.txs.join())).size, 3, 'all different');
+  const all = R.findMany(idx, A('a'), A('z'), { count: 50 });
+  assert.equal(all.routes.length, 7); assert.equal(all.more, false);
+  assert.equal(R.findMany(idx, A('a'), A('z'), { count: 0 }).routes.length, 1, 'at least one');
+});
+
+test('findMany: a route across a service wallet comes after the ones that are not, even when it is shorter', () => {
+  const g = new Graph();
+  g.addTx(esplora(1, 1000, [[90, 0, 'a', 1000]], [['hubw', 400], ['m', 590]]));
+  g.addTx(esplora(2, 2000, [[1, 0, 'hubw', 400]], [['z', 390]]));                                    // a -> hub -> z: two transactions
+  g.addTx(esplora(3, 2500, [[1, 1, 'm', 590]], [['n', 580]]));
+  g.addTx(esplora(4, 3500, [[3, 0, 'n', 580]], [['z', 570]]));                                       // a -> m -> n -> z: three
+  const idx = R.index(g), many = R.findMany(idx, A('a'), A('z'), { hub });
+  assert.deepEqual(many.routes.map((r) => r.txs), [[T(1), T(3), T(4)], [T(1), T(2)]]);
+  assert.deepEqual(many.routes.map((r) => r.viaHub), [[], [A('hubw')]]);
+});
+
+test('findMany: no route is no routes, a transaction can be an end and stays on every route, and the same vertex asks nothing', () => {
+  const idx = R.index(twoRoutes());
+  assert.deepEqual(R.findMany(idx, A('z'), A('a')), { routes: [], more: false }, 'the money does not run backward');
+  assert.deepEqual(R.findMany(idx, A('a'), A('a')), { routes: [], more: false });
+  const m = R.findMany(idx, T(1), T(6));
+  assert.deepEqual(m.routes.map((r) => r.txs), [[T(1), T(4), T(5), T(6)]], 'from tx 1 to tx 6 there is one way');
+  const both = R.findMany(idx, T(1), A('z'));
+  assert.deepEqual(both.routes.map((r) => r.txs.length), [3, 4], 'tx 1 is where both start');
+});
+
+test('find: skip leaves transactions out, and a route that needs one is not found', () => {
+  const idx = R.index(twoRoutes());
+  assert.deepEqual(R.find(idx, A('a'), A('z'), { skip: new Set([T(2)]) }).txs, [T(1), T(4), T(5), T(6)]);
+  assert.equal(R.find(idx, A('a'), A('z'), { skip: new Set([T(2), T(5)]) }), null);
+  assert.equal(R.find(idx, A('a'), A('z'), { skip: new Set([T(1)]) }), null, 'a skipped start has nothing to start from');
+});
