@@ -302,12 +302,12 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 
 #stage { flex: 1; position: relative; min-width: 0; background: var(--bg); }
 #cv { position: absolute; inset: 0 0 var(--tb) 0; width: 100%; height: calc(100% - var(--tb)); display: block; cursor: grab; }
-/* what was found: chips over the graph, above the counts; a click selects what they count */
-/* The counts, the chips and the Previous / Next bar are one stack just above the time bar (the toast on top of it), so none of them can sit on another. */
+/* what was found: chips over the graph; a click selects what they count */
+/* The chips and the Previous / Next bar are one stack just above the time bar (the toast on top of it), so none of them can sit on another. The counts are on the time bar's header row. */
 #lower { position: absolute; left: 10px; right: 10px; bottom: calc(var(--tb) + 8px); display: flex; flex-direction: column; align-items: stretch; gap: 6px; z-index: 22; pointer-events: none; }
 #lower > * { pointer-events: auto; }
-#infoRow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; pointer-events: none; }
-#findStrip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; z-index: 4; pointer-events: auto; }
+#findStrip { display: flex; flex-wrap: wrap; align-items: center; align-self: flex-start; gap: 6px; max-width: 100%; z-index: 4; pointer-events: auto; }
+#findStrip[hidden] { display: none; }
 .linkrow.on { outline: 1px solid var(--accent); background: var(--panel-2); }
 .findchip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12px; border-radius: 12px; background: rgba(28, 20, 29, 0.94); border: 1px solid var(--line); color: var(--text); cursor: pointer; }
 .findchip:hover, .findchip:focus-visible { border-color: var(--accent); }
@@ -318,7 +318,12 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 /* the pointer is on a vertex that this chip or row counts */
 .findchip.hl, .linkrow.hl, .detrow.hl { box-shadow: inset 0 0 0 2px var(--accent); background: rgba(174, 231, 248, 0.16); }
 #anCount, #detCount { font-weight: 400; color: var(--dim); }
-#hud { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--text); background: rgba(28,20,29,0.78); padding: 3px 8px; border-radius: 4px; pointer-events: none; }
+/* the counts ride on the time bar's header row, right-aligned. On a narrow canvas the transactions note gives way first, then the lead of the counts ("Focus: ..."), then the hint after them; the numbers stay whole */
+#hud { display: flex; justify-content: flex-end; flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: pre; font-size: 13px; color: var(--text); }
+#counts { display: flex; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+#counts .lead { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#counts .rest { flex: none; }
+#hud #traceInfo { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #zoomBtns { position: absolute; right: 12px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
 #zoomBtns button { width: 32px; height: 32px; padding: 0; font-size: 18px; line-height: 1; }
 #empty { position: absolute; left: 50%; top: calc((100% - var(--tb)) / 2); transform: translate(-50%, -50%); text-align: center; max-width: 440px; padding: 20px; }
@@ -332,6 +337,7 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 
 #timebar { position: absolute; left: 0; right: 0; bottom: 0; height: var(--tb); background: var(--panel); border-top: 1px solid var(--line); padding: 8px 16px 10px; display: flex; flex-direction: column; gap: 4px; }
 .tb-head { display: flex; align-items: center; gap: 8px; }
+.tb-head #tbInfo { flex: 0 10 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tb-head button { padding: 2px 9px; font-size: 12px; }
 .tb-date { font-variant-numeric: tabular-nums; color: var(--accent); }
 .tb-dash { color: var(--dim); }
