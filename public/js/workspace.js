@@ -3196,6 +3196,7 @@
   // ---- tooltip --------------------------------------------------------------------------------
   function onHover(nodeId, edgeId, at) {
     var tip = $('tooltip');
+    markFindingsFor(at && nodeId ? nodeId : null);
     if (!at || (!nodeId && !edgeId)) { tip.hidden = true; return; }
     var g = state.graph; tip.textContent = '';
     function line(k, v) { if (v === null || v === undefined || v === '') return; tip.appendChild(el('div', {}, [el('b', { text: k + ' ' }), String(v)])); }
@@ -3468,13 +3469,14 @@
     sel.value = det.chain; sel.disabled = !d.chains.length;
     var rows = DT.pick(d.rows, { kind: det.kind, chain: det.chain }), ids = [];
     det.rows = rows; rows.forEach(function (r) { if (ids.indexOf(r.id) < 0) ids.push(r.id); });
-    list.textContent = '';
+    previewOff(); list.textContent = '';
     rows.slice(0, DET_ROWS).forEach(function (r) {
       var tag = el('span', { 'class': 'flagtag', text: r.short + (r.chain ? ' · ' + r.chain : '') }); tag.style.color = r.color;
       var b = el('button', { type: 'button', 'class': 'detrow' + (state.selected.has(r.id) ? ' on' : ''), 'data-id': r.id, title: 'Select it and bring it into view', onclick: function () { findKeep(r.id); } }, [
         el('span', { 'class': 'dethead' }, [el('span', { 'class': 'dettime', text: S.fmtTime(r.time) }), el('span', { 'class': 'dettx mono', text: S.shortId(r.txid, 5) })]),
         el('span', { 'class': 'detwhy' }, [tag, r.reason])
       ]);
+      lit(b, [r.id], r.color);
       list.appendChild(withCopy(b, r.txid, 'transaction id'));
     });
     $('detSelectAll').textContent = 'Select these' + (ids.length ? ' ' + ids.length : ''); $('detSelectAll').disabled = !ids.length;
@@ -3759,7 +3761,7 @@
     r.steps.forEach(function (s, i) {
       var left = el('span', { 'class': 'rowtext' }, [(i + 1) + '. tx ', el('span', { 'class': 'mono', text: S.shortId(s.txid, 5) }),
         el('small', { text: (s.nIn == null ? '?' : s.nIn) + ' in → ' + (s.nOut == null ? '?' : s.nOut) + ' out' + (s.time != null ? ' · ' + S.fmtTime(s.time) : '') + (s.loaded ? '' : ' · not loaded') + (s.merges ? ' · merges inputs' : '') })]);
-      box.appendChild(h.row(left, s.coinOut == null ? '' : S.fmtBtc(s.coinOut) + ' BTC', 'Select this transaction and bring it into view', function () { findKeep(s.id); }, s.txid, 'transaction id'));
+      box.appendChild(h.row(left, s.coinOut == null ? '' : S.fmtBtc(s.coinOut) + ' BTC', 'Select this transaction and bring it into view', function () { findKeep(s.id); }, s.txid, 'transaction id', [s.id], ROUTE_COLOR));
     });
     if (r.viaHub.length) box.appendChild(el('p', { 'class': 'hint warn' }, [el('b', { text: 'Only found across ' + r.viaHub.map(routeName).join(', ') + '. ' }), 'A service wallet mixes everyone\'s coins, so this is not evidence of a link.']));
     if (r.mixing.length) box.appendChild(el('p', { 'class': 'hint', text: 'Step ' + r.steps.map(function (s, i) { return s.merges ? i + 1 : 0; }).filter(Boolean).join(', ') + ' merge' + (r.mixing.length === 1 ? 's' : '') + ' many inputs: coins of other origins join the route there, so it shows where these coins could have gone, not that all of that money did.' }));
@@ -3780,7 +3782,7 @@
         var lit = alt.txs.join('>') === key;
         var left = el('span', { 'class': 'rowtext' }, ['Route ' + (i + 1) + ' · ' + plural(alt.hops, 'transaction') + (alt.first == null ? '' : ' · ' + S.fmtTime(alt.first) + (alt.last !== alt.first ? ' → ' + S.fmtTime(alt.last) : '')),
           notes.length ? el('small', { text: notes.join(' · ') }) : null]);
-        var row = h.row(left, lit ? 'shown' : '', lit ? 'The route that is lit now' : 'Light this route', function () { if (!lit) lightRoute(alt); });
+        var row = h.row(left, lit ? 'shown' : '', lit ? 'The route that is lit now' : 'Light this route', function () { if (!lit) lightRoute(alt); }, undefined, undefined, alt.vertices, ROUTE_COLOR);
         row.setAttribute('data-route', String(i + 1)); if (lit) row.setAttribute('aria-current', 'true');
         box.appendChild(row);
       });
@@ -3859,7 +3861,7 @@
         el('small', { text: (nm ? 'named wallet · ' : '') + handoffDir(r, true) + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') + (r.walletAddress ? ' · ' + (deposit ? 'from ' : 'to ') + S.shortId(r.walletAddress, 8) : '') + (r.merges ? ' · merges inputs' : '') })]);
       var b = h.row(left, S.fmtBtc(r.amount) + ' BTC', 'Show the route ' + (deposit ? 'from the reference to this ' : 'from this ') + (nm ? 'wallet' : 'service wallet') + (deposit ? '' : ' to the reference'), function () {
         if (deposit) showRoute(d.ref, r.id); else showRoute(r.id, d.ref);
-      }, r.txid, 'transaction id');
+      }, r.txid, 'transaction id', [r.id, ID.tx(r.txid)], '#f2c94c');
       b.setAttribute('data-handoff', r.dir);
       if (nm) b.setAttribute('data-named', '1');
       box.appendChild(b);
@@ -3934,7 +3936,7 @@
     list.slice(0, 6).forEach(function (s) {
       var todo = suggestTodo(s), short = s.name.length > 24 ? s.name.slice(0, 23) + '…' : s.name;
       var left = el('span', { 'class': 'rowtext' }, [s.name, el('small', { text: plural(todo.length, 'address', 'addresses') + ' in ' + s.cluster + (s.direct.length ? ' · ' + s.direct.length + ' spent with it directly' : ' · linked through other addresses') + (s.txids[0] ? ' · tx ' + S.shortId(s.txids[0], 5) : '') + ' · ' + (s.by.length > 1 ? 'a list and your label' : s.by[0] === 'you' ? 'your label' : 'a list') })]);
-      var main = h.row(left, '+' + todo.length, 'Select these addresses', function () { selectIds(todo, 'addresses of ' + s.cluster); });
+      var main = h.row(left, '+' + todo.length, 'Select these addresses', function () { selectIds(todo, 'addresses of ' + s.cluster); }, undefined, undefined, todo, '#8fd3ff');
       box.appendChild(el('div', { 'class': 'relrow', 'data-suggest': s.cluster }, [main, el('div', { 'class': 'rel' }, [
         el('button', { type: 'button', 'class': 'relbtn', title: 'Give each a label “' + s.name + ' (by co-spending)” with a note saying why. Nothing else changes.', onclick: function (ev) {
           var b = ev.currentTarget, n = suggestTodo(s).length;
@@ -4089,7 +4091,7 @@
           el('small', { text: (fwd ? (e.kind === 'unchecked' ? 'output of tx ' : 'a spender of tx ') : 'funded by tx ') + S.shortId(e.next, 5) + ' · ' + plural(e.depth, 'transaction') + ' from the reference' })]);
         box.appendChild(h.row(left, e.amount == null ? '' : S.fmtBtc(e.amount) + ' BTC', fwd ? 'Show the route from the reference to this output' : 'Show the route from this wallet to the reference', function () {
           if (fwd) showRoute(d.ref, e.id || ID.tx(e.next)); else showRoute(e.id, d.ref);
-        }));
+        }, undefined, undefined, [e.id || ID.tx(e.next)], '#8fd3ff'));
       });
       if (od.ends.length > 8) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (od.ends.length - 8) + ' more' }));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', 'class': 'primary', 'data-act': 'continue', text: 'Continue from these ' + od.ends.length + (fwd ? ' ▶▶' : ' ◀◀'),
@@ -4384,6 +4386,53 @@
   var findingsFor = null, findingsStamp = '';
   // ---- what was found, in one strip over the graph ----------------------------------------------------------------------
   var FIND_NAME = { coinjoin: 'COINJOIN?', consolidation: 'CONSOL', batch: 'BATCH', peel: 'PEEL', round: 'ROUND' };
+
+  // ---- a finding under the pointer shows where it is, and a vertex under the pointer shows its findings -------------------------------------------------
+  // Pointing at (or focusing) a chip or a row that stands for vertices rings them in the finding's colour and fades the rest of the graph until the pointer leaves, after a
+  // moment so that sweeping across the chips does not flicker. Pointing at a vertex marks the chips and rows that count it. Both only look: nothing is selected, loaded,
+  // shown or moved, and the tooltip says how many of the vertices are on screen. (Members folded into a group are not on screen one by one, so they are not counted.)
+  var hlList = [], hlTimer = null, hlMarked = [], hlMarkedFor = null, lastChips = [];
+  function hlOnScreen(ids) { var vis = renderer && renderer.data ? renderer.data.visible.nodes : null, k = 0; if (vis) ids.forEach(function (id) { if (vis.has(id)) k++; }); return k; }
+  function previewOff() { clearTimeout(hlTimer); if (renderer) renderer.setPreview(null); }
+  /** A chip or a row stands for vertices: `get()` says which ({ ids, color }), asked when the pointer arrives, so what it says is never out of date. */
+  function previewFor(node, get) {
+    var base = node.title || '';
+    function enter() {
+      var c = get(); if (!c || !c.ids || !c.ids.length) return;
+      var shown = hlOnScreen(c.ids);
+      node.title = (base ? base + ' ' : '') + '(' + shown + ' of ' + c.ids.length + ' on screen)';
+      clearTimeout(hlTimer);
+      if (shown) hlTimer = setTimeout(function () { if (renderer) renderer.setPreview(c.ids, c.color); }, 90);
+    }
+    node.addEventListener('mouseenter', enter); node.addEventListener('focus', enter);
+    node.addEventListener('mouseleave', previewOff); node.addEventListener('blur', previewOff);
+  }
+  /** A row (a button) that stands for `ids`: pointing at it previews them, and it is marked while one of them is under the pointer on the graph. */
+  function lit(button, ids, color) {
+    previewFor(button, function () { return { ids: ids, color: color }; });
+    hlList.push({ el: button, ids: new Set(ids) });
+  }
+  /** The vertices a chip counts (some chips carry none of their own). */
+  function chipIds(c) {
+    if (c.ids && c.ids.length) return c.ids;
+    var out = [];
+    if (c.key === 'open') { var oe = routeEnds('next'); if (oe) oe.ends.forEach(function (e) { var id = e.id || (e.next ? ID.tx(e.next) : null); if (id && state.graph.nodes.has(id)) out.push(id); }); }
+    else if (c.key === 'handoff') routeHandoffs().forEach(function (r) { if (r.id) out.push(r.id); if (r.txid) out.push(ID.tx(r.txid)); });
+    return out;
+  }
+  /** The vertex under the pointer on the graph (or none): mark the chips and rows that count it, and unmark the ones marked before. */
+  function markFindingsFor(id) {
+    if (id === hlMarkedFor) return;
+    hlMarkedFor = id;
+    hlMarked.forEach(function (e) { e.classList.remove('hl'); }); hlMarked = [];
+    if (!id) return;
+    hlList = hlList.filter(function (r) { return r.el.isConnected; });
+    hlList.forEach(function (r) { if (r.ids.has(id)) { r.el.classList.add('hl'); hlMarked.push(r.el); } });
+    lastChips.forEach(function (c) {
+      if (!c.set) c.set = new Set(chipIds(c));
+      if (c.set.has(id)) { var b = $('findStrip').querySelector('[data-key="' + c.key + '"]'); if (b) { b.classList.add('hl'); hlMarked.push(b); } }
+    });
+  }
   /**
    * The findings as chips, most important first: [{ key, text, count, ids, color, bad, what, title }]. They count what is loaded and found (the switches under Analysis only
    * decide what is drawn on the graph), and a click selects the vertices they count. Wallets on a sanctions list come first; known wallets are listed last and are not a finding.
@@ -4432,18 +4481,21 @@
   var findSig = null;
   function updateFindStrip() {
     var box = $('findStrip'), chips = state.graph.nodes.size ? findingChips() : [];
+    lastChips = chips;
     var sig = chips.map(function (c) { return c.key + ':' + c.count; }).join('|');
     var total = 0; chips.forEach(function (c) { if (c.key !== 'known' && c.key !== 'open' && c.key !== 'handoff' && c.key !== 'offscreen') total += c.count; });
     $('anCount').textContent = total ? '(' + total + ')' : ''; $('findCount').textContent = total ? '(' + total + ')' : '';
     var was = state.findTotal, forced = state.findForce; state.findTotal = total; if (!chips.length) state.findForce = false;
     if (was !== total || forced !== state.findForce) showInspector(true);                // the panel appears when there is something to show in it, and goes when there is not
     if (sig === findSig) return;
-    findSig = sig; box.textContent = '';
+    findSig = sig; previewOff(); box.textContent = '';
     box.hidden = !chips.length;
     chips.forEach(function (c) {
       var dot = el('span', { 'class': 'dot' }); dot.style.background = c.color;
-      box.appendChild(el('button', { type: 'button', 'class': 'findchip' + (c.bad ? ' bad' : ''), 'data-key': c.key, title: c.title, 'aria-label': c.count + ' ' + c.text + ': ' + c.title,
-                                     onclick: function () { var now = findingChips().filter(function (x) { return x.key === c.key; })[0]; if (now) { if (now.ids.length) selectIds(now.ids, now.what); openFindings(now.key); } } }, [dot, c.text, el('b', { text: String(c.count) })]));
+      var chipBtn = el('button', { type: 'button', 'class': 'findchip' + (c.bad ? ' bad' : ''), 'data-key': c.key, title: c.title, 'aria-label': c.count + ' ' + c.text + ': ' + c.title,
+                                     onclick: function () { var now = findingChips().filter(function (x) { return x.key === c.key; })[0]; if (now) { if (now.ids.length) selectIds(now.ids, now.what); openFindings(now.key); } } }, [dot, c.text, el('b', { text: String(c.count) })]);
+      previewFor(chipBtn, function () { var now = findingChips().filter(function (x) { return x.key === c.key; })[0]; return now ? { ids: chipIds(now), color: now.color } : null; });
+      box.appendChild(chipBtn);
     });
     if (chips.length) box.appendChild(el('button', { type: 'button', 'class': 'findchip more', 'data-key': 'details', title: 'Open the Findings panel on the right: every finding listed, and the Detections list', onclick: function () { openFindings(); }, text: 'Findings ▸' }));
   }
@@ -4493,17 +4545,21 @@
     if (!state.graph.nodes.size) { box.textContent = ''; findingsFor = null; detRefresh(); return; }
     var an = analysis(), byKind = {}, kinds, loaded = 0, stamp = routeStamp();
     if (findingsFor === an && findingsStamp === stamp && box.firstChild) return;      // nothing it shows has changed: leave the buttons alone (a replay refreshes many times a second)
-    findingsFor = an; findingsStamp = stamp; box.textContent = ''; detRefresh();
+    findingsFor = an; findingsStamp = stamp; previewOff(); box.textContent = ''; detRefresh();
     state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded) loaded++; });
     an.tx.forEach(function (r, id) { r.flags.forEach(function (f) { (byKind[f.kind] = byKind[f.kind] || { f: f, ids: [] }).ids.push(id); }); });
     kinds = Object.keys(byKind);
-    function row(left, amt, title, fn, copyText, copyWhat) { var b = el('button', { type: 'button', 'class': 'linkrow', title: title, onclick: fn }, [left, el('span', { 'class': 'amt', text: amt })]); return copyText ? withCopy(b, copyText, copyWhat) : b; }
+    function row(left, amt, title, fn, copyText, copyWhat, ids, color) {                            // ids and color: the vertices the row stands for, ringed while the pointer is on it
+      var b = el('button', { type: 'button', 'class': 'linkrow', title: title, onclick: fn }, [left, el('span', { 'class': 'amt', text: amt })]);
+      if (ids && ids.length) lit(b, ids, color);
+      return copyText ? withCopy(b, copyText, copyWhat) : b;
+    }
     function more(list, shown) { if (list.length > shown) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (list.length - shown) + ' more' })); }
     function head(text, key) { return el('span', { 'class': 'lbl', text: text, 'data-group': key }); }
     var rdata = routeData(), ref = rdata.ref, relMap = null;
     function walletRow(n) {
       var k = KNOWN[n.address];
-      var main = row(el('span', { 'class': 'rowtext' }, [k.label, el('small', { 'class': 'mono', text: S.shortId(n.address, 6) })]), k.pack || 'built-in list', 'Select it and bring it into view', function () { findKeep(n.id); });
+      var main = row(el('span', { 'class': 'rowtext' }, [k.label, el('small', { 'class': 'mono', text: S.shortId(n.address, 6) })]), k.pack || 'built-in list', 'Select it and bring it into view', function () { findKeep(n.id); }, undefined, undefined, [n.id], k.sanctions ? '#ff4d4f' : '#f2c94c');
       var rel = relMap ? relLine(n.id, relMap.get(n.id), ref) : null;
       return rel ? el('div', { 'class': 'relrow' }, [main, rel]) : main;
     }
@@ -4525,14 +4581,14 @@
       box.appendChild(head('Patterns', 'patterns'));
       kinds.forEach(function (k) {
         var e = byKind[k], tag = el('span', { 'class': 'flagtag', text: FLAG_NAME[k] }); tag.style.color = e.f.color;
-        var pr = row(tag, String(e.ids.length), 'Select these ' + e.ids.length + ' transactions', function () { holdRight++; selectIds(e.ids, FLAG_NAME[k] + ' transactions'); holdRight--; });
+        var pr = row(tag, String(e.ids.length), 'Select these ' + e.ids.length + ' transactions', function () { holdRight++; selectIds(e.ids, FLAG_NAME[k] + ' transactions'); holdRight--; }, undefined, undefined, e.ids, e.f.color);
         pr.setAttribute('data-group', k); box.appendChild(pr);
       });
     }
     if (an.chains.length) {
       box.appendChild(head('Possible peel chains', 'peel'));
       an.chains.slice(0, 6).forEach(function (ch) {
-        box.appendChild(row(el('span', { text: ch.label + ' · ' + ch.ids.length + ' transactions' }), 'peeled ' + S.fmtBtc(ch.totalPeeled), 'Select the ' + ch.ids.length + ' transactions of this chain', function () { selectIds(ch.ids, 'transactions of ' + ch.label); }, ch.ids.map(plainId).join(NL), plural(ch.ids.length, 'transaction id')));
+        box.appendChild(row(el('span', { text: ch.label + ' · ' + ch.ids.length + ' transactions' }), 'peeled ' + S.fmtBtc(ch.totalPeeled), 'Select the ' + ch.ids.length + ' transactions of this chain', function () { selectIds(ch.ids, 'transactions of ' + ch.label); }, ch.ids.map(plainId).join(NL), plural(ch.ids.length, 'transaction id'), ch.ids, ch.color));
       });
       if (an.chains.length > 6) box.appendChild(el('button', { type: 'button', 'class': 'linkrow', title: 'List every chain, oldest first, with the reason for each step',
                                                               onclick: function () { detShow('peel'); } }, [el('span', { text: 'All ' + an.chains.length + ' chains in the Detections list ▾' })]));
@@ -4542,7 +4598,7 @@
       box.appendChild(head('Address clusters', 'clusters'));
       cl.slice(0, 6).forEach(function (c) {
         var sw = el('span', { 'class': 'sw' }); sw.style.color = clusterColorOf(c);
-        box.appendChild(row(el('span', { 'class': 'rowtext' }, [sw, ' ' + c.label + ' · ' + c.size + ' addresses']), c.txs.length + ' tx', 'Select the addresses of this cluster (they were spent together in ' + c.txs.length + ' transaction' + (c.txs.length === 1 ? '' : 's') + ')', function () { selectIds(c.addrs, 'addresses of ' + c.label); }, c.addrs.map(plainId).join(NL), plural(c.addrs.length, 'address', 'addresses')));
+        box.appendChild(row(el('span', { 'class': 'rowtext' }, [sw, ' ' + c.label + ' · ' + c.size + ' addresses']), c.txs.length + ' tx', 'Select the addresses of this cluster (they were spent together in ' + c.txs.length + ' transaction' + (c.txs.length === 1 ? '' : 's') + ')', function () { selectIds(c.addrs, 'addresses of ' + c.label); }, c.addrs.map(plainId).join(NL), plural(c.addrs.length, 'address', 'addresses'), c.addrs, clusterColorOf(c)));
       });
       more(cl, 6);
     }
@@ -4551,7 +4607,7 @@
       if (chg.length) {
         box.appendChild(head('Change guesses', 'change'));
         chg.slice(0, 30).forEach(function (x) {
-          box.appendChild(row(el('span', { 'class': 'rowtext' }, ['tx ', el('span', { 'class': 'mono', text: S.shortId(x.id.slice(3), 5) }), ' → output ' + x.c.vout]), x.c.confidence, 'Select the transaction and bring it into view: its details give the reasons', function () { findKeep(x.id); }));
+          box.appendChild(row(el('span', { 'class': 'rowtext' }, ['tx ', el('span', { 'class': 'mono', text: S.shortId(x.id.slice(3), 5) }), ' → output ' + x.c.vout]), x.c.confidence, 'Select the transaction and bring it into view: its details give the reasons', function () { findKeep(x.id); }, undefined, undefined, [x.id, x.c.id].filter(Boolean), AN.COLORS.change));
         });
         more(chg, 30);
         box.appendChild(el('p', { 'class': 'hint', text: 'Guesses from the shape of each transaction, not findings: follow both outputs before relying on one.' }));
