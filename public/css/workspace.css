@@ -320,7 +320,7 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 #scaleRow[hidden], #empty[hidden], #tooltip[hidden], #progress[hidden], #toast[hidden], #inspector[hidden] { display: none; }
 #tooltip { position: fixed; z-index: 40; pointer-events: none; background: #120c13; border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; max-width: 360px; font-size: 12px; line-height: 1.4; box-shadow: 0 4px 14px rgba(0,0,0,0.5); overflow-wrap: anywhere; }
 #tooltip b { color: var(--accent); }
-#progress { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; padding: 6px 12px; display: flex; gap: 10px; align-items: center; z-index: 20; }
+#progress { position: absolute; left: 50%; top: 82px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; padding: 6px 12px; display: flex; gap: 10px; align-items: center; z-index: 20; }
 #toast { position: absolute; left: 50%; bottom: calc(var(--tb) + 100px); transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; padding: 8px 14px; max-width: min(640px, 90%); z-index: 20; overflow-wrap: anywhere; }
 #toast.bad { border-left-color: var(--danger); }
 

@@ -586,3 +586,53 @@ def test_the_report_has_no_such_line_when_everything_loaded_was_on_screen(fpage,
     html = make_report(fpage, tmp_path, "all.html").read_text(encoding="utf-8")
     assert "Not everything that was loaded" not in html
     assert report_evidence(html)["evidence"]["coverage"]["left"] == 0
+
+
+def ref_options(page):
+    return page.eval_on_selector_all("#inspBody .refsel option", "els => els.map((o) => o.textContent)")
+
+
+def test_the_details_of_a_wallet_let_you_choose_which_wallet_the_route_is_measured_from(tpage, mock):
+    trace_case(tpage, mock)
+    tpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + K2); settle(tpage)
+    opts = ref_options(tpage)
+    assert any(o.startswith("START") for o in opts) and any(o.startswith("Test exchange") for o in opts), opts
+    assert not any(o.startswith("Other wallet") for o in opts), "the wallet itself is not offered as its own other end: " + str(opts)
+    tpage.select_option("#inspBody .refsel", "addr:" + EX); settle(tpage)
+    assert tpage.evaluate("() => window.__hopline.state.routeRef") == "addr:" + EX
+    assert "route to test exchange" in tpage.inner_text("#inspBody").lower(), "the section follows the choice"
+    tpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + addr("vic")); settle(tpage)
+    assert tpage.locator("#inspBody .relbtn[data-rel=down]").count() == 1 and tpage.locator("#inspBody .relbtn[data-rel=up]").count() == 0, "the exchange paid vic: measured from the exchange, vic is downstream"
+    tpage.evaluate("() => window.__hopline.openFindings('known')"); settle(tpage)
+    assert tpage.eval_on_selector("#anFindings .refsel", "s => s.value") == "addr:" + EX, "and the Findings show the same choice"
+
+
+def test_a_wallet_you_named_yourself_can_be_the_other_end_without_any_list(tpage, mock):
+    trace_case(tpage, mock)
+    tpage.evaluate("(id) => { window.__hopline.state.graph.annotate(id, 'The actor', ''); window.__hopline.refresh(); }", "addr:" + addr("ran")); settle(tpage)
+    tpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + K2); settle(tpage)
+    assert any(o.startswith("The actor") for o in ref_options(tpage)), ref_options(tpage)
+    tpage.select_option("#inspBody .refsel", "addr:" + addr("ran")); settle(tpage)
+    assert "route to the actor" in tpage.inner_text("#inspBody").lower()
+    assert tpage.locator("#inspBody .relbtn[data-search]").count() == 2, "from here it can be searched for, in both directions"
+
+
+def test_the_reference_itself_says_so_and_can_be_changed_from_its_own_details(tpage, mock):
+    trace_case(tpage, mock)
+    tpage.evaluate("(id) => window.__hopline.setSel([id])", "tx:" + tid(3)); settle(tpage)
+    t = tpage.inner_text("#inspBody")
+    assert "This is the reference." in t and tpage.eval_on_selector("#inspBody .refsel", "s => s.value") == "tx:" + tid(3)
+    tpage.select_option("#inspBody .refsel", "addr:" + EX); settle(tpage)
+    assert tpage.evaluate("() => window.__hopline.state.routeRef") == "addr:" + EX
+    assert "This is the reference." not in tpage.inner_text("#inspBody"), "tx 3 is no longer the reference"
+
+
+def test_a_wallet_with_your_label_and_a_tag_is_listed_under_the_label_with_the_tag_after_it(tpage, mock):
+    trace_case(tpage, mock)
+    tpage.evaluate("(id) => { const n = window.__hopline.state.graph.nodes.get(id); n.tag = 'EXCH'; window.__hopline.state.graph.annotate(id, 'BTC2PM', ''); window.__hopline.refresh(); }", "addr:" + addr("ran")); settle(tpage)
+    tpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + K2); settle(tpage)
+    mine = [o for o in ref_options(tpage) if "BTC2PM" in o or o.startswith("EXCH")]
+    assert len(mine) == 1 and mine[0].startswith("BTC2PM · ") and mine[0].endswith("(EXCH)"), mine
+    tpage.evaluate("() => window.__hopline.openFindings('known')"); settle(tpage)
+    start = tpage.eval_on_selector("#anFindings .refsel", "s => [...s.options].map((o) => o.textContent).find((t) => t.startsWith('START'))")
+    assert start.startswith("START · "), start

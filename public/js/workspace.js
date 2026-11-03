@@ -835,7 +835,7 @@
     var m = $('ctxMenu'); m.textContent = ''; m.classList.add('choosing'); closeStepMenu(); $('tooltip').hidden = true;
     m.appendChild(el('div', { 'class': 'ctxhead', text: (grp ? 'Choose from the group · ' : 'Choose what to show ' + (dir === 'next' ? '▶' : '◀') + ' · ') + rows.length + ' hidden' }));
     m.appendChild(el('div', { 'class': 'chooserinfo', text: summaryText(sm) + (h.outside ? ' · ' + h.outside + ' more fall outside ' + rangeWhat() + ' and are not listed' : '') }));
-    if (!grp && n.type === 'addr' && !n.histDone && (n.histNext || !M.historyRead(n))) {            // the wallet has more history than is loaded: the list can fetch it
+    if (!grp && n.type === 'addr' && !n.histDone && M.historyOpen(n)) {            // the wallet has more history than is loaded: the list can fetch it
       m.appendChild(el('div', { 'class': 'choosermore' }, [
         el('button', { type: 'button', 'class': 'loadmore', text: 'Load more history', title: 'Fetch the next ' + plural(state.capPages * 25, 'transaction') + ' of this wallet, then open this list again',
                        onclick: function () { closeCtx(); loadMoreHistory(id).then(function () { traceChoose(id, dir, at, opts); }); } }),
@@ -1513,10 +1513,10 @@
     sc.hidden = !plain; sc.title = 'Copy ' + what; sc.setAttribute('aria-label', 'Copy ' + what); sc.onclick = plain ? function () { copy(plain, what); sc.classList.add('done'); setTimeout(function () { sc.classList.remove('done'); }, 1200); } : null;
     var amt = '';
     if (n.type === 'tx') amt = (n.time != null ? S.fmtTime(n.time, false) + ' · ' : n.confirmed === false ? 'unconfirmed · ' : '') + (n.loaded ? amountText(n.valueOut, n.time) : 'not loaded');
-    else if (n.type === 'addr') amt = 'received ' + mixText(S.fmtBtc(n.received) + ' BTC', fiatSum(n, true)) + (n.txCount != null ? ' · ' + fmtInt(n.txCount) + ' txs on chain' + (M.historyRead(n) ? '' : ', history not loaded') : ' · history not loaded');
+    else if (n.type === 'addr') amt = 'received ' + mixText(S.fmtBtc(n.received) + ' BTC', fiatSum(n, true)) + (n.txCount != null ? ' · ' + fmtInt(n.txCount) + ' txs on chain' + (M.historyRead(n) || !M.historyOpen(n) ? '' : ', history not loaded') : ' · history not loaded');
     $('stepAmt').textContent = amt;
     var load = $('stepLoad');
-    load.hidden = !(n.type === 'addr' && (!M.historyRead(n) || n.histNext));
+    load.hidden = !(n.type === 'addr' && M.historyOpen(n));
     load.textContent = n.histNext ? 'Load more history' : 'Load history';
   }
 
@@ -2860,7 +2860,7 @@
       if (items.length > V.more) list.appendChild(el('button', { type: 'button', 'class': 'moreRows', text: 'Show ' + Math.min(40, items.length - V.more) + ' more (' + (items.length - V.more) + ' not listed)', onclick: function () { V.more += 40; draw(); } }));
       if (!items.length) list.appendChild(el('div', { 'class': 'hint', text: 'None of these.' }));
       box.appendChild(list);
-      if (n.type === 'addr' && !n.histDone && (n.histNext || !M.historyRead(n))) {                              // there is more of this wallet's history than is listed
+      if (n.type === 'addr' && !n.histDone && M.historyOpen(n)) {                              // there is more of this wallet's history than is listed
         box.appendChild(el('div', { 'class': 'moreHistory' }, [
           el('button', { type: 'button', 'class': 'loadmore', text: 'Load more history', title: 'Fetch the next ' + plural(state.capPages * 25, 'transaction') + ' of this wallet', onclick: function () { loadMoreHistory(n.id); } }),
           el('span', { 'class': 'hint', text: n.txCount != null ? fmtInt(n.txCount) + ' on chain, ' + plural(rows.length, 'transaction') + ' listed' : 'its history may not be fully loaded' })]));
@@ -3058,7 +3058,7 @@
       var balButton = balanceRows(dl, n, box);
       kv(dl, 'First seen', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
       kv(dl, 'Last seen', n.lastSeen != null ? S.fmtTime(n.lastSeen) : null);
-      if (n.txCount != null) kv(dl, 'Transactions', fmtInt(n.txCount) + ' on chain' + (n.histNext || !n.histDone ? (M.historyRead(n) ? '' : ', history not loaded: press Load history') : ' (all loaded)'));
+      if (n.txCount != null) kv(dl, 'Transactions', fmtInt(n.txCount) + ' on chain' + (M.historyRead(n) ? (n.histNext || !n.histDone ? '' : ' (all loaded)') : M.historyOpen(n) ? ', history not loaded: press Load history' : ' (all of them are in the graph)'));
       box.appendChild(dl);
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), balButton]));
       var ta2 = traceActions(n); if (ta2) box.appendChild(ta2);
@@ -3597,16 +3597,19 @@
 
   /** What the other wallets are related to: the one chosen in the Findings, else the first starting point of the trace, else a wallet tagged THREAT, else the one vertex selected. */
   function routeRefId() { return RT.referenceOf(state.graph, { routeRef: state.routeRef, trace: { seeds: state.trace.seeds } }, Array.from(state.selected)); }
-  /** The vertices the Findings offer as the reference: the starting points, the tagged ones, the selected one. */
+  /** The vertices offered as the reference: the starting points, the tagged ones, the wallets with a name (your label or a list's), the selected one. */
   function routeCandidates(ref) {
     var g = state.graph, out = [], seen = new Set();
-    function add(id, what) {
+    function add(id, role) {                                                           // role: START, Selected or Reference, or none
       if (seen.has(id) || !g.nodes.has(id) || !/^(tx|addr):/.test(id)) return;
       seen.add(id); var n = g.nodes.get(id);
-      out.push({ id: id, text: what + ' · ' + (n.type === 'tx' ? 'tx ' + S.shortId(n.txid, 6) : S.shortId(n.address, 8)) + (n.tag && what !== n.tag ? ' (' + n.tag + ')' : '') });
+      var name = n.type === 'addr' ? markOf(n.address) : (n.label || n.tag || null);                // your label, else the tag, else a list's name
+      if (name && name.length > 28) name = name.slice(0, 27) + '…';
+      out.push({ id: id, text: [role, name, n.type === 'tx' ? 'tx ' + S.shortId(n.txid, 6) : S.shortId(n.address, 8)].filter(Boolean).join(' · ') + (n.tag && name !== n.tag ? ' (' + n.tag + ')' : '') });
     }
     (state.trace.seeds || []).forEach(function (id) { add(id, 'START'); });
-    g.nodes.forEach(function (n) { if (out.length < 24 && n.tag && (n.type === 'addr' || n.type === 'tx')) add(n.id, n.tag); });
+    g.nodes.forEach(function (n) { if (out.length < 24 && n.tag && (n.type === 'addr' || n.type === 'tx')) add(n.id); });
+    g.nodes.forEach(function (n) { if (out.length < 40 && n.type === 'addr' && markOf(n.address)) add(n.id); });
     Array.from(state.selected).forEach(function (id) { if (state.selected.size === 1) add(id, 'Selected'); });
     if (ref) add(ref, 'Reference');
     return out;
@@ -3724,20 +3727,23 @@
     }
     return el('div', { 'class': 'rel' }, kids);
   }
-  function refPicker(ref) {
-    var sel = el('select', { 'aria-label': 'Relate these wallets to', 'class': 'refsel' });
-    routeCandidates(ref).forEach(function (o) { sel.appendChild(el('option', { value: o.id, text: o.text })); });
+  /** The choice of what routes are measured from. In the details of a vertex (`self` = its id) that vertex is left out of the list, and with nothing else to choose there is no list. */
+  function refPicker(ref, self) {
+    var sel = el('select', { 'aria-label': 'Relate these wallets to', 'class': 'refsel' }), list = routeCandidates(ref).filter(function (o) { return o.id !== self || o.id === ref; });
+    if (self && list.length < 2) return null;
+    list.forEach(function (o) { sel.appendChild(el('option', { value: o.id, text: o.text })); });
     sel.value = ref;
-    sel.addEventListener('change', function () { state.routeRef = sel.value; findingsFor = null; updateFindings(); updateFindStrip(); scheduleSave(); });
+    sel.addEventListener('change', function () { state.routeRef = sel.value; findingsFor = null; updateFindings(); updateFindStrip(); showInspector(true); scheduleSave(); });
     return el('div', { 'class': 'refpick' }, [el('span', { 'class': 'lbl', text: 'Relative to' }), sel]);
   }
   /** In the details of a wallet or transaction: its route to or from the reference, when there is one. */
   function routeDetails(n) {
     var d = routeData();
-    if (!d.ref || !d.idx || n.id === d.ref) return null;
+    if (!d.ref || !d.idx) return null;
+    if (n.id === d.ref) { var pick = refPicker(d.ref, n.id); return pick ? el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Route' }), el('p', { 'class': 'rel hint', text: 'This is the reference.' }), pick]) : null; }
     var rel = RT.relations(d.idx, d.ref, [n.id], { hub: routeHub }).get(n.id);
     if (!rel || (!rel.up && !rel.down && !(n.type === 'addr' && markOf(n.address)))) return null;          // a wallet with a name is shown even without a route: it can be searched for
-    return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Route to ' + routeName(d.ref) }), relLine(n.id, rel, d.ref)]);
+    return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Route to ' + routeName(d.ref) }), relLine(n.id, rel, d.ref), refPicker(d.ref, n.id)]);
   }
 
   /** The route that is lit, as steps in the Findings: the transactions in order, what to be careful of, copy and clear. */
@@ -4704,7 +4710,7 @@
       }
       return Promise.resolve().then(function () {
         var nd = g.nodes.get(id);
-        if (nd.type === 'addr' && !txNeighbourIds(id, dir, 1).length && (!M.historyRead(nd) || nd.histNext)) {            // nothing known on this side yet: ask for the wallet's history
+        if (nd.type === 'addr' && !txNeighbourIds(id, dir, 1).length && M.historyOpen(nd, dir)) {            // nothing known on this side yet: ask for the wallet's history
           return ex.expandAddress(nd.address, { pages: state.capPages, cap: state.capPages * 25, after: nd.histNext || undefined }).then(function (r) {
             nd.histNext = r.last || null; nd.histDone = !r.last && !r.truncated && !(r.errors && r.errors.length); add(r);
           });
