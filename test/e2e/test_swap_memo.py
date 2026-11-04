@@ -217,3 +217,54 @@ def test_on_a_round_payment_the_swap_badge_gets_the_text_and_the_half_marks_it_w
     assert any(t.startswith("SWAP") for t in texts) and not any(t.startswith("ROUND") for t in texts), "the second badge is the dot"
     page.evaluate("() => window.__hopline.setSel([])"); settle(page)
     assert orange(halves(page, "tx:" + tid(5))["upper"]), "and the half marks it whatever the badges do"
+
+
+def test_a_payment_to_a_wallet_tagged_swap_that_also_carries_a_request_id_is_one_hand_off_not_two(tpage, mock):
+    tx(mock, 1, [IN(90, 0, "ran", 900_150)], [OUT("mid", 900_000)], spent={0: 2})
+    swap_tx(mock, 2, payer="mid", memo=RID)
+    mock.routes["/tx/" + tid(2)]["vin"][0] = IN(1, 0, "mid", 900_000)
+    open_query(tpage, tid(1)); open_query(tpage, tid(2))
+    tpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + addr("vault")); settle(tpage)
+    tpage.select_option("#fTag", "SWAP"); settle(tpage)
+    chip = tpage.inner_text("#findStrip [data-key=handoff]")
+    assert chip.endswith("1"), "one transaction, one place: %s" % chip
+    tpage.click("#findStrip [data-key=handoff]"); settle(tpage)
+    assert tpage.locator("#anFindings [data-handoff=deposit]").count() == 1
+    assert tpage.locator("#anFindings [data-handoff=deposit][data-swap]").count() == 0, "the memo has no row of its own"
+    assert "Cross-chain request: ID 0xabababab…ababab" in tpage.inner_text("#anFindings [data-handoff=deposit]"), "it is noted on the service's row"
+
+
+def two_trails(mock):
+    """Two starting points: tx 1 -> tx 2 (a swap memo) and tx 3 -> tx 4 (a request ID)."""
+    tx(mock, 1, [IN(91, 0, "one", 900_150)], [OUT("m1", 900_000)], spent={0: 2})
+    swap_tx(mock, 2, payer="m1")
+    mock.routes["/tx/" + tid(2)]["vin"][0] = IN(1, 0, "m1", 900_000)
+    tx(mock, 3, [IN(92, 0, "two", 700_150)], [OUT("m2", 700_000)], spent={0: 4})
+    swap_tx(mock, 4, payer="m2", memo=RID)
+    mock.routes["/tx/" + tid(4)]["vin"][0] = IN(3, 0, "m2", 700_000)
+
+
+def test_the_hand_offs_run_from_every_starting_point_unless_one_is_picked(tpage, mock):
+    two_trails(mock)
+    for n in (1, 2, 3, 4):
+        open_query(tpage, tid(n))
+    tpage.evaluate("(ids) => window.__hopline.state.trace.seeds.splice(0, 99, ...ids)", ["tx:" + tid(1), "tx:" + tid(3)]); tpage.evaluate("() => window.__hopline.refresh()"); settle(tpage)
+    assert tpage.evaluate("() => window.__hopline.state.trace.seeds.length") == 2
+    chip = tpage.inner_text("#findStrip [data-key=handoff]")
+    assert chip.endswith("2"), "both trails: %s" % chip
+    assert "the 2 starting points" in tpage.get_attribute("#findStrip [data-key=handoff]", "title")
+    tpage.hover("#findStrip [data-key=handoff]"); tpage.wait_for_function("() => window.__hopline.renderer.preview !== null", timeout=4000)
+    ring = set(tpage.evaluate("() => [...window.__hopline.renderer.preview.ids]"))
+    assert {"tx:" + tid(2), "tx:" + tid(4)} <= ring, "the hover rings the hand-off of each start: %s" % ring
+    tpage.mouse.move(5, 5)
+    tpage.evaluate("() => window.__hopline.openFindings()"); settle(tpage)
+    tpage.click("#findStrip [data-key=handoff]"); settle(tpage)
+    rows = tpage.locator("#anFindings [data-handoff=deposit][data-swap]")
+    assert rows.count() == 2
+    texts = [rows.nth(i).inner_text() for i in range(2)]
+    assert all("start tx" in t for t in texts), "each row says which start it comes from: %s" % texts
+    rows.nth(1).locator(".linkrow").click(); idle(tpage); settle(tpage)
+    ids = tpage.evaluate("() => { const c = window.__hopline.renderer.chain; return c ? [...c.ids] : []; }")
+    assert ids and ids[0] == "tx:" + tid(3) and ids[-1] == "tx:" + tid(4), "the route starts at the row's own start: %s" % ids
+    tpage.evaluate("(id) => { window.__hopline.state.routeRef = id; window.__hopline.refresh(); }", "tx:" + tid(1)); settle(tpage)
+    assert tpage.inner_text("#findStrip [data-key=handoff]").endswith("1"), "a pick is honoured: one start, one hand-off"

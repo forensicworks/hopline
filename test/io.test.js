@@ -345,9 +345,9 @@ test('handoffsCsv: the kind column says service, or named for a wallet a sanctio
   const lines = IO.handoffsCsv([
     { kind: 'named', dir: 'deposit', service: 'Ransomware: Acme', address: 'bc1qlst', txid: 'ab'.repeat(32), time: 1650000000, amount: 100, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false },
     { dir: 'withdrawal', service: 'Exchange', address: 'bc1qex', txid: 'cd'.repeat(32), time: 1650000000, amount: 5, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 1, merges: false }]).split('\r\n');
-  assert.equal(IO.HANDOFF_COLS[IO.HANDOFF_COLS.length - 1], 'kind', 'added at the end, so the columns a script already reads stay where they were');
-  assert.ok(lines[1].endsWith(',false,named'), lines[1]);
-  assert.ok(lines[2].endsWith(',false,service'), 'a row from before the kind existed is a service: ' + lines[2]);
+  assert.deepEqual(IO.HANDOFF_COLS.slice(-3), ['kind', 'swap_memo', 'start'], 'added at the end, so the columns a script already reads stay where they were');
+  assert.ok(lines[1].endsWith(',false,named,,'), lines[1]);
+  assert.ok(lines[2].endsWith(',false,service,,'), 'a row from before the kind existed is a service: ' + lines[2]);
 });
 
 test('the reference that was picked survives an export and an import, and an id that was changed on the way follows it', () => {
@@ -360,7 +360,21 @@ test('the reference that was picked survives an export and an import, and an id 
 test('handoffsCsv: a swap-memo row says so in its kind and leaves the amount and the service wallet empty', () => {
   const rows = [{ kind: 'swap', dir: 'deposit', service: 'Swap memo: into ETH.WBTC, paid out to 0xabc', address: null, txid: 'ef'.repeat(32), time: 1650000000, amount: null, outputs: 0, walletAddress: 'bc1qbefore', depth: 2, nIn: 1, nOut: 3, merges: false }];
   const line = IO.handoffsCsv(rows).split('\r\n')[1], cells = line.split(',');
-  assert.equal(cells[cells.length - 1], 'swap memo');
+  assert.equal(cells[cells.length - 3], 'swap memo'); assert.equal(cells[cells.length - 2], '', 'the memo column is empty when the service is the memo'); assert.equal(cells[cells.length - 1], '');
   assert.ok(line.startsWith('deposit,"Swap memo: into ETH.WBTC, paid out to 0xabc",,'), line);
   assert.ok(line.includes(',1650000000,2022-04-15 05:20 UTC,,,0,bc1qbefore,2,1,3,false,'), 'no amount, neither in satoshis nor in BTC: ' + line);
+});
+
+test('handoffsCsv: the last column carries the swap memo noted on a service hand-off, and is empty for the rest', () => {
+  const rows = [{ kind: 'service', dir: 'deposit', service: 'A service', address: 'bc1qsvc', txid: 'ab'.repeat(32), time: 1650000000, amount: 5, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false,
+                  memoText: 'Cross-chain request: ID 0xabababab...ababab' }];
+  assert.ok(IO.HANDOFF_COLS.indexOf('swap_memo') === IO.HANDOFF_COLS.length - 2);
+  assert.ok(IO.handoffsCsv(rows).split('\r\n')[1].endsWith(',service,Cross-chain request: ID 0xabababab...ababab,'));
+});
+
+test('handoffsCsv: the start column says which starting point a row comes from, without the vertex prefix', () => {
+  const rows = [{ kind: 'service', dir: 'deposit', service: 'S', address: 'bc1qsvc', txid: 'ab'.repeat(32), time: 1650000000, amount: 5, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false, from: 'addr:bc1qstart' },
+                { kind: 'swap', dir: 'deposit', service: 'M', address: null, txid: 'cd'.repeat(32), time: 1650000000, amount: null, outputs: 0, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false, from: 'tx:' + 'ee'.repeat(32) }];
+  const lines = IO.handoffsCsv(rows).split('\r\n');
+  assert.ok(lines[1].endsWith(',service,,bc1qstart'), lines[1]); assert.ok(lines[2].endsWith(',swap memo,,' + 'ee'.repeat(32)), lines[2]);
 });

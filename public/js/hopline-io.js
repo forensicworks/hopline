@@ -175,13 +175,13 @@
   }
 
   // ---- service hand-offs ------------------------------------------------------------------------
-  var HANDOFF_COLS = ['direction', 'service', 'service_wallet', 'txid', 'time_unix', 'time_utc', 'amount_sat', 'amount_btc', 'outputs_to_service', 'wallet_before_or_after', 'transactions_from_reference', 'inputs', 'outputs', 'merges_inputs', 'kind'];
+  var HANDOFF_COLS = ['direction', 'service', 'service_wallet', 'txid', 'time_unix', 'time_utc', 'amount_sat', 'amount_btc', 'outputs_to_service', 'wallet_before_or_after', 'transactions_from_reference', 'inputs', 'outputs', 'merges_inputs', 'kind', 'swap_memo', 'start'];
   /** The rows of HoplineRoute.handoffs as CSV (direction: deposit = into the wallet, withdrawal = out of it; kind: service, or named for a wallet a sanctions or ransomware list names). Names from lists are defused like any other text. */
   function handoffsCsv(rows) {
     var lines = [row(HANDOFF_COLS)];
     (rows || []).forEach(function (r) {
       lines.push(row([cell(r.dir), cell(r.service), cell(r.address), cell(r.txid), cell(r.time), cell(r.time != null ? Style.fmtTime(r.time) : ''), cell(r.amount, true), cell(r.amount == null ? null : Style.fmtBtc(r.amount), true),
-                      cell(r.outputs, true), cell(r.walletAddress || ''), cell(r.depth, true), cell(r.nIn), cell(r.nOut), cell(r.merges), cell(r.kind === 'named' ? 'named' : r.kind === 'swap' ? 'swap memo' : 'service')]));
+                      cell(r.outputs, true), cell(r.walletAddress || ''), cell(r.depth, true), cell(r.nIn), cell(r.nOut), cell(r.merges), cell(r.kind === 'named' ? 'named' : r.kind === 'swap' ? 'swap memo' : 'service'), cell(r.memoText || ''), cell(r.from ? String(r.from).replace(/^(addr|tx):/, '') : '')]));
     });
     return lines.join('\r\n') + '\r\n';
   }
