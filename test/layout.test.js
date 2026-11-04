@@ -381,3 +381,126 @@ test('the timeline axis carries tAt and the combined layouts keep it', () => {
     assert.ok(Math.abs(ax.tAt(ax.xOf(k.t)).t - k.t) < 1e-3, name);
   });
 });
+
+
+// ---- spread and declutter ------------------------------------------------------------------------------------
+test('spread: positions move away from the middle of their box, the arrangement stays, and the input is not changed', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 100, y: 0 }], ['c', { x: 100, y: 50 }]]);
+  const r = L.spread(pos, 1.5);
+  assert.deepEqual(r.about, { x: 50, y: 25 });
+  assert.deepEqual(r.pos.get('a'), { x: -25, y: -12.5 }); assert.deepEqual(r.pos.get('b'), { x: 125, y: -12.5 }); assert.deepEqual(r.pos.get('c'), { x: 125, y: 62.5 });
+  assert.deepEqual(pos.get('a'), { x: 0, y: 0 }, 'the input is as it was');
+  const back = L.spread(r.pos, 1 / 1.5, { about: r.about });
+  ['a', 'b', 'c'].forEach((id) => { assert.ok(Math.abs(back.pos.get(id).x - pos.get(id).x) < 1e-9 && Math.abs(back.pos.get(id).y - pos.get(id).y) < 1e-9, id + ' comes back'); });
+  assert.deepEqual(L.spread(pos, 1).pos.get('b'), { x: 100, y: 0 }, 'a factor of 1 changes nothing');
+});
+
+test('spread: where x is time only the heights change, and an empty or single set is fine', () => {
+  const pos = new Map([['a', { x: 10, y: 0 }], ['b', { x: 90, y: 40 }]]);
+  const r = L.spread(pos, 2, { lockX: true });
+  assert.equal(r.pos.get('a').x, 10); assert.equal(r.pos.get('b').x, 90); assert.deepEqual([r.pos.get('a').y, r.pos.get('b').y], [-20, 60]);
+  assert.equal(L.spread(new Map(), 1.3).pos.size, 0);
+  assert.deepEqual(L.spread(new Map([['x', { x: 5, y: 5 }]]), 3).pos.get('x'), { x: 5, y: 5 }, 'one vertex is its own middle');
+});
+
+const box = (l, t, r, b) => ({ l, t, r, b });
+
+test('declutter: only the vertices whose footprints touch move, apart along the smaller overlap, and the rest stay', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 30, y: 0 }], ['far', { x: 500, y: 500 }]]);
+  const boxes = new Map([['a', box(-20, -10, 20, 10)], ['b', box(-20, -10, 20, 10)], ['far', box(-20, -10, 20, 10)]]);
+  const r = L.declutter(pos, boxes, { pad: 0 });
+  assert.equal(r.moved, 2); assert.ok(r.settled); assert.ok(!r.pos.has('far'), 'what did not touch is not moved');
+  const a = r.pos.get('a'), b = r.pos.get('b');
+  assert.equal(a.y, 0); assert.equal(b.y, 0, 'the overlap in x (10) is smaller than in y (20): they part sideways');
+  assert.ok(b.x - a.x >= 40 - 0.011, 'they now clear each other: ' + (b.x - a.x));
+  assert.ok(Math.abs((a.x + b.x) / 2 - 15) < 1e-9, 'half each');
+  assert.deepEqual(pos.get('a'), { x: 0, y: 0 }, 'the input is as it was');
+});
+
+test('declutter: a vertex in fixed does not move (the other one gives way entirely), two fixed ones are left alone, and lockX moves heights only', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 30, y: 0 }]]);
+  const boxes = new Map([['a', box(-20, -10, 20, 10)], ['b', box(-20, -10, 20, 10)]]);
+  const r = L.declutter(pos, boxes, { pad: 0, fixed: new Set(['a']) });
+  assert.ok(!r.pos.has('a')); assert.equal(r.pos.get('b').x, 40, 'b moved the whole 10');
+  assert.equal(L.declutter(pos, boxes, { pad: 0, fixed: new Set(['a', 'b']) }).moved, 0);
+  const t = L.declutter(pos, boxes, { pad: 0, lockX: true });
+  assert.ok(t.pos.get('a').x === 0 && t.pos.get('b').x === 30, 'x stays'); assert.ok(Math.abs(t.pos.get('a').y - t.pos.get('b').y) >= 20 - 1e-9, 'they part up and down');
+});
+
+test('declutter: a push that makes a new touch is followed up in the next pass, and the pad keeps a gap', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 25, y: 0 }], ['c', { x: 60, y: 0 }]]);
+  const boxes = new Map(['a', 'b', 'c'].map((id) => [id, box(-20, -10, 20, 10)]));
+  const r = L.declutter(pos, boxes, { pad: 6 });
+  assert.ok(r.settled);
+  const all = new Map(pos); r.pos.forEach((p, id) => all.set(id, p));
+  const xs = ['a', 'b', 'c'].map((id) => all.get(id).x).sort((m, n) => m - n);
+  assert.ok(xs[1] - xs[0] >= 46 - 0.011 && xs[2] - xs[1] >= 46 - 0.011, 'every pair is a footprint and the pad apart: ' + xs.join(', '));
+});
+
+test('declutter: nothing touching is nothing moved, ids without a box are ignored, and it gives the same answer twice', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 100, y: 0 }], ['nobox', { x: 1, y: 1 }]]);
+  const boxes = new Map([['a', box(-20, -10, 20, 10)], ['b', box(-20, -10, 20, 10)]]);
+  const r = L.declutter(pos, boxes, {});
+  assert.equal(r.moved, 0); assert.equal(r.pos.size, 0); assert.ok(r.settled);
+  const crowd = new Map(), cb = new Map();
+  for (let i = 0; i < 12; i++) { crowd.set('v' + i, { x: i * 3, y: (i % 3) * 2 }); cb.set('v' + i, box(-15, -8, 15, 8)); }
+  const one = L.declutter(crowd, cb, {}), two = L.declutter(crowd, cb, {});
+  assert.deepEqual(Array.from(one.pos.entries()), Array.from(two.pos.entries()), 'deterministic');
+  assert.ok(one.moved > 0);
+});
+
+// ---- declutter: edges ----------------------------------------------------------------------------------------
+const lineBetween = (a, b, extra) => Object.assign({ a, b, half: 1, label: null }, extra || {});
+
+test('declutter with edges: a vertex sitting on the line of an edge it is not an end of is pushed off it, across the line, and the ends stay', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 400, y: 0 }], ['w', { x: 200, y: 3 }]]);
+  const boxes = new Map(['a', 'b', 'w'].map((id) => [id, box(-10, -10, 10, 10)]));
+  const r = L.declutter(pos, boxes, { pad: 4, edges: [lineBetween('a', 'b')] });
+  assert.ok(r.settled); assert.deepEqual(Array.from(r.pos.keys()), ['w'], 'only the one in the way moved');
+  const w = r.pos.get('w');
+  assert.equal(w.x, 200, 'straight across a horizontal line'); assert.ok(w.y >= 10 + 4 + 1 - 0.011, 'clear of the line by half its box, the pad and the half width: ' + w.y);
+  assert.ok(w.y > 3, 'it went the way it was already leaning: down');
+  const without = L.declutter(pos, boxes, { pad: 4 });
+  assert.equal(without.moved, 0, 'without the edges nothing touches');
+});
+
+test('declutter with edges: a vertex beside the ends of the line, or far from it, is left alone', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 400, y: 0 }], ['past', { x: 450, y: 0 }], ['far', { x: 200, y: 200 }]]);
+  const boxes = new Map(['a', 'b', 'past', 'far'].map((id) => [id, box(-10, -10, 10, 10)]));
+  const r = L.declutter(pos, boxes, { pad: 4, edges: [lineBetween('a', 'b')] });
+  assert.equal(r.moved, 0);
+});
+
+test('declutter with edges: a vertex under the amount of an edge is moved out of it by the smaller overlap, and the label follows its edge', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 400, y: 0 }], ['w', { x: 200, y: -60 }]]);
+  const boxes = new Map(['a', 'b', 'w'].map((id) => [id, box(-10, -10, 10, 10)]));
+  const label = { t: 0.5, w: 100, h: 14, dy: 9 };                                  // the box is at y -9 +- 7, x 150 to 250
+  const r = L.declutter(pos, boxes, { pad: 0, edges: [lineBetween('a', 'b', { half: 0.5, label })] });
+  assert.equal(r.moved, 0, 'the vertex is above the amount, not under it');
+  const under = new Map([['a', { x: 0, y: 0 }], ['b', { x: 400, y: 0 }], ['w', { x: 200, y: -14 }]]);
+  const q = L.declutter(under, boxes, { pad: 0, edges: [lineBetween('a', 'b', { half: 0.5, label })] });
+  assert.equal(q.moved, 1); const w = q.pos.get('w');
+  assert.ok(w.y <= -16 - 10 + 0.011 || w.x !== 200, 'out of the box of the amount: ' + JSON.stringify(w));
+  const moved = new Map([['a', { x: 0, y: 0 }], ['b', { x: 400, y: 100 }], ['w', { x: 400, y: -30 }]]);                // the label now sits at the middle of a slanted line
+  assert.ok(L.declutter(moved, boxes, { pad: 0, edges: [lineBetween('a', 'b', { label })] }).moved >= 0);
+});
+
+test('declutter with edges: what is in fixed stays under an edge, lockX moves heights only, and an edge with an end that is not known is ignored', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 400, y: 100 }], ['w', { x: 200, y: 48 }]]);
+  const boxes = new Map(['a', 'b', 'w'].map((id) => [id, box(-10, -10, 10, 10)]));
+  assert.equal(L.declutter(pos, boxes, { pad: 4, fixed: new Set(['w']), edges: [lineBetween('a', 'b')] }).moved, 0);
+  const t = L.declutter(pos, boxes, { pad: 4, lockX: true, edges: [lineBetween('a', 'b')] });
+  assert.equal(t.moved, 1); assert.equal(t.pos.get('w').x, 200, 'x stays'); assert.notEqual(t.pos.get('w').y, 48);
+  assert.equal(L.declutter(pos, boxes, { pad: 4, edges: [lineBetween('a', 'missing')] }).moved, 0);
+});
+
+test('declutter with edges: with two lines near each other a vertex is pushed off one and stays clear of the other, and the answer does not change between runs', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 400, y: 0 }], ['c', { x: 0, y: 30 }], ['d', { x: 400, y: 30 }], ['w', { x: 200, y: 3 }]]);
+  const boxes = new Map(['a', 'b', 'c', 'd', 'w'].map((id) => [id, box(-8, -8, 8, 8)]));
+  const edges = [lineBetween('a', 'b'), lineBetween('c', 'd')];
+  const one = L.declutter(pos, boxes, { pad: 2, edges }), two = L.declutter(pos, boxes, { pad: 2, edges });
+  assert.deepEqual(Array.from(one.pos.entries()), Array.from(two.pos.entries()));
+  assert.ok(one.settled); assert.deepEqual(Array.from(one.pos.keys()), ['w']);
+  const w = one.pos.get('w');
+  assert.ok(Math.abs(w.y - 0) >= 8 + 1 + 2 - 0.011 && Math.abs(w.y - 30) >= 8 + 1 + 2 - 0.011, 'clear of both lines: y = ' + w.y);
+});

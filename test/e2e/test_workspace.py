@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from conftest import ADDRESS, ADDR_TXS, COINBASE, NORMAL, OPRETURN, OUTSPENDS, SPENDERS, shot
-from helpers import (canvas_has_ink, click_node, counts, idle, node_ids, open_controls, open_query, selected, set_slider, settle, toast_text, xy)
+from helpers import (canvas_has_ink, click_node, counts, idle, node_ids, open_controls, open_query, selected, set_slider, settle, toast_text, xy, layout_menu)
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
 
@@ -153,7 +153,7 @@ def test_force_layout_and_dragging_pins_a_vertex(page):
     after = xy(page, NORMAL_ID)
     assert abs(after["x"] - before["x"] - 120) < 3 and abs(after["y"] - before["y"] - 60) < 3
     assert page.evaluate("(id) => window.__hopline.state.pinned.has(id)", NORMAL_ID)
-    page.click("#btnRelayout"); idle(page)
+    layout_menu(page, "#btnRelayout"); idle(page)
     assert page.evaluate("() => window.__hopline.state.pinned.size") == 0
     shot(page, "force.png")
 

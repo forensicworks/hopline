@@ -409,6 +409,93 @@
     return layoutFlow(graph, visible, opts);
   }
 
+  /**
+   * Scale positions about the middle of their bounding box (or opts.about, {x, y}): the arrangement stays and the room between the vertices changes. factor > 1 spreads, < 1 tightens.
+   * opts.lockX scales y only (where x means time). Returns { pos: Map of the new positions, about: {x, y} }; the input is not changed.
+   */
+  function spread(pos, factor, opts) {
+    opts = opts || {};
+    var about = opts.about, out = new Map();
+    if (!about) { var b = bounds(pos); about = b ? { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 } : { x: 0, y: 0 }; }
+    pos.forEach(function (p, id) { out.set(id, { x: opts.lockX ? p.x : about.x + (p.x - about.x) * factor, y: about.y + (p.y - about.y) * factor }); });
+    return { pos: out, about: about };
+  }
+
+  /**
+   * Move apart the vertices whose footprints touch, and nothing else. `boxes` (id -> { l, t, r, b }) is what each vertex takes around its position: the shape, its label, its
+   * badges and its handles, as offsets from the position. Two footprints closer than `pad` are pushed apart along the axis that needs the smaller move, half each (all of it
+   * on the one that is free when the other is in `fixed`), and the passes repeat, since a moved vertex may now touch a neighbour. opts: { pad, fixed (Set of ids that stay),
+   * lockX (move up and down only), passes (300), edges: [{ a, b (vertex ids), half (half the line's width), label: null | { t (0 to 1 along the line from a to b), w, h, dy (how far
+   * above the line the box's middle sits) } }] }. With `edges`, a vertex is also pushed off the line of an edge it is not an end of, and out from under that edge's label (the ends of an
+   * edge never move for it, only the vertex in the way does; what is in `fixed` stays even then). Returns { pos: Map of the vertices that moved, with where they are now, moved: how many, settled: false when the passes ran
+   * out before nothing touched }. The input is not changed.
+   */
+  function declutter(pos, boxes, opts) {
+    opts = opts || {};
+    var pad = opts.pad == null ? 4 : opts.pad, fixed = opts.fixed || new Set(), passes = opts.passes || 300;
+    var ids = Array.from(boxes.keys()).filter(function (id) { return pos.has(id); }).sort(), p = new Map(), settled = true;
+    ids.forEach(function (id) { var q = pos.get(id); p.set(id, { x: q.x, y: q.y }); });
+    var edges = (opts.edges || []).filter(function (e) { return p.has(e.a) && p.has(e.b); });
+    if (edges.length * ids.length > 4e6) edges = [];                                       // too much to check against every vertex: only the vertices clear each other
+    for (var pass = 0; pass < passes; pass++) {
+      var any = false;
+      var order = ids.slice().sort(function (a, b) { return (p.get(a).x + boxes.get(a).l) - (p.get(b).x + boxes.get(b).l) || (a < b ? -1 : 1); });
+      for (var i = 0; i < order.length; i++) {
+        var a = order[i], pa = p.get(a), ba = boxes.get(a);
+        for (var j = i + 1; j < order.length; j++) {
+          var b = order[j], pb = p.get(b), bb = boxes.get(b);
+          if (pb.x + bb.l - pad >= pa.x + ba.r) break;                                    // sorted by the left edge: nothing further along can touch a
+          var ox = Math.min(pa.x + ba.r, pb.x + bb.r) - Math.max(pa.x + ba.l, pb.x + bb.l) + pad;
+          var oy = Math.min(pa.y + ba.b, pb.y + bb.b) - Math.max(pa.y + ba.t, pb.y + bb.t) + pad;
+          if (ox <= 0.01 || oy <= 0.01) continue;                                         // a hundredth of a unit is no overlap: without this a push that lands exactly on the pad keeps being repeated
+          var fa = fixed.has(a), fb = fixed.has(b);
+          if (fa && fb) continue;
+          var horizontal = !opts.lockX && ox < oy, amount = horizontal ? ox : oy;
+          var ca = horizontal ? pa.x + (ba.l + ba.r) / 2 : pa.y + (ba.t + ba.b) / 2, cb = horizontal ? pb.x + (bb.l + bb.r) / 2 : pb.y + (bb.t + bb.b) / 2;
+          var dir = ca <= cb ? -1 : 1, ma = fa ? 0 : fb ? 1 : 0.5, mb = fb ? 0 : fa ? 1 : 0.5;      // a goes `dir`, b the other way
+          if (horizontal) { pa.x += dir * amount * ma; pb.x -= dir * amount * mb; } else { pa.y += dir * amount * ma; pb.y -= dir * amount * mb; }
+          any = true;
+        }
+      }
+      edges.forEach(function (e) {
+        var pa = p.get(e.a), pb = p.get(e.b), dx = pb.x - pa.x, dy = pb.y - pa.y, len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) return;
+        var ux = dx / len, uy = dy / len, nx = -uy, ny = ux, half = e.half || 0, lab = null;
+        var minx = Math.min(pa.x, pb.x) - half - pad, maxx = Math.max(pa.x, pb.x) + half + pad, miny = Math.min(pa.y, pb.y) - half - pad, maxy = Math.max(pa.y, pb.y) + half + pad;
+        if (e.label) {
+          var lx = pa.x + dx * e.label.t, ly = pa.y + dy * e.label.t - e.label.dy;
+          lab = { x0: lx - e.label.w / 2 - pad, x1: lx + e.label.w / 2 + pad, y0: ly - e.label.h / 2 - pad, y1: ly + e.label.h / 2 + pad };
+        }
+        ids.forEach(function (w) {
+          if (w === e.a || w === e.b || fixed.has(w)) return;
+          var pw = p.get(w), bw = boxes.get(w), x0 = pw.x + bw.l, x1 = pw.x + bw.r, y0 = pw.y + bw.t, y1 = pw.y + bw.b;
+          if (lab) {                                                                         // under the label: out of it along the smaller overlap
+            var ox = Math.min(x1, lab.x1) - Math.max(x0, lab.x0), oy = Math.min(y1, lab.y1) - Math.max(y0, lab.y0);
+            if (ox > 0.01 && oy > 0.01) {
+              if (!opts.lockX && ox < oy) pw.x += ((x0 + x1) <= (lab.x0 + lab.x1) ? -1 : 1) * ox; else pw.y += ((y0 + y1) <= (lab.y0 + lab.y1) ? -1 : 1) * oy;
+              any = true; return;
+            }
+          }
+          if (x1 < minx || x0 > maxx || y1 < miny || y0 > maxy) return;                      // nowhere near the line
+          var cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, hx = (x1 - x0) / 2, hy = (y1 - y0) / 2;
+          var along = (cx - pa.x) * ux + (cy - pa.y) * uy, reach = Math.abs(ux) * hx + Math.abs(uy) * hy;
+          if (along < -reach || along > len + reach) return;                                  // beside the line's ends, not across it
+          var off = (cx - pa.x) * nx + (cy - pa.y) * ny, need = Math.abs(nx) * hx + Math.abs(ny) * hy + half + pad;
+          if (Math.abs(off) >= need - 0.01) return;
+          var side = off >= 0 ? 1 : -1, push = need - Math.abs(off);
+          if (opts.lockX) { if (Math.abs(ny) < 0.2) return; pw.y += side * (ny > 0 ? 1 : -1) * push / Math.abs(ny); }
+          else { pw.x += nx * side * push; pw.y += ny * side * push; }
+          any = true;
+        });
+      });
+      if (!any) break;
+      if (pass === passes - 1) settled = false;
+    }
+    var moved = new Map();
+    ids.forEach(function (id) { var q = p.get(id), o = pos.get(id); if (Math.abs(q.x - o.x) > 0.01 || Math.abs(q.y - o.y) > 0.01) moved.set(id, q); });
+    return { pos: moved, moved: moved.size, settled: settled };
+  }
+
   /** Bounding box of positions: {minX,minY,maxX,maxY}; null if empty. */
   function bounds(pos) {
     var b = null;
@@ -419,5 +506,5 @@
     return b;
   }
 
-  return { layout: layout, timeMapper: timeMapper, layoutFlow: layoutFlow, layoutTimeline: layoutTimeline, layoutForce: layoutForce, layoutTimeAmount: layoutTimeAmount, layoutTimeForce: layoutTimeForce, vertexAmount: vertexAmount, bounds: bounds, rng: rng };
+  return { layout: layout, spread: spread, declutter: declutter, timeMapper: timeMapper, layoutFlow: layoutFlow, layoutTimeline: layoutTimeline, layoutForce: layoutForce, layoutTimeAmount: layoutTimeAmount, layoutTimeForce: layoutTimeForce, vertexAmount: vertexAmount, bounds: bounds, rng: rng };
 }));

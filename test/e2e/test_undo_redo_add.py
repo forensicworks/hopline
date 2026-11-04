@@ -3,7 +3,7 @@ import pytest
 
 from chains import real_addr
 from conftest import ADDRESS, COINBASE, NORMAL
-from helpers import click_node, idle, open_query, settle, xy
+from helpers import click_node, idle, open_query, settle, xy, layout_menu
 from test_trace import click_handle, shown
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
@@ -55,7 +55,7 @@ def build_scene(page):
 def test_a_relayout_in_a_trace_is_one_undo_step_that_puts_every_vertex_back(tpage):
     build_scene(tpage)
     before, n = trace_pos(tpage), counts_of(tpage)
-    tpage.click("#btnRelayout"); settle(tpage)
+    layout_menu(tpage, "#btnRelayout"); settle(tpage)
     after = trace_pos(tpage)
     assert after != before, "Re-layout placed the vertices again"
     assert counts_of(tpage)["undo"] == n["undo"] + 1 and "Undo (Ctrl+Z) puts every vertex back" in tpage.inner_text("#toast")
@@ -68,9 +68,9 @@ def test_a_relayout_in_a_trace_is_one_undo_step_that_puts_every_vertex_back(tpag
 
 def test_a_relayout_that_changes_nothing_leaves_no_step(tpage):
     build_scene(tpage)
-    tpage.click("#btnRelayout"); settle(tpage)
+    layout_menu(tpage, "#btnRelayout"); settle(tpage)
     n = counts_of(tpage)["undo"]
-    tpage.click("#btnRelayout"); settle(tpage)
+    layout_menu(tpage, "#btnRelayout"); settle(tpage)
     assert counts_of(tpage)["undo"] == n, "the vertices were already tidy: nothing to take back"
 
 
@@ -79,7 +79,7 @@ def test_a_relayout_in_another_arrangement_gives_the_dragged_vertex_back_on_undo
     tpage.select_option("#traceArrange", "flow"); settle(tpage)
     drag(tpage, ROBINHOOD, 140, 90)
     dragged = screen_pos(tpage)
-    tpage.click("#btnRelayout"); settle(tpage)
+    layout_menu(tpage, "#btnRelayout"); settle(tpage)
     tidy = screen_pos(tpage)
     assert tidy[ROBINHOOD] != dragged[ROBINHOOD], "Re-layout released the dragged vertex"
     key(tpage, "Control+z")
@@ -92,7 +92,7 @@ def test_a_relayout_in_the_flow_layout_can_be_taken_back_too(fpage):
     open_query(fpage, NORMAL["txid"]); fpage.uncheck("#focusOn"); settle(fpage)
     drag(fpage, NORMAL_ID, 160, 120)
     dragged = screen_pos(fpage)
-    fpage.click("#btnRelayout"); settle(fpage)
+    layout_menu(fpage, "#btnRelayout"); settle(fpage)
     assert screen_pos(fpage)[NORMAL_ID] != dragged[NORMAL_ID]
     assert buttons(fpage)["undo"]
     key(fpage, "Control+z")

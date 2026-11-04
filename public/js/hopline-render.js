@@ -140,6 +140,19 @@
   };
 
   Renderer.prototype.positionOf = function (id) { return this.cur.get(id) || null; };
+  /**
+   * What each vertex on the canvas takes up as it is drawn now: its shape, its label, its badges and its handles, as Map(id -> { l, t, r, b }), offsets from the vertex's
+   * position in screen pixels (divide by view.k for the graph's own units). Vertices off the canvas are not in it. Draws once to find out.
+   */
+  Renderer.prototype.footprints = function () {
+    this._collect = true; this.draw(); this._collect = false;
+    return this._fp || new Map();
+  };
+  /**
+   * The edges as the last footprints() drew them: [{ id, a, b (vertex ids), w (line width, px), label: null | { t (how far along the line from a to b, 0 to 1), w, h (px), dy (px the
+   * box's middle sits above the line) } }]. Only the edges that were drawn (a bundle of coins is one).
+   */
+  Renderer.prototype.edgeFootprints = function () { return this._fpe || []; };
 
   Renderer.prototype.fit = function (padding) {
     if (!this.data) return;
@@ -503,6 +516,12 @@
     }
     var near = focusIds.size ? neighbourhood(g, focusIds) : null;
     var hotEdge = this.hover.edge;
+    var fp = this._collect ? (this._fp = new Map()) : null, fpe = this._collect ? (this._fpe = []) : null;      // only when asked (footprints()): what each vertex takes up, as offsets from its position in screen pixels, and the edges as drawn
+    function grow(id, px, py, x0, y0, x1, y1) {
+      if (!fp || id == null) return;
+      var b = fp.get(id); if (!b) { b = { l: 0, t: 0, r: 0, b: 0 }; fp.set(id, b); }
+      b.l = Math.min(b.l, x0 - px); b.r = Math.max(b.r, x1 - px); b.t = Math.min(b.t, y0 - py); b.b = Math.max(b.b, y1 - py);
+    }
 
     // edges
     ctx.lineCap = 'round';
@@ -555,6 +574,8 @@
       }
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
       ctx.setLineDash([]);
+      var rec = fpe ? { id: id, a: e.source, b: e.target, w: w, label: null } : null;
+      if (rec) fpe.push(rec);
       if (len > ra + rb + 14) {                                             // arrowhead
         var ah = 5 + w * 0.9, nx = -uy, ny = ux;
         ctx.fillStyle = ctx.strokeStyle;
@@ -563,7 +584,7 @@
       }
       if (d.edgeLabel && edgeTexts.length < 250) {
         var seg = Math.hypot(x2 - x1, y2 - y1);
-        if (seg > 70 && x1 > -200 && x1 < self.w + 200) edgeTexts.push({ e: eDraw, id: id, hot: hotHere, x1: x1, y1: y1, x2: x2, y2: y2, seg: seg, alpha: ctx.globalAlpha });
+        if (seg > 70 && x1 > -200 && x1 < self.w + 200) edgeTexts.push({ e: eDraw, id: id, hot: hotHere, x1: x1, y1: y1, x2: x2, y2: y2, seg: seg, alpha: ctx.globalAlpha, rec: rec, ax: A.x, ay: A.y, bx: B.x, by: B.y });
       }
     });
     ctx.globalAlpha = 1;
@@ -572,7 +593,14 @@
       // Two amounts must never be drawn on top of each other (each has a dark outline, so the second would smear the first). The edge under the
       // mouse or selected picks its place first, then the edges in focus, then the bigger amounts. An amount tries the middle of its edge, then
       // slides along the edge (never past its ends) to a free spot; with none free it is left out (its details are on hover and in the panel).
+      // The shapes of the vertices are in the way too (except the two the edge joins): an amount is not drawn on a vertex that has nothing to do with it.
       var placed = [];
+      d.visible.nodes.forEach(function (nid) {
+        var nn = g.nodes.get(nid), np = self.cur.get(nid); if (!nn || !np) return;
+        var NP = self._toScreen(np), nr = st.nodeRadius(nn) * s;
+        if (NP.x < -nr - 200 || NP.x > self.w + nr + 200 || NP.y < -nr - 50 || NP.y > self.h + nr + 50) return;
+        placed.push({ x0: NP.x - nr - 2, x1: NP.x + nr + 2, y0: NP.y - nr - 2, y1: NP.y + nr + 2, vertex: nid });
+      });
       edgeTexts.map(function (t, i) { return { t: t, i: i, rank: (t.hot ? 2 : 0) + (t.alpha >= 0.9 ? 1 : 0) }; })
         .sort(function (a, b) { return (b.rank - a.rank) || ((b.t.e.amount || 0) - (a.t.e.amount || 0)) || (a.i - b.i); })
         .forEach(function (o) {
@@ -583,8 +611,12 @@
           for (var k = 0; k < steps.length; k++) {
             var f = 0.5 + steps[k] * room / t.seg, px = t.x1 + (t.x2 - t.x1) * f, py = t.y1 + (t.y2 - t.y1) * f - 5;
             var box = { x0: px - tw / 2 - 2, x1: px + tw / 2 + 2, y0: py - 11, y1: py + 3 };
-            if (placed.some(function (b) { return box.x0 < b.x1 && b.x0 < box.x1 && box.y0 < b.y1 && b.y0 < box.y1; })) continue;
+            if (placed.some(function (b) { return box.x0 < b.x1 && b.x0 < box.x1 && box.y0 < b.y1 && b.y0 < box.y1 && b.vertex !== t.e.source && b.vertex !== t.e.target; })) continue;
             placed.push(box);
+            if (t.rec) {                                                  // where the label sits along the line between the two vertices, and how big it is
+              var cl = Math.hypot(t.bx - t.ax, t.by - t.ay) || 1;
+              t.rec.label = { t: ((px - t.ax) * (t.bx - t.ax) + ((py + 5) - t.ay) * (t.by - t.ay)) / (cl * cl), w: box.x1 - box.x0, h: box.y1 - box.y0, dy: 9 };
+            }
             ctx.globalAlpha = Math.min(1, t.alpha + 0.15);
             ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(28,20,29,0.92)'; ctx.strokeText(text, px, py);
             ctx.fillStyle = '#d8eef5'; ctx.fillText(text, px, py);
@@ -601,6 +633,7 @@
       var n = g.nodes.get(id), p = self.cur.get(id); if (!p) return;
       var P = self._toScreen(p), r = st.nodeRadius(n) * s;
       if (P.x < -r - 4 || P.y < -r - 4 || P.x > self.w + r + 4 || P.y > self.h + r + 4) return;
+      grow(id, P.x, P.y, P.x - r, P.y - r, P.x + r, P.y + r);
       var dimmed = near && !near.has(id), colour = st.nodeColor(n);
       var hollow = n.type === 'tx' && n.loaded === false;
       ctx.globalAlpha = dimmed ? (preview ? 0.3 : 0.15) : 1;
@@ -646,21 +679,21 @@
       }
       if (n.note) notes.push({ x: P.x + r * 0.7 + 3.5, y: P.y + r * 0.7 + 3.5, alpha: dimmed ? 0.15 : 1 });
       ctx.globalAlpha = 1;
-      if (n.tag && !dimmed) badges.push({ text: n.tag, x: P.x, y: P.y - r - 6 - ((d.seedIds ? d.seedIds.has(id) : d.seedId === id) ? 10 : 0), color: colour });
+      if (n.tag && !dimmed) badges.push({ text: n.tag, x: P.x, y: P.y - r - 6 - ((d.seedIds ? d.seedIds.has(id) : d.seedId === id) ? 10 : 0), color: colour, id: id, px: P.x, py: P.y });
       var isSeed = d.seedIds ? d.seedIds.has(id) : d.seedId === id;
-      if (isSeed) badges.push({ text: 'START', x: P.x, y: P.y - r - 6, color: '#ffd23f' });
-      if (known && known.sanctions && !dimmed) badges.push({ text: 'SANCTIONS', x: P.x, y: P.y - r - 6 - (isSeed ? 10 : 0) - (n.tag ? 10 : 0), color: '#ff6b6b' });
+      if (isSeed) badges.push({ text: 'START', x: P.x, y: P.y - r - 6, color: '#ffd23f', id: id, px: P.x, py: P.y });
+      if (known && known.sanctions && !dimmed) badges.push({ text: 'SANCTIONS', x: P.x, y: P.y - r - 6 - (isSeed ? 10 : 0) - (n.tag ? 10 : 0), color: '#ff6b6b', id: id, px: P.x, py: P.y });
       var flags = d.nodeFlags && !dimmed ? d.nodeFlags(n) : null;
       if (flags) {                                                         // decided below: text where there is room, a dot where there is not
         var lift = 6 + (isSeed ? 10 : 0) + (n.tag ? 10 : 0), hot = self.selected.has(id) || id === self.hover.node;
-        flags.forEach(function (f, i) { flagItems.push({ x: P.x, y: P.y - r - lift - i * 10, px: P.x, py: P.y, r: r, i: i, f: f, hot: hot }); });
+        flags.forEach(function (f, i) { flagItems.push({ id: id, x: P.x, y: P.y - r - lift - i * 10, px: P.x, py: P.y, r: r, i: i, f: f, hot: hot }); });
       }
       if (d.handles) {
         var hd = d.handles(id);
         if (hd) {                                                          // a handle fades with its vertex (a click on it still works)
           var fade = dimmed ? (preview ? 0.3 : 0.15) : 1;
-          if (hd.left) pills.push({ id: id, dir: 'left', x: P.x - r - 8, y: P.y, label: hd.left.label, tip: hd.left.tip, strong: hd.left.known > 0, alpha: fade });
-          if (hd.right) pills.push({ id: id, dir: 'right', x: P.x + r + 8, y: P.y, label: hd.right.label, tip: hd.right.tip, strong: hd.right.known > 0, alpha: fade });
+          if (hd.left) pills.push({ id: id, dir: 'left', x: P.x - r - 8, y: P.y, label: hd.left.label, tip: hd.left.tip, strong: hd.left.known > 0, alpha: fade, px: P.x, py: P.y });
+          if (hd.right) pills.push({ id: id, dir: 'right', x: P.x + r + 8, y: P.y, label: hd.right.label, tip: hd.right.tip, strong: hd.right.known > 0, alpha: fade, px: P.x, py: P.y });
         }
       }
       var text = null;
@@ -671,7 +704,7 @@
         text = n.type === 'tx' ? Style.shortId(n.txid, 5) : n.type === 'addr' ? Style.shortId(n.address, 6) : n.type === 'coinbase' ? 'coinbase' : n.type === 'data' ? (n.dataText ? '“' + n.dataText.slice(0, 18) + '”' : 'OP_RETURN') : 'non-standard';
       }
       var note = d.nodeNote ? d.nodeNote(n) : '';
-      if (text && !dimmed) labels.push({ text: text, sub: note, x: P.x, y: P.y + r + 12, strong: !!(n.label || known), sel: self.selected.has(id) });
+      if (text && !dimmed) labels.push({ text: text, sub: note, x: P.x, y: P.y + r + 12, strong: !!(n.label || known), sel: self.selected.has(id), id: id, px: P.x, py: P.y });
     });
     notes.forEach(function (nt) {                                          // a small yellow note at the lower right of a vertex you wrote a note on, drawn after every vertex so none covers it
       var hs = 4.5, x = nt.x, y = nt.y;
@@ -697,11 +730,12 @@
         var text = it.hot && it.f.chain ? it.f.text + ' \u00b7 ' + it.f.chain : it.f.text, w = ctx.measureText(text).width;
         var box = { x0: it.x - w / 2 - 2, x1: it.x + w / 2 + 2, y0: it.y - 10, y1: it.y + 3 };
         var free = (roomy || it.hot) && !taken.some(function (b) { return box.x0 < b.x1 && b.x0 < box.x1 && box.y0 < b.y1 && b.y0 < box.y1; });
-        if (free) { taken.push(box); badges.push({ text: text, x: it.x, y: it.y, color: it.f.color }); }
+        if (free) { taken.push(box); badges.push({ text: text, x: it.x, y: it.y, color: it.f.color, id: it.id, px: it.px, py: it.py }); }
         else dots.push(it);
       });
     }
     badges.forEach(function (b) {                                          // the tag, in its own colour, above the vertex
+      if (fp) { var bw = ctx.measureText(b.text).width; grow(b.id, b.px, b.py, b.x - bw / 2, b.y - 10, b.x + bw / 2, b.y + 3); }
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(28,20,29,0.95)'; ctx.strokeText(b.text, b.x, b.y);
       ctx.fillStyle = b.color; ctx.fillText(b.text, b.x, b.y);
     });
@@ -717,6 +751,7 @@
     ctx.font = '11px Calibri, Arial, sans-serif';
     labels.forEach(function (l) {
       var t = l.text.length > 34 ? l.text.slice(0, 33) + '…' : l.text;
+      if (fp) { var lw = ctx.measureText(t).width; grow(l.id, l.px, l.py, l.x - lw / 2 - 2, l.y - 10, l.x + lw / 2 + 2, l.y + (l.sub ? 14 : 3)); }
       ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(28,20,29,0.9)'; ctx.strokeText(t, l.x, l.y);
       ctx.fillStyle = l.strong ? th.accent : th.text; ctx.fillText(t, l.x, l.y);
       if (l.sub) {
@@ -734,6 +769,7 @@
         var x = p.dir === 'left' ? p.x - w : p.x, y = p.y - h / 2;
         if (x > self.w + 40 || x + w < -40 || y > self.h + 40 || y + h < -40) return;
         ctx.globalAlpha = p.alpha;
+        grow(p.id, p.px, p.py, x, y, x + w, y + h);
         ctx.beginPath();
         if (ctx.roundRect) ctx.roundRect(x, y, w, h, 9); else ctx.rect(x, y, w, h);
         ctx.fillStyle = p.strong ? th.accent : 'rgba(28,20,29,0.92)'; ctx.fill();

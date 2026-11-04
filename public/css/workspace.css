@@ -266,6 +266,8 @@ p.rel { margin-top: 0; }
 .menu[open] summary { border-color: var(--accent); }
 .menu-body { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; width: 300px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 .menu-body button { text-align: left; }
+#layoutMenu .menu-body { left: 0; right: auto; width: 290px; }
+#layoutMenu .menu-body button small { display: block; font-size: 11px; color: var(--dim); font-weight: 400; }
 
 .banner { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: #3d3320; border-bottom: 1px solid #6b5a2a; }
 .banner[hidden] { display: none; }
