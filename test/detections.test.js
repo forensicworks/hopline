@@ -154,3 +154,16 @@ test('build: a swap memo is a row of its own kind, counted, filtered and put in 
   assert.equal(Det.build(g, An.analyse(g), { kinds: { swap: false } }).rows.length, 0, 'switched off, it is left out');
   assert.match(Det.toText(d.rows), /SWAP → ETH/);
 });
+
+test('build: a swap memo on a round payment is listed before the round amount, as its badge comes first', () => {
+  const g = new Graph();
+  const memo = Buffer.from('=:ETH.WBTC:0x' + '55'.repeat(20) + ':1', 'utf8');
+  g.addTx({
+    txid: tid(1), fee: 200, weight: 800, status: { confirmed: true, block_height: 700001, block_time: 1650000600 },
+    vin: [{ txid: tid(80), vout: 0, is_coinbase: false, prevout: { scriptpubkey_address: a('src'), scriptpubkey_type: 'v0_p2wpkh', value: 150000323 } }],
+    vout: [{ scriptpubkey_address: a('vault'), scriptpubkey_type: 'v0_p2wpkh', value: 100000000 }, { scriptpubkey_address: a('back'), scriptpubkey_type: 'v0_p2wpkh', value: 49999800 + 123 - 600 },
+           { scriptpubkey: '6a' + memo.length.toString(16) + memo.toString('hex'), scriptpubkey_type: 'op_return', value: 0 }]
+  });
+  const d = Det.build(g, An.analyse(g), {});
+  assert.deepEqual(d.rows.map((r) => r.kind), ['swap', 'round']);
+});

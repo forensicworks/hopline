@@ -3425,6 +3425,11 @@
     r.flags.forEach(function (f) { if (state.analysis.kinds[f.kind] !== false) out.push({ text: f.short, color: f.color, kind: f.kind, chain: f.kind === 'peel' && r.chain ? r.chain.label : '' }); });
     return out.length ? out : null;
   }
+  /** The colour of the upper-left half of a transaction that carries a swap memo or a request ID (where the trail leaves Bitcoin), or null: none, or SWAP switched off. */
+  function nodeSplit(n) {
+    var r = n.type === 'tx' && state.an && state.analysis.kinds.swap !== false ? state.an.tx.get(n.id) : null;
+    return r && r.flags.some(function (f) { return f.kind === 'swap'; }) ? AN.COLORS.swap : null;
+  }
   function clusterColorOf(cl) { return CLUSTER_COLORS[(parseInt(cl.label.slice(1), 10) - 1) % CLUSTER_COLORS.length]; }
   function clusterColor(id) { var cl = state.an ? state.an.clusters.byAddr.get(id) : null; return cl ? clusterColorOf(cl) : null; }
   function changeEdgeMark(e) { return e.kind === 'out' && state.an && state.an.changeEdges.has(e.id) ? AN.COLORS.change : null; }
@@ -4916,7 +4921,7 @@
                        range: { from: f.timeFrom, to: f.timeTo }, showLabels: state.showLabels, focusId: focusOpt() ? state.focus : null,
                        edgeLabel: state.edgeLabels ? edgeLabelFor : null, bundle: state.bundleEdges,
                        handles: traceOn() ? handlesFor : null, handleMore: traceOn() ? handleSummary : null, seedIds: traceOn() ? new Set(state.trace.seeds) : null, noDim: traceOn(), labelAll: traceOn(), nodeNote: traceOn() ? traceNote : null,
-                       nodeFlags: state.analysis.flags ? nodeFlags : null, clusterColor: state.analysis.clusters ? clusterColor : null, edgeMark: state.analysis.change ? changeEdgeMark : null });
+                       nodeFlags: state.analysis.flags ? nodeFlags : null, nodeSplit: state.analysis.flags ? nodeSplit : null, clusterColor: state.analysis.clusters ? clusterColor : null, edgeMark: state.analysis.change ? changeEdgeMark : null });
     document.body.classList.toggle('axis-on', usesAxis());
     syncBarInset();
     if (o.fit) renderer.fit();
@@ -4953,6 +4958,9 @@
     box.appendChild(el('div', { 'class': 'item', text: 'Edge width = amount · dashed = unspent output' }));
     box.appendChild(el('div', { 'class': 'item', text: effectiveSizeBy() === 'area' ? 'Shape size = value (area proportional to the amount)' : 'Shape size = value (compact scale: sizes differ little)' }));
     if (state.analysis.change && state.an && state.an.changeEdges.size) box.appendChild(legendItem(AN.COLORS.change, 'amber edge = possible or likely change (a guess)'));
+    if (state.analysis.flags && state.analysis.kinds.swap !== false && state.an && Array.from(state.an.tx.values()).some(function (r) { return r.flags.some(function (f) { return f.kind === 'swap'; }); })) {
+      box.appendChild(legendItem(AN.COLORS.swap, 'orange half = a swap memo or a cross-chain request ID: the trail leaves Bitcoin here (what the sender wrote)'));
+    }
     if (traceOn() && state.trace.groups.size) box.appendChild(el('div', { 'class': 'item groupitem' }, [el('span', { 'class': 'tagsw', text: '▤' }), el('span', { text: 'Stack = several vertices folded into one group (click it to open them)' })]));
     var tags = TG.summarise(Array.from(state.graph.nodes.values()).concat(traceOn() ? Array.from(state.trace.groups.values()) : []));
     if (tags.length) {

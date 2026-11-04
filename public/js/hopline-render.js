@@ -608,6 +608,13 @@
       if (hollow) { ctx.fillStyle = 'rgba(28,20,29,0.9)'; ctx.fill(); ctx.strokeStyle = colour; ctx.lineWidth = 2; ctx.setLineDash([3, 2]); ctx.stroke(); ctx.setLineDash([]); }
       else {
         ctx.fillStyle = colour; ctx.fill();
+        var split = n.type === 'tx' && d.nodeSplit ? d.nodeSplit(n) : null;
+        if (split) {                                                        // the upper-left half in another colour, cut along the diagonal: it shows at any zoom, where a badge may be a dot
+          ctx.save(); ctx.clip();
+          ctx.beginPath(); ctx.moveTo(P.x - r - 2, P.y - r - 2); ctx.lineTo(P.x + r + 2, P.y - r - 2); ctx.lineTo(P.x - r - 2, P.y + r + 2); ctx.closePath();
+          ctx.fillStyle = split; ctx.fill(); ctx.restore();
+          shape(ctx, kindOf(n), P.x, P.y, r);
+        }
         ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,0.55)';
         if (n.type === 'tx' && n.confirmed === false) ctx.setLineDash([3, 2]);
         ctx.stroke(); ctx.setLineDash([]);

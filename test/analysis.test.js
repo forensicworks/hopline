@@ -660,9 +660,10 @@ test('classify: a swap memo is flagged with where the payment goes and that it i
   assert.match(f[0].title, /does not show that the swap was carried out/);
   const many = Array.from({ length: 6 }, (_, i) => IN(60 + i, 0, a('c' + i), 10000));
   const sweep = addMemo(g, 2, many, [OUT(a('vault2'), 59000)], MEMO);
-  assert.deepEqual(An.classify(An.txView(g, sweep)).map((x) => x.kind), ['consolidation', 'swap'], 'a consolidation that also carries a memo has both');
+  assert.deepEqual(An.classify(An.txView(g, sweep)).map((x) => x.kind), ['swap', 'consolidation'], 'a consolidation that also carries a memo has both, the memo first');
   const roundPay = addMemo(g, 3, [IN(70, 0, a('src3'), 150000000)], [OUT(a('vault3'), 100000000), OUT(a('back3'), 49990123)], MEMO);
-  assert.deepEqual(An.classify(An.txView(g, roundPay)).map((x) => x.kind), ['round', 'swap'], 'and a round payment too');
+  assert.deepEqual(An.classify(An.txView(g, roundPay)).map((x) => x.kind), ['swap', 'round'], 'and a round payment too: the memo is first, so its badge gets the text where two would not fit');
+  assert.equal(An.COLORS.swap, require('../public/js/hopline-tags.js').preset('SWAP').color, 'the badge, the orange half and the SWAP tag are one colour');
 });
 
 test('classify: no flag without a memo, for another memo, for a memo that is not in an OP_RETURN, or when the transaction is incomplete', () => {
