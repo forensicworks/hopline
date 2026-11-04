@@ -123,9 +123,9 @@ def newpage(ctx, errors):
 
 @pytest.fixture
 def tpage(newpage):
-    """A fresh page as a new visitor gets it (the Trace layout, nothing loaded), except that selecting a wallet does not read its balance by itself:
+    """A fresh page as a new visitor gets it (the Trace layout, nothing loaded), except that selecting a wallet does not read its balance or load its history by itself:
     most tests count the requests they cause and read the messages they show. The tests of that setting use newpage."""
-    newpage.evaluate("() => { const c = document.getElementById('autoBalance'); c.checked = false; c.dispatchEvent(new Event('change')); }")
+    newpage.evaluate("() => { for (const id of ['autoBalance', 'autoHistory']) { const c = document.getElementById(id); c.checked = false; c.dispatchEvent(new Event('change')); } }")
     return newpage
 
 
