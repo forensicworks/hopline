@@ -74,10 +74,10 @@
     state.log.forEach(function (l) { ul.appendChild(el('li', { text: l.msg, 'class': l.bad ? 'bad' : '' })); });
     $('logCount').textContent = '(' + state.log.length + ')';
   }
-  function toast(msg, bad, action) {
+  function toast(msg, bad, action, ms) {
     var t = $('toast'); t.textContent = msg; t.className = bad ? 'bad' : ''; t.hidden = false;
     if (action) t.appendChild(el('button', { type: 'button', text: action.text, onclick: function () { t.hidden = true; action.fn(); } }));
-    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, action ? 15000 : bad ? 9000 : 5000);
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, ms || (action ? 15000 : bad ? 9000 : 5000));
     log(msg, bad);
   }
 
@@ -241,7 +241,7 @@
     var c = state.client; c.resume(); c.resetCount(); c.maxRequests = (o && o.maxRequests) || state.capReq;
     if (!(o && o.quiet)) showProgress(title);
     updateUndoLoad();
-    var wasEmpty = state.graph.nodes.size === 0, snap = snapshotGraph(title), g0 = state.graph, n0 = g0.nodes.size, e0 = g0.edges.size, big = null;
+    var wasEmpty = state.graph.nodes.size === 0, snap = snapshotGraph(title), g0 = state.graph, n0 = g0.nodes.size, e0 = g0.edges.size, big = null, undo = null;
     if (o && o.before && snap && !snap.tooBig) {                                                         // the caller changed the focus before running: undo goes back to what it was
       if ('focus' in o.before) snap.focus = o.before.focus;
       if (o.before.dropKeep) snap.keep = snap.keep.filter(function (k) { return k !== o.before.dropKeep; });
@@ -252,6 +252,7 @@
       if (!(o && o.noUndo) && (state.graph !== g0 || state.graph.nodes.size !== n0 || state.graph.edges.size !== e0)) {           // something was added: remember how it was before
         pushUndoLoad(snap, '+' + plural(Math.max(0, grew), 'vertex', 'vertices'));
         if (grew >= BIG_LOAD) big = { text: 'Undo load', fn: undoLoad };
+        undo = big || (snap && !snap.tooBig ? { text: 'Undo load', fn: undoLoad } : null);       // the message offers it, for a few seconds (a big load: longer)
       }
       var capHit = (r.errors || []).some(function (e) { return /request cap/.test(e); });
       var msg = title + ': ' + (r.added ? '+' + r.added + ' vertices' : 'nothing new') + ', ' + r.requests + ' request' + (r.requests === 1 ? '' : 's') + '.';
@@ -261,7 +262,7 @@
       var errs = (r.errors || []).filter(function (e) { return !/request cap/.test(e); });
       if (errs.length) msg += ' ' + errs.length + ' request(s) failed: ' + errs[0] + (errs.length > 1 ? ' …' : '');
       if (big) msg += ' That is a lot: Undo load takes it back.';
-      if (!(o && o.quiet) || errs.length || r.failed) toast(msg, !!errs.length || !!r.failed, big);
+      if (!(o && o.quiet) || errs.length || r.failed) toast(msg, !!errs.length || !!r.failed, undo, big ? 0 : 8000);
       return r;
     }).catch(function (e) {
       toast(title + ' failed: ' + (e && e.message ? e.message : e), true); return null;
@@ -307,13 +308,13 @@
   }
   function updateUndoLoad() {
     var b = $('btnUndoLoad'), top = state.undoLoads[state.undoLoads.length - 1];
-    b.disabled = !top || state.busy;
+    b.disabled = !top || state.busy; b.hidden = !top;                                          // nothing to take back: nothing in the bar
     b.textContent = '↶ Undo load' + (state.undoLoads.length > 1 ? ' (' + state.undoLoads.length + ')' : '');
     b.title = !top ? 'Nothing to undo: a load, an import or a removal can be taken back here'
       : top.tooBig ? 'Too large to undo (no copy was kept): ' + top.title
       : 'Undo: ' + top.title + (top.info ? ' (' + top.info + ')' : '') + ' — back to ' + plural(top.nodes, 'vertex', 'vertices');
     var rb = $('btnRedoLoad'), next = state.redoLoads[state.redoLoads.length - 1];
-    rb.disabled = !next || state.busy;
+    rb.disabled = !next || state.busy; rb.hidden = !next;
     rb.title = !next ? 'Nothing to redo: Undo load can be taken back here, until you change something else'
       : 'Redo: ' + next.title + (next.info ? ' (' + next.info + ')' : '') + ' — ' + plural(next.nodes, 'vertex', 'vertices') + ' again';
     rb.setAttribute('aria-label', next ? 'Redo load: ' + next.title : 'Redo load');
@@ -691,6 +692,9 @@
     $('focusOn').title = on ? 'Not used in the Trace layout: the trace shows what you reveal' : 'Show only the neighbourhood of the vertex you are looking at';
     $('traceUndo').disabled = on ? !T.undo.length : !state.hideUndo.length;
     $('traceRedo').disabled = !canRedo();
+    var nextUndo = on ? T.undo[T.undo.length - 1] : state.hideUndo[state.hideUndo.length - 1], nextRedo = on ? T.redo[T.redo.length - 1] : state.hideRedo[state.hideRedo.length - 1];
+    $('traceUndo').title = nextUndo ? 'Undo: ' + stepName(nextUndo) + ' (Ctrl+Z)' : state.undoLoads.length ? 'Nothing to undo here (Ctrl+Z). A load, an import or a removal is taken back with Undo load in the top bar' : 'Undo the last step, hide or Re-layout (Ctrl+Z)';
+    $('traceRedo').title = nextRedo && canRedo() ? 'Redo: ' + (nextRedo.name || stepName(nextRedo)) + ' (Ctrl+Shift+Z or Ctrl+Y)' : 'Put back what Undo took away (Ctrl+Shift+Z or Ctrl+Y)';
     syncOpenBox();
     $('traceHide').disabled = !sel; $('traceKeep').disabled = !sel || sel >= (on ? T.shown.size : vis);
     $('hiddenBtn').hidden = on || !hid; $('hiddenBtn').textContent = 'Hidden (' + hid + ') ▾';
@@ -1322,6 +1326,19 @@
     return ok;
   }
   // ---- Undo, Redo and taking back a Re-layout ---------------------------------------------------------
+  /** What an Undo step did, in a few words: the Undo and Redo buttons of the Trace bar name it. */
+  function stepName(s) {
+    switch (s.type) {
+      case 'reveal': return 'Reveal ' + plural(s.ids.length, 'vertex', 'vertices');
+      case 'hide': return 'Hide ' + plural((s.items || s.ids || []).length, 'vertex', 'vertices');
+      case 'show': return 'Show ' + plural((s.ids || []).length, 'vertex', 'vertices') + ' again';
+      case 'group': return 'Group';
+      case 'regroup': return 'Show part of a group';
+      case 'seed': return 'Add a starting point';
+      case 'restart': return 'Start over';
+      default: return s.name || 'Re-layout';
+    }
+  }
   /** Record a step the Undo button can take back. A new step also ends the chain of steps Redo could put back. */
   function traceRecord(step) { var T = state.trace; T.undo.push(step); T.redo = []; }
 
@@ -1353,7 +1370,7 @@
     var view = last.type === 'layout' && last.arr ? posSnap() : null, pins = last.type === 'layout' && last.pins ? pinsList() : null;
     var ok = traceUndoStep();
     var N = state.trace; N.redo = redo;
-    if (ok && snap) redo.push({ snap: snap, len: N.undo.length, view: view, arr: arr, pins: pins });
+    if (ok && snap) redo.push({ snap: snap, len: N.undo.length, view: view, arr: arr, pins: pins, name: stepName(last) });
     updateTraceUi();
   }
   function traceRedo() {
@@ -1408,14 +1425,14 @@
   /** Where the positions of what is drawn are kept: the trace's own in the Columns arrangement, the layout's otherwise. */
   function posStore() { return traceOn() && state.arrange === 'columns' ? state.trace.pos : state.layoutRes && state.layoutRes.pos ? state.layoutRes.pos : null; }
   /** Change positions as one step that Undo (Ctrl+Z) takes back, like a Re-layout: `change()` moves what it moves in the store and returns how many vertices it moved. */
-  function layoutEdit(change) {
+  function layoutEdit(change, name) {
     var columns = traceOn() && state.arrange === 'columns', inTrace = traceOn(), lay = state.layout, arr = state.arrange, before = columns ? tracePosList() : posSnap(), pins = columns ? pinsList() : null;
     var n = change();
     if (!n) return 0;
-    if (columns) { traceRecord({ type: 'layout', pos: before, pins: pins }); refresh({ traceChanged: true }); }
+    if (columns) { traceRecord({ type: 'layout', pos: before, pins: pins, name: name }); refresh({ traceChanged: true }); }
     else {
       renderer.setPositions(state.layoutRes.pos, false);
-      if (inTrace) traceRecord({ type: 'layout', arr: arr, snap: before }); else { state.hideUndo.push({ type: 'layout', layout: lay, snap: before }); state.hideRedo = []; }
+      if (inTrace) traceRecord({ type: 'layout', arr: arr, snap: before, name: name }); else { state.hideUndo.push({ type: 'layout', layout: lay, snap: before, name: name }); state.hideRedo = []; }
       refresh({});
     }
     updateTraceUi();
@@ -1435,7 +1452,7 @@
       all.pos.forEach(function (p, id) { store.set(id, p); });
       state.pinned.forEach(function (p, id) { state.pinned.set(id, L.spread(new Map([[id, p]]), factor, { lockX: lockX, about: about }).pos.get(id)); });
       return all.pos.size;
-    });
+    }, factor > 1 ? 'Spread' : 'Tighten');
     if (n) toast((factor > 1 ? 'More room between the vertices' : 'The vertices are closer together') + (factor > 1 ? ' (Fit, F, shows it all)' : '') + '. Undo (Ctrl+Z) puts them back.', false, { text: 'Undo', fn: undoLast });
   }
   /**
@@ -1474,7 +1491,7 @@
       }
       renderer.setPositions(start, true);                                                  // and back, so that the move to the new places is animated as one
       return all.size;
-    });
+    }, 'Declutter');
     if (n) toast('Moved ' + plural(n, 'vertex', 'vertices') + ' apart so that nothing touches' + (dragged.size ? ' (' + dragged.size + ' of them you had dragged, which stay pinned where they are now)' : '') + (settled ? '' : ' (some still do: run it again)') + '. Undo (Ctrl+Z) puts them back.', false, { text: 'Undo', fn: undoLast });
   }
 
@@ -5570,11 +5587,12 @@
       var T = state.trace, off = fresh.filter(function (id) { return !T.shown.has(id); }).length;
       if (off) where = ' ' + plural(off, 'new vertex', 'new vertices') + (off === 1 ? ' is' : ' are') + ' loaded but not on the trace.';
     }
-    toast('Imported ' + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + where + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length);
+    toast('Imported ' + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + where + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length, snap && !snap.tooBig ? { text: 'Undo import', fn: undoLoad } : null, 8000);
   }
 
   function clearAll() {
-    if (state.graph.nodes.size) pushUndoLoad(snapshotGraph('Clear'), 'cleared ' + plural(state.graph.nodes.size, 'vertex', 'vertices'));
+    var had = state.graph.nodes.size, snap = had ? snapshotGraph('Clear') : null;
+    if (had) pushUndoLoad(snap, 'cleared ' + plural(had, 'vertex', 'vertices'));
     stopPlay(); state.client.abort(); state.client.resume();
     setGraph(new M.Graph()); state.keep = new Set(); state.pinned = new Map(); state.selected = new Set(); state.selectedEdge = null;
     state.filter.timeFrom = null; state.filter.timeTo = null; state.expandRange = null; syncExpandChip();
@@ -5583,6 +5601,7 @@
     try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the old hash stays, harmless */ }
     renderer.cur = new Map(); renderer.target = new Map(); renderer.anim = null;
     afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); store.del(SAVE_KEY); log('Workspace cleared');
+    if (had) toast('Cleared the workspace (' + plural(had, 'vertex', 'vertices') + ').', false, snap && !snap.tooBig ? { text: 'Undo clear', fn: undoLoad } : null, 8000);
   }
 
   // ---- autosave -------------------------------------------------------------------------------

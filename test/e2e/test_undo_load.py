@@ -88,9 +88,9 @@ def test_a_very_large_load_offers_undo_in_the_toast_and_it_takes_it_back(fpage, 
     assert graph_text(fpage) == small and "Undid: Open" in toast_text(fpage)
 
 
-def test_a_small_load_gets_no_big_load_nag(fpage):
+def test_a_small_load_gets_no_big_load_nag_only_the_ordinary_undo(fpage):
     open_query(fpage, NORMAL["txid"])
-    assert "That is a lot" not in toast_text(fpage) and fpage.locator("#toast button").count() == 0
+    assert "That is a lot" not in toast_text(fpage) and fpage.locator("#toast button").count() == 1 and fpage.locator("#toast button:has-text('Undo load')").count() == 1
 
 
 def test_an_action_that_added_nothing_leaves_nothing_to_undo(fpage):
