@@ -1400,6 +1400,79 @@
     posSnapRestore(e.after); state.hideUndo.push(e); refresh({}); updateTraceUi();
   }
 
+  // ---- Spread, Tighten and Declutter: moving vertices without placing them all again ------------------------------------------------------------
+  /** Where the positions of what is drawn are kept: the trace's own in the Columns arrangement, the layout's otherwise. */
+  function posStore() { return traceOn() && state.arrange === 'columns' ? state.trace.pos : state.layoutRes && state.layoutRes.pos ? state.layoutRes.pos : null; }
+  /** Change positions as one step that Undo (Ctrl+Z) takes back, like a Re-layout: `change()` moves what it moves in the store and returns how many vertices it moved. */
+  function layoutEdit(change) {
+    var columns = traceOn() && state.arrange === 'columns', inTrace = traceOn(), lay = state.layout, arr = state.arrange, before = columns ? tracePosList() : posSnap();
+    var n = change();
+    if (!n) return 0;
+    if (columns) { traceRecord({ type: 'layout', pos: before }); refresh({ traceChanged: true }); }
+    else {
+      renderer.setPositions(state.layoutRes.pos, false);
+      if (inTrace) traceRecord({ type: 'layout', arr: arr, snap: before }); else { state.hideUndo.push({ type: 'layout', layout: lay, snap: before }); state.hideRedo = []; }
+      refresh({});
+    }
+    updateTraceUi();
+    return n;
+  }
+  /**
+   * Spread (factor > 1) or tighten (< 1): every vertex moves away from, or towards, the middle of what is on screen, so the arrangement stays and the room between the
+   * vertices changes. What you dragged stays pinned (and moves with the rest); where x is time only the heights change. The view is not fitted again: Fit (F) shows it all.
+   */
+  function spreadLayout(factor) {
+    var vis = renderer.data && renderer.data.visible ? renderer.data.visible.nodes : null, store = posStore();
+    if (!vis || vis.size < 2 || !store) { toast('Nothing to ' + (factor > 1 ? 'spread' : 'tighten') + ': fewer than two vertices are on screen.'); return; }
+    var lockX = timeScaleOn();
+    var n = layoutEdit(function () {
+      var cur = new Map(); vis.forEach(function (id) { var p = store.get(id) || renderer.cur.get(id); if (p) cur.set(id, p); });
+      var about = L.spread(cur, factor, { lockX: lockX }).about, all = L.spread(store, factor, { lockX: lockX, about: about });
+      all.pos.forEach(function (p, id) { store.set(id, p); });
+      state.pinned.forEach(function (p, id) { state.pinned.set(id, L.spread(new Map([[id, p]]), factor, { lockX: lockX, about: about }).pos.get(id)); });
+      return all.pos.size;
+    });
+    if (n) toast((factor > 1 ? 'More room between the vertices' : 'The vertices are closer together') + (factor > 1 ? ' (Fit, F, shows it all)' : '') + '. Undo (Ctrl+Z) puts them back.', false, { text: 'Undo', fn: undoLast });
+  }
+  /**
+   * One look at what overlaps right now: draw once to see what each vertex takes up (Renderer.footprints and edgeFootprints, at this zoom) and say where the vertices that touch
+   * another one, sit on the line of an edge they are not an end of, or are under its amount, should go (HoplineLayout.declutter). { pos, moved, settled }.
+   */
+  function declutterStep() {
+    var fp = renderer.footprints(), k = renderer.view.k, cur = new Map(), boxes = new Map();
+    fp.forEach(function (b, id) {
+      var p = renderer.cur.get(id); if (!p) return;
+      cur.set(id, { x: p.x, y: p.y }); boxes.set(id, { l: b.l / k, t: b.t / k, r: b.r / k, b: b.b / k });
+    });
+    var edges = renderer.edgeFootprints().map(function (e) { return { a: e.a, b: e.b, half: (e.w / 2 + 2) / k, label: e.label ? { t: e.label.t, w: e.label.w / k, h: e.label.h / k, dy: e.label.dy / k } : null }; });
+    return L.declutter(cur, boxes, { pad: 5 / k, fixed: new Set(state.pinned.keys()), lockX: timeScaleOn(), edges: edges });
+  }
+  /**
+   * Move apart only the vertices whose shapes, labels, badges or handles touch, and the vertices that sit on the line of an edge they are not an end of or under its amount; everything
+   * else stays where it is, and so does what you dragged. Where x is time only the heights change. Moving a vertex moves its edges and their amounts (which the canvas places again),
+   * so it looks again after each move, up to six times, and it is one Undo step.
+   */
+  function declutterLayout() {
+    var store = posStore(), first = store && renderer.footprints().size >= 2 ? declutterStep() : null;
+    if (!first) { toast('Nothing to declutter: fewer than two vertices are on screen.'); return; }
+    if (!first.moved) { toast('Nothing overlaps: every vertex has its own room, with its label and handles, at this zoom.'); return; }
+    var all = new Set(), settled = true;
+    var n = layoutEdit(function () {
+      var start = new Map(); renderer.cur.forEach(function (p, id) { start.set(id, { x: p.x, y: p.y }); });
+      var res = first;
+      for (var round = 0; round < 6 && res && res.moved; round++) {
+        settled = res.settled;
+        var now = new Map(renderer.cur);
+        res.pos.forEach(function (p, id) { store.set(id, p); now.set(id, p); all.add(id); });
+        renderer.setPositions(now, true);                                                  // at once, so that the next look sees the new places
+        res = round < 5 ? declutterStep() : null;
+      }
+      renderer.setPositions(start, true);                                                  // and back, so that the move to the new places is animated as one
+      return all.size;
+    });
+    if (n) toast('Moved ' + plural(n, 'vertex', 'vertices') + ' apart so that nothing touches' + (settled ? '' : ' (some still do: run it again)') + '. Undo (Ctrl+Z) puts them back.', false, { text: 'Undo', fn: undoLast });
+  }
+
   function traceReset() {
     var T = state.trace; if (!T.seed) return;
     var seed = T.seed;
@@ -2458,6 +2531,9 @@
       ctxItem(m, 'Select all', function () { selectAllVisible(); }, { right: 'Ctrl+A' });
       ctxItem(m, 'Fit view', function () { renderer.fit(); });
       ctxItem(m, 'Re-layout', function () { state.pinned.clear(); refresh({ relayout: true, fit: true }); });
+      ctxItem(m, 'Spread', function () { spreadLayout(1.3); });
+      ctxItem(m, 'Tighten', function () { spreadLayout(1 / 1.3); });
+      ctxItem(m, 'Declutter', declutterLayout);
       placeCtx(at); return;
     }
     if (ids.length > 1) {
@@ -5673,7 +5749,11 @@
     $('depth').addEventListener('change', function () { state.hops = num(this.value, 1, 3, 2); savePrefs(); afterGraphChange({ fit: true }); scheduleSave(); });
     $('btnFit').addEventListener('click', function () { renderer.fit(); });
     $('btnUndoLoad').addEventListener('click', undoLoad); $('btnRedoLoad').addEventListener('click', redoLoad);
-    $('btnRelayout').addEventListener('click', function () { if (traceOn()) { traceTidy(); return; } relayoutAll(); });
+    function fromLayoutMenu(fn) { return function () { $('layoutMenu').open = false; fn(); }; }                          // an item of the Layout menu does its work and closes the menu
+    $('btnRelayout').addEventListener('click', fromLayoutMenu(function () { if (traceOn()) { traceTidy(); return; } relayoutAll(); }));
+    $('btnSpread').addEventListener('click', fromLayoutMenu(function () { spreadLayout(1.3); }));
+    $('btnTighten').addEventListener('click', fromLayoutMenu(function () { spreadLayout(1 / 1.3); }));
+    $('btnDeclutter').addEventListener('click', fromLayoutMenu(declutterLayout));
     $('traceUndo').addEventListener('click', undoLast);
     $('traceRedo').addEventListener('click', redoLast);
     $('findQ').addEventListener('focus', function () { if (!find.open) findShow(); });

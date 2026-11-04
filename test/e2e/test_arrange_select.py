@@ -5,7 +5,7 @@ import pytest
 
 from chains import peel_chain, tid
 from conftest import NORMAL
-from helpers import click_node, idle, open_controls, open_query, settle, toast_text, xy
+from helpers import click_node, idle, open_controls, open_query, settle, toast_text, xy, layout_menu
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
 BIG = max(range(len(NORMAL["vout"])), key=lambda i: NORMAL["vout"][i]["value"])
@@ -175,7 +175,7 @@ def test_re_layout_releases_a_dragged_vertex_in_a_time_arrangement(fpage, mock):
     home = pos(fpage, "tx:" + tid(11))
     p = xy(fpage, "tx:" + tid(11)); fpage.mouse.move(p["x"], p["y"]); fpage.mouse.down(); fpage.mouse.move(p["x"] + 30, p["y"] + 120, steps=6); fpage.mouse.up(); settle(fpage)
     assert pos(fpage, "tx:" + tid(11)) != home
-    fpage.click("#btnRelayout"); idle(fpage); settle(fpage)
+    layout_menu(fpage, "#btnRelayout"); idle(fpage); settle(fpage)
     assert pos(fpage, "tx:" + tid(11)) == home
 
 

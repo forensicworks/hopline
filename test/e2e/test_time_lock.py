@@ -2,7 +2,7 @@
 import pytest
 
 from chains import addr, peel_chain, tid
-from helpers import click_node, idle, open_query, settle, xy
+from helpers import click_node, idle, open_query, settle, xy, layout_menu
 from test_arrange_select import arrange, drag, pos, traced
 
 TX = "tx:" + tid(11)
@@ -121,5 +121,5 @@ def test_re_layout_puts_a_dragged_transaction_back_on_its_time(tpage, mock):
     a = screen(tpage, TX)
     drag(tpage, a, [a[0], a[1] + 120]); settle(tpage)
     assert pos(tpage, TX) != home
-    tpage.click("#btnRelayout"); idle(tpage); settle(tpage)
+    layout_menu(tpage, "#btnRelayout"); idle(tpage); settle(tpage)
     assert pos(tpage, TX) == home

@@ -17,6 +17,12 @@ def idle(page, timeout=15000):
     page.wait_for_function("() => !window.__hopline.state.busy && !window.__hopline.renderer.anim", timeout=timeout)
 
 
+def layout_menu(page, item):
+    """Choose an item of the Layout menu (#btnRelayout, #btnSpread, #btnTighten or #btnDeclutter): open the menu, then click it."""
+    page.click("#layoutMenu summary")
+    page.click(item)
+
+
 def open_query(page, q):
     page.fill("#q", q)
     page.click("#searchForm button[type=submit]")
