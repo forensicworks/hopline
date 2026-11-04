@@ -1312,7 +1312,7 @@
       T.seeds = T.seeds.filter(function (s) { return s !== last.id; });
       if (last.added) { traceDrop(last.id); refold(last.unfolded); }
     } else if (last.type === 'layout') {                                           // a Re-layout: every vertex goes back to where it was
-      if (last.pos) { last.pos.forEach(function (a) { if (T.shown.has(a[0]) || T.groups.has(a[0])) T.pos.set(a[0], { x: a[1], y: a[2] }); }); fit = true; }
+      if (last.pos) { last.pos.forEach(function (a) { if (T.shown.has(a[0]) || T.groups.has(a[0])) T.pos.set(a[0], { x: a[1], y: a[2] }); }); if (last.pins) pinsRestore(last.pins); fit = true; }
       else if (last.arr === state.arrange) { posSnapRestore(last.snap); direct = true; }
       else { toast('That Re-layout was in another arrangement: nothing to take back here.'); ok = false; }
     } else { last.ids.forEach(traceDrop); refold(last.unfolded); }
@@ -1328,6 +1328,9 @@
   /** The trace as plain data, with its Undo steps: what Redo puts back after an Undo. null for an empty trace. */
   function traceSnap() { var d = traceData(); return d ? { data: d, undo: clone(state.trace.undo) } : null; }
 
+  /** Which vertices were dragged, and where to: [id, x, y]. A step of the Columns arrangement that can move them keeps this for Undo and Redo. */
+  function pinsList() { var out = []; state.pinned.forEach(function (p, id) { out.push([id, p.x, p.y]); }); return out; }
+  function pinsRestore(list) { state.pinned = new Map(list.map(function (a) { return [a[0], { x: a[1], y: a[2] }]; })); }
   /** Where every vertex is drawn and which ones were dragged: what a Re-layout overwrites and Undo puts back. */
   function posSnap() {
     var cur = [], pinned = [];
@@ -1347,10 +1350,10 @@
   function traceUndo() {
     var T = state.trace; if (!T.undo.length) return;
     var snap = traceSnap(), last = T.undo[T.undo.length - 1], redo = T.redo, arr = state.arrange;
-    var view = last.type === 'layout' && last.arr ? posSnap() : null;
+    var view = last.type === 'layout' && last.arr ? posSnap() : null, pins = last.type === 'layout' && last.pins ? pinsList() : null;
     var ok = traceUndoStep();
     var N = state.trace; N.redo = redo;
-    if (ok && snap) redo.push({ snap: snap, len: N.undo.length, view: view, arr: arr });
+    if (ok && snap) redo.push({ snap: snap, len: N.undo.length, view: view, arr: arr, pins: pins });
     updateTraceUi();
   }
   function traceRedo() {
@@ -1362,6 +1365,7 @@
     if (!loadTraceData(e.snap.data)) { T.redo = redo; toast('Could not put that back.', true); return; }
     state.trace.undo = clone(e.snap.undo); traceSanitize(); state.trace.redo = redo;
     var N = state.trace, added = Array.from(N.shown).filter(function (id) { return !was.has(id); });
+    if (e.pins) pinsRestore(e.pins);
     syncSeed(); syncSelection();
     if (e.view && e.arr === state.arrange) { posSnapRestore(e.view); refresh({}); updateTraceUi(); }
     else traceChanged(added, !added.length);
@@ -1405,10 +1409,10 @@
   function posStore() { return traceOn() && state.arrange === 'columns' ? state.trace.pos : state.layoutRes && state.layoutRes.pos ? state.layoutRes.pos : null; }
   /** Change positions as one step that Undo (Ctrl+Z) takes back, like a Re-layout: `change()` moves what it moves in the store and returns how many vertices it moved. */
   function layoutEdit(change) {
-    var columns = traceOn() && state.arrange === 'columns', inTrace = traceOn(), lay = state.layout, arr = state.arrange, before = columns ? tracePosList() : posSnap();
+    var columns = traceOn() && state.arrange === 'columns', inTrace = traceOn(), lay = state.layout, arr = state.arrange, before = columns ? tracePosList() : posSnap(), pins = columns ? pinsList() : null;
     var n = change();
     if (!n) return 0;
-    if (columns) { traceRecord({ type: 'layout', pos: before }); refresh({ traceChanged: true }); }
+    if (columns) { traceRecord({ type: 'layout', pos: before, pins: pins }); refresh({ traceChanged: true }); }
     else {
       renderer.setPositions(state.layoutRes.pos, false);
       if (inTrace) traceRecord({ type: 'layout', arr: arr, snap: before }); else { state.hideUndo.push({ type: 'layout', layout: lay, snap: before }); state.hideRedo = []; }
@@ -1445,32 +1449,33 @@
       cur.set(id, { x: p.x, y: p.y }); boxes.set(id, { l: b.l / k, t: b.t / k, r: b.r / k, b: b.b / k });
     });
     var edges = renderer.edgeFootprints().map(function (e) { return { a: e.a, b: e.b, half: (e.w / 2 + 2) / k, label: e.label ? { t: e.label.t, w: e.label.w / k, h: e.label.h / k, dy: e.label.dy / k } : null }; });
-    return L.declutter(cur, boxes, { pad: 5 / k, fixed: new Set(state.pinned.keys()), lockX: timeScaleOn(), edges: edges });
+    return L.declutter(cur, boxes, { pad: 5 / k, stay: new Set(state.pinned.keys()), lockX: timeScaleOn(), edges: edges });
   }
   /**
    * Move apart only the vertices whose shapes, labels, badges or handles touch, and the vertices that sit on the line of an edge they are not an end of or under its amount; everything
-   * else stays where it is, and so does what you dragged. Where x is time only the heights change. Moving a vertex moves its edges and their amounts (which the canvas places again),
-   * so it looks again after each move, up to six times, and it is one Undo step.
+   * else stays where it is. What you dragged gives way last: next to a vertex you did not drag it stays and the other one moves, but two dragged ones that touch, or a dragged one on
+   * the line of an edge, would never clear otherwise, so those move, as little as it takes, and stay pinned where they are now. Where x is time only the heights change. Moving a
+   * vertex moves its edges and their amounts (which the canvas places again), so it looks again after each move, up to six times, and it is one Undo step.
    */
   function declutterLayout() {
     var store = posStore(), first = store && renderer.footprints().size >= 2 ? declutterStep() : null;
     if (!first) { toast('Nothing to declutter: fewer than two vertices are on screen.'); return; }
     if (!first.moved) { toast('Nothing overlaps: every vertex has its own room, with its label and handles, at this zoom.'); return; }
-    var all = new Set(), settled = true;
+    var all = new Set(), dragged = new Set(), settled = true;
     var n = layoutEdit(function () {
       var start = new Map(); renderer.cur.forEach(function (p, id) { start.set(id, { x: p.x, y: p.y }); });
       var res = first;
       for (var round = 0; round < 6 && res && res.moved; round++) {
         settled = res.settled;
         var now = new Map(renderer.cur);
-        res.pos.forEach(function (p, id) { store.set(id, p); now.set(id, p); all.add(id); });
+        res.pos.forEach(function (p, id) { store.set(id, p); now.set(id, p); all.add(id); if (state.pinned.has(id)) { state.pinned.set(id, { x: p.x, y: p.y }); dragged.add(id); } });
         renderer.setPositions(now, true);                                                  // at once, so that the next look sees the new places
         res = round < 5 ? declutterStep() : null;
       }
       renderer.setPositions(start, true);                                                  // and back, so that the move to the new places is animated as one
       return all.size;
     });
-    if (n) toast('Moved ' + plural(n, 'vertex', 'vertices') + ' apart so that nothing touches' + (settled ? '' : ' (some still do: run it again)') + '. Undo (Ctrl+Z) puts them back.', false, { text: 'Undo', fn: undoLast });
+    if (n) toast('Moved ' + plural(n, 'vertex', 'vertices') + ' apart so that nothing touches' + (dragged.size ? ' (' + dragged.size + ' of them you had dragged, which stay pinned where they are now)' : '') + (settled ? '' : ' (some still do: run it again)') + '. Undo (Ctrl+Z) puts them back.', false, { text: 'Undo', fn: undoLast });
   }
 
   function traceReset() {
