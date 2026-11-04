@@ -504,3 +504,24 @@ test('declutter with edges: with two lines near each other a vertex is pushed of
   const w = one.pos.get('w');
   assert.ok(Math.abs(w.y - 0) >= 8 + 1 + 2 - 0.011 && Math.abs(w.y - 30) >= 8 + 1 + 2 - 0.011, 'clear of both lines: y = ' + w.y);
 });
+
+test('declutter: a vertex in stay gives way only when the other one cannot: beside a free one it stays, two that stay share the move, and fixed beats stay', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 30, y: 0 }]]);
+  const boxes = new Map([['a', box(-20, -10, 20, 10)], ['b', box(-20, -10, 20, 10)]]);
+  const one = L.declutter(pos, boxes, { pad: 0, stay: new Set(['a']) });
+  assert.ok(!one.pos.has('a'), 'the one that stays did not move'); assert.equal(one.pos.get('b').x, 40, 'the other gave way, all of it');
+  const both = L.declutter(pos, boxes, { pad: 0, stay: new Set(['a', 'b']) });
+  assert.equal(both.moved, 2, 'two that stay and touch would never clear otherwise: they move');
+  assert.equal(both.pos.get('a').x, -5); assert.equal(both.pos.get('b').x, 35); assert.ok(both.settled);
+  const hard = L.declutter(pos, boxes, { pad: 0, fixed: new Set(['a']), stay: new Set(['b']) });
+  assert.ok(!hard.pos.has('a')); assert.equal(hard.pos.get('b').x, 40, 'fixed does not move at all, so the one that stays does');
+  assert.equal(L.declutter(pos, boxes, { pad: 0, fixed: new Set(['a', 'b']), stay: new Set(['a', 'b']) }).moved, 0, 'two fixed are still left alone');
+});
+
+test('declutter with edges: a vertex in stay that sits on the line of an edge moves off it (the ends do not move for it), and a fixed one does not', () => {
+  const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 400, y: 0 }], ['w', { x: 200, y: 3 }]]);
+  const boxes = new Map(['a', 'b', 'w'].map((id) => [id, box(-10, -10, 10, 10)]));
+  const r = L.declutter(pos, boxes, { pad: 4, stay: new Set(['a', 'b', 'w']), edges: [lineBetween('a', 'b')] });
+  assert.deepEqual(Array.from(r.pos.keys()), ['w']); assert.ok(r.pos.get('w').y >= 15 - 0.011, 'clear of the line');
+  assert.equal(L.declutter(pos, boxes, { pad: 4, fixed: new Set(['w']), stay: new Set(['w']), edges: [lineBetween('a', 'b')] }).moved, 0);
+});
