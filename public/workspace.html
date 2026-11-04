@@ -50,7 +50,6 @@ window.addEventListener('error', function (e) {
       <div id="findFoot" class="hint" role="status"></div>
     </div>
   </div>
-  <button type="button" id="btnFit" title="Fit everything in view (F)">Fit</button>
   <details class="menu" id="layoutMenu">
     <summary title="Place the vertices again, give them more or less room, or clear what overlaps">Layout ▾</summary>
     <div class="menu-body" id="layoutBody">
@@ -452,7 +451,7 @@ window.addEventListener('error', function (e) {
         <p><b>Auto-expand</b> follows the money several transactions in one go, forward or backward, from the selected vertex, stopping at the limits you set (hops, transactions, requests) and at labelled wallets or CoinJoins. <i>Follow</i> chooses every output, the largest, the likely change, or a peel chain. In the Trace layout everything it loaded is shown and one <kbd>Ctrl+Z</kbd> takes it back.</p>
         <p><b>Right-click</b> a wallet or transaction for its actions: tag it (EXCH, THREAT, SWAP for a swap or bridge service, …), look a wallet up in Arkham (with your own key, through the proxy) or open Arkham's page for it in a new tab (<i>Check in Arkham</i>: no key, and Arkham is told what you are looking at), load more. <b>Tags</b> give a vertex a colour, a shape and a badge; set them next to the label in the details (VICTIM is blue and points down, THREAT is red and points up). A vertex you wrote a note on carries a small yellow note at its lower right.</p>
         <p><b>Previous / Next</b> under the graph step along the money: from a transaction to the wallets it paid (or that paid in), from a wallet to the transactions that spent from it. One choice moves at once; several open a list.</p>
-        <p>Keys: <kbd>[</kbd> previous, <kbd>]</kbd> next, <kbd>C</kbd> controls (in full screen, over the graph), <kbd>D</kbd> details, <kbd>T</kbd> time line, <kbd>B</kbd> box select, <kbd>Ctrl+A</kbd> select all, <kbd>Ctrl+Z</kbd> undo, <kbd>Del</kbd> hide, <kbd>Esc</kbd> deselect (or leave full screen), <kbd>F</kbd> fit, <kbd>M</kbd> full screen, <kbd>/</kbd> search.</p>
+        <p>Keys: <kbd>[</kbd> previous, <kbd>]</kbd> next, <kbd>C</kbd> controls (in full screen, over the graph), <kbd>D</kbd> details, <kbd>T</kbd> time line, <kbd>B</kbd> box select, <kbd>Ctrl+A</kbd> select all, <kbd>Ctrl+Z</kbd> undo, <kbd>Del</kbd> hide, <kbd>Esc</kbd> deselect (or leave full screen), <kbd>F</kbd> fit (also the button under + and −), <kbd>M</kbd> full screen, <kbd>/</kbd> search.</p>
         <p class="hint">Hopline is open source: <a href="https://github.com/forensicworks/hopline" target="_blank" rel="noopener noreferrer">source code</a> · <a href="https://github.com/forensicworks/hopline/wiki" target="_blank" rel="noopener noreferrer">documentation</a> · <a href="https://github.com/forensicworks/hopline/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">Apache-2.0</a>.</p>
       </div>
     </details>
@@ -460,7 +459,7 @@ window.addEventListener('error', function (e) {
 
   <section id="stage" aria-label="Graph">
     <canvas id="cv" tabindex="0" aria-label="Transaction graph"></canvas>
-    <button type="button" id="sideTab" class="edge-tab left" hidden aria-label="Show controls" aria-controls="side" title="Show controls (C)">Controls ›</button>
+    <button type="button" id="sideTab" class="edge-tab left" hidden aria-expanded="false" aria-label="Show controls" aria-controls="side" title="Show controls (C)">Controls ›</button>
     <button type="button" id="inspTab" class="edge-tab right" hidden aria-label="Show details" aria-controls="inspector" title="Show details (D)">‹ <span id="inspTabText">Details</span></button>
     <div id="traceBar" role="group" aria-label="Selection and trace" hidden>
       <span class="tb-title" id="barTitle">Selection</span>
@@ -496,7 +495,7 @@ window.addEventListener('error', function (e) {
         <label class="check small" title="Tick to go wallet by wallet; untick to jump from transaction to transaction"><input type="checkbox" id="viaWallets" checked> via wallets</label>
       </div>
     </div>
-    <div id="zoomBtns"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="fullControls" class="full-only" aria-label="Controls" aria-expanded="false" aria-controls="side" title="Controls (C): the left panel, over the graph. This button or C closes it."><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><button type="button" id="fullBtn" aria-label="Full screen" aria-pressed="false" title="Full screen (M): the graph alone. Its Controls button (or C) opens the left panel over it. Esc or this button leaves it."><svg class="enter" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg><svg class="exit" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg></button></div>
+    <div id="zoomBtns"><button type="button" id="zoomIn" aria-label="Zoom in">+</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="zoomFit" aria-label="Fit everything in view" title="Fit everything in view (F)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button><button type="button" id="fullBtn" aria-label="Full screen" aria-pressed="false" title="Full screen (M): the graph alone. Its Controls button (or C) opens the left panel over it. Esc or this button leaves it."><svg class="enter" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg><svg class="exit" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg></button></div>
     <div id="empty">
       <h2>Follow the money</h2>
       <p>Paste a transaction id or an address above.</p>

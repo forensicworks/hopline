@@ -74,11 +74,11 @@ def test_undo_load_and_redo_load_are_in_the_bar_only_when_they_can_act(fpage):
 
 
 def test_their_coming_and_going_moves_nothing_you_click(fpage):
-    names = ["#btnImport", "#btnClear", "#exportMenu summary", "#btnFit", "#layoutMenu summary", "#findQ"]
+    names = ["#btnImport", "#btnClear", "#exportMenu summary", "#layoutMenu summary", "#findQ"]
     before = {n: box(fpage, n) for n in names}
     open_query(fpage, NORMAL["txid"])
     assert fpage.is_visible("#btnUndoLoad")
-    assert {n: box(fpage, n) for n in names} == before, "Import, Clear, Export, Fit, Layout and Find stay where they were"
+    assert {n: box(fpage, n) for n in names} == before, "Import, Clear, Export, Layout and Find stay where they were"
     fpage.click("#btnUndoLoad"); idle(fpage); settle(fpage)
     assert fpage.is_visible("#btnRedoLoad") and {n: box(fpage, n) for n in names} == before
 

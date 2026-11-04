@@ -60,7 +60,7 @@ body.side-collapsed #side { display: none; }
 body.insp-collapsed #inspector { display: none; }
 .edge-tab { position: absolute; z-index: 15; top: 56px; padding: 9px 7px; font-size: 12px; background: var(--panel); border: 1px solid var(--line); color: var(--text); }
 .edge-tab.left { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
-.edge-tab.right { right: 0; top: 130px; border-right: 0; border-radius: 8px 0 0 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edge-tab.right { right: 0; top: 160px; border-right: 0; border-radius: 8px 0 0 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .edge-tab[hidden] { display: none; }
 body.side-collapsed #traceBar { left: 84px; max-width: calc(100% - 140px); }                                                                    /* the Controls tab sits on the left edge, over the second row of this bar: start the bar to its right */
 #inspCollapse { position: absolute; right: 38px; top: 6px; }
@@ -122,7 +122,7 @@ body.trace-on #stepbar { display: none !important; }
 .steprow .amt { flex: none; color: var(--accent); font-variant-numeric: tabular-nums; text-align: right; font-size: 12px; }
 .steprow.info { border-style: dashed; color: var(--dim); cursor: default; }
 .steprow.info:hover { border-color: var(--line); }
-@media (max-width: 900px) { #sideCollapse, #sideTab { display: none !important; } }
+@media (max-width: 900px) { body:not(.canvas-full) #sideCollapse, body:not(.canvas-full) #sideTab { display: none !important; } }       /* in full screen they stay: the tab is the way to the panel */
 .fiat.primary { margin-left: 0; font-weight: 600; }
 
 #ctxMenu { position: fixed; z-index: 60; min-width: 230px; max-width: 320px; max-height: 80vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 5px; box-shadow: 0 10px 28px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 1px; }
@@ -477,12 +477,9 @@ button.outbound-btn:hover:not(:disabled) { border-color: var(--text); }
 #claudeReviewText { margin: 0; min-height: 160px; max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; font-size: 11.5px; line-height: 1.35; font-family: Consolas, "Courier New", monospace; user-select: text; }
 
 /* Full screen: the graph alone (the details panel still opens when something is selected) */
-body.canvas-full.side-collapsed #traceBar { left: 12px; max-width: calc(100% - 68px); }                                                       /* nor in full screen */
-body.canvas-full #top, body.canvas-full #sideTab, body.canvas-full #trail, body.canvas-full #restore, body.canvas-full #log { display: none !important; }
-/* the Controls stay one button away: the left panel slides over the graph and goes back with Esc */
-.full-only { display: none; }
-body.canvas-full .full-only { display: inline-flex; align-items: center; justify-content: center; }
-body.canvas-full .edge-tab.right { top: 160px; }                                                       /* the zoom buttons are four tall in full screen: do not sit on the last one */
+body.canvas-full #traceBar { left: 84px; max-width: calc(100% - 140px); }                                                                  /* in full screen the Controls tab is on the left edge as well */
+body.canvas-full #top, body.canvas-full #trail, body.canvas-full #restore, body.canvas-full #log { display: none !important; }
+/* the Controls stay one tab away (left edge, like Details on the right): the left panel slides over the graph and goes back with « or Esc */
 body.canvas-full #side { display: block !important; position: absolute; z-index: 26; top: 0; bottom: 0; left: 0; width: min(300px, 88vw); transform: translateX(-100%); visibility: hidden; transition: transform 0.15s, visibility 0s 0.15s; }
 body.canvas-full.full-side-open #side { transform: none; visibility: visible; transition: transform 0.15s; box-shadow: 4px 0 18px rgba(0, 0, 0, 0.55); }
 @media (prefers-reduced-motion: reduce) { body.canvas-full #side, body.canvas-full.full-side-open #side { transition: none; } }

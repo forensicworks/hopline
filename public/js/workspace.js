@@ -3216,9 +3216,11 @@
   function setSideCollapsed(c) {
     state.sideCollapsed = !!c;
     document.body.classList.toggle('side-collapsed', state.sideCollapsed);
-    $('sideTab').hidden = !state.sideCollapsed; $('sideCollapse').setAttribute('aria-expanded', String(!state.sideCollapsed));
+    updateSideTab(); $('sideCollapse').setAttribute('aria-expanded', String(!state.sideCollapsed));
     savePrefs();
   }
+  /** The Controls tab on the left edge: there while the panel is folded away, and in full screen while the drawer is closed (there it is the way to the panel). */
+  function updateSideTab() { $('sideTab').hidden = fullScr.on ? fullSideOpen() : !state.sideCollapsed; }
   function setInspCollapsed(c) {
     state.inspCollapsed = !!c;
     document.body.classList.toggle('insp-collapsed', state.inspCollapsed);
@@ -3237,8 +3239,9 @@
     fullScr.on = on;
     document.body.classList.toggle('canvas-full', on);
     if (!on) setFullSide(false);
+    updateSideTab();
     var b = $('fullBtn'); b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Leave full screen' : 'Full screen');
-    b.title = on ? 'Leave full screen (M or Esc)' : 'Full screen (M): the graph alone. Its Controls button (or C) opens the left panel over it. Esc or this button leaves it.';
+    b.title = on ? 'Leave full screen (M or Esc)' : 'Full screen (M): the graph alone. Its Controls tab (or C) opens the left panel over it. Esc or this button leaves it.';
     var de = document.documentElement;
     try {
       if (on) { var rq = de.requestFullscreen || de.webkitRequestFullscreen; var p = rq && rq.call(de); if (p && p.catch) p.catch(function () { /* the page is cleared anyway */ }); }
@@ -3253,13 +3256,12 @@
     if (open === fullSideOpen()) return;
     var hadFocus = $('side').contains(document.activeElement);
     document.body.classList.toggle('full-side-open', open);
-    $('fullControls').setAttribute('aria-expanded', String(open));
+    $('sideTab').setAttribute('aria-expanded', String(open)); updateSideTab();
     if (open) { var first = $('side').querySelector('summary, button, input, select'); if (first) first.focus(); }
-    else if (hadFocus) $('fullControls').focus();
+    else if (hadFocus) $('sideTab').focus();
   }
   function wireFullScreen() {
     $('fullBtn').addEventListener('click', function () { setFullScreen(!fullScr.on); });
-    $('fullControls').addEventListener('click', function () { setFullSide(!fullSideOpen()); });
     $('side').addEventListener('keydown', function (e) { if (e.key === 'Escape' && fullSideOpen()) { e.preventDefault(); e.stopPropagation(); setFullSide(false); } });       // also from inside a field of the drawer
     function left() { if (fullScr.on && !document.fullscreenElement && !document.webkitFullscreenElement) setFullScreen(false); }       // the browser's own Esc or F11 ended it
     document.addEventListener('fullscreenchange', left); document.addEventListener('webkitfullscreenchange', left);
@@ -5757,7 +5759,7 @@
     $('viaWallets').addEventListener('change', function () { state.viaWallets = this.checked; savePrefs(); renderStepBar(); });
     document.addEventListener('click', function (e) { if (!$('stepMenu').hidden && !$('stepbar').contains(e.target)) closeStepMenu(); });
     $('sideCollapse').addEventListener('click', function () { if (fullScr.on) setFullSide(false); else setSideCollapsed(true); });          // in full screen « closes the drawer and leaves the saved choice alone
-    $('sideTab').addEventListener('click', function () { setSideCollapsed(false); });
+    $('sideTab').addEventListener('click', function () { if (fullScr.on) setFullSide(true); else setSideCollapsed(false); });
     $('inspCollapse').addEventListener('click', function () { setInspCollapsed(true); });
     $('inspTab').addEventListener('click', function () { setInspCollapsed(false); });
     $('edgeLabels').addEventListener('change', function () { state.edgeLabels = this.checked; savePrefs(); refresh(); });
@@ -5775,7 +5777,7 @@
       afterGraphChange({ fit: true }); scheduleSave();
     });
     $('depth').addEventListener('change', function () { state.hops = num(this.value, 1, 3, 2); savePrefs(); afterGraphChange({ fit: true }); scheduleSave(); });
-    $('btnFit').addEventListener('click', function () { renderer.fit(); });
+    $('zoomFit').addEventListener('click', function () { renderer.fit(); });
     $('btnUndoLoad').addEventListener('click', undoLoad); $('btnRedoLoad').addEventListener('click', redoLoad);
     function fromLayoutMenu(fn) { return function () { $('layoutMenu').open = false; fn(); }; }                          // an item of the Layout menu does its work and closes the menu
     $('btnRelayout').addEventListener('click', fromLayoutMenu(function () { if (traceOn()) { traceTidy(); return; } relayoutAll(); }));
