@@ -44,11 +44,13 @@ def leave_the_way_the_browser_does(page):
 def test_the_button_is_under_the_zoom_buttons_and_says_what_it_does(fpage):
     open_query(fpage, NORMAL["txid"])
     ids = fpage.evaluate("() => [...document.querySelectorAll('#zoomBtns button')].map((b) => b.id)")
-    assert ids == ["zoomIn", "zoomOut", "fullControls", "fullBtn"]
+    assert ids == ["zoomIn", "zoomOut", "zoomFit", "fullBtn"]
     assert fpage.get_attribute("#fullBtn", "aria-label") == "Full screen" and fpage.get_attribute("#fullBtn", "aria-pressed") == "false"
     assert "Full screen" in fpage.get_attribute("#fullBtn", "title") and "(M)" in fpage.get_attribute("#fullBtn", "title")
     assert fpage.is_visible("#fullBtn .enter") and not fpage.is_visible("#fullBtn .exit")
-    assert not fpage.is_visible("#fullControls"), "the Controls button is for full screen only: the panel is already there"
+    assert fpage.is_visible("#zoomFit") and fpage.get_attribute("#zoomFit", "aria-label") == "Fit everything in view" and "(F)" in fpage.get_attribute("#zoomFit", "title")
+    assert not fpage.is_visible("#sideTab"), "the Controls tab is for a folded panel (and for full screen): the panel is already there"
+    assert fpage.locator("#btnFit").count() == 0, "Fit is a camera control: it lives with the zoom buttons, not in the top bar"
 
 
 def test_the_button_clears_everything_but_the_graph_and_gives_it_the_room(fpage):
@@ -175,13 +177,13 @@ def go_full(page):
     assert full(page)
 
 
-def test_in_full_screen_a_controls_button_opens_the_left_panel_over_the_graph(fpage):
+def test_in_full_screen_a_controls_tab_opens_the_left_panel_over_the_graph(fpage):
     go_full(fpage)
-    assert fpage.is_visible("#fullControls") and fpage.get_attribute("#fullControls", "aria-expanded") == "false" and fpage.get_attribute("#fullControls", "aria-label") == "Controls"
+    assert fpage.is_visible("#sideTab") and fpage.get_attribute("#sideTab", "aria-expanded") == "false" and "Controls" in fpage.inner_text("#sideTab")
     side_gone(fpage)                                                                         # closed: out of sight, and its fields cannot be tabbed to
     width = canvas_width(fpage)
-    fpage.click("#fullControls"); settle(fpage)
-    assert fpage.is_visible("#side") and fpage.get_attribute("#fullControls", "aria-expanded") == "true"
+    fpage.click("#sideTab"); settle(fpage)
+    assert fpage.is_visible("#side") and fpage.get_attribute("#sideTab", "aria-expanded") == "true" and not fpage.is_visible("#sideTab"), "open: the tab is out of the way"
     fpage.wait_for_function("() => getComputedStyle(document.getElementById('side')).transform === 'none'")           # it has finished sliding in
     box = fpage.locator("#side").bounding_box()
     assert box["x"] >= -1 and box["width"] <= 301 and box["height"] > 300, "a panel along the left edge"
@@ -191,11 +193,11 @@ def test_in_full_screen_a_controls_button_opens_the_left_panel_over_the_graph(fp
 
 def test_the_controls_work_from_the_drawer_and_the_graph_stays_full_screen(fpage):
     go_full(fpage)
-    fpage.click("#fullControls"); settle(fpage)
+    fpage.click("#sideTab"); settle(fpage)
     fpage.click("#layoutSeg [data-layout=timeline]"); settle(fpage)
     assert fpage.evaluate("() => window.__hopline.state.layout") == "timeline" and full(fpage)
-    fpage.click("#fullControls"); settle(fpage)
-    side_gone(fpage); assert fpage.get_attribute("#fullControls", "aria-expanded") == "false"
+    fpage.click("#sideCollapse"); settle(fpage)
+    side_gone(fpage); assert fpage.get_attribute("#sideTab", "aria-expanded") == "false" and fpage.is_visible("#sideTab"), "closed: the tab is back"
 
 
 def test_c_opens_and_closes_the_drawer_in_full_screen_and_still_folds_the_panel_otherwise(fpage):
@@ -214,7 +216,7 @@ def test_c_opens_and_closes_the_drawer_in_full_screen_and_still_folds_the_panel_
 
 def test_esc_closes_the_drawer_first_even_from_a_field_in_it_and_then_leaves_full_screen(fpage):
     go_full(fpage)
-    fpage.click("#fullControls"); settle(fpage)
+    fpage.click("#sideTab"); settle(fpage)
     fpage.click("#side summary >> nth=0"); fpage.evaluate("() => { const i = document.querySelector('#side input[type=number], #side input[type=text], #side input[type=url]'); if (i) i.focus(); }")
     fpage.keyboard.press("Escape"); settle(fpage)
     side_gone(fpage); assert full(fpage), "the drawer closes first"
@@ -224,17 +226,17 @@ def test_esc_closes_the_drawer_first_even_from_a_field_in_it_and_then_leaves_ful
 
 def test_leaving_full_screen_closes_the_drawer_and_gives_the_normal_panel_back(fpage):
     go_full(fpage)
-    fpage.click("#fullControls"); settle(fpage)
+    fpage.click("#sideTab"); settle(fpage)
     fpage.click("#fullBtn"); settle(fpage)
     assert not full(fpage) and fpage.evaluate("() => document.body.classList.contains('full-side-open')") is False
-    assert fpage.is_visible("#side") and not fpage.is_visible("#fullControls")
+    assert fpage.is_visible("#side") and not fpage.is_visible("#sideTab")
     box = fpage.locator("#side").bounding_box()
     assert box["x"] >= -1 and fpage.evaluate("() => getComputedStyle(document.getElementById('side')).position") != "absolute", "back in the layout, not over the graph"
 
 
 def test_the_fold_button_in_the_drawer_closes_it_and_does_not_change_the_saved_choice(fpage):
     go_full(fpage)
-    fpage.click("#fullControls"); settle(fpage)
+    fpage.click("#sideTab"); settle(fpage)
     fpage.click("#sideCollapse"); settle(fpage)
     side_gone(fpage)
     assert fpage.evaluate("() => window.__hopline.state.sideCollapsed") is False
@@ -251,6 +253,63 @@ def test_the_findings_tab_does_not_sit_on_a_button_when_the_findings_are_folded_
     fpage.evaluate("() => window.__hopline.state.inspCollapsed || document.getElementById('inspCollapse').click()"); settle(fpage)
     fpage.wait_for_selector("#inspTab:not([hidden])", timeout=5000)
     tab = fpage.locator("#inspTab").bounding_box()
-    for id_ in ("zoomIn", "zoomOut", "fullControls", "fullBtn"):
+    for id_ in ("zoomIn", "zoomOut", "zoomFit", "fullBtn"):
+        b = fpage.locator("#" + id_).bounding_box()
+        assert b["y"] + b["height"] <= tab["y"] or tab["y"] + tab["height"] <= b["y"] or b["x"] + b["width"] <= tab["x"], "the tab is on the %s button: %s %s" % (id_, tab, b)
+
+
+def view(page):
+    return page.evaluate("() => { const v = window.__hopline.renderer.view; return [v.k, v.x, v.y]; }")
+
+
+def test_the_fit_button_under_the_zoom_buttons_fits_the_view_like_the_f_key_and_works_in_full_screen(fpage):
+    open_query(fpage, NORMAL["txid"]); settle(fpage)
+    fpage.click("#zoomIn"); fpage.click("#zoomIn"); settle(fpage)
+    zoomed = view(fpage)
+    fpage.click("#zoomFit"); settle(fpage)
+    fitted = view(fpage)
+    assert fitted != zoomed
+    fpage.click("#zoomIn"); settle(fpage)
+    fpage.locator("#cv").focus(); fpage.keyboard.press("f"); settle(fpage)
+    assert all(abs(a - b) < 0.5 for a, b in zip(view(fpage), fitted)), "F and the button do the same"
+    go_full(fpage)
+    fpage.click("#zoomIn"); fpage.click("#zoomIn"); settle(fpage)
+    fpage.click("#zoomFit"); settle(fpage)
+    assert fpage.is_visible("#zoomFit") and full(fpage)
+    k = view(fpage)[0]
+    fpage.click("#zoomIn"); settle(fpage)
+    assert view(fpage)[0] != k
+    fpage.click("#zoomFit"); settle(fpage)
+    assert abs(view(fpage)[0] - k) < 1e-6, "Fit again: the same fit"
+
+
+def test_the_controls_tab_is_there_in_full_screen_even_when_the_panel_was_open_and_on_a_narrow_screen(fpage):
+    fpage.set_viewport_size({"width": 700, "height": 800})
+    open_query(fpage, NORMAL["txid"]); settle(fpage)
+    assert not fpage.is_visible("#sideTab"), "a narrow screen has its own Controls button in the top bar"
+    go_full(fpage)
+    assert fpage.is_visible("#sideTab"), "in full screen the tab is the way to the panel, at any width"
+    fpage.click("#sideTab"); settle(fpage)
+    assert fpage.is_visible("#side") and fpage.is_visible("#sideCollapse")
+    fpage.click("#sideCollapse"); settle(fpage)
+    side_gone(fpage); assert fpage.is_visible("#sideTab")
+    fpage.click("#fullBtn"); settle(fpage)
+    assert not full(fpage) and not fpage.is_visible("#sideTab")
+
+
+def test_the_controls_tab_does_not_sit_on_the_trace_bar_in_full_screen(tpage):
+    open_query(tpage, NORMAL["txid"]); settle(tpage)
+    tpage.click("#fullBtn"); settle(tpage)
+    assert tpage.is_visible("#sideTab") and tpage.is_visible("#traceBar")
+    tab, bar = tpage.locator("#sideTab").bounding_box(), tpage.locator("#traceBar").bounding_box()
+    assert tab["x"] + tab["width"] <= bar["x"] or tab["y"] + tab["height"] <= bar["y"] or bar["y"] + bar["height"] <= tab["y"], "%s %s" % (tab, bar)
+
+
+def test_the_details_tab_does_not_sit_on_a_zoom_button_in_the_normal_view_either(fpage):
+    open_query(fpage, NORMAL["txid"]); settle(fpage)
+    fpage.evaluate("() => window.__hopline.state.inspCollapsed || document.getElementById('inspCollapse').click()"); settle(fpage)
+    fpage.wait_for_selector("#inspTab:not([hidden])", timeout=5000)
+    tab = fpage.locator("#inspTab").bounding_box()
+    for id_ in ("zoomIn", "zoomOut", "zoomFit", "fullBtn"):
         b = fpage.locator("#" + id_).bounding_box()
         assert b["y"] + b["height"] <= tab["y"] or tab["y"] + tab["height"] <= b["y"] or b["x"] + b["width"] <= tab["x"], "the tab is on the %s button: %s %s" % (id_, tab, b)

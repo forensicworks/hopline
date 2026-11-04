@@ -79,7 +79,7 @@ def test_ctrl_f_on_the_canvas_puts_the_cursor_in_the_field(tpage):
 def test_clicking_elsewhere_closes_the_matches_but_keeps_what_was_typed(tpage):
     open_query(tpage, NORMAL["txid"])
     tpage.click("#findQ"); tpage.keyboard.type("robin"); tpage.wait_for_timeout(150)
-    tpage.click("#btnFit")
+    tpage.click("#zoomFit")
     assert tpage.is_hidden("#findBox") and tpage.input_value("#findQ") == "robin"
     tpage.click("#findQ"); tpage.wait_for_timeout(150)
     assert tpage.is_visible("#findBox"), "clicking the field brings the matches back for what is typed"
