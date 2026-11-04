@@ -679,3 +679,75 @@ test('handoffs: a request ID in an OP_RETURN is a swap row too, labelled as a cr
   const rows = R.handoffs(R.index(g), A('ran'), { hub: () => false, stop: () => null });
   assert.equal(rows.length, 1); assert.equal(rows[0].kind, 'swap'); assert.equal(rows[0].service, 'Cross-chain request: ID 0xcdcdcdcd…cdcdcd'); assert.equal(rows[0].memo.form, 'request');
 });
+
+test('handoffs: a transaction that is a hand-off to a service and also carries a request ID is one row, with the memo noted on it', () => {
+  const g = new Graph();
+  g.addTx(esplora(1, 1000, [[90, 0, 'ran', 900]], [['mid', 800]]));
+  const t = esplora(2, 2000, [[1, 0, 'mid', 800]], [['svc', 500], ['back', 290]]);
+  t.vout.push(memoOut('0x' + 'ef'.repeat(32)));
+  g.addTx(t);
+  g.addOutspends(tid(1), [{ spent: true, txid: tid(2), vin: 0, status: { confirmed: true, block_time: 2000 } }]);
+  g.addOutspends(tid(2), [{ spent: false }, { spent: false }, { spent: false }]);
+  const services = (id) => id === A('svc'), svcName = (id) => (id === A('svc') ? 'The service' : null);
+  const rows = R.handoffs(R.index(g), A('ran'), { hub: services, stop: svcName });
+  assert.equal(rows.length, 1, 'one transaction is one place');
+  assert.equal(rows[0].kind, 'service'); assert.equal(rows[0].service, 'The service'); assert.equal(rows[0].txid, tid(2));
+  assert.equal(rows[0].memo.form, 'request'); assert.equal(rows[0].memoText, 'Cross-chain request: ID 0xefefefef…efefef');
+  assert.equal(rows[0].amount, 500, 'it keeps the service row\'s amount');
+  const alone = R.handoffs(R.index(g), A('ran'), { hub: () => false, stop: () => null });
+  assert.deepEqual(alone.map((r) => r.kind), ['swap'], 'with no service wallet the memo row stays');
+});
+
+// ---- hand-offs from several starting points ------------------------------------------------------------------
+function twoStarts() {
+  const g = new Graph();
+  g.addTx(esplora(1, 1000, [[90, 0, 'one', 900]], [['m1', 800]]));                                   // start one pays m1 ...
+  g.addTx(esplora(2, 2000, [[1, 0, 'm1', 800]], [['svc', 500], ['b1', 290]]));                        // ... which pays the service
+  g.addTx(esplora(3, 1500, [[91, 0, 'two', 700]], [['m2', 600]]));                                    // start two pays m2 ...
+  const t = esplora(4, 2500, [[3, 0, 'm2', 600]], [['v2', 400], ['b2', 190]]);                        // ... which pays a wallet with a memo
+  t.vout.push(memoOut('=:ETH.WBTC:' + SWAP_DEST));
+  g.addTx(t);
+  g.addOutspends(tid(1), [{ spent: true, txid: tid(2), vin: 0, status: { confirmed: true, block_time: 2000 } }]);
+  g.addOutspends(tid(3), [{ spent: true, txid: tid(4), vin: 0, status: { confirmed: true, block_time: 2500 } }]);
+  g.addOutspends(tid(2), [{ spent: false }, { spent: false }]); g.addOutspends(tid(4), [{ spent: false }, { spent: false }, { spent: false }]);
+  return g;
+}
+const svcHub = (id) => id === A('svc'), svcLabel = (id) => (id === A('svc') ? 'The service' : null);
+
+test('handoffs: each starting point is followed on its own and every row says which one it comes from', () => {
+  const g = twoStarts(), idx = R.index(g);
+  const one = R.handoffs(idx, A('one'), { hub: svcHub, stop: svcLabel }), two = R.handoffs(idx, A('two'), { hub: svcHub, stop: svcLabel });
+  assert.deepEqual(one.map((r) => [r.kind, r.from]), [['service', A('one')]]); assert.deepEqual(two.map((r) => [r.kind, r.from]), [['swap', A('two')]]);
+  const both = R.handoffs(idx, [A('one'), A('two')], { hub: svcHub, stop: svcLabel });
+  assert.deepEqual(both.map((r) => [r.kind, r.from, r.txid]), [['service', A('one'), tid(2)], ['swap', A('two'), tid(4)]], 'oldest first, each from its own start');
+  assert.deepEqual(R.handoffs(idx, [A('one'), A('one')], { hub: svcHub, stop: svcLabel }).length, 1, 'a start named twice is followed once');
+});
+
+test('handoffs: a place two starting points both reach is one row, the one with the fewer steps', () => {
+  const g = new Graph();
+  g.addTx(esplora(1, 1000, [[90, 0, 'one', 900]], [['m', 800]]));                                      // start one -> m -> tx 2 -> service
+  g.addTx(esplora(2, 2000, [[1, 0, 'm', 800]], [['svc', 700]]));
+  g.addTx(esplora(3, 1500, [[91, 0, 'two', 900]], [['m3', 800]]));                                     // start two -> m3 -> tx 4 -> m -> tx 2 -> service (one step more)
+  g.addTx(esplora(4, 1800, [[3, 0, 'm3', 800]], [['m', 700]]));
+  g.addOutspends(tid(1), [{ spent: true, txid: tid(2), vin: 0, status: { confirmed: true, block_time: 2000 } }]);
+  g.addOutspends(tid(3), [{ spent: true, txid: tid(4), vin: 0, status: { confirmed: true, block_time: 1800 } }]);
+  g.addOutspends(tid(4), [{ spent: true, txid: tid(2), vin: 0, status: { confirmed: true, block_time: 2000 } }]);
+  g.addOutspends(tid(2), [{ spent: false }]);
+  const rows = R.handoffs(R.index(g), [A('two'), A('one')], { hub: svcHub, stop: svcLabel });
+  assert.equal(rows.length, 1); assert.equal(rows[0].from, A('one'), 'start one is nearer (2 steps, not 4)'); assert.equal(rows[0].depth, 2);
+});
+
+test('startsOf: the one picked, else every starting point of the trace that is loaded, else the reference', () => {
+  const g = twoStarts(), view = (o) => Object.assign({ trace: { seeds: [A('one'), A('two'), 'addr:not-loaded', A('one')] } }, o);
+  assert.deepEqual(R.startsOf(g, view(), []), [A('one'), A('two')], 'every start, once, and none that is not in the graph');
+  assert.deepEqual(R.startsOf(g, view({ routeRef: A('two') }), []), [A('two')], 'a pick is honoured');
+  assert.deepEqual(R.startsOf(g, { trace: { seeds: [] } }, [A('m1')]), [A('m1')], 'with no trace, the reference rules: the one selected vertex');
+  assert.deepEqual(R.startsOf(g, {}, []), []);
+});
+
+test('trace: the hand-offs run from every start passed, the open ends from the reference only', () => {
+  const g = twoStarts(), idx = R.index(g);
+  const t = R.trace(idx, A('one'), { starts: [A('one'), A('two')], hub: svcHub, name: svcLabel });
+  assert.equal(t.reference, A('one')); assert.deepEqual(t.handoffs.map((r) => r.from), [A('one'), A('two')]);
+  assert.deepEqual(R.trace(idx, A('one'), { hub: svcHub, name: svcLabel }).handoffs.map((r) => r.from), [A('one')], 'without starts it is the reference alone, as before');
+});

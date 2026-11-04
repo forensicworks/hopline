@@ -220,7 +220,7 @@ test('trace and handoffs: a wallet a list names that is not a service is a row o
   const t = run(['trace', FILE, '--ref', a('origin'), '--known', list, '--compact']).json();
   assert.deepEqual(t.handoffs.map((r) => [r.kind, r.dir, r.service, r.txid]), [['named', 'deposit', 'Ransomware: Acme', tid(11)], ['service', 'deposit', 'Binance Hot Wallet', tid(12)]]);
   const c = run(['handoffs', FILE, '--ref', a('origin'), '--known', list, '--csv']).out.split('\r\n');
-  assert.ok(c[1].endsWith(',named') && c[2].endsWith(',service'), c.slice(1, 3).join(' | '));
+  assert.ok(/,named,,\S+$/.test(c[1]) && /,service,,\S+$/.test(c[2]), c.slice(1, 3).join(' | '));        // then the swap memo (empty here) and the starting point the row comes from
   assert.deepEqual(run(['handoffs', FILE, '--ref', a('origin')]).json().map((r) => r.kind), ['service'], 'with the built-in list alone there is only the exchange');
 });
 

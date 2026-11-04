@@ -229,11 +229,12 @@ def test_a_route_that_only_exists_across_a_service_wallet_says_so_everywhere(tpa
 
 # ---- service hand-offs ----------------------------------------------------------------------------------------------------
 def test_the_service_hand_offs_are_listed_downloaded_and_open_the_route(tpage, mock, tmp_path):
-    trace_case(tpage, mock)
+    trace_case(tpage, mock)                                                      # three starting points: tx 3, tx 5 and tx 6; the hand-offs run from each of them
     chip = tpage.inner_text("#findStrip [data-key=handoff]")
-    assert chip.startswith("Service hand-offs") and chip.endswith("1"), chip
+    assert chip.startswith("Service hand-offs") and chip.endswith("2"), chip
     tpage.click("#findStrip [data-key=handoff]"); settle(tpage)
-    row = tpage.locator("#anFindings [data-handoff=withdrawal]")
+    assert tpage.locator("#anFindings [data-handoff=withdrawal]:has-text('Other wallet')").count() == 1, "tx 6 is a start of its own, and its funder is a service"
+    row = tpage.locator("#anFindings [data-handoff=withdrawal]:has-text('Test exchange')")
     text = row.inner_text()
     assert "Test exchange" in text and "withdrawal" in text and "tx 01010" in text and "0.00000900 BTC" in text, text
     assert "candidate for the customer" in tpage.inner_text("#anFindings")
@@ -244,6 +245,8 @@ def test_the_service_hand_offs_are_listed_downloaded_and_open_the_route(tpage, m
     lines = p.read_text(encoding="utf-8-sig").splitlines()
     assert lines[0].startswith("direction,service,service_wallet,txid,")
     assert lines[1].startswith("withdrawal,Test exchange," + EX + "," + tid(1) + ","), lines[1]
+    assert lines[1].split(",")[-1] == tid(3), "the start column says which starting point the row comes from: " + lines[1]
+    assert any(l.startswith("withdrawal,Other wallet,") and l.split(",")[-1] == tid(6) for l in lines), lines
     shot(tpage, "handoffs.png")
     row.locator(".linkrow").click(); idle(tpage); settle(tpage)
     c = lit(tpage)
@@ -256,7 +259,7 @@ RANSOM = {"address": Q2, "label": "Ransomware: Acme", "category": "ransomware"}
 def test_a_wallet_a_list_names_that_is_not_a_service_is_a_hand_off_marked_named(tpage, mock, tmp_path):
     trace_case(tpage, mock, [RANSOM])
     chip = tpage.inner_text("#findStrip [data-key=handoff]")
-    assert chip.startswith("Hand-offs") and not chip.startswith("Service") and chip.endswith("2"), chip
+    assert chip.startswith("Hand-offs") and not chip.startswith("Service") and chip.endswith("3"), chip
     tpage.click("#findStrip [data-key=handoff]"); settle(tpage)
     text = tpage.inner_text("#anFindings")
     assert "hand-offs" in text.lower() and "a wallet that a list names" in text, text
@@ -264,15 +267,15 @@ def test_a_wallet_a_list_names_that_is_not_a_service_is_a_hand_off_marked_named(
     assert named.count() == 1, "one row for the listed wallet"
     t = named.inner_text()
     assert "Ransomware: Acme" in t and "named wallet" in t and "went into it" in t and "0.00000100 BTC" in t, t
-    service = tpage.locator("#anFindings [data-handoff=withdrawal]").inner_text()
+    service = tpage.locator("#anFindings [data-handoff=withdrawal]:has-text('Test exchange')").inner_text()
     assert "Test exchange" in service and "withdrawal" in service and "named wallet" not in service, service
     with tpage.expect_download() as dl:
         tpage.click("#anFindings button:has-text('Download CSV')")
     p = tmp_path / "handoffs.csv"
     dl.value.save_as(p)
     lines = p.read_text(encoding="utf-8-sig").splitlines()
-    assert lines[0].endswith(",kind") and any(l.startswith("deposit,Ransomware: Acme,") and l.endswith(",named") for l in lines), lines
-    assert any(l.startswith("withdrawal,Test exchange,") and l.endswith(",service") for l in lines), lines
+    assert lines[0].endswith(",kind,swap_memo,start") and any(l.startswith("deposit,Ransomware: Acme,") and l.split(",")[-3] == "named" for l in lines), lines
+    assert any(l.startswith("withdrawal,Test exchange,") and l.split(",")[-3] == "service" for l in lines), lines
     shot(tpage, "handoffs_named.png")
     named.locator(".linkrow").click(); idle(tpage); settle(tpage)
     c = lit(tpage)
@@ -537,8 +540,8 @@ def test_a_chip_says_how_much_is_loaded_but_not_on_screen_and_the_section_lists_
     text = tpage.inner_text("#anFindings")
     assert "vertices loaded are not on screen" in text and "The findings below are over everything loaded" in text
     assert tpage.locator("#anFindings [data-offscreen=known]").count() == 2, "both named wallets are off screen"
-    assert tpage.locator("#anFindings [data-offscreen=handoff]").count() == 1
-    assert "Test exchange" in tpage.locator("#anFindings [data-offscreen=handoff]").inner_text()
+    assert tpage.locator("#anFindings [data-offscreen=handoff]").count() == 2, "the service of the first start and the one of tx 6"
+    assert "Test exchange" in tpage.locator("#anFindings [data-offscreen=handoff]").first.inner_text()
     shot(tpage, "offscreen.png")
 
 
@@ -546,10 +549,11 @@ def test_a_row_in_it_brings_its_vertices_into_view_and_the_row_goes(tpage, mock)
     trace_case(tpage, mock)
     before = more_loaded(tpage)
     tpage.click("#findStrip [data-key=offscreen]"); settle(tpage)
-    tpage.locator("#anFindings [data-offscreen=handoff]").click(); idle(tpage); settle(tpage)
+    tpage.locator("#anFindings [data-offscreen=handoff]:has-text('Test exchange')").click(); idle(tpage); settle(tpage)
     assert "addr:" + EX in shown(tpage) and lit(tpage), "the route to the service wallet was shown"
     assert more_loaded(tpage) < before
-    assert tpage.locator("#anFindings [data-offscreen=handoff]").count() == 0, "it is on screen now"
+    assert tpage.locator("#anFindings [data-offscreen=handoff]:has-text('Test exchange')").count() == 0, "it is on screen now"
+    assert tpage.locator("#anFindings [data-offscreen=handoff]:has-text('Other wallet')").count() == 1, "the one of tx 6 is still off screen"
     assert tpage.locator("#anFindings [data-offscreen=known]").count() == 1, "only the other named wallet is still off screen"
     chip = tpage.inner_text("#findStrip [data-key=offscreen]")
     assert int(re.search(r"(\d+)$", chip).group(1)) == more_loaded(tpage)
