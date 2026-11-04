@@ -69,6 +69,20 @@
     return sel.length === 1 ? sel[0] : null;
   }
 
+  /**
+   * The starting points the hand-offs run from: the one picked (view.routeRef), else every starting point of the trace that is in the graph (view.trace.seeds), else the
+   * reference (referenceOf). A list of vertex ids, empty when there is none.
+   */
+  function startsOf(graph, view, selected) {
+    view = view || {};
+    function ok(id) { return typeof id === 'string' && /^(tx|addr):/.test(id) && graph.nodes.has(id); }
+    if (ok(view.routeRef)) return [view.routeRef];
+    var seeds = ((view.trace && view.trace.seeds) || []).filter(function (id, i, all) { return ok(id) && all.indexOf(id) === i; });
+    if (seeds.length) return seeds;
+    var one = referenceOf(graph, view, selected);
+    return one ? [one] : [];
+  }
+
   // ---- the coins of the graph ----------------------------------------------------------------------
   /**
    * The graph as coins moving between transactions. `succ` / `pred` hold, for each transaction, the links to the transactions
@@ -322,24 +336,47 @@
    *     time, amount (sats), outputs, wallet (the wallet that held the coin just before a deposit, a deposit address candidate, or just after a withdrawal: the
    *     customer's wallet candidate), walletAddress, depth, nIn, nOut, merges }
    * The reference's own coins are followed only as far as the loaded transactions go, so a missing row only means none was found there.
+   * With several starting points (`refIds` an array) each is followed on its own and every row says which one it comes from (`from`, a vertex id); a place that two of them
+   * reach is one row, the one with the fewer steps. Another starting point on the trail is a place like any other.
    */
   function handoffs(idx, refIds, opts) {
     opts = opts || {};
     if (!opts.hub) return [];
+    var refs = Array.isArray(refIds) ? refIds.filter(function (id, i) { return refIds.indexOf(id) === i; }) : [refIds], all = [];
+    refs.forEach(function (ref) { handoffsFrom(idx, ref, opts).forEach(function (r) { r.from = ref; all.push(r); }); });
+    // A place two starting points both reach is one row: the one with the fewer steps (the first start on a tie).
+    var best = new Map(), rows = [];
+    all.forEach(function (r) {
+      var key = (r.kind === 'swap' ? '' : r.id) + '|' + r.txid + '|' + r.dir + '|' + (r.kind === 'swap' ? 'swap' : 'wallet'), b = best.get(key);
+      if (!b) { best.set(key, r); rows.push(r); } else if (r.depth < b.depth) { rows[rows.indexOf(b)] = r; best.set(key, r); }
+    });
+    // One transaction is one place: when it is a hand-off to a service (or a named wallet) and also carries a swap memo or a request ID, the memo is noted on that row (memo, memoText) and has no row of its own.
+    var served = new Map();
+    rows.forEach(function (r) { if (r.kind !== 'swap') served.set(r.txid + '|' + r.dir, r); });
+    rows = rows.filter(function (r) {
+      var s = r.kind === 'swap' ? served.get(r.txid + '|' + r.dir) : null;
+      if (s) { s.memo = r.memo; s.memoText = r.memoText; return false; }
+      return true;
+    });
+    rows.sort(function (a, b) { return (a.time == null ? 1e18 : a.time) - (b.time == null ? 1e18 : b.time) || a.depth - b.depth || (a.txid < b.txid ? -1 : 1); });
+    return rows;
+  }
+  /** The hand-offs of the trail from one starting point (`ref`), which is where that trail starts and not a place it meets. Rows before they are merged: see handoffs. */
+  function handoffsFrom(idx, ref, opts) {
+    var refs = [ref];
     var rows = [], graph = idx.graph, hub = opts.hub, name = opts.stop;
     var services = name ? function (id) { return hub(id) ? name(id) : null; } : null;
-    var refs = Array.isArray(refIds) ? refIds : [refIds];
-    var listed = opts.listed ? function (id) { return refs.indexOf(id) >= 0 ? null : opts.listed(id); } : null;       // the reference is where the trail starts, not a place it meets
+    var listed = opts.listed ? function (id) { return refs.indexOf(id) >= 0 ? null : opts.listed(id); } : null;       // a starting point is where a trail starts, not a place it meets
     [['next', 'deposit'], ['prev', 'withdrawal']].forEach(function (d) {
       var visit = d[0] !== 'next' ? null : function (t, depth, node, wallet) {
         if (refs.indexOf(t) >= 0) return;
         var m = AN.swapOf(AN.txView(graph, t));
         if (!m) return;
         var w = wallet ? graph.nodes.get(wallet) : null;
-        rows.push({ kind: 'swap', dir: 'deposit', service: AN.swapLabel(m), id: t, address: null, txid: t.slice(3), time: node.time == null ? null : node.time, amount: null, outputs: 0, wallet: wallet, walletAddress: w && w.address ? w.address : null,
+        rows.push({ kind: 'swap', dir: 'deposit', service: AN.swapLabel(m), memoText: AN.swapLabel(m), id: t, address: null, txid: t.slice(3), time: node.time == null ? null : node.time, amount: null, outputs: 0, wallet: wallet, walletAddress: w && w.address ? w.address : null,
                     depth: depth, nIn: node.nIn == null ? null : node.nIn, nOut: node.nOut == null ? null : node.nOut, merges: node.nIn != null && node.nIn >= MERGE_INPUTS, memo: m });
       };
-      var oe = openEnds(idx, refIds, d[0], { stop: services, pass: listed, max: opts.max, visit: visit }), by = new Map();
+      var oe = openEnds(idx, [ref], d[0], { stop: services, pass: listed, max: opts.max, visit: visit }), by = new Map();
       oe.named.forEach(function (n) {
         var key = n.txid + '|' + n.id, r = by.get(key);
         if (!r) {
@@ -351,7 +388,6 @@
         r.amount += n.amount || 0; r.outputs++;
       });
     });
-    rows.sort(function (a, b) { return (a.time == null ? 1e18 : a.time) - (b.time == null ? 1e18 : b.time) || a.depth - b.depth || (a.txid < b.txid ? -1 : 1); });
     return rows;
   }
 
@@ -521,12 +557,12 @@
   /**
    * How far the trail from the reference got, as plain data for a report, the evidence summary and the command-line tool:
    *   { reference, handoffs: [...as handoffs()], openEnds: { next, prev } } where each side is { count, sats, unchecked, notLoaded, resting, named: [{ label, count, sats }], rows: [first 20] }.
-   * opts: { hub, name(vertexId) -> a name (for the hand-offs: always), listed(vertexId) -> a list's name for a wallet that is not a service (more hand-offs), stop(vertexId) -> a name or null (for the open ends: the stop-at-labelled setting), max, has(vertexId) }.
+   * opts: { starts (vertex ids: the hand-offs run from each of them, the open ends from the reference only), hub, name(vertexId) -> a name (for the hand-offs: always), listed(vertexId) -> a list's name for a wallet that is not a service (more hand-offs), stop(vertexId) -> a name or null (for the open ends: the stop-at-labelled setting), max, has(vertexId) }.
    * With `has`, only what that says is shown is kept (the report: nothing outside what is on screen comes in through here), and counts are of what is kept.
    */
   function trace(idx, refId, opts) {
     opts = opts || {};
-    var has = opts.has, rows = handoffs(idx, refId, { hub: opts.hub, stop: opts.name, listed: opts.listed, max: opts.max });
+    var has = opts.has, rows = handoffs(idx, opts.starts && opts.starts.length ? opts.starts : refId, { hub: opts.hub, stop: opts.name, listed: opts.listed, max: opts.max });
     if (has) {
       rows = rows.filter(function (r) { return has(ID.tx(r.txid)) && has(r.id); }).map(function (r) {
         return r.wallet && !has(r.wallet) ? Object.assign({}, r, { wallet: null, walletAddress: null }) : r;
@@ -536,6 +572,6 @@
              openEnds: { next: endsSummary(openEnds(idx, refId, 'next', { stop: opts.stop, max: opts.max }), has), prev: endsSummary(openEnds(idx, refId, 'prev', { stop: opts.stop, max: opts.max }), has) } };
   }
 
-  return { MAX_TXS: MAX_TXS, MERGE_INPUTS: MERGE_INPUTS, isHub: isHub, nameOf: nameOf, listedName: listedName, referenceOf: referenceOf, index: index, find: find, findMany: findMany, relations: relations, openEnds: openEnds,
+  return { MAX_TXS: MAX_TXS, MERGE_INPUTS: MERGE_INPUTS, isHub: isHub, nameOf: nameOf, listedName: listedName, referenceOf: referenceOf, startsOf: startsOf, index: index, find: find, findMany: findMany, relations: relations, openEnds: openEnds,
            handoffs: handoffs, endsSuccessors: endsSuccessors, pickEnds: pickEnds, timeWindow: timeWindow, endRank: endRank, connect: connect, trace: trace, offscreen: offscreen };
 }));

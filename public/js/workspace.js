@@ -3631,6 +3631,8 @@
 
   /** What the other wallets are related to: the one chosen in the Findings, else the first starting point of the trace, else a wallet tagged THREAT, else the one vertex selected. */
   function routeRefId() { return RT.referenceOf(state.graph, { routeRef: state.routeRef, trace: { seeds: state.trace.seeds } }, Array.from(state.selected)); }
+  /** The starting points the hand-offs run from: the one chosen in the Findings, else every starting point of the trace, else the reference (HoplineRoute.startsOf). */
+  function routeStarts() { return RT.startsOf(state.graph, { routeRef: state.routeRef, trace: { seeds: state.trace.seeds } }, Array.from(state.selected)); }
   /** The vertices offered as the reference: the starting points, the tagged ones, the wallets with a name (your label or a list's), the selected one. */
   function routeCandidates(ref) {
     var g = state.graph, out = [], seen = new Set();
@@ -3649,9 +3651,9 @@
     return out;
   }
   function routeData() {
-    var an = analysis(), ref = routeRefId(), key = ref + '|' + state.auto.stopLabel;
+    var an = analysis(), ref = routeRefId(), starts = routeStarts(), key = ref + '|' + state.auto.stopLabel + '|' + starts.join(',');
     if (rd.an !== an || rd.graph !== state.graph) { rd.an = an; rd.graph = state.graph; rd.idx = state.graph.nodes.size ? RT.index(state.graph) : null; rd.key = ''; }
-    if (rd.key !== key) { rd.key = key; rd.ref = ref; rd.ends = {}; rd.handoffs = null; }
+    if (rd.key !== key) { rd.key = key; rd.ref = ref; rd.starts = starts; rd.ends = {}; rd.handoffs = null; }
     return rd;
   }
   /** What the route part of the Findings depends on besides the analysis: the reference, the stop rule, the direction of the open ends, the route that is lit. */
@@ -3855,7 +3857,7 @@
   function routeHandoffs() {
     var d = routeData();
     if (!d.ref || !d.idx) return [];
-    if (!d.handoffs) d.handoffs = RT.handoffs(d.idx, d.ref, { hub: routeHub, stop: stopName, listed: routeListed });
+    if (!d.handoffs) d.handoffs = RT.handoffs(d.idx, d.starts && d.starts.length ? d.starts : d.ref, { hub: routeHub, stop: stopName, listed: routeListed });
     return d.handoffs;
   }
   /** Whether a hand-off row is a wallet a list names that is not a service (a sanctions or ransomware entry). */
@@ -3864,6 +3866,8 @@
   function handoffWord(rows) { return rows.some(handoffNamed) || rows.some(handoffSwap) ? 'hand-off' : 'service hand-off'; }
   /** The money's direction in words: a deposit or a withdrawal for a service, going into or coming out of the wallet for a named one. */
   function handoffSwap(r) { return r.kind === 'swap'; }
+  /** Where the trails of the hand-offs start, in words: one name, or the number of starting points. */
+  function startsText(d) { return d.starts && d.starts.length > 1 ? 'the ' + d.starts.length + ' starting points (' + d.starts.map(routeName).join(', ') + ')' : routeName(d.ref); }
   function handoffDir(r, short) {
     if (handoffSwap(r)) return short ? 'swap memo' : 'into a swap to another chain';
     if (handoffNamed(r)) return r.dir === 'deposit' ? (short ? 'went into it' : 'into the wallet') : (short ? 'came out of it' : 'out of the wallet');
@@ -3871,10 +3875,10 @@
   }
   function handoffText(rows) {
     var named = rows.some(handoffNamed);
-    var head = ['direction', named ? 'name' : 'service', named ? 'wallet' : 'service wallet', 'transaction', 'time (UTC)', 'amount (BTC)', 'wallet before a deposit / after a withdrawal', 'transactions from the reference'];
+    var head = ['direction', named ? 'name' : 'service', named ? 'wallet' : 'service wallet', 'transaction', 'time (UTC)', 'amount (BTC)', 'wallet before a deposit / after a withdrawal', 'transactions from the reference', 'swap memo', 'start'];
     if (named) head.splice(1, 0, 'kind');
     return [head.join('\t')].concat(rows.map(function (r) {
-      var cells = [handoffDir(r), r.service, r.address || '', r.txid, r.time != null ? S.fmtTimeFull(r.time) : '', S.fmtBtc(r.amount), r.walletAddress || '', r.depth];
+      var cells = [handoffDir(r), r.service, r.address || '', r.txid, r.time != null ? S.fmtTimeFull(r.time) : '', S.fmtBtc(r.amount), r.walletAddress || '', r.depth, r.memoText || '', r.from ? r.from.replace(/^(addr|tx):/, '') : ''];
       if (named) cells.splice(1, 0, handoffNamed(r) ? 'named by a list' : handoffSwap(r) ? 'swap memo' : 'service');
       return cells.join('\t');
     })).join(NL);
@@ -3885,14 +3889,14 @@
     if (!rows.length) return;
     var swaps = rows.some(handoffSwap), named = rows.some(handoffNamed);
     box.appendChild(h.head(named || swaps ? 'Hand-offs' : 'Service hand-offs', 'handoff'));
-    box.appendChild(el('p', { 'class': 'hint', text: 'Where the trail from ' + routeName(d.ref) + ' meets ' + (named ? 'a wallet that a list names, oldest first: a service wallet (money going into it is a deposit, coming out of it a withdrawal), or a wallet on a sanctions or ransomware list that the trail passes through.'
+    box.appendChild(el('p', { 'class': 'hint', text: 'Where the trail from ' + startsText(d) + ' meets ' + (named ? 'a wallet that a list names, oldest first: a service wallet (money going into it is a deposit, coming out of it a withdrawal), or a wallet on a sanctions or ransomware list that the trail passes through.'
       : 'a service wallet, oldest first: money going into one (a deposit) or coming out of one (a withdrawal).') + (swaps ? ' A row marked swap memo is a transaction whose OP_RETURN asks for a swap into another chain or carries a cross-chain request ID: money went into a swap or a transfer there, and a swap memo says where it is to be paid out (a lead to follow on that chain).' : '') }));
     rows.slice(0, 12).forEach(function (r) {
-      var deposit = r.dir === 'deposit', nm = handoffNamed(r), sw = handoffSwap(r);
+      var deposit = r.dir === 'deposit', nm = handoffNamed(r), sw = handoffSwap(r), many = d.starts && d.starts.length > 1, from = r.from || d.ref;
       var left = el('span', { 'class': 'rowtext' }, [(deposit ? '▶ ' : '◀ ') + r.service,
-        el('small', { text: (nm ? 'named wallet · ' : '') + handoffDir(r, true) + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') + (r.walletAddress ? ' · ' + (deposit ? 'from ' : 'to ') + S.shortId(r.walletAddress, 8) : '') + (r.merges ? ' · merges inputs' : '') })]);
+        el('small', { text: (nm ? 'named wallet · ' : '') + handoffDir(r, true) + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') + (r.walletAddress ? ' · ' + (deposit ? 'from ' : 'to ') + S.shortId(r.walletAddress, 8) : '') + (r.merges ? ' · merges inputs' : '') + (r.memoText && !sw ? ' · ' + r.memoText : '') + (many ? ' · start ' + routeName(r.from) : '') })]);
       var b = h.row(left, sw ? '' : S.fmtBtc(r.amount) + ' BTC', 'Show the route ' + (deposit ? 'from the reference to this ' : 'from this ') + (sw ? 'transaction' : nm ? 'wallet' : 'service wallet') + (deposit ? '' : ' to the reference'), function () {
-        if (deposit) showRoute(d.ref, r.id); else showRoute(r.id, d.ref);
+        if (deposit) showRoute(from, r.id); else showRoute(r.id, from);
       }, r.txid, 'transaction id', [r.id, ID.tx(r.txid)], '#f2c94c');
       b.setAttribute('data-handoff', r.dir);
       if (nm) b.setAttribute('data-named', '1');
@@ -4019,7 +4023,7 @@
   function routeTraceData(has) {
     var d = routeData();
     if (!d.ref || !d.idx) return null;
-    var t = RT.trace(d.idx, d.ref, { hub: routeHub, name: stopName, listed: routeListed, stop: state.auto.stopLabel ? stopName : null, has: has });
+    var t = RT.trace(d.idx, d.ref, { starts: d.starts, hub: routeHub, name: stopName, listed: routeListed, stop: state.auto.stopLabel ? stopName : null, has: has });
     t.referenceName = routeName(d.ref);
     return t;
   }
@@ -4071,7 +4075,7 @@
     oc.handoffs.slice(0, 5).forEach(function (r) {
       var deposit = r.dir === 'deposit';
       var b = h.row(el('span', { 'class': 'rowtext' }, [(deposit ? '▶ ' : '◀ ') + r.service, el('small', { text: handoffDir(r, true) + ' · tx ' + S.shortId(r.txid, 5) + (r.time != null ? ' · ' + S.fmtTime(r.time) : '') })]),
-        S.fmtBtc(r.amount) + ' BTC', 'Show the route to it: what is not on screen is added', function () { if (deposit) showRoute(d.ref, r.id); else showRoute(r.id, d.ref); });
+        S.fmtBtc(r.amount) + ' BTC', 'Show the route to it: what is not on screen is added', function () { var from = r.from || d.ref; if (deposit) showRoute(from, r.id); else showRoute(r.id, from); });
       b.setAttribute('data-offscreen', 'handoff'); box.appendChild(b);
     });
     if (oc.handoffs.length > 5) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (oc.handoffs.length - 5) + ' more under ' + (oc.handoffs.some(handoffNamed) ? 'Hand-offs' : 'Service hand-offs') }));
@@ -4506,7 +4510,7 @@
     add('known', 'Known wallets', known, '#f2c94c', 'known wallets', plural(known.length, 'wallet') + ' on the built-in list or a label list (a name is a claim, not proof). Click to select them.');
     var ho = routeHandoffs();
     if (ho.length) out.push({ key: 'handoff', text: ho.some(handoffNamed) ? 'Hand-offs' : 'Service hand-offs', count: ho.length, ids: [], color: '#f2c94c', bad: false, what: 'hand-offs',
-                              title: plural(ho.length, 'place') + ' where the trail from ' + routeName(routeRefId()) + ' meets ' + (ho.some(handoffNamed) ? 'a service wallet (an exchange, for example) or a wallet a sanctions or ransomware list names' : 'a service wallet (an exchange, for example)') + '. Click to list them.' });
+                              title: plural(ho.length, 'place') + ' where the trail from ' + startsText(routeData()) + ' meets ' + (ho.some(handoffNamed) ? 'a service wallet (an exchange, for example) or a wallet a sanctions or ransomware list names' : 'a service wallet (an exchange, for example)') + '. Click to list them.' });
     var oe = routeEnds('next');
     var oc = offscreenInfo();
     if (offscreenSignificant(oc)) out.push({ key: 'offscreen', text: 'Not on screen', count: oc.left, ids: [], color: '#9aa3ad', bad: false, what: 'vertices not on screen',
@@ -4519,7 +4523,7 @@
   function updateFindStrip() {
     var box = $('findStrip'), chips = state.graph.nodes.size ? findingChips() : [];
     lastChips = chips;
-    var sig = chips.map(function (c) { return c.key + ':' + c.count; }).join('|');
+    var sig = chips.map(function (c) { return c.key + ':' + c.count; }).join('|') + '#' + routeData().key;                // a chip's title names the starting points: another start, the same count, is a new title
     var total = 0; chips.forEach(function (c) { if (c.key !== 'known' && c.key !== 'open' && c.key !== 'handoff' && c.key !== 'offscreen') total += c.count; });
     $('anCount').textContent = total ? '(' + total + ')' : ''; $('findCount').textContent = total ? '(' + total + ')' : '';
     var was = state.findTotal, forced = state.findForce; state.findTotal = total; if (!chips.length) state.findForce = false;
