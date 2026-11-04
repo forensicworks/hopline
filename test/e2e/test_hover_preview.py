@@ -181,3 +181,23 @@ def test_the_choice_is_remembered_and_it_is_on_for_a_new_visitor(fpage, mock):
     assert json.loads(fpage.evaluate("() => localStorage.getItem('hopline.prefs.v1')"))["hoverPreview"] is False
     fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
     assert fpage.evaluate("() => window.__hopline.state.hoverPreview") is False and not fpage.is_checked("#hoverPreview")
+
+
+def handle_brightness(page, id_, dir_):
+    """The brightness (R+G+B) of a handle pill at its left end, where there is no text; None when the vertex has no such handle."""
+    return page.evaluate("""([id, dir]) => { const r = window.__hopline.renderer, h = r.handleRects.find((q) => q.id === id && q.dir === dir); if (!h) return null;
+        const c = r.canvas, k = c.width / c.clientWidth, d = c.getContext('2d').getImageData(Math.round((h.x + 5) * k), Math.round((h.y + h.h / 2) * k), 1, 1).data; return d[0] + d[1] + d[2]; }""", [id_, dir_])
+
+
+def test_the_handles_of_what_fades_fade_with_it_and_those_of_the_finding_do_not(tpage, mock):
+    consolidation(mock)
+    open_query(tpage, tid(30)); open_query(tpage, NORMAL["txid"]); settle(tpage)
+    far0, mine0 = handle_brightness(tpage, NORMAL_ID, "left"), handle_brightness(tpage, CONSOL, "left")
+    assert far0 and mine0 and far0 > 300 and mine0 > 300, "both transactions have a light handle on the left: %s %s" % (far0, mine0)
+    tpage.hover("#findStrip [data-key=consolidation]")
+    wait_preview(tpage)
+    far, mine = handle_brightness(tpage, NORMAL_ID, "left"), handle_brightness(tpage, CONSOL, "left")
+    assert far < far0 * 0.6, "the handle of a vertex that fades fades with it (%s -> %s)" % (far0, far)
+    assert abs(mine - mine0) < 15, "the handle of the finding's own vertex stays as it is (%s -> %s)" % (mine0, mine)
+    tpage.mouse.move(5, 5); wait_preview(tpage, on=False)
+    assert abs(handle_brightness(tpage, NORMAL_ID, "left") - far0) < 15, "and it comes back"
