@@ -657,9 +657,10 @@
       }
       if (d.handles) {
         var hd = d.handles(id);
-        if (hd) {
-          if (hd.left) pills.push({ id: id, dir: 'left', x: P.x - r - 8, y: P.y, label: hd.left.label, tip: hd.left.tip, strong: hd.left.known > 0 });
-          if (hd.right) pills.push({ id: id, dir: 'right', x: P.x + r + 8, y: P.y, label: hd.right.label, tip: hd.right.tip, strong: hd.right.known > 0 });
+        if (hd) {                                                          // a handle fades with its vertex (a click on it still works)
+          var fade = dimmed ? (preview ? 0.3 : 0.15) : 1;
+          if (hd.left) pills.push({ id: id, dir: 'left', x: P.x - r - 8, y: P.y, label: hd.left.label, tip: hd.left.tip, strong: hd.left.known > 0, alpha: fade });
+          if (hd.right) pills.push({ id: id, dir: 'right', x: P.x + r + 8, y: P.y, label: hd.right.label, tip: hd.right.tip, strong: hd.right.known > 0, alpha: fade });
         }
       }
       var text = null;
@@ -732,6 +733,7 @@
         var text = p.dir === 'left' ? '◀ ' + p.label : p.label + ' ▶', w = Math.max(30, ctx.measureText(text).width + 12), h = 18;
         var x = p.dir === 'left' ? p.x - w : p.x, y = p.y - h / 2;
         if (x > self.w + 40 || x + w < -40 || y > self.h + 40 || y + h < -40) return;
+        ctx.globalAlpha = p.alpha;
         ctx.beginPath();
         if (ctx.roundRect) ctx.roundRect(x, y, w, h, 9); else ctx.rect(x, y, w, h);
         ctx.fillStyle = p.strong ? th.accent : 'rgba(28,20,29,0.92)'; ctx.fill();
@@ -739,7 +741,7 @@
         ctx.fillStyle = p.strong ? '#0e0f0e' : th.accent; ctx.fillText(text, x + w / 2, y + h / 2 + 0.5);
         self.handleRects.push({ id: p.id, dir: p.dir, x: x, y: y, w: w, h: h, tip: p.tip });
       });
-      ctx.textBaseline = 'alphabetic';
+      ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic';
     }
     if (this.beacon) this._drawBeacon();
     if (d.axis) this._drawAxisReadout(d, s);
