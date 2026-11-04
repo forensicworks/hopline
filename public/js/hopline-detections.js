@@ -19,7 +19,7 @@
   'use strict';
 
   var KINDS = ['peel', 'consolidation', 'batch', 'coinjoin', 'round', 'swap'];
-  var ORDER = { coinjoin: 0, consolidation: 1, batch: 2, peel: 3, round: 4, swap: 5 };
+  var ORDER = { coinjoin: 0, consolidation: 1, batch: 2, peel: 3, round: 4, swap: -1 };                 // a swap memo comes first, as its badge does
 
   function plainSats(n) { return n + ' sats'; }
 

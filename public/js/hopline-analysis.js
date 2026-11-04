@@ -29,7 +29,7 @@
     peel: { maxRatio: 0.5, minLength: 4, minSmall: 1000 } // one input, two outputs, the small one at most half the large and not dust (satoshis); this many in a row
   };
 
-  var COLORS = { consolidation: '#b58cff', batch: '#6be675', coinjoin: '#ff7aa2', peel: '#ffb347', change: '#ff9f43', round: '#2ec4b6', swap: '#7aa2ff' };
+  var COLORS = { consolidation: '#b58cff', batch: '#6be675', coinjoin: '#ff7aa2', peel: '#ffb347', change: '#ff9f43', round: '#2ec4b6', swap: '#d98a3d' };                // swap is the colour of the SWAP tag too
   var CONFIDENCE = { low: 1, medium: 2, high: 3 };
   // one colour per peel chain, picked from the chain's own start so it stays the same whatever else is loaded
   var CHAIN_COLORS = ['#ffb347', '#4dd0e1', '#f48fb1', '#c5e1a5', '#ce93d8', '#fff176', '#90caf9', '#ff8a65'];
@@ -241,7 +241,7 @@
                    title: 'Batch payment: ' + nIn + ' input' + (nIn === 1 ? '' : 's') + ' paying ' + outs.length + ' outputs. Typical of an exchange or service paying many people at once.' });
     }
     if (!flags.length) { var rnd = roundFlag(v, opts); if (rnd) flags.push(rnd); }
-    var swp = swapFlag(v); if (swp) flags.push(swp);                                        // a memo is said outright, so it goes with whatever shape the transaction has
+    var swp = swapFlag(v); if (swp) flags.unshift(swp);                                     // a memo is said outright, so it goes with whatever shape the transaction has, and first: it gets the badge text where two would not fit
     return flags;
   }
 

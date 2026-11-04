@@ -163,3 +163,57 @@ def test_the_hand_offs_name_a_request_id_as_a_cross_chain_request(tpage, mock):
     tpage.click("#findStrip [data-key=handoff]"); settle(tpage)
     row = tpage.locator("#anFindings [data-handoff=deposit][data-swap]")
     assert row.count() == 1 and "Cross-chain request: ID 0xabababab…ababab" in row.inner_text()
+
+
+def halves(page, id_):
+    """The canvas colour a few pixels up and to the left of a vertex's centre, and the same distance down and to the right: the two halves of a transaction."""
+    return page.evaluate("""(id) => { const r = window.__hopline.renderer, p = r.positionOf(id), v = r.view, c = r.canvas, k = c.width / c.clientWidth, ctx = c.getContext('2d');
+        const at = (dx, dy) => Array.from(ctx.getImageData(Math.round((p.x * v.k + v.x + dx) * k), Math.round((p.y * v.k + v.y + dy) * k), 1, 1).data).slice(0, 3);
+        return { upper: at(-3, -3), lower: at(3, 3) }; }""", id_)
+
+
+def orange(rgb):
+    return rgb[0] > rgb[2] + 60 and rgb[0] > 150
+
+
+def blue(rgb):
+    return rgb[2] > rgb[0] + 40
+
+
+def test_a_transaction_with_a_swap_memo_has_its_upper_left_half_in_the_swap_colour_and_a_plain_one_does_not(page, mock):
+    one = swap_tx(mock, 1)
+    open_query(page, tid(1)); open_query(page, NORMAL["txid"])
+    page.evaluate("() => window.__hopline.setSel([])"); settle(page)
+    h = halves(page, one)
+    assert orange(h["upper"]) and blue(h["lower"]), h
+    plain = halves(page, "tx:" + NORMAL["txid"])
+    assert blue(plain["upper"]) and blue(plain["lower"]), plain
+
+
+def test_the_half_follows_the_switches_and_the_legend_says_what_it_is(page, mock):
+    one = swap_tx(mock, 1)
+    open_query(page, tid(1)); page.evaluate("() => window.__hopline.setSel([])"); settle(page)
+    assert orange(halves(page, one)["upper"]) and "orange half" in page.inner_text("#legend")
+    page.uncheck("#anKSwap"); settle(page)
+    assert blue(halves(page, one)["upper"]) and "orange half" not in page.inner_text("#legend"), "SWAP switched off"
+    page.check("#anKSwap"); settle(page)
+    assert orange(halves(page, one)["upper"])
+    page.uncheck("#anFlags"); settle(page)
+    assert blue(halves(page, one)["upper"]) and "orange half" not in page.inner_text("#legend"), "Flag patterns on transactions switched off"
+
+
+def test_a_plain_transaction_has_no_swap_entry_in_the_legend(page, mock):
+    open_query(page, NORMAL["txid"]); settle(page)
+    assert "orange half" not in page.inner_text("#legend")
+
+
+def test_on_a_round_payment_the_swap_badge_gets_the_text_and_the_half_marks_it_whatever_the_badges_do(page, mock):
+    tx(mock, 5, [IN(95, 0, "carl", 150_000_273)], [OUT("vault5", 100_000_000), OUT("back5", 49_999_123), data_out(MEMO)])
+    open_query(page, tid(5))
+    flags_of = flags(page)
+    assert flags_of["tx:" + tid(5)] == ["SWAP → ETH", "ROUND 1 BTC"], "the memo comes first"
+    page.evaluate("(id) => window.__hopline.setSel([id])", "tx:" + tid(5)); settle(page)
+    texts = drawn_texts(page)
+    assert any(t.startswith("SWAP") for t in texts) and not any(t.startswith("ROUND") for t in texts), "the second badge is the dot"
+    page.evaluate("() => window.__hopline.setSel([])"); settle(page)
+    assert orange(halves(page, "tx:" + tid(5))["upper"]), "and the half marks it whatever the badges do"
