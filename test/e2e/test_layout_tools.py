@@ -4,6 +4,7 @@ import pytest
 from chains import consolidation, tid
 from conftest import NORMAL
 from helpers import idle, layout_menu, open_query, settle
+from test_trace import click_handle
 
 
 @pytest.fixture(autouse=True)
@@ -131,19 +132,19 @@ def test_declutter_moves_apart_only_the_vertices_that_touch_and_undo_puts_them_b
     assert close(where(fpage, ids), before) and touching(fpage, a, b), "Ctrl+Z puts them back where they were"
 
 
-def test_declutter_leaves_what_was_dragged_where_it_is_and_says_so_when_nothing_touches(fpage, mock):
+def test_declutter_leaves_what_was_dragged_where_it_is_while_the_other_can_give_way_and_says_so_when_nothing_touches(fpage, mock):
     open_query(fpage, NORMAL["txid"]); fpage.uncheck("#focusOn"); settle(fpage)
     ids = visible(fpage)
     a, b = ids[0], ids[1]
     far = ring(ids)
-    far[b] = [far[a][0] + 6, far[a][1] + 4]
+    far[b] = [far[a][0] - 6, far[a][1] - 4]                                          # b is on the inner side of a: the lines of b run away from a
     place(fpage, far)
     fpage.evaluate("(id) => { const h = window.__hopline, p = h.renderer.cur.get(id); h.state.pinned.set(id, { x: p.x, y: p.y }); }", a)
     before = where(fpage, ids)
     layout_menu(fpage, "#btnDeclutter"); idle(fpage); settle(fpage)
     after = where(fpage, ids)
-    assert after[a] == before[a], "the pinned vertex stayed"
     assert dist(after[b], before[b]) > 5, "the other one gave way"
+    assert dist(after[a], before[a]) < 0.2 * dist(after[b], before[b]), "the dragged one stayed (at most a nudge off the end of a line next to it)"
     assert not touching(fpage, a, b)
     undo = fpage.evaluate("() => window.__hopline.state.hideUndo.length")
     layout_menu(fpage, "#btnDeclutter"); idle(fpage); settle(fpage)
@@ -203,3 +204,81 @@ def test_the_layout_menu_holds_the_four_and_closes_when_one_is_chosen(fpage, moc
     assert "Re-layout" in text and "Spread" in text and "Tighten" in text and "Declutter" in text
     fpage.click("#btnSpread"); settle(fpage)
     assert fpage.locator("#layoutMenu").evaluate("(el) => el.open") is False, "choosing one closes the menu"
+
+
+def pin(page, ids):
+    """Mark vertices as dragged, where they are drawn now (what a drag does)."""
+    page.evaluate("(ids) => { const h = window.__hopline; for (const id of ids) { const p = h.renderer.cur.get(id); h.state.pinned.set(id, { x: p.x, y: p.y }); } }", ids)
+
+
+def pins(page):
+    return page.evaluate("() => Object.fromEntries([...window.__hopline.state.pinned].map(([id, p]) => [id, [p.x, p.y]]))")
+
+
+def test_declutter_moves_two_dragged_vertices_that_touch_and_keeps_them_pinned_where_they_land(fpage, mock):
+    open_query(fpage, NORMAL["txid"]); fpage.uncheck("#focusOn"); settle(fpage)
+    ids = visible(fpage)
+    a, b = ids[0], ids[1]
+    far = ring(ids)
+    far[b] = [far[a][0] + 6, far[a][1] + 4]
+    place(fpage, far); pin(fpage, [a, b])
+    assert touching(fpage, a, b)
+    before, pinned_before = where(fpage, ids), pins(fpage)
+    layout_menu(fpage, "#btnDeclutter"); idle(fpage); settle(fpage)
+    after = where(fpage, ids)
+    assert not touching(fpage, a, b), "two dragged vertices that touch used to be left as they were"
+    assert all(close({i: after[i]}, {i: before[i]}) for i in ids if i not in (a, b)), "nothing else moved"
+    assert "Moved 2 vertices" in fpage.inner_text("#toast") and "2 of them you had dragged" in fpage.inner_text("#toast")
+    now = pins(fpage)
+    assert close({a: now[a], b: now[b]}, {a: after[a], b: after[b]}), "they stay pinned, at the new place"
+    fpage.keyboard.press("Control+z"); settle(fpage)
+    assert close(where(fpage, ids), before) and pins(fpage) == pinned_before, "Ctrl+Z puts back the places and the pins"
+
+
+def test_declutter_moves_a_dragged_vertex_off_the_line_of_an_edge_and_keeps_it_pinned(fpage, mock):
+    open_query(fpage, NORMAL["txid"]); fpage.uncheck("#focusOn"); settle(fpage)
+    ids = visible(fpage)
+    edge = fpage.evaluate("""() => { const g = window.__hopline.state.graph, vis = window.__hopline.renderer.data.visible.nodes;
+        for (const e of g.edges.values()) if (vis.has(e.source) && vis.has(e.target)) return [e.source, e.target]; return null; }""")
+    a, b = edge
+    w = next(i for i in ids if i not in edge)
+    far = ring(ids)
+    far[w] = [(far[a][0] + far[b][0]) / 2, (far[a][1] + far[b][1]) / 2]
+    place(fpage, far); pin(fpage, [a, b, w])
+    assert on_the_line(fpage, a, b, w)
+    before = where(fpage, ids)
+    layout_menu(fpage, "#btnDeclutter"); idle(fpage); settle(fpage)
+    after = where(fpage, ids)
+    assert not on_the_line(fpage, a, b, w), "a dragged vertex on a line used to stay there"
+    assert after[a] == before[a] and after[b] == before[b], "the dragged ends did not move for it"
+    assert close({w: pins(fpage)[w]}, {w: after[w]}), "it stays pinned, at the new place"
+
+
+def place_trace(page, coords):
+    """Like place(), for the Columns arrangement of a trace, which keeps its places in the trace."""
+    page.evaluate("""(c) => { const h = window.__hopline, r = h.renderer, T = h.state.trace, m = new Map(r.cur);
+        for (const [id, xy] of Object.entries(c)) { m.set(id, { x: xy[0], y: xy[1] }); if (T.pos.has(id)) T.pos.set(id, { x: xy[0], y: xy[1] }); }
+        h.state.layoutRes.pos = new Map(m); r.setPositions(m, true); r.fit(); r.draw(); }""", coords)
+    settle(page)
+
+
+def test_declutter_in_a_trace_moves_two_dragged_vertices_and_undo_and_redo_keep_the_pins_in_step(tpage, mock):
+    open_query(tpage, NORMAL["txid"])
+    tpage.select_option("#traceArrange", "columns"); settle(tpage)
+    click_handle(tpage, "tx:" + NORMAL["txid"], "right"); click_handle(tpage, "tx:" + NORMAL["txid"], "left")
+    assert tpage.evaluate("() => window.__hopline.state.arrange") == "columns" and tpage.evaluate("() => window.__hopline.state.trace.pos.size") >= 3
+    ids = visible(tpage)
+    a, b = ids[0], ids[1]
+    far = ring(ids)
+    far[b] = [far[a][0] + 6, far[a][1] + 4]
+    place_trace(tpage, far); pin(tpage, [a, b])
+    assert touching(tpage, a, b)
+    before, pinned_before = where(tpage, ids), pins(tpage)
+    layout_menu(tpage, "#btnDeclutter"); idle(tpage); settle(tpage)
+    after, pinned_after = where(tpage, ids), pins(tpage)
+    assert not touching(tpage, a, b)
+    assert close({a: pinned_after[a], b: pinned_after[b]}, {a: after[a], b: after[b]}), "pinned where they landed"
+    tpage.keyboard.press("Control+z"); settle(tpage)
+    assert close(where(tpage, ids), before) and pins(tpage) == pinned_before, "Undo: places and pins as they were"
+    tpage.keyboard.press("Control+Shift+z"); settle(tpage)
+    assert close(where(tpage, ids), after, 0.06) and pins(tpage) == pinned_after, "Redo: places (a trace keeps them to a tenth) and pins as after Declutter"
