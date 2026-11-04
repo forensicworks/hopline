@@ -56,7 +56,7 @@
     trace: emptyTrace(), vgroups: new Map(), vseq: 0, routeRef: null, routeFocus: null, openDir: 'next',
     undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true, swap: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
-    stepMode: 'ask', stepSize: 5, autoBalance: true, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
+    stepMode: 'ask', stepSize: 5, autoBalance: true, autoHistory: true, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: {}, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -196,7 +196,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, autoBalance: state.autoBalance, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, hoverPreview: state.hoverPreview, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, autoBalance: state.autoBalance, autoHistory: state.autoHistory, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, hoverPreview: state.hoverPreview, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -205,7 +205,7 @@
       if (A.PRESETS[p.source]) state.source = p.source;
       state.fallback = p.fallback !== false;
       if (p.stepMode === 'ask' || p.stepMode === 'batch' || p.stepMode === 'all') state.stepMode = p.stepMode;
-      state.stepSize = num(p.stepSize, 1, 50, 5); state.autoBalance = p.autoBalance !== false; state.arrowsInRange = p.arrowsInRange !== false;
+      state.stepSize = num(p.stepSize, 1, 50, 5); state.autoBalance = p.autoBalance !== false; state.autoHistory = p.autoHistory !== false; state.arrowsInRange = p.arrowsInRange !== false;
       state.groupRows = p.groupRows !== false; state.groupBy = cleanGroupBy(p.groupBy); state.dustSats = num(p.dustSats, 0, 1000000000, 10000);
       if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old' || p.chooseSort === 'known') state.chooseSort = p.chooseSort;
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
@@ -249,7 +249,7 @@
     return fn().then(function (r) {
       if (!r) return r;
       var grew = state.graph === g0 ? state.graph.nodes.size - n0 : 0;
-      if (state.graph !== g0 || state.graph.nodes.size !== n0 || state.graph.edges.size !== e0) {           // something was added: remember how it was before
+      if (!(o && o.noUndo) && (state.graph !== g0 || state.graph.nodes.size !== n0 || state.graph.edges.size !== e0)) {           // something was added: remember how it was before
         pushUndoLoad(snap, '+' + plural(Math.max(0, grew), 'vertex', 'vertices'));
         if (grew >= BIG_LOAD) big = { text: 'Undo load', fn: undoLoad };
       }
@@ -1596,7 +1596,7 @@
   }
 
   /** More of a wallet's history (the next pages after what is loaded). Resolves when it is done; the details panel is drawn again. */
-  function loadMoreHistory(id) {
+  function loadMoreHistory(id, o) {
     var n = state.graph.nodes.get(id);
     if (!n || n.type !== 'addr') return Promise.resolve(null);
     var more = n.histNext;
@@ -1606,7 +1606,7 @@
         if (node) { node.histNext = r.last || null; node.histDone = !r.last && !r.truncated && !(r.errors && r.errors.length); }
         return r;
       });
-    }).then(function (r) { showInspector(); return r; });
+    }, o).then(function (r) { showInspector(); return r; });
   }
   function expandNode(id, direction) {
     var n = state.graph.nodes.get(id); if (!n) return;
@@ -1717,22 +1717,39 @@
     if (!addrs.length) { toast('Select wallets to read the balance of.'); return Promise.resolve(null); }
     return run('Read ' + plural(addrs.length, 'balance'), function () { return state.explorer.loadBalances(addrs, 100); }).then(function (r) { showInspector(true); return r; });
   }
-  var autoBal = { timer: null, tried: new Set() };
+  var autoBal = { timer: null, tried: new Set(), hist: new Set() };
+  /** How many transactions one click loads (Address history pages x 25), which is also how small a wallet has to be for its history to load by itself. */
+  function histCap() { return state.capPages * 25; }
+  function syncAutoHistN() { $('autoHistN').textContent = String(histCap()); }
   /**
-   * With "Read the balance when I select a wallet" on: one wallet selected, no balance read yet, nothing else running -> read it (one request, no history), quietly.
-   * Waits a moment so a click that is followed by another does not cost a request, asks once per wallet (a failure is not retried by itself) and never runs
-   * for a box of wallets, a transaction or a wallet that is not loaded.
+   * One wallet selected, nothing else running -> read what it needs, quietly. Waits a moment so a click that is followed by another costs nothing, asks once per wallet
+   * (a failure is not retried by itself) and never runs for a box of wallets, a transaction or a wallet that is not loaded.
+   *   "Read the balance when I select a wallet": its totals, when not read yet (one request, no history).
+   *   "Load the history of a selected wallet when it is small", in the Trace layout only: its totals say it has no more transactions than one click loads, and its history is
+   *   not loaded -> load all of it (the totals come first, so one more request when they were not read yet). The trace shows what you reveal, so nothing is added to it: the
+   *   handles of the wallet count what is there instead of asking "?". A larger wallet keeps its handle, and no load of this kind is an entry in Undo load.
    */
-  function autoBalanceSoon() {
+  function autoReadSoon() {
     clearTimeout(autoBal.timer);
-    if (!state.autoBalance || state.selected.size !== 1) return;
+    if (!(state.autoBalance || (state.autoHistory && traceOn())) || state.selected.size !== 1) return;
     var id = Array.from(state.selected)[0];
-    autoBal.timer = setTimeout(function () {
-      var n = state.graph.nodes.get(id);
-      if (!state.autoBalance || state.busy || !n || n.type !== 'addr' || !state.selected.has(id) || state.selected.size !== 1 || balanceOf(n) || autoBal.tried.has(n.address)) return;
+    autoBal.timer = setTimeout(function () { autoRead(id); }, 350);
+  }
+  function autoRead(id) {
+    function current() { var n = state.graph.nodes.get(id); return !state.busy && n && n.type === 'addr' && state.selected.has(id) && state.selected.size === 1 ? n : null; }
+    var n = current();
+    if (!n) return;
+    var wantHistory = state.autoHistory && traceOn(), totals = Promise.resolve();
+    if ((state.autoBalance || wantHistory) && !balanceOf(n) && !autoBal.tried.has(n.address)) {
       autoBal.tried.add(n.address);
-      run('Read the balance', function () { return state.explorer.loadBalances([n.address], 100); }, { quiet: true }).then(function () { showInspector(true); });
-    }, 350);
+      totals = run('Read the balance', function () { return state.explorer.loadBalances([n.address], 100); }, { quiet: true }).then(function () { showInspector(true); });
+    }
+    totals.then(function () {
+      var w = current();
+      if (!w || !state.autoHistory || !traceOn() || M.historyRead(w) || autoBal.hist.has(w.address) || !w.txCount || w.txCount > histCap()) return;
+      autoBal.hist.add(w.address);
+      loadMoreHistory(id, { quiet: true, noUndo: true });
+    });
   }
   function balanceText(b) { return S.fmtBtc(b.confirmed) + ' BTC'; }
   /** The balance rows of one wallet's details, or what to do to get them. */
@@ -1974,7 +1991,7 @@
   function syncSelection() {
     renderer.setSelection(Array.from(state.selected)); renderer.selectedEdge = state.selectedEdge;
     if (!holdRight && (state.selected.size || state.selectedEdge)) state.rightTab = 'details';
-    showInspector(); updateTraceUi(); updateAutoUi(); detMarkSel(); autoBalanceSoon();
+    showInspector(); updateTraceUi(); updateAutoUi(); detMarkSel(); autoReadSoon();
   }
 
   /** Put text on the clipboard. `what` names it in the message ("address", "3 transaction ids"). Falls back to the old way where the clipboard API is not offered. */
@@ -5537,7 +5554,7 @@
     if (!A.PRESETS.tor) { var torOpt = document.querySelector('#source option[value="tor"]'); if (torOpt) torOpt.remove(); }          // a published copy does not offer Tor
     loadPrefs();
     makeClient();
-    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('autoBalance').checked = state.autoBalance; $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
+    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('autoBalance').checked = state.autoBalance; $('autoHistory').checked = state.autoHistory; syncAutoHistN(); $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets; $('bundleEdges').checked = state.bundleEdges; $('hoverPreview').checked = state.hoverPreview;
@@ -5754,7 +5771,8 @@
       $(p[0]).addEventListener('change', function () { state.filter[p[1]] = this.checked; refresh({ relayout: p[1] === 'showData' || p[1] === 'showNonstd' }); scheduleSave(); });
     });
     $('arrowsInRange').addEventListener('change', function () { state.arrowsInRange = this.checked; savePrefs(); renderer.dirty = true; showInspector(true); });
-    $('autoBalance').addEventListener('change', function () { state.autoBalance = this.checked; savePrefs(); if (this.checked) autoBalanceSoon(); });
+    $('autoBalance').addEventListener('change', function () { state.autoBalance = this.checked; savePrefs(); if (this.checked) autoReadSoon(); });
+    $('autoHistory').addEventListener('change', function () { state.autoHistory = this.checked; savePrefs(); if (this.checked) autoReadSoon(); });
     $('groupRows').addEventListener('change', function () { state.groupRows = this.checked; savePrefs(); showInspector(true); });
     $('groupBy').addEventListener('change', function () { state.groupBy = cleanGroupBy(this.value); savePrefs(); showInspector(true); });
     $('dustSats').addEventListener('change', function () { state.dustSats = num(this.value, 0, 1000000000, 10000); this.value = state.dustSats; savePrefs(); showInspector(true); });
@@ -5763,7 +5781,7 @@
     ['capTx', 'capReq', 'capPages'].forEach(function (id) {
       $(id).addEventListener('change', function () {
         state.capTx = num($('capTx').value, 1, 500, 25); state.capReq = num($('capReq').value, 1, 1000, 80); state.capPages = num($('capPages').value, 1, 20, 2);
-        $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; savePrefs();
+        $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; syncAutoHistN(); savePrefs();
       });
     });
 

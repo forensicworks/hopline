@@ -152,6 +152,11 @@ def test_hostile_balance_values_in_an_imported_file_are_dropped(fpage, mock):
     assert "not loaded yet" in insp(fpage)
 
 
+def history_off(page):
+    """These tests are about reading the totals; a small wallet's history would also load by itself in the Trace layout."""
+    page.evaluate("() => { const c = document.getElementById('autoHistory'); c.checked = false; c.dispatchEvent(new Event('change')); }"); settle(page)
+
+
 def switch_auto(page, on=True):
     page.evaluate("(on) => { const c = document.getElementById('autoBalance'); c.checked = on; c.dispatchEvent(new Event('change')); }", on); settle(page)
 
@@ -228,6 +233,7 @@ def test_a_wallet_whose_balance_alone_was_read_still_has_its_history_to_load_whe
 
 
 def test_a_new_visitor_has_the_balance_read_when_one_wallet_is_selected(newpage, mock):
+    history_off(newpage)
     open_query(newpage, NORMAL["txid"])
     stats(mock, SMALL_ADDR, 200000, 150000)
     assert newpage.evaluate("() => document.getElementById('autoBalance').checked") is True, "on by default"
@@ -260,6 +266,7 @@ def wallet_paid_once(mock, n, who, value, spent_by=None):
 def test_the_question_mark_goes_when_the_balance_read_on_select_shows_nothing_more_to_load(newpage, mock):
     from chains import tid
     from test_trace import handle
+    history_off(newpage)
     free = wallet_paid_once(mock, 1, "free", 900)                                   # received once, never spent
     gone = wallet_paid_once(mock, 2, "gone", 800, spent_by=3)                       # received once and spent it all, in a transaction nobody loaded
     mock.fail["/tx/%s/outspends" % tid(2)] = 500                                    # so nothing in the graph says it was spent
