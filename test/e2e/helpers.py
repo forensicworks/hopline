@@ -111,3 +111,17 @@ def wallet_export(page, kind):
     if not page.evaluate("() => document.getElementById('exportMenu').open"):
         page.click("#exportMenu summary")
     page.click("[data-export=%s]" % kind)
+
+
+def reset_to_start(page):
+    """Press Reset to start where it is: on the toolbar, or in the ... menu when the bar is too narrow for all of it (the least used controls move there first)."""
+    if page.is_visible("#traceReset"):
+        page.click("#traceReset")
+    else:
+        page.click("#barMore")
+        page.click("#ctxMenu >> text=Reset to start")
+
+
+def reset_is_offered(page):
+    """Reset to start is on the toolbar, or in its ... menu."""
+    return page.is_visible("#traceReset") or (page.is_visible("#barMore") and page.evaluate("() => document.getElementById('traceReset').classList.contains('tb-over')"))

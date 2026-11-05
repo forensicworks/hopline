@@ -391,8 +391,9 @@
     var has = state.graph.nodes.size > 0, b = $('btnOpen'), q = $('q');
     if (!b || !q) return;
     b.textContent = has ? 'Add' : 'Open';
-    b.title = has ? 'Add this to the workspace: in a trace it becomes another starting point and what is there stays. Several ids can be pasted at once. Shift-click (or Shift+Enter) starts over with it instead.' : 'Open a transaction or a wallet (several can be pasted at once)';
-    q.placeholder = has ? 'Add a transaction ID or address' : 'Transaction ID or address';
+    b.title = has ? 'Add this to the workspace: in a trace it becomes another starting point and what is there stays. Up to 10 ids or addresses can be pasted at once. Shift-click (or Shift+Enter) starts over with it instead.' : 'Open a transaction or a wallet (up to 10 can be pasted at once)';
+    q.placeholder = has ? 'Add up to 10 IDs or addresses' : 'Transaction ID or address';                      // short enough to show whole at 1400 px; the tooltip has the full sentence
+    q.title = has ? 'Add up to 10 transaction IDs or wallet addresses at once: paste them separated by spaces, commas or new lines' : 'A transaction ID or a wallet address; up to 10 can be pasted at once, separated by spaces, commas or new lines';
   }
 
   // ---- focus and navigation -------------------------------------------------------------------
@@ -3267,15 +3268,21 @@
     document.addEventListener('fullscreenchange', left); document.addEventListener('webkitfullscreenchange', left);
   }
 
-  /** The tab that brings the details back: only while they are collapsed and something is selected. */
+  /**
+   * The tab that brings the details back: only while they are collapsed and something is selected. It is an icon (a flag for the findings, an i for details); what its text used to
+   * say ("Findings (3)", "2 selected", the name of the vertex) is in its name and its tooltip. The body class tells the toolbar to keep clear of it.
+   */
   function updateInspTab() {
-    var has = !$('inspector').hidden, tab = $('inspTab');
+    var has = !$('inspector').hidden, tab = $('inspTab'), was = document.body.classList.contains('insp-tab');
     tab.hidden = !(state.inspCollapsed && has);
     if (!tab.hidden) {
       var id = Array.from(state.selected)[0], n = id && state.graph.nodes.get(id), fv = rightView() === 'findings';
-      $('inspTabText').textContent = fv ? 'Findings (' + state.findTotal + ')' : state.selected.size > 1 ? state.selected.size + ' selected' : n ? focusLabel(id) : 'Details';
-      tab.title = fv ? 'Show the findings (D)' : 'Show details (D)';
+      var text = fv ? 'Findings (' + state.findTotal + ')' : state.selected.size > 1 ? state.selected.size + ' selected' : n ? focusLabel(id) : 'Details';
+      $('inspTabText').textContent = text; tab.setAttribute('aria-label', text); tab.dataset.view = fv ? 'findings' : 'details';
+      tab.title = (fv ? 'Show the findings (D): ' + state.findTotal : 'Show details (D): ' + text);
     }
+    document.body.classList.toggle('insp-tab', !tab.hidden);
+    if (!tab.hidden !== was) fitBar();                                                        // the toolbar's room changed
   }
 
   function showEdge(e) {
@@ -5805,9 +5812,7 @@
     $('boxSel').addEventListener('click', function () { setBoxMode(!state.boxMode); });
     $('traceArrange').addEventListener('change', function () { setArrange(this.value); });
     $('traceReset').addEventListener('click', traceReset);
-    $('zoomIn').addEventListener('click', function () { renderer.zoomBy(1.3); });
     wireFullScreen();
-    $('zoomOut').addEventListener('click', function () { renderer.zoomBy(1 / 1.3); });
     $('cancel').addEventListener('click', function () { state.client.abort(); });
     $('sample').addEventListener('click', function () { stat('sample'); $('q').value = SAMPLE; openQuery(SAMPLE); });
     $('emptyImport').addEventListener('click', function () { $('fileImport').click(); });
