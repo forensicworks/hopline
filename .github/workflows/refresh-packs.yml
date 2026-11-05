@@ -1,6 +1,9 @@
-# Refreshes the label packs the site ships (public/packs/) every week and opens a pull request when a list changed, so the new
+# Refreshes the label packs the site ships (public/packs/) every day and opens a pull request when a list changed, so the new
 # wallets and names can be read before they are published. It never pushes to master: merging the pull request is what publishes
-# (the Deploy site and GitHub Pages workflows run on that push).
+# (the Deploy site and GitHub Pages workflows run on that push). It looks every day because a sanctions list changes whenever the
+# authorities act, not on a calendar: a daily look keeps the proposal at most a day behind the source. A run is a few MB of
+# downloads, and it updates the one open pull request (the branch below is rebuilt from the default branch each time) instead
+# of opening more, so a list that changes on three days is still one pull request to read and merge.
 #
 # What it runs is `python3 tools/build_packs.py --refresh`, which rebuilds every source listed in SOURCES in that file. A new source is
 # added there, and this workflow picks it up without a change. A source that cannot be downloaded or fails its checks keeps its old
@@ -15,7 +18,7 @@ name: Refresh label packs
 
 on:
   schedule:
-    - cron: '17 5 * * 1'      # Mondays, 05:17 UTC (not on the hour, when GitHub's queue is busiest)
+    - cron: '17 5 * * *'      # every day, 05:17 UTC (not on the hour, when GitHub's queue is busiest)
   workflow_dispatch:
 
 concurrency:

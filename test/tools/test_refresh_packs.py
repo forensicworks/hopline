@@ -248,8 +248,8 @@ def test_the_release_check_says_nothing_when_it_cannot_run(monkeypatch):
 WORKFLOW = (ROOT / ".github" / "workflows" / "refresh-packs.yml").read_text(encoding="utf-8")
 
 
-def test_the_workflow_runs_weekly_with_only_the_rights_it_needs_and_only_first_party_actions():
-    assert re.search(r"schedule:\s*\n\s*- cron: '\d+ \d+ \* \* 1'", WORKFLOW) and "workflow_dispatch:" in WORKFLOW
+def test_the_workflow_runs_daily_with_only_the_rights_it_needs_and_only_first_party_actions():
+    assert re.search(r"schedule:\s*\n\s*- cron: '\d+ \d+ \* \* \*'", WORKFLOW) and "workflow_dispatch:" in WORKFLOW, "every day, and on demand"
     perms = re.search(r"^permissions:\n((?:  .*\n)+)", WORKFLOW, re.M).group(1)
     assert sorted(x.strip() for x in perms.splitlines()) == ["contents: write", "pull-requests: write"]
     assert "pull_request_target" not in WORKFLOW and "secrets." not in WORKFLOW, "no secrets: it uses the run's own token"
