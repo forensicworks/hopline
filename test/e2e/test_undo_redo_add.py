@@ -170,7 +170,12 @@ def test_outside_a_trace_redo_hides_again_and_a_new_hide_ends_the_chain(fpage):
 def test_the_box_says_add_once_something_is_open(tpage):
     assert tpage.inner_text("#btnOpen") == "Open" and tpage.get_attribute("#q", "placeholder") == "Transaction ID or address"
     open_query(tpage, NORMAL["txid"])
-    assert tpage.inner_text("#btnOpen") == "Add" and "Add a transaction ID or address" == tpage.get_attribute("#q", "placeholder")
+    assert tpage.inner_text("#btnOpen") == "Add" and "Add up to 10 IDs or addresses" == tpage.get_attribute("#q", "placeholder")
+    assert "up to 10" in tpage.get_attribute("#q", "title") and "transaction IDs" in tpage.get_attribute("#q", "title") and "Up to 10" in tpage.get_attribute("#btnOpen", "title"), "the full sentence is in the tooltips"
+    room = tpage.evaluate("""() => { const q = document.getElementById('q'), cs = getComputedStyle(q), cv = document.createElement('canvas').getContext('2d');
+        cv.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+        return q.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - cv.measureText(q.placeholder).width; }""")
+    assert room >= 0, "the placeholder shows whole at 1400 px (it was cut off at %s px short)" % room
     assert "another starting point" in tpage.get_attribute("#btnOpen", "title")
     tpage.click("#btnClear"); tpage.click("#btnClear"); settle(tpage)
     assert tpage.inner_text("#btnOpen") == "Open", "an empty workspace opens"

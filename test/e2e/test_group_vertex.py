@@ -4,7 +4,7 @@ import json
 import pytest
 
 from chains import IN, OUT, real_addr, tid, tx
-from helpers import click_node, idle, open_query, settle, tick_all, tick_none, toast_text, xy
+from helpers import click_node, idle, open_query, reset_to_start, settle, tick_all, tick_none, toast_text, xy
 from test_grouping import busy_wallet
 from test_trace import click_handle, handle, shown
 from test_wallet_panel import W, W_ID
@@ -351,7 +351,7 @@ def test_opening_a_folded_transaction_as_a_new_starting_point_takes_it_out_of_th
 def test_reset_to_start_drops_the_groups_and_undo_brings_them_back(fpage, mock):
     start(fpage, mock)
     group_exch(fpage)
-    fpage.click("#traceReset"); settle(fpage)
+    reset_to_start(fpage); settle(fpage)
     assert groups(fpage) == [] and GID not in shown(fpage)
     undo(fpage)
     assert len(groups(fpage)) == 1 and GID in shown(fpage)

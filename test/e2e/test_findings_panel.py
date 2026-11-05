@@ -99,7 +99,7 @@ def test_close_folds_the_panel_on_findings_and_the_edge_tab_names_it(fpage, mock
     consolidation(mock)
     open_query(fpage, tid(30)); nothing_selected(fpage)
     fpage.click("#inspClose"); settle(fpage)
-    assert fpage.is_hidden("#inspector") and fpage.is_visible("#inspTab") and "Findings (2)" in fpage.inner_text("#inspTab")
+    assert fpage.is_hidden("#inspector") and fpage.is_visible("#inspTab") and fpage.get_attribute("#inspTab", "aria-label") == "Findings (2)" and fpage.is_visible("#inspTab .tab-findings") and not fpage.is_visible("#inspTab .tab-details")
     fpage.click("#inspTab"); settle(fpage)
     assert fpage.is_visible("#inspector") and tab(fpage) == "findings"
 

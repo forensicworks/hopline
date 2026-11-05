@@ -58,14 +58,20 @@ textarea { resize: vertical; min-height: 64px; }
 .collapse-btn { padding: 2px 10px; line-height: 1.3; font-size: 15px; }
 body.side-collapsed #side { display: none; }
 body.insp-collapsed #inspector { display: none; }
-.edge-tab { position: absolute; z-index: 15; top: 56px; padding: 9px 7px; font-size: 12px; background: var(--panel); border: 1px solid var(--line); color: var(--text); }
+/* Controls (left) and Findings / Details (right): icon tabs of one size, at one height, one on each edge */
+.edge-tab { position: absolute; z-index: 15; top: 56px; width: 32px; height: 38px; padding: 0; display: flex; align-items: center; justify-content: center; background: var(--panel); border: 1px solid var(--line); color: var(--text); }
+.edge-tab svg { width: 16px; height: 16px; display: block; }
 .edge-tab.left { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
-.edge-tab.right { right: 0; top: 160px; border-right: 0; border-radius: 8px 0 0 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edge-tab.right { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
 .edge-tab[hidden] { display: none; }
-body.side-collapsed #traceBar { left: 84px; max-width: calc(100% - 140px); }                                                                    /* the Controls tab sits on the left edge, over the second row of this bar: start the bar to its right */
+#inspTab[data-view="findings"] .tab-details, #inspTab:not([data-view="findings"]) .tab-findings { display: none; }
+/* the toolbar keeps 12px from each edge, and 44px where a tab sits on that edge */
+body { --tb-l: 12px; --tb-r: 12px; }
+body.side-collapsed { --tb-l: 44px; }
+body.insp-tab { --tb-r: 44px; }                                                                    /* the Controls tab sits on the left edge, over the second row of this bar: start the bar to its right */
 #inspCollapse { position: absolute; right: 38px; top: 6px; }
 
-#traceBar { position: absolute; left: 12px; right: 56px; margin: 0 auto; width: max-content; max-width: calc(100% - 68px); top: 10px; z-index: 12; display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap;
+#traceBar { position: absolute; left: var(--tb-l); right: var(--tb-r); margin: 0 auto; width: max-content; max-width: calc(100% - var(--tb-l) - var(--tb-r)); top: 10px; z-index: 12; display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap;
             pointer-events: none;                                                                                  /* the plate does not swallow clicks and drags meant for the graph: only its controls take them */
             padding: 5px 8px; background: rgba(46, 31, 46, 0.96); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); font-size: 13px; }
 #traceBar[hidden] { display: none; }
@@ -73,7 +79,7 @@ body.side-collapsed #traceBar { left: 84px; max-width: calc(100% - 140px); }    
 #traceBar > * { flex: none; }
 #traceBar button, #traceBar select, #traceBar label, #traceBar .tb-title { pointer-events: auto; }
 #traceBar .tb-start { margin-left: 8px; }                                                                       /* a little air between the groups: undo and redo, hide and keep, select and box, arrange and reset */
-#traceBar button.icon { padding: 2px 7px; min-width: 28px; font-size: 18px; line-height: 1.1; }
+#traceBar button.icon { padding: 2px 7px; min-width: 28px; min-height: 26px; font-size: 18px; line-height: 1.1; display: inline-flex; align-items: center; justify-content: center; }
 #traceBar .trace-only { display: none; }
 body.trace-on #traceBar .trace-only { display: inline-block; }
 #traceBar #arrangeBox { display: none; align-items: center; gap: 5px; }
@@ -326,8 +332,6 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 #counts .lead { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #counts .rest { flex: none; }
 #hud #traceInfo { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-#zoomBtns { position: absolute; right: 12px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
-#zoomBtns button { width: 32px; height: 32px; padding: 0; font-size: 18px; line-height: 1; }
 #empty { position: absolute; left: 50%; top: calc((100% - var(--tb)) / 2); transform: translate(-50%, -50%); text-align: center; max-width: 440px; padding: 20px; }
 #empty h2 { margin: 0 0 8px; font-weight: 600; }
 #scaleRow[hidden], #empty[hidden], #tooltip[hidden], #progress[hidden], #toast[hidden], #inspector[hidden] { display: none; }
@@ -382,7 +386,7 @@ dl.kv dt { color: var(--dim); } dl.kv dd { margin: 0; overflow-wrap: anywhere; }
   .narrow-only { display: inline-block; }
   #side { position: absolute; z-index: 25; top: 0; bottom: 0; left: 0; transform: translateX(-100%); transition: transform 0.15s; width: min(300px, 88vw); }
   body.side-open #side { transform: none; }
-  body.side-collapsed #traceBar { left: 12px; max-width: calc(100% - 68px); }                                                                  /* no tab here */
+  body.side-collapsed:not(.canvas-full) { --tb-l: 12px; }                                                                  /* no tab here */
   body.side-collapsed #side { display: block; }                                                                  /* here the panel is a drawer behind the Controls button, and its fold button and edge tab are gone: starting folded must not take it away */
   #inspector { position: absolute; z-index: 24; right: 0; left: 0; bottom: var(--tb); width: auto; max-height: 55%; border-left: 0; border-top: 1px solid var(--line); }
 }
@@ -477,7 +481,7 @@ button.outbound-btn:hover:not(:disabled) { border-color: var(--text); }
 #claudeReviewText { margin: 0; min-height: 160px; max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; font-size: 11.5px; line-height: 1.35; font-family: Consolas, "Courier New", monospace; user-select: text; }
 
 /* Full screen: the graph alone (the details panel still opens when something is selected) */
-body.canvas-full #traceBar { left: 84px; max-width: calc(100% - 140px); }                                                                  /* in full screen the Controls tab is on the left edge as well */
+body.canvas-full { --tb-l: 44px; }                                                                  /* in full screen the Controls tab is on the left edge as well */
 body.canvas-full #top, body.canvas-full #trail, body.canvas-full #restore, body.canvas-full #log { display: none !important; }
 /* the Controls stay one tab away (left edge, like Details on the right): the left panel slides over the graph and goes back with « or Esc */
 body.canvas-full #side { display: block !important; position: absolute; z-index: 26; top: 0; bottom: 0; left: 0; width: min(300px, 88vw); transform: translateX(-100%); visibility: hidden; transition: transform 0.15s, visibility 0s 0.15s; }

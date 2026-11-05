@@ -15,8 +15,8 @@ def no_js_errors(errors):
 
 
 def bar_facts(page):
-    return page.evaluate("""() => { const b = document.getElementById('traceBar'), r = b.getBoundingClientRect(), z = document.getElementById('zoomBtns').getBoundingClientRect();
-        return { x: r.x, right: r.right, h: r.height, wide: b.scrollWidth - b.clientWidth, zoomLeft: z.left,
+    return page.evaluate("""() => { const b = document.getElementById('traceBar'), r = b.getBoundingClientRect(), c = document.getElementById('cv').getBoundingClientRect(), t = document.getElementById('sideTab'), tr = t.getBoundingClientRect();
+        return { x: r.x, right: r.right, h: r.height, wide: b.scrollWidth - b.clientWidth, canvasLeft: c.left, canvasRight: c.right, tabRight: t.offsetParent ? tr.right : null,
                  more: !document.getElementById('barMore').hidden,
                  over: [...b.querySelectorAll('.tb-over')].map(e => e.id) }; }""")
 
@@ -27,14 +27,14 @@ def traced_chain(page, mock, length=6, hops=3):
     page.evaluate("(id) => window.__hopline.autoExpand(id, { dir: 'next', hops: %d, follow: 'all' })" % hops, "tx:" + tid(10)); idle(page); settle(page)
 
 
-@pytest.mark.parametrize("width", [1700, 1400, 1100, 1070, 900, 760, 700])        # 760 and 1070: the canvas is a little narrower than the whole row, which would sit under the zoom buttons if it were centred over all of it
-def test_the_bar_is_one_row_at_every_width_and_stays_clear_of_the_zoom_buttons(tpage, width):
+@pytest.mark.parametrize("width", [1700, 1400, 1100, 1070, 900, 760, 700])        # 760 and 1070: the canvas is a little narrower than the whole row, which would sit under a tab if it were centred over all of it
+def test_the_bar_is_one_row_at_every_width_and_stays_clear_of_the_tab_and_the_edge(tpage, width):
     tpage.set_viewport_size({"width": width, "height": 850})
     open_query(tpage, NORMAL["txid"]); tpage.wait_for_timeout(200)
     f = bar_facts(tpage)
     assert f["h"] < 50, "one row, not two or three: %r" % f
     assert f["wide"] <= 2, "nothing runs past the end of the bar: %r" % f
-    assert f["right"] <= f["zoomLeft"], "the bar stops short of the zoom buttons: %r" % f
+    assert f["right"] <= f["canvasRight"] - 12 + 1 and f["x"] >= (f["tabRight"] if f["tabRight"] is not None else f["canvasLeft"]) , "the bar stays between the Controls tab and the edge: %r" % f
 
 
 def test_undo_and_redo_are_arrow_icons_that_keep_their_names(tpage):

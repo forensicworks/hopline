@@ -5,7 +5,7 @@ import pytest
 
 from chains import peel_chain, tid
 from conftest import NORMAL
-from helpers import click_node, idle, open_controls, open_query, settle, toast_text, xy, layout_menu
+from helpers import click_node, idle, open_controls, open_query, reset_is_offered, settle, toast_text, xy, layout_menu
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
 BIG = max(range(len(NORMAL["vout"])), key=lambda i: NORMAL["vout"][i]["value"])
@@ -435,7 +435,7 @@ def test_the_bar_is_there_in_every_layout_and_its_trace_parts_only_in_a_trace(fp
         assert fpage.is_hidden("#traceArrange") and fpage.is_hidden("#traceReset"), layout
         assert "Selection" in fpage.inner_text("#barTitle")
     fpage.click("#layoutSeg [data-layout=trace]"); settle(fpage)
-    assert fpage.is_visible("#traceArrange") and fpage.is_visible("#traceReset") and "Trace" in fpage.inner_text("#barTitle")
+    assert fpage.is_visible("#traceArrange") and reset_is_offered(fpage) and "Trace" in fpage.inner_text("#barTitle")
     fpage.click("#layoutSeg [data-layout=timeline]"); settle(fpage)
     assert fpage.evaluate("() => document.body.classList.contains('axis-on')"), "the bar steps down below the time axis"
     box = fpage.locator("#traceBar").bounding_box()

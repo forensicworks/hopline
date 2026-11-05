@@ -4,7 +4,7 @@ import json
 import pytest
 
 from conftest import ADDRESS, ADDR_TXS, COINBASE, NORMAL, OUTSPENDS, PAGE_URL, SPENDERS, shot
-from helpers import click_node, counts, idle, open_query, settle, tick_all, tick_none, toast_text, xy
+from helpers import click_node, counts, idle, open_query, reset_to_start, settle, tick_all, tick_none, toast_text, xy
 
 NORMAL_ID = "tx:" + NORMAL["txid"]
 BIG = max(range(len(NORMAL["vout"])), key=lambda i: NORMAL["vout"][i]["value"])
@@ -147,7 +147,7 @@ def test_undo_takes_back_one_step_at_a_time_and_reset_returns_to_the_start(fpage
     click_handle(fpage, NORMAL_ID, "right"); idle(fpage)
     click_handle(fpage, NORMAL_ID, "left"); idle(fpage)
     assert len(shown(fpage)) == 4
-    fpage.click("#traceReset"); settle(fpage)
+    reset_to_start(fpage); settle(fpage)
     assert shown(fpage) == {NORMAL_ID}
 
 
@@ -520,7 +520,7 @@ def test_reset_to_start_can_be_undone_and_brings_back_the_trace_with_its_own_ste
     before = shown(fpage)
     places = {i: pos(fpage, i) for i in before}
     assert len(before) == 5 and fpage.is_enabled("#traceUndo")
-    fpage.click("#traceReset"); settle(fpage)
+    reset_to_start(fpage); settle(fpage)
     assert shown(fpage) == {NORMAL_ID}
     assert fpage.is_enabled("#traceUndo"), "the reset itself is a step that can be taken back"
     assert fpage.locator("#toast button:has-text('Undo')").count() == 1
@@ -538,17 +538,17 @@ def test_ctrl_z_and_the_toast_button_also_undo_a_reset(fpage):
     start_trace(fpage)
     click_handle(fpage, NORMAL_ID, "right"); idle(fpage)
     before = shown(fpage)
-    fpage.click("#traceReset"); settle(fpage)
+    reset_to_start(fpage); settle(fpage)
     fpage.locator("#cv").focus(); fpage.keyboard.press("Control+z"); settle(fpage)
     assert shown(fpage) == before
-    fpage.click("#traceReset"); settle(fpage)
+    reset_to_start(fpage); settle(fpage)
     fpage.click("#toast button:has-text('Undo')"); settle(fpage)
     assert shown(fpage) == before
 
 
 def test_resetting_a_trace_that_is_already_one_vertex_changes_nothing_and_adds_no_step(fpage):
     start_trace(fpage)
-    fpage.click("#traceReset"); settle(fpage)
+    reset_to_start(fpage); settle(fpage)
     assert shown(fpage) == {NORMAL_ID} and fpage.is_disabled("#traceUndo")
 
 
@@ -564,7 +564,7 @@ def test_start_over_from_here_can_be_undone_and_so_can_a_reset_after_several_sta
     assert shown(fpage) == {SMALL_ADDR}
     fpage.click("#traceUndo"); idle(fpage); settle(fpage)
     assert shown(fpage) == before and sorted(fpage.evaluate("() => window.__hopline.state.trace.seeds")) == seeds
-    fpage.click("#traceReset"); settle(fpage)
+    reset_to_start(fpage); settle(fpage)
     assert len(shown(fpage)) == 1
     fpage.click("#traceUndo"); idle(fpage); settle(fpage)
     assert shown(fpage) == before and sorted(fpage.evaluate("() => window.__hopline.state.trace.seeds")) == seeds, "both starting points come back"
@@ -573,7 +573,7 @@ def test_start_over_from_here_can_be_undone_and_so_can_a_reset_after_several_sta
 def test_a_reset_survives_in_the_undo_of_a_later_load(fpage):
     start_trace(fpage)
     click_handle(fpage, NORMAL_ID, "right"); idle(fpage)
-    fpage.click("#traceReset"); settle(fpage)
+    reset_to_start(fpage); settle(fpage)
     fpage.click("#btnClear"); fpage.click("#btnClear"); settle(fpage)
     fpage.click("#btnUndoLoad"); idle(fpage); settle(fpage)                         # Clear is taken back: the trace comes back as it was after the reset, with the reset still undoable
     assert shown(fpage) == {NORMAL_ID} and fpage.is_enabled("#traceUndo")
