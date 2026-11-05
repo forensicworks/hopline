@@ -8,7 +8,7 @@ The wallet counts and dates below are as of 26 October 2026. The live ones are i
 
 ## Lists that ship with Hopline
 
-They are files in [public/packs/](public/packs/), read from the same site as the page (nothing is sent anywhere) and only when the list is switched on. Each list is made by its own converter in [tools/](tools/) and written by [tools/build_packs.py](tools/build_packs.py), one wallet per line, so a refresh shows as a clean diff. Every address is checked by checksum before it gets in, and again when the page reads it. A workflow ([refresh-packs.yml](.github/workflows/refresh-packs.yml)) downloads every source again every Monday, runs the tests and opens a pull request that lists the wallets added, removed and renamed; nothing is published until that pull request is merged.
+They are files in [public/packs/](public/packs/), read from the same site as the page (nothing is sent anywhere) and only when the list is switched on. Each list is made by its own converter in [tools/](tools/) and written by [tools/build_packs.py](tools/build_packs.py), one wallet per line, so a refresh shows as a clean diff. Every address is checked by checksum before it gets in, and again when the page reads it. A workflow ([refresh-packs.yml](.github/workflows/refresh-packs.yml)) downloads every source again every day, runs the tests and opens a pull request that lists the wallets added, removed and renamed; nothing is published until that pull request is merged.
 
 | List | Wallets | Data as of | Licence | On by default |
 |---|---|---|---|---|
@@ -42,7 +42,7 @@ The two sanctions lists are on by default because a missing sanctions banner rea
 - **What:** Bitcoin addresses that ransomware actors asked victims to pay, 11,178 from 136 families, each named *Ransomware: <family>* with a note on the payments the dataset recorded for it (how many, when, how much). Every report in it was checked by hand against the ransom demand. It says an address was reported as a ransom address, not who is behind it.
 - **From:** the dataset on Zenodo, version 1.1.0 of 27 October 2024, by Jack Cable and contributors (<https://zenodo.org/records/13999026>, DOI 10.5281/zenodo.13999026), file `ransomwhere.json`, from <https://ransomwhe.re>.
 - **Licence:** CC BY 4.0. Changes made: converted to the label pack format, the recorded payments summarised in a note, addresses sorted.
-- **Pinned:** the tool takes only that release and checks the file's MD5 against the one Zenodo publishes, because the pack states that release's licence. The weekly run says when Zenodo has a newer release; adopting it is a decision for a person, after reading its record and licence. The live API at ransomwhe.re has a few more addresses than the release; its own licence was not checked.
+- **Pinned:** the tool takes only that release and checks the file's MD5 against the one Zenodo publishes, because the pack states that release's licence. The daily run says when Zenodo has a newer release; adopting it is a decision for a person, after reading its record and licence. The live API at ransomwhe.re has a few more addresses than the release; its own licence was not checked.
 - **Age:** the newest data is from October 2024, so the panel shows how old the list is.
 - **Made by:** [tools/make_label_pack_ransomwhere.py](tools/make_label_pack_ransomwhere.py). Not included: the payment transaction ids (they would add about 1.4 MB).
 
@@ -98,5 +98,5 @@ The two sanctions lists are on by default because a missing sanctions banner rea
 
 1. Read its licence or terms and where its entries come from. A source whose terms are not settled does not go in.
 2. Write `tools/make_label_pack_<name>.py`: read the file strictly, check every address by checksum ([tools/btc_address.py](tools/btc_address.py)), keep a link to the source on each entry, and state the licence, the credit and the date of the data in the pack.
-3. Add a `build_<name>()` and one entry in `SOURCES` in [tools/build_packs.py](tools/build_packs.py); the weekly workflow then includes it without a change.
+3. Add a `build_<name>()` and one entry in `SOURCES` in [tools/build_packs.py](tools/build_packs.py); the scheduled workflow then includes it without a change.
 4. Add tests (see `test/tools/`), credit it in [NOTICE](NOTICE), and add it to this file.

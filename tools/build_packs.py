@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write the label packs the site ships, and the list of them, into public/packs/.
 
-    python tools/build_packs.py --refresh                              every source, downloaded again (what the weekly workflow runs)
+    python tools/build_packs.py --refresh                              every source, downloaded again (what the scheduled workflow runs)
     python tools/build_packs.py --refresh --only ofac-sdn             just the sources named
     python tools/build_packs.py --download --download-ransomwhere --download-miningpools     the three, by hand
     python tools/build_packs.py --ofac SDN_XML.ZIP --ransomwhere ransomwhere.json
@@ -9,7 +9,7 @@
 Each pack becomes packs/<id>.js (one wallet per line, so a refresh shows in a diff as the wallets that were added or removed)
 and gets a line in packs/index.js, the list the pages read (public/js/hopline-packs.js). Only the packs named on the command line
 (or by --refresh, all of them) are rewritten; the others stay as they are. Nothing is evaluated: the sources are read by their own
-converters. --summary FILE writes what changed as markdown (the weekly workflow uses it as the pull request text).
+converters. --summary FILE writes what changed as markdown (the scheduled workflow uses it as the pull request text).
 
 Five packs, each from its own converter (see sources.md for where each comes from and under what licence): the OFAC sanctions list
 (make_label_pack_ofac.py) and the UK Sanctions List (make_label_pack_uksanctions.py), which ship switched on, and the Ransomwhere
@@ -22,7 +22,7 @@ person to read and adopt. A pack of 20 or more wallets that shrinks to under 80%
 source that changes its layout shows up as a short list, and a short sanctions list is worse than an old one.
 
 To add a source: write tools/make_label_pack_<name>.py (read the file, check every address, return the pack), a build_<name>() below
-that returns (id, pack, switched on as shipped), and one entry in SOURCES. --refresh and the weekly workflow then include it. A source
+that returns (id, pack, switched on as shipped), and one entry in SOURCES. --refresh and the scheduled workflow then include it. A source
 whose licence or terms are not settled does not go in.
 """
 import argparse
@@ -222,7 +222,7 @@ def build_uksanctions(args):
     return "uk-sanctions", pack, True
 
 
-# Every source that --refresh (and so the weekly workflow) rebuilds: its id, how to build it from the live source, and an optional check
+# Every source that --refresh (and so the scheduled workflow) rebuilds: its id, how to build it from the live source, and an optional check
 # that returns a sentence for a person when the source has something that needs a decision (it never changes the pack itself).
 SOURCES = [
     {"id": "ofac-sdn", "build": lambda: build_ofac(argparse.Namespace(ofac=None, download=True)), "check": None},
