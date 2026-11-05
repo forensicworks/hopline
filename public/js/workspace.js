@@ -392,7 +392,7 @@
     if (!b || !q) return;
     b.textContent = has ? 'Add' : 'Open';
     b.title = has ? 'Add this to the workspace: in a trace it becomes another starting point and what is there stays. Up to 10 ids or addresses can be pasted at once. Shift-click (or Shift+Enter) starts over with it instead.' : 'Open a transaction or a wallet (up to 10 can be pasted at once)';
-    q.placeholder = has ? 'Add up to 10 IDs or addresses' : 'Transaction ID or address';                      // short enough to show whole at 1400 px; the tooltip has the full sentence
+    q.placeholder = has ? 'Add up to 10 IDs or addresses' : 'Open up to 10 IDs or addresses';                    // either way up to 10 can be pasted at once; short enough to show whole at 1400 px, the tooltip has the full sentence
     q.title = has ? 'Add up to 10 transaction IDs or wallet addresses at once: paste them separated by spaces, commas or new lines' : 'A transaction ID or a wallet address; up to 10 can be pasted at once, separated by spaces, commas or new lines';
   }
 
