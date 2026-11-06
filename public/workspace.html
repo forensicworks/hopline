@@ -40,8 +40,6 @@ window.addEventListener('error', function (e) {
   <button type="button" id="btnAmounts" hidden title="Show amounts as Bitcoin, both Bitcoin and fiat, or fiat only">₿ + $</button>
   <button type="button" id="btnSide" class="icon-only narrow-only" aria-label="Show controls">Controls</button>
   <div class="spacer"></div>
-  <button type="button" id="btnUndoLoad" hidden disabled title="Nothing to undo: a load, an import or a removal can be taken back here">↶ Undo load</button>
-  <button type="button" id="btnRedoLoad" hidden disabled aria-label="Redo load" title="Nothing to redo: Undo load can be taken back here">↷</button>
   <div class="findwrap" role="search">
     <span class="findicon" aria-hidden="true">⌕</span>
     <input id="findQ" type="text" role="combobox" aria-expanded="false" aria-controls="findList" aria-autocomplete="list" placeholder="Find in workspace" aria-label="Find in the workspace" title="Find a transaction or wallet among the loaded ones: any part of an id or address, a label, note, tag or name (Ctrl+F while the canvas is focused)" spellcheck="false" autocomplete="off">
@@ -59,6 +57,8 @@ window.addEventListener('error', function (e) {
       <button type="button" id="btnDeclutter" title="Move apart only the vertices whose shapes, labels, badges or handles touch at this zoom, and the ones sitting on an edge or under its amount; everything else stays; what you dragged gives way last, and moves only when nothing else can clear it">Declutter<small>clear what overlaps, and nothing else</small></button>
     </div>
   </details>
+  <button type="button" id="btnUndoLoad" hidden disabled title="Nothing to undo: a load, an import or a removal can be taken back here">↶ Undo load</button>
+  <button type="button" id="btnRedoLoad" hidden disabled aria-label="Redo load" title="Nothing to redo: Undo load can be taken back here">↷</button>
   <details class="menu" id="exportMenu">
     <summary>Export</summary>
     <div class="menu-body">

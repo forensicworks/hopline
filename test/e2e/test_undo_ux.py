@@ -1,5 +1,5 @@
-"""Undo where you look for it: the message of every load, import and Clear offers Undo, Undo load and Redo load are in the bar only when they can act
-(and their coming and going moves nothing you click), and the Undo and Redo buttons of the Trace bar say what they will take back."""
+"""Undo where you look for it: the message of every load, import and Clear offers Undo, Undo load and Redo load are in the bar only when they can act,
+next to Export, Import and Clear (and their coming and going moves none of those), and the Undo and Redo buttons of the Trace bar say what they will take back."""
 import pytest
 
 from conftest import NORMAL
@@ -73,14 +73,18 @@ def test_undo_load_and_redo_load_are_in_the_bar_only_when_they_can_act(fpage):
     assert fpage.is_visible("#btnUndoLoad") and fpage.is_hidden("#btnRedoLoad")
 
 
-def test_their_coming_and_going_moves_nothing_you_click(fpage):
-    names = ["#btnImport", "#btnClear", "#exportMenu summary", "#layoutMenu summary", "#findQ"]
+def test_they_sit_next_to_export_and_their_coming_and_going_does_not_move_export_import_or_clear(fpage):
+    names = ["#btnImport", "#btnClear", "#exportMenu summary"]
     before = {n: box(fpage, n) for n in names}
     open_query(fpage, NORMAL["txid"])
     assert fpage.is_visible("#btnUndoLoad")
-    assert {n: box(fpage, n) for n in names} == before, "Import, Clear, Export, Layout and Find stay where they were"
+    assert {n: box(fpage, n) for n in names} == before, "Export, Import and Clear stay where they were"
+    order = fpage.evaluate("() => [...document.querySelectorAll('#top > *')].map((e) => e.id).filter((i) => ['layoutMenu', 'btnUndoLoad', 'btnRedoLoad', 'exportMenu', 'btnImport', 'btnClear'].includes(i))")
+    assert order == ["layoutMenu", "btnUndoLoad", "btnRedoLoad", "exportMenu", "btnImport", "btnClear"], order
     fpage.click("#btnUndoLoad"); idle(fpage); settle(fpage)
     assert fpage.is_visible("#btnRedoLoad") and {n: box(fpage, n) for n in names} == before
+    r, e = box(fpage, "#btnRedoLoad"), box(fpage, "#exportMenu summary")
+    assert e[0] - (r[0] + r[2]) <= 12, "Redo load is right beside Export: %s %s" % (r, e)
 
 
 def test_the_trace_undo_and_redo_buttons_name_the_step(tpage):
