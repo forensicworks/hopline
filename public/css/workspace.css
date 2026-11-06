@@ -169,6 +169,7 @@ body.trace-on #stepbar { display: none !important; }
 .linkrow { display: flex; justify-content: space-between; gap: 8px; text-align: left; padding: 4px 8px; font-size: 12px; }
 .linkrow .amt { color: var(--accent); font-variant-numeric: tabular-nums; flex: none; }
 .linkrow .when { color: var(--dim); flex: none; }
+.linkrow .when.unknown { font-style: italic; }
 .linkrow .who { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .linkrow .who small { display: block; color: var(--dim); font-size: 11px; }
 .walletsec .linkrow { flex-wrap: wrap; align-items: center; row-gap: 3px; }                  /* line 1: tag, date, amount; line 2: who is on the other side and the transaction */
