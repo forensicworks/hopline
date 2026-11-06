@@ -269,3 +269,42 @@ test('sizeBy "area": the area of a shape is proportional to its value, the large
   assert.ok(Math.abs(r(log, 'big') - 16) < 0.01, 'the default log scale is as it was');
   assert.equal(S.makeStyle(g, v, { sizeBy: 'log' }).nodeRadius(g.node(ID.tx('big'))), r(log, 'big'));
 });
+
+// ---- Compact size: near-equal values stay near-equal -------------------------------------------------------------------
+const walletsOf = (btc) => {
+  const nodes = new Map(btc.map((v, i) => ['addr:w' + i, { type: 'addr', received: Math.round(v * 1e8) }]));
+  return { g: { nodes, edges: new Map() }, v: { nodes: new Set(nodes.keys()), edges: new Set() }, ids: Array.from(nodes.keys()) };
+};
+const radii = (btc, opts) => { const w = walletsOf(btc), st = S.makeStyle(w.g, w.v, opts); return w.ids.map((id) => st.nodeRadius(w.g.nodes.get(id))); };
+
+test('Compact size: three wallets that received 1000, 1000.5 and 1001 BTC come out the same size, not small, middle and large', () => {
+  const r = radii([1000, 1000.5, 1001]);
+  assert.ok(Math.max.apply(null, r) - Math.min.apply(null, r) < 0.05, 'almost equal values, almost equal sizes: ' + r);
+  assert.ok(Math.abs(r[1] - 10.5) < 0.05, 'in the middle of the range');
+  assert.deepEqual(radii([1000, 1000, 1000]), [10.5, 10.5, 10.5], 'equal values were and are equal');
+});
+
+test('Compact size: a spread of ten times or more uses the whole range as before, and the scale is continuous at ten times', () => {
+  assert.deepEqual(radii([10, 100, 1000]).map((x) => Math.round(x * 10) / 10), [5, 10.5, 16], 'a hundred times apart');
+  assert.deepEqual(radii([100, 1000]).map((x) => Math.round(x * 10) / 10), [5, 16], 'exactly ten times apart');
+  for (const [lo, hi] of [[1e3, 1e4], [1e3, 1e6], [5, 5e9]]) {
+    const old = S.logScale(lo, hi), now = S.logScale(lo, hi, 1);
+    for (const v of [lo, (lo + hi) / 3, hi]) assert.ok(Math.abs(now(v) - old(v)) < 1e-3, 'the same as before (to a thousandth: log10(1 + value) makes ten times a hair under one power of ten) for a spread of ' + hi / lo);
+  }
+});
+
+test('Compact size: values less than ten times apart are spread over a part of the range, around the middle', () => {
+  const two = radii([1000, 2000]);
+  assert.ok(two[0] > 5 && two[1] < 16 && two[1] > two[0], 'two times apart: different, but not the full range: ' + two);
+  assert.ok(Math.abs((two[0] + two[1]) / 2 - 10.5) < 0.05, 'centred');
+  const four = radii([1000, 1000.5, 1001, 5000]);
+  assert.ok(four[3] - four[0] > 6 && four[0] > 5, 'a wallet five times larger is clearly larger, and the three near-equal ones are not squeezed to the minimum: ' + four);
+  assert.ok(Math.max(four[0], four[1], four[2]) - Math.min(four[0], four[1], four[2]) < 0.1, 'and still alike');
+});
+
+test('Compact size: Proportional is unchanged, valueSpan can be switched off, and edge widths are as they were', () => {
+  assert.deepEqual(radii([1000, 1000.5, 1001], { sizeBy: 'area' }).map((x) => Math.round(x)), [20, 20, 20]);
+  const old = radii([1000, 1000.5, 1001], { valueSpan: 0 });
+  assert.ok(Math.abs(old[0] - 5) < 0.01 && Math.abs(old[2] - 16) < 0.01, 'valueSpan 0 is the earlier stretch: ' + old);
+  assert.equal(S.logScale(5, 5, 1)(5), 0.5);
+});

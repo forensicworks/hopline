@@ -34,9 +34,14 @@
     return rgb(AGE_STOPS[AGE_STOPS.length - 1][1]);
   }
 
-  /** Log scale: returns f(value) in 0..1 over [min,max]. Constant data maps to 0.5. */
-  function logScale(min, max) {
+  /**
+   * Log scale: returns f(value) in 0..1 over [min,max]. Constant data maps to 0.5.
+   * minSpan (in powers of ten, optional): when the values lie closer together than that, the scale is widened to that span around their middle, so that a few values that are
+   * almost equal come out almost equal instead of being stretched over the whole range (1000, 1000.5 and 1001 BTC are not small, middle and large). A wider spread is as it was.
+   */
+  function logScale(min, max, minSpan) {
     var lo = Math.log10(1 + Math.max(0, min)), hi = Math.log10(1 + Math.max(0, max));
+    if (hi > lo && minSpan > hi - lo) { var mid = (lo + hi) / 2; lo = mid - minSpan / 2; hi = mid + minSpan / 2; }
     return function (v) {
       if (!(hi > lo)) return 0.5;
       var x = (Math.log10(1 + Math.max(0, v)) - lo) / (hi - lo);
@@ -48,10 +53,12 @@
     return function (v) { return (max > min) ? Math.max(0, Math.min(1, (v - min) / (max - min))) : 0.5; };
   }
 
+  var VALUE_SPAN = 1;               // shapes are only spread over the whole size range when their values differ by at least a factor of ten (a power of ten)
+
   /**
    * Builds the style functions for the currently visible part of the graph.
    * opts: { colorBy: 'type'|'age'|'script', sizeBy: 'log'|'area', minWidth, maxWidth, minRadius, maxRadius }
-   *   sizeBy 'log'   (default) a compact log scale between minRadius and maxRadius: sizes differ little
+   *   sizeBy 'log'   (default) a compact log scale between minRadius and maxRadius: sizes differ little, and values within a factor of ten (opts.valueSpan, in powers of ten) get similar sizes
    *   sizeBy 'area'  the AREA of a shape is proportional to its value (radius ~ sqrt), up to areaMaxRadius for the largest,
    *                  never below areaMinRadius so a tiny amount is still a visible dot
    */
@@ -74,7 +81,7 @@
       var v = n.type === 'tx' ? n.valueOut : n.received;
       if (v != null) { if (vMin == null || v < vMin) vMin = v; if (vMax == null || v > vMax) vMax = v; }
     });
-    var amountScale = logScale(aMin || 0, aMax || 0), valueScale = logScale(vMin || 0, vMax || 0), timeScale = linScale(tMin, tMax);
+    var amountScale = logScale(aMin || 0, aMax || 0), valueScale = logScale(vMin || 0, vMax || 0, opts.valueSpan == null ? VALUE_SPAN : opts.valueSpan), timeScale = linScale(tMin, tMax);
 
     function nodeTime(n) { return n.type === 'tx' ? n.time : n.firstSeen; }
 
