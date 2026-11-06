@@ -870,7 +870,7 @@
     var items = rows.map(function (r) {
       var t = stepRowText(r), parties = n.type === 'addr' && r.type === 'tx' ? partiesOf(r.id, dir === 'next' ? 'out' : 'in', id) : null;
       var who = parties ? (dir === 'next' ? 'to ' : 'from ') + partiesText(parties, 'itself') : '';
-      var sub = [who, t.sub].filter(Boolean).join(' · ');
+      var sub = [t.sub, who].filter(Boolean).join(' · ');                              // the time first: it stays whole, and a long list of wallets is what wraps
       var cb = el('input', { type: 'checkbox', 'aria-label': t.what });
       var pids = parties ? parties.ids : (r.type === 'addr' ? [r.id] : []), levels = pids.map(knownLevel);                // how well known the wallets on the other side are
       var it = { r: r, cb: cb, ok: true, level: levels.reduce(function (a, b) { return Math.max(a, b); }, 0), service: levels.indexOf(1) >= 0, row: el('label', { 'class': 'chooserrow' }, [cb, el('span', { 'class': 'what' }, [t.what, sub ? el('small', { text: sub }) : null]), el('span', { 'class': 'amt', text: t.amt })]) };
@@ -1620,6 +1620,12 @@
   }
 
   /** Describe one step row for the list: { what, sub, amt, title }. */
+  /** When something happened, to the minute and in UTC; when it is not known, why: "unconfirmed" (not in a block yet) or "date unknown" (its details are not loaded). `node`: the transaction, if there is one. */
+  function stampText(time, node) {
+    if (time != null) return S.fmtTime(time);
+    if (node && node.confirmed === false) return 'unconfirmed';
+    return node && node.loaded === false ? 'date unknown (not loaded yet)' : 'date unknown';
+  }
   function stepRowText(r) {
     var g = state.graph, node = r.id && g.nodes.get(r.id), via = r.via && g.nodes.get(r.via);
     var viaText = via ? 'via ' + focusLabel(via.id) : '';
@@ -1628,10 +1634,10 @@
       what = focusLabel(r.id);
       var known = node && node.address && KNOWN[node.address];
       if (known && node.label) what += ' (' + known.label + ')';              // without your own label the known one is already the name
-      sub = r.spent === true ? 'spent' + (r.spender ? ' in ' + S.shortId(r.spender, 5) : '') : r.spent === false ? 'unspent so far' : '';
+      sub = [stampText(r.time, null), r.spent === true ? 'spent' + (r.spender ? ' in ' + S.shortId(r.spender, 5) : '') : r.spent === false ? 'unspent so far' : ''].filter(Boolean).join(' · ');       // the time of the transaction that links it
     } else if (r.type === 'tx') {
       what = 'tx ' + S.shortId(node ? node.txid : r.id.slice(3), 6);
-      sub = [node && node.time != null ? S.fmtTime(node.time, false) : (node && node.confirmed === false ? 'unconfirmed' : ''), viaText, node && node.loaded === false ? 'not loaded yet' : ''].filter(Boolean).join(' · ');
+      sub = [stampText(node && node.time != null ? node.time : r.time, node), viaText].filter(Boolean).join(' · ');
     } else {
       what = r.type === 'coinbase' ? 'Coinbase' : r.type === 'unspent' ? 'Unspent output' : r.type === 'data' ? 'OP_RETURN data' : 'Non-standard output';
       sub = [r.note, viaText].filter(Boolean).join(' · ');
@@ -2713,7 +2719,7 @@
     var LIMIT = 40, list = el('div', { 'class': 'linkrows' });
     rows.slice(0, LIMIT).forEach(function (r) {
       var kids = [el('span', { text: r.label })];
-      if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time, false) }));
+      if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time), title: S.fmtTimeFull(r.time) }));
       if (r.amount != null) kids.push(el('span', { 'class': 'amt', text: (r.sign || '') + mixText(S.fmtBtc(r.amount) + ' BTC', r.amount != null ? fiatOf(r.amount, r.time) : null) }));
       var fx = r.amount != null ? fiatOf(r.amount, r.time) : null;
       var line = r.id && state.graph.nodes.has(r.id) ? el('button', { type: 'button', 'class': 'linkrow', title: r.id + (fx ? ' · ' + fx.text : ''), onclick: function () { navigate(r.id); } }, kids)
@@ -2903,7 +2909,9 @@
       var tag = el('span', { 'class': 'dirtag ' + r.dir, text: DIR_TAG[r.dir],
                              title: r.dir === 'in' ? 'Money came in' + (r.mixed ? ' (the wallet also spent in this transaction; net shown)' : '') : r.dir === 'out' ? 'Money went out' + (r.mixed ? ' (some came back to the wallet as change; net shown)' : '') : 'Moved within the wallet' });
       var kids = [tag, el('span', { 'class': 'who' }, [who ? (r.dir === 'in' ? 'from ' : r.dir === 'out' ? 'to ' : '') + who : S.shortId(r.txid, 6), who ? el('small', { text: S.shortId(r.txid, 6) }) : r.unloaded ? el('small', { text: 'no details yet' }) : null])];
-      if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time, false) }));
+      var stamp = stampText(r.time, { confirmed: r.pending ? false : null, loaded: r.unloaded ? false : true });
+      kids.push(el('span', { 'class': 'when' + (r.time == null ? ' unknown' : ''), text: stamp,
+                             title: r.time != null ? S.fmtTimeFull(r.time) : r.pending ? 'Not in a block yet' : r.unloaded ? 'Known only as the transaction that spent an output: its details, and so its date, are not loaded. Click the row to load them.' : 'No date is known for this transaction' }));
       kids.push(el('span', { 'class': 'amt', text: (r.dir === 'in' ? '+' : r.dir === 'out' ? '−' : '') + mixText(S.fmtBtc(r.amount) + ' BTC', fx) }));
       var line = el('button', { type: 'button', 'class': 'linkrow ' + r.dir, title: r.id + (fx ? ' · ' + fx.text : ''), onclick: function () { navigate(r.id); } }, kids);
       var parts = [tickBox([r.id], 'Tick this transaction'), line];
@@ -3081,7 +3089,7 @@
     var cap = (state.groupCap && state.groupCap[gid]) || 40, list = el('div', { 'class': 'linkrows' });
     rows.slice(0, cap).forEach(function (r) {
       var kids = [el('span', { 'class': 'who' }, [focusLabel(r.id)])];
-      if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time, false) }));
+      if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time), title: S.fmtTimeFull(r.time) }));
       kids.push(el('span', { 'class': 'amt', text: S.fmtBtc(r.amount) + ' BTC' }));
       list.appendChild(el('div', { 'class': 'rowcopy' }, [el('div', { 'class': 'linkrow plain', title: r.id }, kids),
         trace ? el('button', { type: 'button', 'class': 'showbtn', text: '+ show', title: 'Put just this one on the trace', onclick: function () { traceExpandGroup(gid, { ids: [r.id] }); } }) : null,
