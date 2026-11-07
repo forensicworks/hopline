@@ -24,7 +24,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-(window.HOPLINE_PACKS = window.HOPLINE_PACKS || {})["mining-pools"] = {"format":"hopline-labels","version":1,"name":"Mining pools (mempool.space)","source":"mempool/mining-pools, pools-v2.json at commit 9db63a8 (2026-09-24)","licence":"MIT","attribution":"mempool/mining-pools (used by mempool.space), MIT License, Copyright (c) 2019 btc.com and contributors","sourceUrl":"https://github.com/mempool/mining-pools","asOf":"2026-09-24","labels":[
+(window.HOPLINE_PACKS = window.HOPLINE_PACKS || {})["mining-pools"] = {"format":"hopline-labels","version":1,"name":"Mining pools (mempool.space)","source":"mempool/mining-pools, pools-v2.json at commit 7ac4265 (2026-11-02)","licence":"MIT","attribution":"mempool/mining-pools (used by mempool.space), MIT License, Copyright (c) 2019 btc.com and contributors","sourceUrl":"https://github.com/mempool/mining-pools","asOf":"2026-11-02","labels":[
 {"address":"11wC5KcbgrWRBb43cwADdVrxgyF8mndVC","label":"Mining pool: MiningCity","category":"MINING","url":"https://www.miningcity.com"},
 {"address":"122pN8zvqTxJaA8fRY1PDBu4QYodqE5m2X","label":"Mining pool: Binance Pool","category":"MINING","url":"https://pool.binance.com"},
 {"address":"125m2H43pwKpSZjLhMQHneuTwTJN5qRyYu","label":"Mining pool: SpiderPool","category":"MINING","url":"https://www.spiderpool.com"},
@@ -101,7 +101,7 @@
 {"address":"1BUiW44WuJ2jiJgXiyxJVFMN8bc1GLdXRk","label":"Mining pool: TBDice","category":"MINING","url":"https://tbdice.org"},
 {"address":"1BWW3pg5jb6rxebrNeo9TATarwJ1rthnoe","label":"Mining pool: AntPool","category":"MINING","url":"https://www.antpool.com"},
 {"address":"1BX5YoLwvqzvVwSrdD4dC32vbouHQn2tuF","label":"Mining pool: Cointerra","category":"MINING","url":"https://cointerra.com"},
-{"address":"1Bf9sZvBHPFGVPX71WX2njhd1NXKv5y7v5","label":"Mining pool: BTC.com","category":"MINING","url":"https://pool.btc.com"},
+{"address":"1Bf9sZvBHPFGVPX71WX2njhd1NXKv5y7v5","label":"Mining pool: CloverPool","category":"MINING","url":"https://cloverpool.com"},
 {"address":"1BwZeHJo7b7M2op7VDfYnsmcpXsUYEcVHm","label":"Mining pool: BTC Nuggets","category":"MINING","url":"https://104.197.8.250"},
 {"address":"1CBqo1w3hmm9SCmbu2Yg6Ls4uLfkUqZJsx","label":"Mining pool: AntPool","category":"MINING","url":"https://www.antpool.com"},
 {"address":"1CK6KHY6MHgYvmRQ4PAafKYDrg1ejbH1cE","label":"Mining pool: Braiins Pool","category":"MINING","url":"https://braiins.com/pool"},
@@ -194,7 +194,7 @@
 {"address":"33SAB6pzbhEGPbfY6NVgRDV7jVfspZ3A3Z","label":"Mining pool: Carbon Negative","category":"MINING","url":"https://github.com/bitcoin-data/mining-pools/issues/48"},
 {"address":"34Jpa4Eu3ApoPVUKNTN2WeuXVVq1jzxgPi","label":"Mining pool: Lubian.com","category":"MINING","url":"https://www.lubian.com"},
 {"address":"34qGNFx6uQv6SzjYPbYVWtjvuy5DSGugt8","label":"Mining pool: Est3lar","category":"MINING","url":"https://est3lar.io"},
-{"address":"34qkc2iac6RsyxZVfyE2S5U5WcRsbg2dpK","label":"Mining pool: BTC.com","category":"MINING","url":"https://pool.btc.com"},
+{"address":"34qkc2iac6RsyxZVfyE2S5U5WcRsbg2dpK","label":"Mining pool: CloverPool","category":"MINING","url":"https://cloverpool.com"},
 {"address":"3554kSaWNnP3B49Xyybert7gmxq2YSnfnx","label":"Mining pool: RedRock Pool","category":"MINING","url":"https://redrock.pro/"},
 {"address":"35y82tEPDa2wm6tzkEacMG8GPPW7zbMj83","label":"Mining pool: Rawpool","category":"MINING","url":"https://www.rawpool.com"},
 {"address":"36n452uGq1x4mK7bfyZR8wgE47AnBb2pzi","label":"Mining pool: Poolin","category":"MINING","url":"https://www.poolin.com"},
@@ -209,7 +209,7 @@
 {"address":"3Bmb9Jig8A5kHdDSxvDZ6eryj3AXd3swuJ","label":"Mining pool: NovaBlock","category":"MINING","url":"https://novablock.com"},
 {"address":"3C9sAKXrBVpJVe3b738yik4LPHpPmceBgd","label":"Mining pool: ULTIMUSPOOL","category":"MINING","url":"https://www.ultimuspool.com"},
 {"address":"3CLigLYNkrtoNgNcUwTaKoUSHCwr9W851W","label":"Mining pool: Rawpool","category":"MINING","url":"https://www.rawpool.com"},
-{"address":"3EhLZarJUNSfV6TWMZY1Nh5mi3FMsdHa5U","label":"Mining pool: BTC.com","category":"MINING","url":"https://pool.btc.com"},
+{"address":"3EhLZarJUNSfV6TWMZY1Nh5mi3FMsdHa5U","label":"Mining pool: CloverPool","category":"MINING","url":"https://cloverpool.com"},
 {"address":"3FaYVQF6wCMUB9NCeRe4tUp1zZx8qqM7H1","label":"Mining pool: AntPool","category":"MINING","url":"https://www.antpool.com"},
 {"address":"3G7jcEELKh38L6kaSV8K35pTqsh5bgZW2D","label":"Mining pool: Binance Pool","category":"MINING","url":"https://pool.binance.com"},
 {"address":"3GdjWJdkJhtkxRZ3Ns1LstaoHNMBW8XsvU","label":"Mining pool: Mining Squared","category":"MINING","url":"https://pool.bsquared.network/"},
@@ -220,7 +220,7 @@
 {"address":"3KJrsjfg1dD6CrsTeHdHVH3KqMpvL2XWQn","label":"Mining pool: Poolin","category":"MINING","url":"https://www.poolin.com"},
 {"address":"3KZDwmJHB6QJ13QPXHaW7SS3yTESFPZoxb","label":"Mining pool: Carbon Negative","category":"MINING","url":"https://github.com/bitcoin-data/mining-pools/issues/48"},
 {"address":"3L8Ck6bm3sve1vJGKo6Ht2k167YKSKi8TZ","label":"Mining pool: Binance Pool","category":"MINING","url":"https://pool.binance.com"},
-{"address":"3NA8hsjfdgVkmmVS9moHmkZsVCoLxUkvvv","label":"Mining pool: BTC.com","category":"MINING","url":"https://pool.btc.com"},
+{"address":"3NA8hsjfdgVkmmVS9moHmkZsVCoLxUkvvv","label":"Mining pool: CloverPool","category":"MINING","url":"https://cloverpool.com"},
 {"address":"3QYvfQoG9Gs9Vfvbpw6947muSqhoGagvF6","label":"Mining pool: Rawpool","category":"MINING","url":"https://www.rawpool.com"},
 {"address":"3Qqp7LwxmSjPwRaKkDToysJsM3xA4ThqFk","label":"Mining pool: Terra Pool","category":"MINING","url":"https://terrapool.io"},
 {"address":"bc1p8k4v4xuz55dv49svzjg43qjxq2whur7ync9tm0xgl5t4wjl9ca9snxgmlt","label":"Mining pool: Foundry USA","category":"MINING","url":"https://foundrydigital.com"},
@@ -229,7 +229,7 @@
 {"address":"bc1q75t4wewkmf3l9qg097zvtlh05v5pdz6699kv8k","label":"Mining pool: Innopolis Tech","category":"MINING","url":"https://innopolis.tech/"},
 {"address":"bc1q8ej2g5uxdsg0jwl0mpl606qfjxgkyv3p29yf37","label":"Mining pool: Rawpool","category":"MINING","url":"https://www.rawpool.com"},
 {"address":"bc1qf274x7penhcd8hsv3jcmwa5xxzjl2a6pa9pxwm","label":"Mining pool: F2Pool","category":"MINING","url":"https://www.f2pool.com"},
-{"address":"bc1qjl8uwezzlech723lpnyuza0h2cdkvxvh54v3dn","label":"Mining pool: BTC.com","category":"MINING","url":"https://pool.btc.com"},
+{"address":"bc1qjl8uwezzlech723lpnyuza0h2cdkvxvh54v3dn","label":"Mining pool: CloverPool","category":"MINING","url":"https://cloverpool.com"},
 {"address":"bc1qnnl503n04cqacpwvhr89qr70metxr79ht3n380","label":"Mining pool: Rawpool","category":"MINING","url":"https://www.rawpool.com"},
 {"address":"bc1qreaftg3lr53nv84dnxhcvchmswevzlp9tdj2jd","label":"Mining pool: SoloPool.com","category":"MINING","url":"https://solopool.com"},
 {"address":"bc1qru8mtv3e3u7ms6ecjmwgeakdakclemvhnw00q9","label":"Mining pool: Rawpool","category":"MINING","url":"https://www.rawpool.com"},
