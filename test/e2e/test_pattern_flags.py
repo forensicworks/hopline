@@ -38,7 +38,7 @@ def zoom(page, k):
 
 
 def drawn(page):
-    """The pattern flags as drawn: their text (the small bold 9.5 px writing) and the rings round the transactions (the swap is the orange half, not a ring)."""
+    """The pattern flags as drawn: their text (the small bold 9.5 px writing) and the rings round the transactions."""
     return page.evaluate("""() => { const r = window.__hopline.renderer, ctx = r.ctx, ft = ctx.fillText.bind(ctx), texts = [];
         ctx.fillText = (t, x, y, ...a) => { if (/^bold 9[.]5px/.test(ctx.font)) texts.push({ t: String(t), x, y, w: ctx.measureText(String(t)).width }); return ft(t, x, y, ...a); };
         r.draw(); ctx.fillText = ft; return { texts, rings: r.findingRings.map((q) => Object.assign({}, q)) }; }""")
@@ -127,7 +127,7 @@ def test_switching_the_flags_off_altogether_still_lists_what_was_found(fpage, mo
 
 
 # ---- a ring for each finding: what the canvas does with the findings a transaction carries (handed to it by hand, so the shapes of the analysis do not matter here) ----
-SWAP = {"text": "SWAP \u2192 ETH", "color": "#d98a3d", "kind": "swap", "half": True, "chain": ""}
+SWAP = {"text": "SWAP \u2192 ETH", "color": "#d98a3d", "kind": "swap", "chain": ""}
 CONSOL = {"text": "CONSOL 6\u21921", "color": "#b58cff", "kind": "consolidation", "chain": ""}
 PEEL = {"text": "PEEL 3/6", "color": "#ffb347", "kind": "peel", "chain": "P-0a1b"}
 COIN = {"text": "COINJOIN?", "color": "#ff7aa2", "kind": "coinjoin", "chain": ""}
@@ -136,7 +136,7 @@ COIN = {"text": "COINJOIN?", "color": "#ff7aa2", "kind": "coinjoin", "chain": ""
 def force(page, id_, flags, start=False):
     """Hand the canvas these findings for one transaction (and START if asked) in place of the analysis, and draw it again."""
     page.evaluate("""([id, flags, start]) => { const r = window.__hopline.renderer, d = r.data;
-        d.nodeFlags = (n) => n.id === id ? flags : null; d.nodeSplit = () => null; d.seedIds = start ? new Set([id]) : new Set();
+        d.nodeFlags = (n) => n.id === id ? flags : null; d.seedIds = start ? new Set([id]) : new Set();
         const p = r.positionOf(id); r.view.x = r.w / 2 - p.x * r.view.k; r.view.y = r.h / 2 - p.y * r.view.k; r.draw(); }""", [id_, flags, start])
 
 
@@ -162,13 +162,14 @@ def test_a_flagged_start_transaction_shows_the_finding_by_name_and_by_ring(fpage
     assert [(q["kind"], q["id"]) for q in d["rings"]] == [("coinjoin", "tx:" + tid(30))]
 
 
-def test_each_finding_is_a_ring_the_first_innermost_and_the_swap_is_the_half_not_a_ring(fpage, mock):
+def test_each_finding_is_a_ring_the_first_innermost_and_the_swap_is_one_too(fpage, mock):
     scene(fpage, mock); fold_panel(fpage)
     fpage.evaluate("() => window.__hopline.setSel([])"); zoom(fpage, 1.0)
     force(fpage, "tx:" + tid(30), [SWAP, CONSOL, PEEL])
     rings = drawn(fpage)["rings"]
-    assert [q["kind"] for q in rings] == ["consolidation", "peel"], "no ring for the swap"
-    assert rings[1]["off"] - rings[0]["off"] == 3 and rings[0]["color"] == CONSOL["color"] and rings[1]["color"] == PEEL["color"], "3 px apart whatever the shape"
+    assert [q["kind"] for q in rings] == ["swap", "consolidation", "peel"], "a ring for each, in the order of the findings"
+    assert [q["off"] for q in rings] == [2.5, 5.5, 8.5], "3 px apart whatever the shape"
+    assert [q["color"] for q in rings] == [SWAP["color"], CONSOL["color"], PEEL["color"]]
 
 
 def test_the_names_stack_without_gaps_and_without_overlap_at_every_zoom_and_a_selected_vertex_shows_them_all(fpage, mock):
