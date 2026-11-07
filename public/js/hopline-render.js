@@ -637,8 +637,8 @@
       var n = g.nodes.get(id), p = self.cur.get(id); if (!p) return;
       var P = self._toScreen(p), r = st.nodeRadius(n) * s;
       if (P.x < -r - 4 || P.y < -r - 4 || P.x > self.w + r + 4 || P.y > self.h + r + 4) return;
-      var fl0 = n.type === 'tx' && d.nodeFlags ? d.nodeFlags(n) : null;       // what the analysis found on a transaction: a ring round the shape for each (the swap is the orange half instead)
-      var rings = fl0 ? fl0.filter(function (f) { return !f.half; }) : [], rx = rings.length * RING_STEP, rp = rx / sideOf(kindOf(n));       // every other ring (selected, labelled, chain step ...) sits outside these: rx px, rp as extra radius
+      var fl0 = n.type === 'tx' && d.nodeFlags ? d.nodeFlags(n) : null;       // what the analysis found on a transaction: a ring round the shape for each
+      var rings = fl0 || [], rx = rings.length * RING_STEP, rp = rx / sideOf(kindOf(n));       // every other ring (selected, labelled, chain step ...) sits outside these: rx px, rp as extra radius
       grow(id, P.x, P.y, P.x - r - rx, P.y - r - rx, P.x + r + rx, P.y + r + rx);
       var dimmed = near && !near.has(id), colour = st.nodeColor(n);
       var hollow = n.type === 'tx' && n.loaded === false;
@@ -647,13 +647,6 @@
       if (hollow) { ctx.fillStyle = 'rgba(28,20,29,0.9)'; ctx.fill(); ctx.strokeStyle = colour; ctx.lineWidth = 2; ctx.setLineDash([3, 2]); ctx.stroke(); ctx.setLineDash([]); }
       else {
         ctx.fillStyle = colour; ctx.fill();
-        var split = n.type === 'tx' && d.nodeSplit ? d.nodeSplit(n) : null;
-        if (split) {                                                        // the upper-left half in another colour, cut along the diagonal: it shows at any zoom, where a badge may be a dot
-          ctx.save(); ctx.clip();
-          ctx.beginPath(); ctx.moveTo(P.x - r - 2, P.y - r - 2); ctx.lineTo(P.x + r + 2, P.y - r - 2); ctx.lineTo(P.x - r - 2, P.y + r + 2); ctx.closePath();
-          ctx.fillStyle = split; ctx.fill(); ctx.restore();
-          shape(ctx, kindOf(n), P.x, P.y, r);
-        }
         ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,0.55)';
         if (n.type === 'tx' && n.confirmed === false) ctx.setLineDash([3, 2]);
         ctx.stroke(); ctx.setLineDash([]);
@@ -730,7 +723,7 @@
     });
     ctx.font = 'bold 9.5px Calibri, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.lineJoin = 'round';
     // The names of a transaction's findings (SWAP > ETH, PEEL 3/5, CONSOL 34>2 ...) go in rows above it, the first finding lowest, one ROW apart with no gap, and only
-    // where they fit: zoomed out, or where they would sit on top of other writing, there is none (the rings and the orange half still show that something was found).
+    // where they fit: zoomed out, or where they would sit on top of other writing, there is none (the rings still show that something was found).
     // Without the pointer on it a vertex shows up to three rows in all, START and its tag included; the vertex under the pointer or selected shows every name, is served
     // first, and also names its peel chain.
     if (flagItems.length) {

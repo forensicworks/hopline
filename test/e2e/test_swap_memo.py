@@ -172,42 +172,46 @@ def halves(page, id_):
         return { upper: at(-3, -3), lower: at(3, 3) }; }""", id_)
 
 
-def orange(rgb):
-    return rgb[0] > rgb[2] + 60 and rgb[0] > 150
+def rings_of(page, id_=None):
+    """The finding rings the canvas draws (all, or those of one transaction): kind and colour, innermost first."""
+    rs = page.evaluate("() => { const r = window.__hopline.renderer; r.draw(); return r.findingRings.map((q) => ({ id: q.id, kind: q.kind, color: q.color })); }")
+    return [q for q in rs if id_ is None or q["id"] == id_]
 
 
 def blue(rgb):
     return rgb[2] > rgb[0] + 40
 
 
-def test_a_transaction_with_a_swap_memo_has_its_upper_left_half_in_the_swap_colour_and_a_plain_one_does_not(page, mock):
+def test_a_transaction_with_a_swap_memo_has_a_ring_in_the_swap_colour_and_keeps_its_own_fill_and_a_plain_one_has_no_ring(page, mock):
     one = swap_tx(mock, 1)
     open_query(page, tid(1)); open_query(page, NORMAL["txid"])
     page.evaluate("() => window.__hopline.setSel([])"); settle(page)
+    assert [(q["kind"], q["color"]) for q in rings_of(page, one)] == [("swap", "#d98a3d")]
     h = halves(page, one)
-    assert orange(h["upper"]) and blue(h["lower"]), h
+    assert blue(h["upper"]) and blue(h["lower"]), "one fill colour: the swap is a ring, not a half: %s" % h
+    assert rings_of(page, "tx:" + NORMAL["txid"]) == []
     plain = halves(page, "tx:" + NORMAL["txid"])
     assert blue(plain["upper"]) and blue(plain["lower"]), plain
 
 
-def test_the_half_follows_the_switches_and_the_legend_says_what_it_is(page, mock):
+def test_the_ring_follows_the_switches_and_the_legend_says_what_it_is(page, mock):
     one = swap_tx(mock, 1)
     open_query(page, tid(1)); page.evaluate("() => window.__hopline.setSel([])"); settle(page)
-    assert orange(halves(page, one)["upper"]) and "orange half" in page.inner_text("#legend")
+    assert [q["kind"] for q in rings_of(page, one)] == ["swap"] and "orange ring" in page.inner_text("#legend")
     page.uncheck("#anKSwap"); settle(page)
-    assert blue(halves(page, one)["upper"]) and "orange half" not in page.inner_text("#legend"), "SWAP switched off"
+    assert rings_of(page, one) == [] and "orange ring" not in page.inner_text("#legend"), "SWAP switched off"
     page.check("#anKSwap"); settle(page)
-    assert orange(halves(page, one)["upper"])
+    assert [q["kind"] for q in rings_of(page, one)] == ["swap"]
     page.uncheck("#anFlags"); settle(page)
-    assert blue(halves(page, one)["upper"]) and "orange half" not in page.inner_text("#legend"), "Flag patterns on transactions switched off"
+    assert rings_of(page, one) == [] and "orange ring" not in page.inner_text("#legend"), "Flag patterns on transactions switched off"
 
 
 def test_a_plain_transaction_has_no_swap_entry_in_the_legend(page, mock):
     open_query(page, NORMAL["txid"]); settle(page)
-    assert "orange half" not in page.inner_text("#legend")
+    assert "orange ring" not in page.inner_text("#legend")
 
 
-def test_on_a_round_payment_the_swap_has_the_half_and_the_round_has_a_ring_and_both_names_show_when_selected(page, mock):
+def test_on_a_round_payment_the_swap_ring_is_innermost_and_both_names_show_when_selected(page, mock):
     tx(mock, 5, [IN(95, 0, "carl", 150_000_273)], [OUT("vault5", 100_000_000), OUT("back5", 49_999_123), data_out(MEMO)])
     open_query(page, tid(5))
     flags_of = flags(page)
@@ -216,8 +220,9 @@ def test_on_a_round_payment_the_swap_has_the_half_and_the_round_has_a_ring_and_b
     texts = drawn_texts(page)
     assert any(t.startswith("SWAP") for t in texts) and any(t.startswith("ROUND") for t in texts), "selected: both names, the SWAP one nearest the vertex"
     page.evaluate("() => window.__hopline.setSel([])"); settle(page)
-    assert orange(halves(page, "tx:" + tid(5))["upper"]), "and the half marks it whatever the names do"
-    assert [q["kind"] for q in page.evaluate("() => { const r = window.__hopline.renderer; r.draw(); return r.findingRings; }")] == ["round"], "the ROUND is a ring; the swap is the half"
+    assert [q["kind"] for q in rings_of(page, "tx:" + tid(5))] == ["swap", "round"], "a ring each, the swap innermost"
+    h = halves(page, "tx:" + tid(5))
+    assert blue(h["upper"]) and blue(h["lower"]), "the vertex keeps one fill colour"
 
 
 def test_a_payment_to_a_wallet_tagged_swap_that_also_carries_a_request_id_is_one_hand_off_not_two(tpage, mock):
