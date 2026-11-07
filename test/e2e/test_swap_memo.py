@@ -207,16 +207,17 @@ def test_a_plain_transaction_has_no_swap_entry_in_the_legend(page, mock):
     assert "orange half" not in page.inner_text("#legend")
 
 
-def test_on_a_round_payment_the_swap_badge_gets_the_text_and_the_half_marks_it_whatever_the_badges_do(page, mock):
+def test_on_a_round_payment_the_swap_has_the_half_and_the_round_has_a_ring_and_both_names_show_when_selected(page, mock):
     tx(mock, 5, [IN(95, 0, "carl", 150_000_273)], [OUT("vault5", 100_000_000), OUT("back5", 49_999_123), data_out(MEMO)])
     open_query(page, tid(5))
     flags_of = flags(page)
     assert flags_of["tx:" + tid(5)] == ["SWAP → ETH", "ROUND 1 BTC"], "the memo comes first"
     page.evaluate("(id) => window.__hopline.setSel([id])", "tx:" + tid(5)); settle(page)
     texts = drawn_texts(page)
-    assert any(t.startswith("SWAP") for t in texts) and not any(t.startswith("ROUND") for t in texts), "the second badge is the dot"
+    assert any(t.startswith("SWAP") for t in texts) and any(t.startswith("ROUND") for t in texts), "selected: both names, the SWAP one nearest the vertex"
     page.evaluate("() => window.__hopline.setSel([])"); settle(page)
-    assert orange(halves(page, "tx:" + tid(5))["upper"]), "and the half marks it whatever the badges do"
+    assert orange(halves(page, "tx:" + tid(5))["upper"]), "and the half marks it whatever the names do"
+    assert [q["kind"] for q in page.evaluate("() => { const r = window.__hopline.renderer; r.draw(); return r.findingRings; }")] == ["round"], "the ROUND is a ring; the swap is the half"
 
 
 def test_a_payment_to_a_wallet_tagged_swap_that_also_carries_a_request_id_is_one_hand_off_not_two(tpage, mock):

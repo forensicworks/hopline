@@ -30,7 +30,7 @@ def flags(page):
 
 
 def badge_text_drawn(page, id_):
-    """A badge shows its text where there is room and is a dot where there is not; the selected vertex always gets its text."""
+    """A name shows where there is room; the selected vertex always gets its text (the ring is there whatever the room)."""
     page.evaluate("(id) => window.__hopline.setSel([id])", id_); settle(page)
     return any(t.startswith("ROUND") for t in drawn_texts(page))
 

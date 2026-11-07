@@ -453,7 +453,11 @@
 
   // the shape a vertex is drawn with: its own choice (a tag), otherwise by what it is
   var DEFAULT_SHAPE = { tx: 'square', coinbase: 'diamond', data: 'hexagon', group: 'stack' };
+  var RING_STEP = 3;                                                          // px between the rings that mark a transaction's findings (each is 2 px thick)
+  var ROW = 13;                                                               // px between the lines of writing above a vertex: the writing is 13 px tall, so closer rows overlap
   function kindOf(n) { return n.shape || DEFAULT_SHAPE[n.type] || 'circle'; }
+  var SIDE = { square: 0.85, diamond: 0.81, hexagon: 0.87, circle: 1 };      // how far a shape's edge moves, per unit of the radius it is drawn with (shapes are scaled copies): px outside the edge = this x the extra radius
+  function sideOf(kind) { return SIDE[kind] || 0.85; }
 
   function shape(ctx, kind, x, y, r) {
     var i, a;
@@ -628,12 +632,14 @@
 
     // nodes
     var labels = [], badges = [], pills = [], flagItems = [], stepNums = [], notes = [];
-    this.handleRects = []; this.previewDrawn = 0;
+    this.handleRects = []; this.previewDrawn = 0; this.findingRings = [];
     d.visible.nodes.forEach(function (id) {
       var n = g.nodes.get(id), p = self.cur.get(id); if (!p) return;
       var P = self._toScreen(p), r = st.nodeRadius(n) * s;
       if (P.x < -r - 4 || P.y < -r - 4 || P.x > self.w + r + 4 || P.y > self.h + r + 4) return;
-      grow(id, P.x, P.y, P.x - r, P.y - r, P.x + r, P.y + r);
+      var fl0 = n.type === 'tx' && d.nodeFlags ? d.nodeFlags(n) : null;       // what the analysis found on a transaction: a ring round the shape for each (the swap is the orange half instead)
+      var rings = fl0 ? fl0.filter(function (f) { return !f.half; }) : [], rx = rings.length * RING_STEP, rp = rx / sideOf(kindOf(n));       // every other ring (selected, labelled, chain step ...) sits outside these: rx px, rp as extra radius
+      grow(id, P.x, P.y, P.x - r - rx, P.y - r - rx, P.x + r + rx, P.y + r + rx);
       var dimmed = near && !near.has(id), colour = st.nodeColor(n);
       var hollow = n.type === 'tx' && n.loaded === false;
       ctx.globalAlpha = dimmed ? (preview ? 0.3 : 0.15) : 1;
@@ -652,16 +658,21 @@
         if (n.type === 'tx' && n.confirmed === false) ctx.setLineDash([3, 2]);
         ctx.stroke(); ctx.setLineDash([]);
       }
+      rings.forEach(function (f, i) {                                       // one thin ring per finding, close round the shape: the first finding innermost; they show at any zoom and fade with the vertex
+        var sd = sideOf(kindOf(n)), off = 2.5 + i * RING_STEP, rr = r + off / sd;               // off px outside the edge of the shape, whatever the shape
+        shape(ctx, kindOf(n), P.x, P.y, rr); ctx.lineWidth = 2; ctx.strokeStyle = f.color; ctx.setLineDash([]); ctx.stroke();
+        self.findingRings.push({ id: id, kind: f.kind, color: f.color, x: P.x, y: P.y, r: rr, off: off, edge: P.x + r * sd, side: sd, shape: kindOf(n) });
+      });
       var known = n.type === 'addr' && d.known && d.known[n.address];
       if (n.label || known || self.selected.has(id) || id === self.hover.node) {
-        shape(ctx, kindOf(n), P.x, P.y, r + 3.5);
+        shape(ctx, kindOf(n), P.x, P.y, r + rp + 3.5);
         ctx.lineWidth = self.selected.has(id) ? 3 : 2;
         ctx.strokeStyle = self.selected.has(id) ? th.select : (n.label ? th.accent : th.known);
         ctx.stroke();
       }
-      if (id === self.highlight) { shape(ctx, kindOf(n), P.x, P.y, r + 7); ctx.lineWidth = 3; ctx.strokeStyle = th.select; ctx.setLineDash([]); ctx.stroke(); }
+      if (id === self.highlight) { shape(ctx, kindOf(n), P.x, P.y, r + rp + 7); ctx.lineWidth = 3; ctx.strokeStyle = th.select; ctx.setLineDash([]); ctx.stroke(); }
       if (preview && preview.ids.has(id)) {                                 // what the pointer is on stands for this vertex: a ring in the finding's colour
-        ctx.save(); shape(ctx, kindOf(n), P.x, P.y, r + 8); ctx.lineWidth = 3.5; ctx.strokeStyle = preview.color || th.select; ctx.shadowColor = preview.color || th.select; ctx.shadowBlur = 10;
+        ctx.save(); shape(ctx, kindOf(n), P.x, P.y, r + rp + 8); ctx.lineWidth = 3.5; ctx.strokeStyle = preview.color || th.select; ctx.shadowColor = preview.color || th.select; ctx.shadowBlur = 10;
         ctx.setLineDash([]); ctx.stroke(); ctx.restore(); self.previewDrawn++;
       }
       if (known && known.sanctions) { shape(ctx, kindOf(n), P.x, P.y, r + 6.5); ctx.lineWidth = 3; ctx.strokeStyle = '#ff4d4f'; ctx.setLineDash([]); ctx.stroke(); }      // on a sanctions list (according to a pack)
@@ -671,7 +682,7 @@
       }
       var step = chain ? chain.index.get(id) : 0;
       if (step) {                                                          // a step of the lit chain: a ring in its colour and its number
-        shape(ctx, kindOf(n), P.x, P.y, r + 5.5); ctx.lineWidth = 3; ctx.strokeStyle = chain.color; ctx.setLineDash([]); ctx.stroke();
+        shape(ctx, kindOf(n), P.x, P.y, r + rp + 5.5); ctx.lineWidth = 3; ctx.strokeStyle = chain.color; ctx.setLineDash([]); ctx.stroke();
         stepNums.push({ x: P.x + r * 0.9 + 6, y: P.y - r * 0.9 - 6, n: step });
       }
       if (n.ext) {                                                         // a small blue dot: something was looked up about this wallet
@@ -679,21 +690,20 @@
       }
       if (n.note) notes.push({ x: P.x + r * 0.7 + 3.5, y: P.y + r * 0.7 + 3.5, alpha: dimmed ? 0.15 : 1 });
       ctx.globalAlpha = 1;
-      if (n.tag && !dimmed) badges.push({ text: n.tag, x: P.x, y: P.y - r - 6 - ((d.seedIds ? d.seedIds.has(id) : d.seedId === id) ? 10 : 0), color: colour, id: id, px: P.x, py: P.y });
       var isSeed = d.seedIds ? d.seedIds.has(id) : d.seedId === id;
-      if (isSeed) badges.push({ text: 'START', x: P.x, y: P.y - r - 6, color: '#ffd23f', id: id, px: P.x, py: P.y });
-      if (known && known.sanctions && !dimmed) badges.push({ text: 'SANCTIONS', x: P.x, y: P.y - r - 6 - (isSeed ? 10 : 0) - (n.tag ? 10 : 0), color: '#ff6b6b', id: id, px: P.x, py: P.y });
-      var flags = d.nodeFlags && !dimmed ? d.nodeFlags(n) : null;
-      if (flags) {                                                         // decided below: text where there is room, a dot where there is not
-        var lift = 6 + (isSeed ? 10 : 0) + (n.tag ? 10 : 0), hot = self.selected.has(id) || id === self.hover.node;
-        flags.forEach(function (f, i) { flagItems.push({ id: id, x: P.x, y: P.y - r - lift - i * 10, px: P.x, py: P.y, r: r, i: i, f: f, hot: hot }); });
+      if (n.tag && !dimmed) badges.push({ text: n.tag, x: P.x, y: P.y - r - rx - 6 - (isSeed ? ROW : 0), color: colour, id: id, px: P.x, py: P.y });
+      if (isSeed) badges.push({ text: 'START', x: P.x, y: P.y - r - rx - 6, color: '#ffd23f', id: id, px: P.x, py: P.y });
+      if (known && known.sanctions && !dimmed) badges.push({ text: 'SANCTIONS', x: P.x, y: P.y - r - 6 - (isSeed ? ROW : 0) - (n.tag ? ROW : 0), color: '#ff6b6b', id: id, px: P.x, py: P.y });
+      if (fl0 && !dimmed) {                                                // the names of the findings: decided below, where there is room (the rings show them whatever the zoom)
+        var marks = (isSeed ? 1 : 0) + (n.tag ? 1 : 0), hot = self.selected.has(id) || id === self.hover.node;
+        flagItems.push({ id: id, x: P.x, y0: P.y - r - rx - 6 - marks * ROW, px: P.x, py: P.y, flags: fl0, marks: marks, hot: hot });
       }
       if (d.handles) {
         var hd = d.handles(id);
         if (hd) {                                                          // a handle fades with its vertex (a click on it still works)
           var fade = dimmed ? (preview ? 0.3 : 0.15) : 1;
-          if (hd.left) pills.push({ id: id, dir: 'left', x: P.x - r - 8, y: P.y, label: hd.left.label, tip: hd.left.tip, strong: hd.left.known > 0, alpha: fade, px: P.x, py: P.y });
-          if (hd.right) pills.push({ id: id, dir: 'right', x: P.x + r + 8, y: P.y, label: hd.right.label, tip: hd.right.tip, strong: hd.right.known > 0, alpha: fade, px: P.x, py: P.y });
+          if (hd.left) pills.push({ id: id, dir: 'left', x: P.x - r - rx - 8, y: P.y, label: hd.left.label, tip: hd.left.tip, strong: hd.left.known > 0, alpha: fade, px: P.x, py: P.y });
+          if (hd.right) pills.push({ id: id, dir: 'right', x: P.x + r + rx + 8, y: P.y, label: hd.right.label, tip: hd.right.tip, strong: hd.right.known > 0, alpha: fade, px: P.x, py: P.y });
         }
       }
       var text = null;
@@ -704,7 +714,7 @@
         text = n.type === 'tx' ? Style.shortId(n.txid, 5) : n.type === 'addr' ? Style.shortId(n.address, 6) : n.type === 'coinbase' ? 'coinbase' : n.type === 'data' ? (n.dataText ? '“' + n.dataText.slice(0, 18) + '”' : 'OP_RETURN') : 'non-standard';
       }
       var note = d.nodeNote ? d.nodeNote(n) : '';
-      if (text && !dimmed) labels.push({ text: text, sub: note, x: P.x, y: P.y + r + 12, strong: !!(n.label || known), sel: self.selected.has(id), id: id, px: P.x, py: P.y });
+      if (text && !dimmed) labels.push({ text: text, sub: note, x: P.x, y: P.y + r + rx + 12, strong: !!(n.label || known), sel: self.selected.has(id), id: id, px: P.x, py: P.y });
     });
     notes.forEach(function (nt) {                                          // a small yellow note at the lower right of a vertex you wrote a note on, drawn after every vertex so none covers it
       var hs = 4.5, x = nt.x, y = nt.y;
@@ -719,29 +729,29 @@
       ctx.globalAlpha = 1;
     });
     ctx.font = 'bold 9.5px Calibri, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.lineJoin = 'round';
-    // Pattern flags (PEEL 3/5, CONSOL 34>2 ...) only get their text where it fits: zoomed out, or where two would sit on top of each other, a small
-    // dot in the pattern's colour stands in. The vertex under the pointer or selected is served first and also names its peel chain.
-    var dots = [];
+    // The names of a transaction's findings (SWAP > ETH, PEEL 3/5, CONSOL 34>2 ...) go in rows above it, the first finding lowest, one ROW apart with no gap, and only
+    // where they fit: zoomed out, or where they would sit on top of other writing, there is none (the rings and the orange half still show that something was found).
+    // Without the pointer on it a vertex shows up to three rows in all, START and its tag included; the vertex under the pointer or selected shows every name, is served
+    // first, and also names its peel chain.
     if (flagItems.length) {
       var taken = badges.map(function (b) { var w = ctx.measureText(b.text).width; return { x0: b.x - w / 2 - 2, x1: b.x + w / 2 + 2, y0: b.y - 10, y1: b.y + 3 }; });
       var roomy = self.view.k >= 0.3;
       flagItems.sort(function (a, b) { return (b.hot ? 1 : 0) - (a.hot ? 1 : 0); });
       flagItems.forEach(function (it) {
-        var text = it.hot && it.f.chain ? it.f.text + ' \u00b7 ' + it.f.chain : it.f.text, w = ctx.measureText(text).width;
-        var box = { x0: it.x - w / 2 - 2, x1: it.x + w / 2 + 2, y0: it.y - 10, y1: it.y + 3 };
-        var free = (roomy || it.hot) && !taken.some(function (b) { return box.x0 < b.x1 && b.x0 < box.x1 && box.y0 < b.y1 && b.y0 < box.y1; });
-        if (free) { taken.push(box); badges.push({ text: text, x: it.x, y: it.y, color: it.f.color, id: it.id, px: it.px, py: it.py }); }
-        else dots.push(it);
+        var rows = 0, cap = it.hot ? it.flags.length : Math.max(1, 3 - it.marks);
+        it.flags.forEach(function (f) {
+          if (rows >= cap) return;
+          var text = it.hot && f.chain ? f.text + ' \u00b7 ' + f.chain : f.text, w = ctx.measureText(text).width, y = it.y0 - rows * ROW;
+          var box = { x0: it.x - w / 2 - 2, x1: it.x + w / 2 + 2, y0: y - 10, y1: y + 3 };
+          var free = (roomy || it.hot) && !taken.some(function (b) { return box.x0 < b.x1 && b.x0 < box.x1 && box.y0 < b.y1 && b.y0 < box.y1; });
+          if (free) { taken.push(box); badges.push({ text: text, x: it.x, y: y, color: f.color, id: it.id, px: it.px, py: it.py }); rows++; }
+        });
       });
     }
     badges.forEach(function (b) {                                          // the tag, in its own colour, above the vertex
       if (fp) { var bw = ctx.measureText(b.text).width; grow(b.id, b.px, b.py, b.x - bw / 2, b.y - 10, b.x + bw / 2, b.y + 3); }
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(28,20,29,0.95)'; ctx.strokeText(b.text, b.x, b.y);
       ctx.fillStyle = b.color; ctx.fillText(b.text, b.x, b.y);
-    });
-    dots.forEach(function (it, k) {
-      ctx.beginPath(); ctx.arc(it.px - it.r * 0.85 - it.i * 7, it.py - it.r * 0.85, 3.2, 0, Math.PI * 2);
-      ctx.fillStyle = it.f.color; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.stroke();
     });
     stepNums.forEach(function (s) {
       var big = self.view.k >= 0.2;                                        // zoomed far out a number would be unreadable: a plain dot in the chain's colour

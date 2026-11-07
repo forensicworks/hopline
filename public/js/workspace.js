@@ -3554,7 +3554,7 @@
     var r = n.type === 'tx' && state.an ? state.an.tx.get(n.id) : null;
     if (!r || !r.flags.length) return null;
     var out = [];
-    r.flags.forEach(function (f) { if (state.analysis.kinds[f.kind] !== false) out.push({ text: f.short, color: f.color, kind: f.kind, chain: f.kind === 'peel' && r.chain ? r.chain.label : '' }); });
+    r.flags.forEach(function (f) { if (state.analysis.kinds[f.kind] !== false) out.push({ text: f.short, color: f.color, kind: f.kind, half: f.kind === 'swap', chain: f.kind === 'peel' && r.chain ? r.chain.label : '' }); });   // half: drawn as the orange half of the shape (see nodeSplit), not as a ring
     return out.length ? out : null;
   }
   /** The colour of the upper-left half of a transaction that carries a swap memo or a request ID (where the trail leaves Bitcoin), or null: none, or SWAP switched off. */
@@ -5094,6 +5094,9 @@
     box.appendChild(el('div', { 'class': 'item', text: 'Edge width = amount · dashed = unspent output' }));
     box.appendChild(el('div', { 'class': 'item', text: effectiveSizeBy() === 'area' ? 'Shape size = value (area proportional to the amount)' : 'Shape size = value (compact scale: sizes differ little)' }));
     if (state.analysis.change && state.an && state.an.changeEdges.size) box.appendChild(legendItem(AN.COLORS.change, 'amber edge = possible or likely change (a guess)'));
+    if (state.analysis.flags && state.an && Array.from(state.an.tx.values()).some(function (r) { return r.flags.some(function (f) { return f.kind !== 'swap' && state.analysis.kinds[f.kind] !== false; }); })) {
+      box.appendChild(el('div', { 'class': 'item', text: 'rings round a transaction = patterns found (one ring each, in the pattern’s colour: point at it for the names)' }));
+    }
     if (state.analysis.flags && state.analysis.kinds.swap !== false && state.an && Array.from(state.an.tx.values()).some(function (r) { return r.flags.some(function (f) { return f.kind === 'swap'; }); })) {
       box.appendChild(legendItem(AN.COLORS.swap, 'orange half = a swap memo or a cross-chain request ID: the trail leaves Bitcoin here (what the sender wrote)'));
     }
