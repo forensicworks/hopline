@@ -7,7 +7,7 @@
   'use strict';
 
   var M = HoplineModel, S = HoplineStyle, F = HoplineFilter, L = HoplineLayout, A = HoplineApi, IO = HoplineIO, R = HoplineRender, NV = HoplineNav, AD = HoplineAddress, PR = HoplinePrice, ST = HoplineSteps, TG = HoplineTags, XT = HoplineExternal, TR = HoplineTrace, GR = HoplineGroup, AN = HoplineAnalysis, LB = HoplineLabels, OF = HoplineOfac, PK = HoplinePacks, FD = HoplineFind, DT = HoplineDetections, RT = HoplineRoute, AS = HoplineAssist, RP = HoplineReport, balanceOf = M.balanceOf;
-  var ID = M.ID;
+  var ID = M.ID, SH = HoplineShare;
   var KNOWN_BASE = window.HOPLINE_KNOWN || {};
   var KNOWN = Object.assign({}, KNOWN_BASE);              // the built-in list plus the label packs that are switched on, rebuilt in place by rebuildKnown()
   var SAMPLE = '0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d';
@@ -56,7 +56,7 @@
     trace: emptyTrace(), vgroups: new Map(), vseq: 0, routeRef: null, routeFocus: null, openDir: 'next',
     undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true, swap: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
-    stepMode: 'ask', stepSize: 5, autoBalance: true, autoHistory: true, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
+    stepMode: 'ask', stepSize: 5, shareMax: SH.DEFAULT_LIMIT, autoBalance: true, autoHistory: true, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: {}, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -196,7 +196,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, autoBalance: state.autoBalance, autoHistory: state.autoHistory, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, hoverPreview: state.hoverPreview, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, shareMax: state.shareMax, autoBalance: state.autoBalance, autoHistory: state.autoHistory, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, hoverPreview: state.hoverPreview, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -205,7 +205,7 @@
       if (A.PRESETS[p.source]) state.source = p.source;
       state.fallback = p.fallback !== false;
       if (p.stepMode === 'ask' || p.stepMode === 'batch' || p.stepMode === 'all') state.stepMode = p.stepMode;
-      state.stepSize = num(p.stepSize, 1, 50, 5); state.autoBalance = p.autoBalance !== false; state.autoHistory = p.autoHistory !== false; state.arrowsInRange = p.arrowsInRange !== false;
+      state.stepSize = num(p.stepSize, 1, 50, 5); state.shareMax = SH.limitOf(p.shareMax); state.autoBalance = p.autoBalance !== false; state.autoHistory = p.autoHistory !== false; state.arrowsInRange = p.arrowsInRange !== false;
       state.groupRows = p.groupRows !== false; state.groupBy = cleanGroupBy(p.groupBy); state.dustSats = num(p.dustSats, 0, 1000000000, 10000);
       if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old' || p.chooseSort === 'known') state.chooseSort = p.chooseSort;
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
@@ -1687,6 +1687,7 @@
   }
 
   function onPopState() {
+    if (SH.isShareHash(window.location.hash)) { openShared(window.location.hash); return; }          // a share link pasted into the address bar of a page that is open
     var p = NV.parseHash(window.location.hash);
     if (!p) return;
     p.id = canonicalId(p.id);
@@ -2097,8 +2098,8 @@
   }
 
   /** Put text on the clipboard. `what` names it in the message ("address", "3 transaction ids"). Falls back to the old way where the clipboard API is not offered. */
-  function copy(text, what) {
-    var done = function () { toast(what ? 'Copied ' + what + '.' : 'Copied.'); };
+  function copy(text, what, onDone) {
+    var done = function () { if (onDone) onDone(); else toast(what ? 'Copied ' + what + '.' : 'Copied.'); };
     function legacy() {
       try {
         var ta = el('textarea', { readonly: 'readonly', 'aria-hidden': 'true', style: 'position:fixed;left:-9999px;top:0;opacity:0' });
@@ -5533,6 +5534,7 @@
     var g = state.graph;
     if (!g.nodes.size) { toast('Nothing to export yet.', true); return; }
     if (kind === 'report') { $('exportMenu').open = false; doReport(); return; }
+    if (kind === 'link') { doShare(); return; }                              // the menu stays open: the link and any warning are shown in it
     g.refreshDerived(); stat('export-' + kind);
     var only = $('exportVisible').checked ? computeView(state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()) : null;
     if (only && kind === 'json' && traceOn()) only = withGroupMembers(only);
@@ -5545,6 +5547,49 @@
     else if (kind === 'png') { var a = el('a', { href: renderer.toDataUrl(), download: name + '.png' }); document.body.appendChild(a); a.click(); a.remove(); }
     $('exportMenu').open = false;
     log('Exported ' + kind + (only ? ' (visible part)' : ''));
+  }
+
+  // ---- share link: this canvas as a link --------------------------------------------------------
+  // The canvas is packed into the address after the "#" (public/js/hopline-share.js), so nothing is stored anywhere and the browser sends it to no server.
+  // Over the limit only the vertices nearest START go in, and the person is told. Opening one is an import with the same checks, and can be undone.
+  /** Where a link points: this page, without what follows "?" or "#". */
+  function shareBase() { return window.location.href.replace(/[?#].*$/, ''); }
+  /** Where the canvas starts: the trace's starting points, else the vertex in focus, else the first of the trail. */
+  function shareStarts() {
+    if (traceOn() && state.trace.seeds.length) return state.trace.seeds.slice();
+    if (state.focus) return [state.focus];
+    return state.nav.entries.length ? [state.nav.entries[0]] : [];
+  }
+  function shareSay(text, warn) {
+    var n = $('shareNote'); n.textContent = text; n.hidden = !text; n.classList.toggle('warn', !!warn);          // stays in the menu after the message has gone
+  }
+  function doShare() {
+    var g = state.graph;
+    if (!g.nodes.size) { toast('Nothing on the canvas to share yet.', true); return; }
+    if (!SH.supported()) { toast('This browser cannot make share links (it has no compression built in). Export the workspace (.json) instead.', true); return; }
+    g.refreshDerived();
+    var vis = computeView(state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()), groups = 0;
+    vis.nodes.forEach(function (id) { if (!g.nodes.has(id)) groups++; });                                       // a folded group is on the canvas but is not a vertex of the graph
+    if (groups === vis.nodes.size) { toast('Nothing on the canvas to share yet.', true); return; }
+    state.shareMax = SH.limitOf($('shareMax').value); $('shareMax').value = state.shareMax; savePrefs();
+    var notes = $('shareNotes').checked;
+    SH.build(g, { nodes: vis.nodes, edges: vis.edges, starts: shareStarts(), limit: state.shareMax, notes: notes, view: viewState() }).then(function (r) {
+      var link = shareBase() + r.fragment, warn = [];
+      if (r.trimmed) warn.push((r.bySize ? 'The link would be too long for chat and mail, so it holds only the ' : 'Over the limit of ' + state.shareMax + ': the link holds only the ') + r.kept + ' vertices nearest START, not all ' + r.total + '. The rest is not in it. '
+                               + (r.bySize ? 'Share fewer vertices, or export the workspace (.json) to share everything.' : 'Raise the limit to share more, or export the workspace (.json) to share everything.'));
+      if (groups) warn.push(plural(groups, 'folded group') + ' on the canvas ' + (groups === 1 ? 'is' : 'are') + ' not in the link: open a group first to share what is in it.');
+      if (window.location.protocol === 'file:') warn.push('This copy of Hopline is opened from your disk, so the link opens only on this computer. Publish a copy to share it with others.');
+      var out = $('shareOut'); out.value = link; out.hidden = false;
+      shareSay(warn.join(' '), !!warn.length);
+      stat('share-link'); log('Link made: ' + r.kept + ' of ' + r.total + ' vertices, ' + r.chars + ' characters' + (notes ? ', notes included' : ''));
+      var said = (r.trimmed ? 'Link copied, but not everything is in it. ' : 'Link copied: ' + plural(r.kept, 'vertex', 'vertices') + ', ' + r.chars.toLocaleString('en-US') + ' characters (labels and tags are in it' + (notes ? ', and your notes' : ', your notes are not') + '). ') + warn.join(' ');
+      copy(link, 'the link', function () { toast(said, !!warn.length, null, warn.length ? 14000 : 6000); });
+    }, function (e) { shareSay(e.message, true); toast(e.message, true, null, 12000); });
+  }
+  /** Open the canvas in a share link. It is imported like a workspace file (same checks, merged if something is open, undo offered); the address is cleaned so a reload does not open it again. */
+  function openShared(hash) {
+    function clean() { try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the link stays in the address, harmless */ } }
+    return SH.decode(hash).then(function (r) { clean(); stat('open-share'); doImport(r.text, { share: r }); }, function (e) { clean(); toast('This link could not be opened: ' + e.message, true, null, 12000); });
   }
 
   function applyView(v) {
@@ -5579,8 +5624,8 @@
     $('showData').checked = f.showData; $('showNonstd').checked = f.showNonstd; $('incPending').checked = f.includePending; $('incUnknown').checked = f.includeUnknownTime;
   }
 
-  function doImport(text) {
-    var r;
+  function doImport(text, o) {
+    var r, shared = o && o.share;
     try { r = IO.fromJson(text); } catch (e) { toast('Import failed: ' + e.message, true); return; }
     var wasEmpty = state.graph.nodes.size === 0, g = state.graph, snap = snapshotGraph('Import'), n0 = g.nodes.size, fresh = [];
     r.graph.nodes.forEach(function (n) { if ((n.type === 'tx' || n.type === 'addr') && !g.nodes.has(n.id)) fresh.push(n.id); });
@@ -5602,7 +5647,8 @@
       var T = state.trace, off = fresh.filter(function (id) { return !T.shown.has(id); }).length;
       if (off) where = ' ' + plural(off, 'new vertex', 'new vertices') + (off === 1 ? ' is' : ' are') + ' loaded but not on the trace.';
     }
-    toast('Imported ' + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + where + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length, snap && !snap.tooBig ? { text: 'Undo import', fn: undoLoad } : null, 8000);
+    var cut = shared && shared.of && shared.of > r.graph.nodes.size ? ' The sender cut it down to the ' + shared.kept + ' vertices nearest START (they had ' + shared.of + '), so this is not the whole picture.' : '';
+    toast((shared ? 'Opened a shared canvas: ' : 'Imported ') + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + cut + where + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length, snap && !snap.tooBig ? { text: 'Undo import', fn: undoLoad } : null, 8000);
   }
 
   function clearAll() {
@@ -5673,7 +5719,7 @@
     if (!A.PRESETS.tor) { var torOpt = document.querySelector('#source option[value="tor"]'); if (torOpt) torOpt.remove(); }          // a published copy does not offer Tor
     loadPrefs();
     makeClient();
-    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('groupRows').checked = state.groupRows; $('autoBalance').checked = state.autoBalance; $('autoHistory').checked = state.autoHistory; syncAutoHistN(); $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
+    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('shareMax').value = state.shareMax; $('groupRows').checked = state.groupRows; $('autoBalance').checked = state.autoBalance; $('autoHistory').checked = state.autoHistory; syncAutoHistN(); $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets; $('bundleEdges').checked = state.bundleEdges; $('hoverPreview').checked = state.hoverPreview;
@@ -5829,6 +5875,8 @@
       if (f.size > 60 * 1024 * 1024) { toast('That file is too large (limit 60 MB).', true); return; }
       var rd = new FileReader(); rd.onload = function () { doImport(String(rd.result)); }; rd.onerror = function () { toast('Could not read the file.', true); }; rd.readAsText(f);
     });
+    $('shareMax').addEventListener('change', function () { state.shareMax = SH.limitOf(this.value); this.value = state.shareMax; savePrefs(); });
+    $('shareOut').addEventListener('focus', function () { this.select(); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-export]'), function (b) { b.addEventListener('click', function () { doExport(b.getAttribute('data-export')); }); });
     $('btnClear').addEventListener('click', function () {
       var b = $('btnClear');
@@ -5960,7 +6008,9 @@
     var src = new URLSearchParams(location.search).get('source');
     if (src && A.PRESETS[src] && src !== 'custom') { state.source = src; applySourceUi(); makeClient(); }
     var openTarget = null;
-    if (hp && (hp.id.indexOf('tx:') === 0 || hp.id.indexOf('addr:') === 0)) openTarget = function () { navigate(hp.id); };
+    var shared = SH.isShareHash(location.hash) ? location.hash : null;
+    if (shared) openTarget = function () { openShared(shared); };                                    // a link to a canvas is opened at once; the saved session waits beside it, as for a vertex in the address
+    else if (hp && (hp.id.indexOf('tx:') === 0 || hp.id.indexOf('addr:') === 0)) openTarget = function () { navigate(hp.id); };
     else if (q) openTarget = function () { $('q').value = q; openQuery(q); };
     if (openTarget && !hp) { offerRestore(null, true); openTarget(); }                 // a link that names what to open (the wallet page's "Open in workspace") is followed at once; the saved session waits beside it and nothing is autosaved until it is answered
     else if (!offerRestore(openTarget) && openTarget) openTarget();
