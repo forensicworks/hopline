@@ -8,7 +8,7 @@ The wallet counts and dates below are as of 26 October 2026. The live ones are i
 
 ## Lists that ship with Hopline
 
-They are files in [public/packs/](public/packs/), read from the same site as the page (nothing is sent anywhere) and only when the list is switched on. Each list is made by its own converter in [tools/](tools/) and written by [tools/build_packs.py](tools/build_packs.py), one wallet per line, so a refresh shows as a clean diff. Every address is checked by checksum before it gets in, and again when the page reads it. A workflow ([refresh-packs.yml](.github/workflows/refresh-packs.yml)) downloads every source again every day, runs the tests and opens a pull request that lists the wallets added, removed and renamed; nothing is published until that pull request is merged.
+They are files in [public/packs/](public/packs/), read from the same site as the page (nothing is sent anywhere) and only when the list is switched on. Each list is made by its own converter in [tools/](tools/) and written by [tools/build_packs.py](tools/build_packs.py), one wallet per line, so a refresh shows as a clean diff. Every address is checked by checksum before it gets in, and again when the page reads it. A workflow ([refresh-packs.yml](.github/workflows/refresh-packs.yml)) downloads every source again every day, runs the tests and opens a pull request that lists the wallets added, removed and renamed. It merges that pull request and publishes it by itself, except when a person should read it first: a sanctions list that lost a wallet, or any other list that got shorter. Then the pull request stays open, with the reason at the top, until someone merges or closes it.
 
 | List | Wallets | Data as of | Licence | On by default |
 |---|---|---|---|---|

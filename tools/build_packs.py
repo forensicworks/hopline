@@ -9,7 +9,9 @@
 Each pack becomes packs/<id>.js (one wallet per line, so a refresh shows in a diff as the wallets that were added or removed)
 and gets a line in packs/index.js, the list the pages read (public/js/hopline-packs.js). Only the packs named on the command line
 (or by --refresh, all of them) are rewritten; the others stay as they are. Nothing is evaluated: the sources are read by their own
-converters. --summary FILE writes what changed as markdown (the scheduled workflow uses it as the pull request text).
+converters. --summary FILE writes what changed as markdown (the scheduled workflow uses it as the pull request text). --hold FILE writes why a
+person should read the change before it is published, one line each, and is empty when nothing needs a person (the workflow merges its own pull
+request only when it is empty): a sanctions list that lost a wallet, or any other list that got shorter.
 
 Five packs, each from its own converter (see sources.md for where each comes from and under what licence): the OFAC sanctions list
 (make_label_pack_ofac.py) and the UK Sanctions List (make_label_pack_uksanctions.py), which ship switched on, and the Ransomwhere
@@ -289,6 +291,23 @@ def summary_text(results, failures, notices):
     return chr(10).join(out)
 
 
+def hold_reasons(results):
+    """Why a person should read this change before it is published, as markdown lines; [] when nothing needs one (wallets added or renamed, dates moved).
+    A sanctions list that lost any wallet is held (a delisting, or a source that changed its layout: the short lists the size check does not cover are
+    the ones where one wallet matters); any other list is held when it got shorter."""
+    why = []
+    for r in results:
+        e, d = r["entry"], r["diff"]
+        lost, gained = len(d["removed"]), len(d["added"])
+        if not lost:
+            continue
+        if e.get("sanctions"):
+            why.append("- %s lost %d wallet%s: a delisting, or a source that changed." % (code(e["name"]), lost, "" if lost == 1 else "s"))
+        elif lost > gained:
+            why.append("- %s got shorter: %d wallet%s removed, %d added." % (code(e["name"]), lost, "" if lost == 1 else "s", gained))
+    return why
+
+
 def result_line(r):
     e = r["entry"]
     d = counts(r["diff"])
@@ -309,6 +328,7 @@ def main(argv=None):
     ap.add_argument("--download-uk", action="store_true", help="download the UK Sanctions List from the Foreign, Commonwealth & Development Office")
     ap.add_argument("--out", default=OUT, help="the folder to write (default: %(default)s)")
     ap.add_argument("--summary", help="also write what changed to this file, as markdown")
+    ap.add_argument("--hold", help="also write why a person should read the change before it is published to this file, one line each (empty when nothing needs one)")
     ap.add_argument("--force", action="store_true", help="write a pack even if it is much smaller than the one it replaces")
     a = ap.parse_args(argv)
     if bool(a.ofac) + a.download > 1 or bool(a.ransomwhere) + a.download_ransomwhere > 1:
@@ -343,6 +363,9 @@ def main(argv=None):
     if a.summary:
         with open(a.summary, "w", encoding="utf-8", newline="\n") as f:
             f.write(summary_text(results, failures, notices) + chr(10))
+    if a.hold:
+        with open(a.hold, "w", encoding="utf-8", newline="\n") as f:
+            f.write("".join(line + chr(10) for line in hold_reasons(results)))
     if failures:
         sys.exit(1)
 

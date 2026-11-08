@@ -1,9 +1,13 @@
-# Refreshes the label packs the site ships (public/packs/) every day and opens a pull request when a list changed, so the new
-# wallets and names can be read before they are published. It never pushes to master: merging the pull request is what publishes
-# (the Deploy site and GitHub Pages workflows run on that push). It looks every day because a sanctions list changes whenever the
-# authorities act, not on a calendar: a daily look keeps the proposal at most a day behind the source. A run is a few MB of
-# downloads, and it updates the one open pull request (the branch below is rebuilt from the default branch each time) instead
-# of opening more, so a list that changes on three days is still one pull request to read and merge.
+# Refreshes the label packs the site ships (public/packs/) every day. When a list changed it opens a pull request (what changed is in
+# its text), runs the tests on the new files, and publishes it by itself: it merges the pull request and starts the two deploy
+# workflows. It does not do that when a person should read the change first (a sanctions list lost a wallet, or another list got
+# shorter: tools/build_packs.py --hold says so); then the pull request stays open with the reason at the top, and merging it by hand
+# publishes it. It never pushes to master: the only push is to the branch below, and master is reached only by merging that pull
+# request (which master's rule for pull requests allows with no approval). A merge made with this run's own token does not start
+# other workflows, so the deploys are started by name (they accept a manual run); that is why the run needs `actions: write`.
+# It looks every day because a sanctions list changes whenever the authorities act, not on a calendar: a daily look keeps the
+# published packs at most a day behind the source. A run is a few MB of downloads, and it updates the one open pull request (the
+# branch below is rebuilt from the default branch each time) instead of opening more.
 #
 # What it runs is `python3 tools/build_packs.py --refresh`, which rebuilds every source listed in SOURCES in that file. A new source is
 # added there, and this workflow picks it up without a change. A source that cannot be downloaded or fails its checks keeps its old
@@ -28,6 +32,7 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  actions: write            # only to start the two deploy workflows after the merge (a merge by this token does not start them)
 
 env:
   BRANCH: automation/refresh-packs
@@ -44,7 +49,7 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}      # only so the request for the newest commit of a GitHub-hosted list is not turned away for anonymous limits; the tool sends it to api.github.com and nowhere else
-        run: python3 tools/build_packs.py --refresh --summary pack-refresh.md
+        run: python3 tools/build_packs.py --refresh --summary pack-refresh.md --hold pack-hold.md
 
       - name: What changed
         id: diff
@@ -72,12 +77,46 @@ jobs:
           git add public/packs
           git commit -q -m "Refresh the shipped label packs" -m "Written by the Refresh label packs workflow. What changed is in the pull request."
           git push --force origin "$BRANCH"
+          {
+            if [ -s pack-hold.md ]; then
+              printf '## Held for a person\n\n'; cat pack-hold.md
+              printf '\nThis pull request was not merged by the workflow. Read what changed below, then merge it (that publishes it) or close it.\n\n'
+            else
+              printf 'No sanctions wallet was removed and no list got shorter, so the workflow merges this pull request and publishes it.\n\n'
+            fi
+            cat pack-refresh.md
+          } > pr-body.md
           if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')" ]; then
-            gh pr edit "$BRANCH" --body-file pack-refresh.md
-          elif ! gh pr create --base "${{ github.event.repository.default_branch }}" --head "$BRANCH" --title "Refresh the shipped label packs" --body-file pack-refresh.md; then
+            gh pr edit "$BRANCH" --body-file pr-body.md
+          elif ! gh pr create --base "${{ github.event.repository.default_branch }}" --head "$BRANCH" --title "Refresh the shipped label packs" --body-file pr-body.md; then
             echo "::error::The files are on the branch $BRANCH but the pull request could not be created. Allow it under Settings > Actions > General > Workflow permissions (Allow GitHub Actions to create and approve pull requests), or open it from ${{ github.server_url }}/${{ github.repository }}/compare/$BRANCH"
             exit 1
           fi
+
+      - name: Merge it, unless a person should read it first
+        id: merge
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -s pack-hold.md ]; then
+            { echo "### Held for a person: not merged"; cat pack-hold.md; } >> "$GITHUB_STEP_SUMMARY"
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh pr merge "$BRANCH" --merge
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publish (start the two deploy workflows)
+        if: steps.merge.outputs.merged == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run deploy.yml --ref "${{ github.event.repository.default_branch }}"
+          gh workflow run pages.yml --ref "${{ github.event.repository.default_branch }}"
+          echo "Merged, and the deploys were started: Actions > Deploy site, Deploy GitHub Pages copy." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail if a source could not be refreshed
         if: steps.build.outcome == 'failure'

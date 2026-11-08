@@ -244,6 +244,51 @@ def test_the_release_check_says_nothing_when_it_cannot_run(monkeypatch):
     assert rw.newer_release() == ""
 
 
+def test_a_change_that_only_adds_or_renames_needs_no_person_and_the_hold_file_is_empty(tmp_path, world):
+    hold = tmp_path / "hold.md"
+    run(tmp_path, "--refresh", "--hold", str(hold))
+    assert hold.read_text(encoding="utf-8") == "", "a first build only adds wallets"
+    world.ofac = sdn_xml([entry(1000 + i, "RENAMED %d" % i if i == 0 else "GROUP %d" % i, programs=["CYBER2"], ids=[("Digital Currency Address - XBT", a)]) for i, a in enumerate(FIVE)]
+                         + [entry(2000, "NEW GROUP", programs=["DPRK3"], ids=[("Digital Currency Address - XBT", "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")])], "10/28/2026").encode("utf-8")
+    run(tmp_path, "--refresh", "--hold", str(hold))
+    assert hold.read_text(encoding="utf-8") == "", "one wallet added and one renamed: nothing for a person to decide"
+
+
+def test_a_sanctions_list_that_loses_a_wallet_is_held_for_a_person_even_when_it_also_gains_one(tmp_path, world):
+    hold = tmp_path / "hold.md"
+    run(tmp_path, "--refresh")
+    world.ofac = ofac_xml(FIVE[:4] + ["1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"], "10/28/2026")             # one delisted, one listed: the same size, but a wallet went
+    run(tmp_path, "--refresh", "--hold", str(hold))
+    assert hold.read_text(encoding="utf-8") == "- `OFAC SDN list (Bitcoin)` lost 1 wallet: a delisting, or a source that changed.\n"
+    world.ofac = ofac_xml(FIVE[:2], "10/29/2026")
+    run(tmp_path, "--refresh", "--hold", str(hold))
+    assert "lost 3 wallets" in hold.read_text(encoding="utf-8"), "plural, and counted against what is shipped, not against yesterday's run"
+
+
+def test_a_list_that_is_not_a_sanctions_list_is_held_only_when_it_got_shorter(tmp_path, world):
+    hold = tmp_path / "hold.md"
+
+    def pools(*addresses):
+        return json.dumps([{"id": 1, "name": "AntPool", "addresses": list(addresses), "tags": ["/x/"], "link": "https://www.antpool.com"}]).encode("utf-8")
+    world.pools = pools(FIVE[2], FIVE[3])
+    run(tmp_path, "--refresh")
+    world.pools = pools(FIVE[2], FIVE[3], FIVE[4])
+    run(tmp_path, "--refresh", "--hold", str(hold))
+    assert hold.read_text(encoding="utf-8") == "", "it grew"
+    world.pools = pools(FIVE[2], FIVE[4], "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")
+    run(tmp_path, "--refresh", "--hold", str(hold))
+    assert hold.read_text(encoding="utf-8") == "", "one went and one came: it did not get shorter"
+    world.pools = pools(FIVE[2])
+    run(tmp_path, "--refresh", "--hold", str(hold))
+    assert hold.read_text(encoding="utf-8") == "- `Mining pools (mempool.space)` got shorter: 2 wallets removed, 0 added.\n"
+
+
+def test_hold_reasons_say_nothing_for_a_list_that_did_not_change(tmp_path, world):
+    run(tmp_path, "--refresh")
+    results, failures, notices = bp.refresh(str(tmp_path / "packs"))
+    assert bp.hold_reasons(results) == [] and not failures
+
+
 # ---- the workflow ------------------------------------------------------------------------------------------------------------
 WORKFLOW = (ROOT / ".github" / "workflows" / "refresh-packs.yml").read_text(encoding="utf-8")
 
@@ -251,16 +296,33 @@ WORKFLOW = (ROOT / ".github" / "workflows" / "refresh-packs.yml").read_text(enco
 def test_the_workflow_runs_daily_with_only_the_rights_it_needs_and_only_first_party_actions():
     assert re.search(r"schedule:\s*\n\s*- cron: '\d+ \d+ \* \* \*'", WORKFLOW) and "workflow_dispatch:" in WORKFLOW, "every day, and on demand"
     perms = re.search(r"^permissions:\n((?:  .*\n)+)", WORKFLOW, re.M).group(1)
-    assert sorted(x.strip() for x in perms.splitlines()) == ["contents: write", "pull-requests: write"]
+    assert sorted(x.split("#")[0].strip() for x in perms.splitlines()) == ["actions: write", "contents: write", "pull-requests: write"], "actions: write is only to start the deploys by name"
     assert "pull_request_target" not in WORKFLOW and "secrets." not in WORKFLOW, "no secrets: it uses the run's own token"
     assert all(u.startswith("actions/") for u in re.findall(r"uses: (\S+)", WORKFLOW)), "no third-party action can run with write rights"
     assert "tools/build_packs.py --refresh --summary" in WORKFLOW and "automation/refresh-packs" in WORKFLOW
     assert re.findall(r"GITHUB_TOKEN: (.*?)\s{2,}#", WORKFLOW) == ["${{ github.token }}"], "the run's own token, handed to the download step only"
-    assert WORKFLOW.count("github.token") == 2 and WORKFLOW.index("GITHUB_TOKEN:") < WORKFLOW.index("What changed"), "(the other use is the pull request step)"
+    assert WORKFLOW.count("${{ github.token }}") == 4 and WORKFLOW.index("GITHUB_TOKEN:") < WORKFLOW.index("What changed"), "(the others are the pull request, merge and deploy steps)"
 
 
-def test_the_workflow_never_pushes_to_the_default_branch_and_tests_before_it_proposes():
+def test_the_workflow_pushes_only_its_own_branch_and_reaches_the_default_branch_only_by_merging_after_the_tests():
     pushes = re.findall(r"git push[^\n]*", WORKFLOW)
     assert pushes == ['git push --force origin "$BRANCH"'] and "BRANCH: automation/refresh-packs" in WORKFLOW
     assert WORKFLOW.index("Unit tests") < WORKFLOW.index("Open or update the pull request") and WORKFLOW.index("Tool tests") < WORKFLOW.index("Open or update the pull request")
+    assert re.findall(r"gh pr merge[^\n]*", WORKFLOW) == ['gh pr merge "$BRANCH" --merge'], "one ordinary merge of the pull request: no --admin, no --auto, no force"
+    assert WORKFLOW.index("Tool tests") < WORKFLOW.index("Open or update the pull request") < WORKFLOW.index("gh pr merge")
+    assert WORKFLOW.index("-s pack-hold.md") < WORKFLOW.index("gh pr merge"), "a held change is not merged: the file is looked at first"
+    assert "--hold pack-hold.md" in WORKFLOW and "Held for a person" in WORKFLOW, "the reason is written at the top of the pull request"
     assert "steps.build.outcome == 'failure'" in WORKFLOW, "a source that could not be refreshed fails the run, so GitHub tells you"
+
+
+def test_after_a_merge_the_two_deploy_workflows_are_started_by_name_and_both_accept_that():
+    """A merge made with the run's own token does not start workflows that run on a push, so the packs would be merged and not published."""
+    started = re.findall(r"gh workflow run (\S+)", WORKFLOW)
+    assert started == ["deploy.yml", "pages.yml"]
+    for name in started:
+        text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        assert re.search(r"^on:\n(?:  .*\n)+", text, re.M) and "workflow_dispatch:" in text.split("jobs:")[0], name + " can be started by name"
+        assert "branches: [master]" in text, name + " is what a merge by hand starts"
+    assert WORKFLOW.index("gh pr merge") < WORKFLOW.index("gh workflow run")
+    assert "if: steps.merge.outputs.merged == 'true'" in WORKFLOW, "only when the pull request was merged"
+    assert WORKFLOW.index("Publish (start the two deploy workflows)") < WORKFLOW.index("Fail if a source could not be refreshed")
