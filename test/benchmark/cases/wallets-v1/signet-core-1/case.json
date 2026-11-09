@@ -1,0 +1,16 @@
+{
+ "api": "https://mempool.space/signet/api",
+ "descriptors_sha256": "f61fd11b00e74350042d9aa7f3a674f82fda992fe20d794f337e47fdf792beac",
+ "generator": "tools/bench/make_wallet_case.py",
+ "image": "bitcoin/bitcoin:latest",
+ "name": "signet-core-1",
+ "network": "signet",
+ "node": "/Satoshi:31.1.0/",
+ "summary": "Bitcoin Core 31.1 on signet: one wallet that receives on p2sh-segwit and changes to bech32 (-addresstype=p2sh-segwit -changetype=bech32), paying two other wallets of the same node (legacy, p2sh-segwit, bech32 and bech32m recipients in turn) at a tiny scale: about 34,000 satoshis from the faucet at 1 sat/vB, odd amounts of 600 to 2,100 satoshis and some of 10,000, with what the other two wallets held sent back between rounds (tools/bench/drive_core.py and run_plan.py, docs/benchmark-wallets.md scaled down). Two batches (7 recipients) and one send-everything of 5 coins are marked as such by the person who made them; every other transaction counts as a payment, and the 22 incoming transactions are the faucet and the refills. The change of each transaction is the output on its change chain.",
+ "tier": "B",
+ "transactions": 90,
+ "wallet_software": {
+  "core": "Bitcoin Core 31.1, addresstype=p2sh-segwit, changetype=bech32, consolidatefeerate=1 sat/vB"
+ },
+ "wallets": 1
+}

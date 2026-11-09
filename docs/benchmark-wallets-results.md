@@ -4,11 +4,11 @@ Written by `node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1 -
 
 |  |  |
 | --- | --- |
-| Date | 2026-11-01 |
-| Commit | c860b96 |
-| `hopline-analysis.js` SHA-256 | `7a8895f3e9ca41c5` |
+| Date | 2026-11-09 |
+| Commit | 96afa28 |
+| `hopline-analysis.js` SHA-256 | `0edb6ed4a15912b8` |
 | Node | v24.19.0 |
-| Cases | testnet4-1 |
+| Cases | signet-core-1, testnet4-1 |
 
 ## What these numbers cannot say
 
@@ -22,24 +22,27 @@ Written by `node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1 -
 
 | Case | Transactions | Wallets | Addresses | What the transactions were made to be | Made by |
 | --- | --- | --- | --- | --- | --- |
+| signet-core-1 | 90 | 1 | 78 | batch 2, consolidation 1, incoming 22, payment 65 | tools/bench/make_wallet_case.py |
 | testnet4-1 | 286 | 2 | 339 | batch 4, consolidation 15, incoming 170, payment 96, self-send 1 | tools/bench/make_wallet_case.py |
+
+**signet-core-1.** Bitcoin Core 31.1 on signet: one wallet that receives on p2sh-segwit and changes to bech32 (-addresstype=p2sh-segwit -changetype=bech32), paying two other wallets of the same node (legacy, p2sh-segwit, bech32 and bech32m recipients in turn) at a tiny scale: about 34,000 satoshis from the faucet at 1 sat/vB, odd amounts of 600 to 2,100 satoshis and some of 10,000, with what the other two wallets held sent back between rounds (tools/bench/drive_core.py and run_plan.py, docs/benchmark-wallets.md scaled down). Two batches (7 recipients) and one send-everything of 5 coins are marked as such by the person who made them; every other transaction counts as a payment, and the 22 incoming transactions are the faucet and the refills. The change of each transaction is the output on its change chain.
 
 **testnet4-1.** Sparrow 2.5.5 and Electrum 4.8.3, one native segwit wallet each, paying each other and a third wallet that only received, following docs/benchmark-wallets.md. A batch (6 or more recipients) or a send-everything of 5 or more coins is marked as such by the person who made it (4 batches, 15 consolidations); every other transaction counts as a payment, including two with 5 or more inputs, one output and no change, where the amount was the payment and the wallet kept its other coins (Sparrow 7080ced38210, 16,837 sat; Electrum 861a83023bea, 10,000 sat). The change of each transaction is the output on its change chain.
 
 ## The change guess
 
-Over 67 transactions whose change is known (testnet4-1), and 48 that have none.
+Over 125 transactions whose change is known (signet-core-1, testnet4-1), and 58 that have none.
 
 |  | Share of the transactions | Right when it guesses |
 | --- | --- | --- |
-| **Any guess** | 70.1% (58.3% to 79.8%), 47 of 67 | 97.9% (88.9% to 99.6%), 46 of 47 |
-| **high** | 19.4% (11.7% to 30.4%), 13 of 67 | 100.0% (77.2% to 100.0%), 13 of 13 |
-| **medium** | 35.8% (25.4% to 47.8%), 24 of 67 | 100.0% (86.2% to 100.0%), 24 of 24 |
-| **low** | 14.9% (8.3% to 25.3%), 10 of 67 | 90.0% (59.6% to 98.2%), 9 of 10 |
+| **Any guess** | 71.2% (62.7% to 78.4%), 89 of 125 | 94.4% (87.5% to 97.6%), 84 of 89 |
+| **high** | 10.4% (6.2% to 17.0%), 13 of 125 | 100.0% (77.2% to 100.0%), 13 of 13 |
+| **medium** | 51.2% (42.5% to 59.8%), 64 of 125 | 95.3% (87.1% to 98.4%), 61 of 64 |
+| **low** | 9.6% (5.6% to 16.0%), 12 of 125 | 83.3% (55.2% to 95.3%), 10 of 12 |
 
-What a guess has to beat (a rule that always answers, so its coverage is 100%): a random output is right 48.9% of the time, the largest 62.7%, the smallest 37.3%, the first 49.3%, the last 49.3%.
+What a guess has to beat (a rule that always answers, so its coverage is 100%): a random output is right 48.8% of the time, the largest 75.2%, the smallest 24.8%, the first 50.4%, the last 47.2%.
 
-On transactions that have no change a guess is always wrong: Hopline made one on 0 of 48 (high 0, medium 0, low 0).
+On transactions that have no change a guess is always wrong: Hopline made one on 0 of 58 (high 0, medium 0, low 0).
 
 ### Guesses by how many signs they rest on
 
@@ -49,24 +52,25 @@ A guess on one sign is worded as a lead. This says how good a lead, by tier. The
 | --- | --- | --- | --- |
 | high | 2 | 12 | 100.0% (75.7% to 100.0%), 12 of 12 |
 | high | 3 or more | 1 | 100.0% (20.7% to 100.0%), 1 of 1 |
-| medium | 1 | 24 | 100.0% (86.2% to 100.0%), 24 of 24 |
-| low | 1 | 10 | 90.0% (59.6% to 98.2%), 9 of 10 |
+| medium | 1 | 62 | 95.2% (86.7% to 98.3%), 59 of 62 |
+| medium | 2 | 2 | 100.0% (34.2% to 100.0%), 2 of 2 |
+| low | 1 | 12 | 83.3% (55.2% to 95.3%), 10 of 12 |
 
 The same, for the guesses that rest on one sign, by which sign:
 
 | The one sign | Guesses | Right when guessed |
 | --- | --- | --- |
-| type | 24 | 100.0% (86.2% to 100.0%), 24 of 24 |
-| round | 7 | 100.0% (64.6% to 100.0%), 7 of 7 |
-| smaller | 3 | 66.7% (20.8% to 93.9%), 2 of 3 |
+| type | 62 | 95.2% (86.7% to 98.3%), 59 of 62 |
+| round | 8 | 100.0% (67.6% to 100.0%), 8 of 8 |
+| smaller | 4 | 50.0% (15.0% to 85.0%), 2 of 4 |
 
 **What if** a medium guess that rests on one sign were called low (a what-if; the rule is not changed):
 
 | Tier | Now: guesses | Now: right when guessed | If capped: guesses | If capped: right when guessed |
 | --- | --- | --- | --- | --- |
 | high | 13 | 100.0% (77.2% to 100.0%), 13 of 13 | 13 | 100.0% (77.2% to 100.0%), 13 of 13 |
-| medium | 24 | 100.0% (86.2% to 100.0%), 24 of 24 | 0 | none |
-| low | 10 | 90.0% (59.6% to 98.2%), 9 of 10 | 34 | 97.1% (85.1% to 99.5%), 33 of 34 |
+| medium | 64 | 95.3% (87.1% to 98.4%), 61 of 64 | 2 | 100.0% (34.2% to 100.0%), 2 of 2 |
+| low | 12 | 83.3% (55.2% to 95.3%), 10 of 12 | 74 | 93.2% (85.1% to 97.1%), 69 of 74 |
 
 ### What each signal is worth
 
@@ -74,13 +78,13 @@ The same transactions with one signal switched off. A signal that matters lowers
 
 |  | Share guessed | Right when guessed | Right when high |
 | --- | --- | --- | --- |
-| all signals | 70.1% (58.3% to 79.8%), 47 of 67 | 97.9% (88.9% to 99.6%), 46 of 47 | 100.0% (77.2% to 100.0%), 13 of 13 |
-| without reuse | 70.1% (58.3% to 79.8%), 47 of 67 | 97.9% (88.9% to 99.6%), 46 of 47 | 100.0% (77.2% to 100.0%), 13 of 13 |
-| without type | 34.3% (24.1% to 46.3%), 23 of 67 | 95.7% (79.0% to 99.2%), 22 of 23 | none |
-| without known | 70.1% (58.3% to 79.8%), 47 of 67 | 97.9% (88.9% to 99.6%), 46 of 47 | 100.0% (77.2% to 100.0%), 13 of 13 |
-| without fingerprint | 70.1% (58.3% to 79.8%), 47 of 67 | 97.9% (88.9% to 99.6%), 46 of 47 | 100.0% (77.2% to 100.0%), 13 of 13 |
-| without round | 59.7% (47.7% to 70.6%), 40 of 67 | 97.5% (87.1% to 99.6%), 39 of 40 | 100.0% (61.0% to 100.0%), 6 of 6 |
-| without smaller | 65.7% (53.7% to 75.9%), 44 of 67 | 100.0% (92.0% to 100.0%), 44 of 44 | 100.0% (67.6% to 100.0%), 8 of 8 |
+| all signals | 71.2% (62.7% to 78.4%), 89 of 125 | 94.4% (87.5% to 97.6%), 84 of 89 | 100.0% (77.2% to 100.0%), 13 of 13 |
+| without reuse | 71.2% (62.7% to 78.4%), 89 of 125 | 94.4% (87.5% to 97.6%), 84 of 89 | 100.0% (77.2% to 100.0%), 13 of 13 |
+| without type | 21.6% (15.3% to 29.6%), 27 of 125 | 92.6% (76.6% to 97.9%), 25 of 27 | none |
+| without known | 71.2% (62.7% to 78.4%), 89 of 125 | 94.4% (87.5% to 97.6%), 84 of 89 | 100.0% (77.2% to 100.0%), 13 of 13 |
+| without fingerprint | 71.2% (62.7% to 78.4%), 89 of 125 | 94.4% (87.5% to 97.6%), 84 of 89 | 100.0% (77.2% to 100.0%), 13 of 13 |
+| without round | 64.0% (55.3% to 71.9%), 80 of 125 | 93.8% (86.2% to 97.3%), 75 of 80 | 100.0% (61.0% to 100.0%), 6 of 6 |
+| without smaller | 68.0% (59.4% to 75.5%), 85 of 125 | 96.5% (90.1% to 98.8%), 82 of 85 | 100.0% (67.6% to 100.0%), 8 of 8 |
 
 ### By how the sender's wallet behaves
 
@@ -88,6 +92,7 @@ The same transactions with one signal switched off. A signal that matters lowers
 
 |  | Transactions | Share guessed | Right when guessed |
 | --- | --- | --- | --- |
+| Bitcoin Core 31.1, addresstype=p2sh-segwit, changetype=bech32, consolidatefeerate=1 sat/vB | 58 | 72.4% (59.8% to 82.2%), 42 of 58 | 90.5% (77.9% to 96.2%), 38 of 42 |
 | Electrum 4.8.3 | 35 | 71.4% (54.9% to 83.7%), 25 of 35 | 100.0% (86.7% to 100.0%), 25 of 25 |
 | Sparrow 2.5.5 | 32 | 68.8% (51.4% to 82.0%), 22 of 32 | 95.5% (78.2% to 99.2%), 21 of 22 |
 
@@ -95,38 +100,40 @@ The same transactions with one signal switched off. A signal that matters lowers
 
 |  | Transactions | Share guessed | Right when guessed |
 | --- | --- | --- | --- |
-| random | 67 | 70.1% (58.3% to 79.8%), 47 of 67 | 97.9% (88.9% to 99.6%), 46 of 47 |
+| random | 125 | 71.2% (62.7% to 78.4%), 89 of 125 | 94.4% (87.5% to 97.6%), 84 of 89 |
 
 **receive type**
 
 |  | Transactions | Share guessed | Right when guessed |
 | --- | --- | --- | --- |
 | bech32 | 67 | 70.1% (58.3% to 79.8%), 47 of 67 | 97.9% (88.9% to 99.6%), 46 of 47 |
+| p2sh-segwit | 58 | 72.4% (59.8% to 82.2%), 42 of 58 | 90.5% (77.9% to 96.2%), 38 of 42 |
 
 **change type**
 
 |  | Transactions | Share guessed | Right when guessed |
 | --- | --- | --- | --- |
+| bech32 | 58 | 72.4% (59.8% to 82.2%), 42 of 58 | 90.5% (77.9% to 96.2%), 38 of 42 |
 | same as receive | 67 | 70.1% (58.3% to 79.8%), 47 of 67 | 97.9% (88.9% to 99.6%), 46 of 47 |
 
 **amounts**
 
 |  | Transactions | Share guessed | Right when guessed |
 | --- | --- | --- | --- |
-| mostly not round | 67 | 70.1% (58.3% to 79.8%), 47 of 67 | 97.9% (88.9% to 99.6%), 46 of 47 |
+| mostly not round | 125 | 71.2% (62.7% to 78.4%), 89 of 125 | 94.4% (87.5% to 97.6%), 84 of 89 |
 
 **address reuse**
 
 |  | Transactions | Share guessed | Right when guessed |
 | --- | --- | --- | --- |
-| fresh change | 67 | 70.1% (58.3% to 79.8%), 47 of 67 | 97.9% (88.9% to 99.6%), 46 of 47 |
+| fresh change | 125 | 71.2% (62.7% to 78.4%), 89 of 125 | 94.4% (87.5% to 97.6%), 84 of 89 |
 
 **inputs**
 
 |  | Transactions | Share guessed | Right when guessed |
 | --- | --- | --- | --- |
-| one input | 54 | 66.7% (53.4% to 77.8%), 36 of 54 | 100.0% (90.4% to 100.0%), 36 of 36 |
-| several inputs | 13 | 84.6% (57.8% to 95.7%), 11 of 13 | 90.9% (62.3% to 98.4%), 10 of 11 |
+| one input | 108 | 69.4% (60.2% to 77.3%), 75 of 108 | 96.0% (88.9% to 98.6%), 72 of 75 |
+| several inputs | 17 | 82.4% (59.0% to 93.8%), 14 of 17 | 85.7% (60.1% to 96.0%), 12 of 14 |
 
 ### The wrong "high" guesses
 
@@ -138,6 +145,7 @@ Flagged at 5 or more inputs going to 1 or 2 outputs. A sweep of deposit addresse
 
 | Case | Found of those that are one | Right when flagged | Flagged of those that are not | Flagged wrongly, by what it was |
 | --- | --- | --- | --- | --- |
+| signet-core-1 | 100.0% (20.7% to 100.0%), 1 of 1 | 11.1% (2.0% to 43.5%), 1 of 9 | 9.0% (4.6% to 16.7%), 8 of 89 | incoming 8 |
 | testnet4-1 | 100.0% (79.6% to 100.0%), 15 of 15 | 78.9% (56.7% to 91.5%), 15 of 19 | 1.5% (0.6% to 3.7%), 4 of 271 | payment 4 |
 
 ## The batch flag
@@ -146,6 +154,7 @@ Flagged at 6 or more outputs from 3 or fewer inputs.
 
 | Case | Found of those that are one | Right when flagged | Flagged of those that are not | Flagged wrongly, by what it was |
 | --- | --- | --- | --- | --- |
+| signet-core-1 | 100.0% (34.2% to 100.0%), 2 of 2 | 100.0% (34.2% to 100.0%), 2 of 2 | 0.0% (0.0% to 4.2%), 0 of 88 | none |
 | testnet4-1 | 25.0% (4.6% to 69.9%), 1 of 4 | 100.0% (20.7% to 100.0%), 1 of 1 | 0.0% (0.0% to 1.3%), 0 of 282 | none |
 
 ## Clusters
@@ -154,6 +163,7 @@ Addresses spent together in one transaction are put in one cluster, unless the t
 
 | Case | Clusters | Pairs that share an owner | Of the pairs co-spending can find | Of all pairs of spent addresses | Clusters of several owners | Pairs right without the CoinJoin exclusion |
 | --- | --- | --- | --- | --- | --- | --- |
+| signet-core-1 | 20 | 100.0% (81.6% to 100.0%), 17 of 17 | 100.0% (98.4% to 100.0%), 239 of 239 | 0.6% (0.4% to 0.9%), 17 of 3003 | 0 | 100.0% (81.6% to 100.0%), 17 of 17 |
 | testnet4-1 | 47 | 100.0% (99.7% to 100.0%), 1139 of 1139 | 100.0% (99.7% to 100.0%), 1139 of 1139 | 4.2% (4.0% to 4.4%), 1139 of 27181 | 0 | 100.0% (99.7% to 100.0%), 1139 of 1139 |
 
 "Pairs that share an owner" is the precision of the rule; "of the pairs co-spending can find" is its recall against the best a co-spend rule could do on these transactions (it joins every transaction that had one sender and none that mixed owners), so a shortfall there is a CoinJoin flag that was wrong; "of all pairs of spent addresses" includes pairs no transaction ever linked, so it is low for a reason that is not the rule's fault.
