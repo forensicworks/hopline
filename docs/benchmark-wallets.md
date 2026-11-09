@@ -72,6 +72,27 @@ node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1 --write-docs 
 
 The tool walks each chain until 20 addresses in a row have no history, reads their transactions, and writes `txs.json.gz`, `truth.json` and `case.json` (with a hash of the descriptors, not the descriptors). It makes about 2 requests per address, paced for a public API.
 
+## Bitcoin Core, unattended and at a tiny scale
+
+A signet faucet gives a few thousand to tens of thousands of satoshis a claim, not enough for the plan above (payments of 0.001 to 0.02 BTC), so the same plan can be run scaled down in satoshis, with a Core wallet and no one at the keyboard. What was run for `signet-core-1` (the numbers it gave are in [benchmark.md](benchmark.md#a-wallet-that-changes-to-another-type-bitcoin-core-on-signet-2026-11-09)); the scripts never read or print a private key, and the config they write holds public descriptors only.
+
+```bash
+# a node on signet; the two settings after -fallbackfee make Core keep making change at this size (at its defaults a small payment is made without change)
+docker run -d --name hb-core -v hb-core:/home/bitcoin/.bitcoin bitcoin/bitcoin:latest bitcoind -signet \
+  -addresstype=p2sh-segwit -changetype=bech32 -fallbackfee=0.00001 -consolidatefeerate=0.00001 -discardfee=0.00001
+for w in mixed buddy payee; do docker exec -u bitcoin hb-core bitcoin-cli -signet createwallet $w; done
+docker exec -u bitcoin hb-core bitcoin-cli -signet -rpcwallet=mixed getnewaddress "" p2sh-segwit     # claim at a signet faucet, once or more; wait for the node to sync and the coins to confirm
+
+python tools/bench/run_plan.py --rounds 7        # each round: wait for confirmations, send back what buddy and payee hold, then pay them (odd amounts to every address type, a round amount, a batch)
+python tools/bench/drive_core.py --unit sats refill buddy payee    # then, once everything is confirmed, send everything (a consolidation of 5 coins or more is noted)
+python tools/bench/drive_core.py --unit sats sweep --to payee
+python tools/bench/drive_core.py config --name signet-core-1 --network signet --receive sh-wpkh --change wpkh --software "Bitcoin Core 31.1, addresstype=p2sh-segwit, changetype=bech32, consolidatefeerate=1 sat/vB"
+python tools/bench/make_wallet_case.py --config wallets-core.json --out test/benchmark/cases/wallets-v1/signet-core-1
+node test/benchmark/by_type.js test/benchmark/cases/wallets-v1/signet-core-1   # the change guess by the type of the coins and of the recipient
+```
+
+`run_plan.py` sizes each round to the funds (65% of what the wallet holds, about 1,250 satoshis per payment, at most 22 transactions because the mempool allows 25 unconfirmed in a chain) and stops when fewer than 60% of a round's transactions have a change output, which means the settings, not the plan, need a look. Signet blocks take about ten minutes, so seven rounds took several hours.
+
 ## What to send, if somebody else runs the tool
 
 For each wallet: the program and its version, the network, the script type, the **public** descriptor (or the `vpub`/`zpub` and the script type), and the ids of the batch and consolidation transactions. Nothing else, and never a seed or a private key.
