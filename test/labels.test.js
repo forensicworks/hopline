@@ -229,3 +229,12 @@ test('buildKnown with your own entries keeps a sanctions mark that a list put on
   const k = Labels.buildKnown({}, packs, [{ address: MINE_A, label: 'My name for it', category: '', note: '' }])[MINE_A];
   assert.equal(k.label, 'My name for it'); assert.equal(k.sanctions, true); assert.deepEqual(k.claims.map((c) => c.sanctions), [false, true]);
 });
+
+test('fromGraph can leave out a tag that is not yours', () => {
+  const g = new Graph();
+  g.upsertNode({ id: 'addr:a', type: 'addr', address: '1BoatSLRHtKNngkdXEeobR76b53LETtpyT', tag: 'EXCH' });
+  g.upsertNode({ id: 'addr:b', type: 'addr', address: '1MirQ9bwyQcGVJPwKUgapu5ouK2E2Ey4gX', tag: 'THREAT', note: 'mine' });
+  assert.equal(Labels.fromGraph(g).length, 2, 'by default every tag counts');
+  const own = Labels.fromGraph(g, (n) => (n.tag === 'EXCH' ? '' : n.tag));
+  assert.deepEqual(own.map((e) => e.category), ['THREAT']);
+});

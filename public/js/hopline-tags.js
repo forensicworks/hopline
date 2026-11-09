@@ -95,5 +95,40 @@
     return Array.from(m.values()).sort(function (a, b) { return b.count - a.count || (a.tag < b.tag ? -1 : 1); });
   }
 
-  return { SHAPES: SHAPES, PRESETS: PRESETS, COLORS: COLORS, preset: preset, cleanTag: cleanTag, cleanColor: cleanColor, cleanShape: cleanShape, apply: apply, sanitize: sanitize, resolve: resolve, summarise: summarise };
+  // ---- tags from the lists ------------------------------------------------------------------------
+  // What a list says about a wallet (its category) can name a kind of service, and then the wallet can carry that tag without anyone setting it. Only the kinds of
+  // service are mapped (an exchange, a mixer, a market, a gambling site, a swap or bridge, a merchant): THREAT, VICTIM, PAYMENT and WATCH are the analyst's own
+  // judgement, and a sanctions or ransomware entry has its own marking, so a list never sets those.
+  var CATEGORY_TAG = {
+    'EXCHANGE': 'EXCH', 'EXCHANGES': 'EXCH', 'CRYPTO EXCHANGE': 'EXCH', 'CEX': 'EXCH', 'EXCH': 'EXCH',
+    'MIXER': 'MIXER', 'MIXING': 'MIXER', 'MIXING SERVICE': 'MIXER', 'MIXERS': 'MIXER', 'TUMBLER': 'MIXER',
+    'MARKET': 'MARKET', 'MARKETPLACE': 'MARKET', 'DARKNET MARKET': 'MARKET', 'DARKNET MARKETS': 'MARKET', 'DARKNET': 'MARKET',
+    'GAMBLING': 'GAMBLING', 'CASINO': 'GAMBLING', 'BETTING': 'GAMBLING',
+    'SWAP': 'SWAP', 'BRIDGE': 'SWAP', 'SWAP SERVICE': 'SWAP',
+    'SERVICE': 'SERVICE', 'MERCHANT': 'SERVICE', 'PAYMENT PROCESSOR': 'SERVICE', 'PAYMENT SERVICE': 'SERVICE'
+  };
+  /** The preset tag a list's category names ('Exchange' -> 'EXCH'), or ''. Case, punctuation and spacing do not matter. */
+  function fromCategory(category) {
+    if (typeof category !== 'string') return '';
+    var key = category.toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+    return Object.prototype.hasOwnProperty.call(CATEGORY_TAG, key) ? CATEGORY_TAG[key] : '';
+  }
+  /** The tag a wallet's claims point at: that of the first claim (the order the lists name it in) whose category names a kind of service, else ''. claims: [{ category }]. */
+  function fromClaims(claims) {
+    for (var i = 0; i < (claims || []).length; i++) { var t = claims[i] ? fromCategory(claims[i].category) : ''; if (t) return t; }
+    return '';
+  }
+
+  /**
+   * Is the tag on this vertex the one the lists give it and nothing more: the tag a known entry's claims name, with the preset's own colour and shape? Then it says nothing
+   * the lists did not say, so it is not something you wrote (it is left out of your own labels, and the list's name, not the tag, stays the wallet's name).
+   * node: a vertex; known: its entry in the lists (with `claims` when several lists name it) or null.
+   */
+  function isFromLists(node, known) {
+    if (!node || !node.tag || !known) return false;
+    var t = fromClaims(known.claims && known.claims.length ? known.claims : [known]), p = t ? preset(t) : null;
+    return !!p && node.tag === t && (!node.color || node.color === p.color) && (!node.shape || node.shape === p.shape);
+  }
+
+  return { SHAPES: SHAPES, PRESETS: PRESETS, COLORS: COLORS, preset: preset, cleanTag: cleanTag, cleanColor: cleanColor, cleanShape: cleanShape, apply: apply, sanitize: sanitize, resolve: resolve, summarise: summarise, fromCategory: fromCategory, fromClaims: fromClaims, isFromLists: isFromLists };
 }));

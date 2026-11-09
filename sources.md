@@ -64,7 +64,7 @@ The two sanctions lists are on by default because a missing sanctions banner rea
 
 ### Built-in wallet list
 
-- **What:** 908 exchange and service wallets, one name each ([public/data/known-addresses.js](public/data/known-addresses.js)).
+- **What:** 908 exchange and service wallets, one name each ([public/data/known-addresses.js](public/data/known-addresses.js)). 869 of them carry the category `Exchange` and one, Fixed Float, `Swap` (added 2026-11-09 by entity name: the exchanges and brokerages among the names; Sygnia (asset management), Coinspaid (a payment gateway), ViaBTC and the other mining pools, Cash App, Cumberland Mining, the Luna Foundation Guard and the DMM hack addresses carry none, and so are not tagged), which tags the wallet EXCH (or SWAP) when it appears on the canvas.
 - **From:** the starting list of the original Orion project by Kyle Honeycutt, released into the public domain under the Unlicense. It was last updated upstream in November 2024. **Reviewed on 2026-10-27 for what a computer can check** (`python tools/review_known_addresses.py`): every address passes its checksum; a misspelling (Huobi) and names that differed only in case were corrected; and 11 addresses that carry a second, different owner as an alternative name, and one that another shipped list names differently, are left for a person to decide, because the review cannot tell which claim is right. **Not checked:** whether an address really belongs to its name, which needs a source for each entry; there is none yet (see the [roadmap](ROADMAP.md)).
 
 ## Live data, asked for as you work

@@ -39,7 +39,7 @@ When you push to `master`, a workflow runs the unit and tool tests before anythi
 
 ## Wallet names
 
-The built-in list is `public/data/known-addresses.js`. A name needs a **public source** you can link in the pull request. Keep it factual (what the source says, not what you infer), and never add anything taken from private or client work. Sanctions entries come from the official list through the converter in `tools/make_label_pack_ofac.py`, not by hand.
+The built-in list is `public/data/known-addresses.js`. A name needs a **public source** you can link in the pull request. Keep it factual (what the source says, not what you infer), and never add anything taken from private or client work. Sanctions entries come from the official list through the converter in `tools/make_label_pack_ofac.py`, not by hand. An exchange carries `"category": "Exchange"`, which gives the wallet the EXCH tag when it appears on the canvas (a swap or bridge service carries `"category": "Swap"` and gets SWAP) (see `fromCategory` in `public/js/hopline-tags.js` for the other categories that name a kind of service); leave the category out when you are not sure what kind of service it is.
 
 ## Pull requests
 
