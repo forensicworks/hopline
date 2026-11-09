@@ -13,6 +13,7 @@ The results are written by the runners: [benchmark-results.md](benchmark-results
 | 0 | The harness, the metrics, the committed floors the tests keep | done |
 | 1 | A generator of regtest data with known ownership and known change, six scenarios, the first full results | done |
 | D | How often each flag fires on a sample of the real chain, with the flagged ones read by hand | done: 4,674 transactions from 8 blocks, 2013 to 2026 |
+| 1b | The synthetic cases again on a new seed (20261109), the rules unchanged, reported once | done 2026-11-09: [A fresh seed](#a-fresh-seed-2026-11-09); the full tables are in [benchmark-results-seed-20261109.md](benchmark-results-seed-20261109.md) |
 | 2 | Real wallet software on signet or testnet4, truth from the wallets' own change chain | done for two wallets: Sparrow 2.5.5 and Electrum 4.8.3 on testnet4, 286 transactions, 67 with a known change output, in [benchmark-wallets-results.md](benchmark-wallets-results.md). Core, BlueWallet and a hardware wallet are not measured; see [benchmark-wallets.md](benchmark-wallets.md) for what a person needs to add one |
 | 3 | Documented public cases (court and FBI documents) as case studies | one case done (Colonial Pipeline and DarkSide); the court documents themselves could not be read, see below |
 | 4 | Recalibrating on what the results show, one change at a time, each judged on a sample it was not made on, and a page for readers | two changes made and each tested on a holdout (below), and the one-sign change guess measured; the confidence tiers are not changed; the wiki has a first Accuracy page |
@@ -53,6 +54,7 @@ Each scenario is a folder in `test/benchmark/cases/regtest-v1/` with `case.json`
 node test/benchmark/run.js                   # the committed cases, to the screen
 node test/benchmark/run.js --write-docs      # also rewrite docs/benchmark-results.md
 python tools/bench/make_regtest.py --out test/benchmark/cases/regtest-v1    # make the cases again (needs Docker, about half an hour)
+node test/benchmark/run.js --cases test/benchmark/cases/regtest-v2 --date 2026-11-09    # the fresh-seed cases (a second set of the same six, seed 20261109); no --write-docs: its page is benchmark-results-seed-20261109.md
 
 node test/benchmark/base-rates.js [--write-docs]                           # rates on the sample of real transactions
 python tools/bench/fetch_mainnet_sample.py --out test/benchmark/cases/mainnet-sample    # a new sample (public API, about 200 requests)
@@ -69,15 +71,45 @@ node test/benchmark/run.js --cases test/benchmark/cases/wallets-v1 --write-docs 
 
 Six cases, 3,647 transactions, on `hopline-analysis.js` as it was that day (the SHA-256 is in [benchmark-results.md](benchmark-results.md), which has every number below with its interval). These are statements about the synthetic wallets, not about the chain.
 
-- **The labels are ordered.** A high change guess was right 902 times in 903, medium 93.5% of the time, low 90.8%. The best rule that always answers (the largest output) is right 56%.
+- **The labels are ordered.** A high change guess was right 902 times in 903, medium 93.5% of the time, low 90.8%. The best rule that always answers (the largest output) is right 56%. (On a second seed high held and medium and low came out the same, 94.1% and 94.8%: see [A fresh seed](#a-fresh-seed-2026-11-09).)
 - **The "same address type" signal buys coverage and costs precision.** With it off, Hopline guesses on 49% of the transactions instead of 74%, and is right 99.9% of the time instead of 95.6%. The round-amount signal helps both. The known-wallet and fingerprint signals changed almost nothing, because these cases hardly ever give them anything to do.
 - **The change guess breaks when the wallet's change type is not its receive type**: right 73% to 82% of the time then, against 99.8% when they are the same. The one wrong high guess was in a PayJoin.
 - **The shape flags fire on ordinary behaviour.** A payment out of five or more coins is flagged as a consolidation (59 of 1,200 payments); an exchange payout of equal amounts is flagged as a CoinJoin (75 of 375 transactions that are not one); ordinary payments out of one coin make a chain that looks like a peel chain, 4 to 15 per 1,000 transactions. How often depends on how fragmented the generator's wallets are, which is its choice.
 - **The CoinJoin exclusion is worth having.** Without it, 49% of the pairs put together in the `coinjoins` case share an owner; with it, 100%. What it costs: an exchange payout wrongly flagged loses its cluster (65% of the pairs co-spending could find are found).
 - **A PayJoin joins two owners and the rule cannot tell**: 95% of the pairs in the `payjoin` case share an owner.
-- **Peel chains are found step by step more than as whole chains.** A step is a peel step when the smaller output is at most half the larger, so a step that pays more than a third of the coin ends the run; 2 of the 14 whole chains were found at 80% coverage, and 71% of the steps were in a detected chain.
+- **Peel chains are found step by step more than as whole chains.** A step is a peel step when the smaller output is at most half the larger, so a step that pays more than a third of the coin ends the run; 2 of the 14 whole chains were found at 80% coverage, and 71% of the steps were in a detected chain (a second seed: 4 of 14 and 64%).
 
 How these were reached, so the numbers can be weighed: the generator and the evaluator were developed on a small run (the same seed, 5% of the size). After it two things were changed, both because they were wrong, not because of a result: the cluster recall counted pairs joined through a PayJoin against an oracle that leaves PayJoins out (it could exceed 100%), and the scripted peel chains drew their payments from a short list that put about a quarter of the steps past the rule's cut-off, so the chains were broken by construction. No rule in `public/js` was changed in response; the only change there is the option that switches one change signal off, which does nothing when unset. The full-size run used the same seed (20261026), so it is a report, not a test on fresh data; phase 4 starts with a new seed.
+
+## A fresh seed (2026-11-09)
+
+The first run used the seed the generator was developed with, so it was a report, not a test. This is the test: the same generator with a new seed (20261109), the same rules (`hopline-analysis.js` as of commit 89d62ed, SHA-256 `0edb6ed4a15912b8`; the original cases run on that code give the numbers on the first page), six cases and 3,531 transactions, made and measured once, with no change to any rule. The cases are in `test/benchmark/cases/regtest-v2/` (not used by the floors) and every table is in [benchmark-results-seed-20261109.md](benchmark-results-seed-20261109.md).
+
+| | First seed (3,068 transactions with change) | Fresh seed (3,039) |
+|---|---|---|
+| High change guess: share guessed, right | 29.4%, 99.9% (902 of 903) | 31.0%, 99.9% (941 of 942) |
+| Medium: share guessed, right | 31.5%, 93.5% (903 of 966) | 28.0%, 94.1% (802 of 852) |
+| Low: share guessed, right | 12.8%, 90.8% (356 of 392) | 13.9%, 94.8% (401 of 423) |
+| Any guess: share guessed, right | 73.7%, 95.6% | 73.0%, 96.7% |
+| Medium on one sign | 89.5% (518 of 579) | 89.2% (412 of 462) |
+| Medium on two signs | 99.5% (385 of 387) | 100.0% (390 of 390) |
+| "Same address type" as the only sign | 84.3% (515 of 611) | 85.6% (410 of 479) |
+| CoinJoins found | 60 of 60 | 60 of 60 |
+| Equal payouts flagged as CoinJoins | 20.0% (75 of 375) | 23.7% (93 of 393) |
+| Consolidations and batches found | all | all |
+| Whole peel chains found; steps in a detected chain | 2 of 14; 70.9% (212 of 299) | 4 of 14; 64.0% (119 of 186) |
+
+**What held.** A high guess is right 99.9% of the time on about 30% of the transactions (the one wrong guess is in the `coinjoins` case this time, in `payjoin` before). A medium guess on one sign is right 89.2% of the time (412 of 462; 89.5% before), and "same address type" alone is again the weak sign. Every CoinJoin is found and every batch and consolidation; the batch flag is never wrong. The CoinJoin exclusion keeps its value (in the `coinjoins` case 52.0% of the pairs it would have joined share an owner without it, 100% with it). Clusters are right in every case but `payjoin` (94.5%; 95.1% before), where a PayJoin joins two owners and the rule cannot tell (150 of its 303 clusters).
+
+**What did not.**
+
+- **Medium and low are not told apart.** Medium 94.1% (92.3% to 95.5%), low 94.8% (92.3% to 96.5%). The first run's 93.5% against 90.8% was an order; this one is not, and only *high* separates from the rest. The reason is the one-sign question: the medium guesses that rest on one sign are right less often (89.2%, 86.0% to 91.7%) than the low ones (94.8%, 92.2% to 96.5%), and the two intervals do not overlap. If medium guesses on one sign were called low, the tiers would read high 99.9% (941 of 942), medium 100.0% (390 of 390), low 91.9% (813 of 885), the same shape as on the first seed (99.9%, 99.5% and 90.0%). The rule is not changed: the real-wallet data is the test (see below).
+- **How often the shape flags fire on ordinary transactions depends on the wallets a seed draws.** Consolidation flags on payments in the `payjoin` case went from 0.2% to 3.1% (the intervals do not overlap) and equal exchange payouts flagged as CoinJoins from 20.0% to 23.7%. No rule changed; these are properties of the generated wallets (how fragmented they are), as the first run said.
+- **Peel chains.** Four of the 14 whole chains were found (2 before) and 64.0% of the steps were in a detected chain (70.9% before; the intervals overlap, 56.9% to 70.5% and 65.5% to 75.8%). The scripted chains of this seed are shorter (186 steps in 14 chains, against 299), and a chain needs four steps in a row. Where the first run says 71%, read 64% to 71%.
+
+**The floors.** `floors.json` holds a floor for each of 29 measures of the synthetic cases. On the fresh seed 28 hold and one does not: the steps of real peel chains in a detected chain, 64.0% against a floor of 65%. Two more pass by little: the precision of medium guesses in `payments` (92.7% against 92%) and the CoinJoin false-positive rate (23.7% against a ceiling of 25%). The floors guard the committed cases, where the numbers do not move, so none was changed; they are not a claim about every seed, and this is the evidence of how far from them another seed lands.
+
+**What it is not.** The same generator: the wallets are Bitcoin Core with varied settings and the scenarios the ones thought of. A fresh seed tests the rules against the luck of one draw, not against those assumptions; tier B is for that, and it is where the one-sign question has to be settled (a wallet that changes to a type other than the one it receives on). A third sample of the real chain was fetched with seed 20261110 (5,035 transactions from 8 blocks) and has not been opened: it is kept for the next change to a rule.
 
 ## What real traffic showed (2026-10-26)
 
@@ -162,7 +194,7 @@ This is a measurement; the rule is **not changed**. The synthetic wallets give "
 
 - **Precision first.** A wrong guess sends an investigator down the wrong chain, so precision matters more than coverage, and both are reported.
 - **Intervals.** Every proportion has a Wilson 95% interval. About 1,000 labelled decisions in a tier gives a width of about 3 points.
-- **No tuning on what is reported.** Rules are developed on one set of scenarios and reported on a different one; the generator takes a seed, and a seed used for tuning is not used for reporting. Seeds so far: 20261026 (the synthetic cases, made while the harness was developed), 20261027 (the first sample of the real chain, which the change below was made on) 20261101 (the first holdout, reported once, for the CoinJoin change) and 20261108 (the second holdout, reported once, for the peel change).
+- **No tuning on what is reported.** Rules are developed on one set of scenarios and reported on a different one; the generator takes a seed, and a seed used for tuning is not used for reporting. Seeds so far: 20261026 (the synthetic cases, made while the harness was developed), 20261027 (the first sample of the real chain, which the change below was made on) 20261101 (the first holdout, reported once, for the CoinJoin change) and 20261108 (the second holdout, reported once, for the peel change), 20261109 (the synthetic cases again, reported once, with no change to a rule: the section below) and 20261110 (a third sample of the real chain, fetched and not opened: it is kept for the next change to a rule).
 - **Failures are listed.** The results include the wrong "high" guesses, with their reasons.
 - **No client data, ever.** Cases are synthetic, made from our own wallets, or public documents.
 
