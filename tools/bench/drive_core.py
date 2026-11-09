@@ -66,7 +66,8 @@ def coins(core):
 def info(core, a):
     c = coins(core)
     bal = core.call("getbalances")["mine"]
-    print("wallet %s: %d coins, largest %s, trusted %s, pending %s" % (core.wallet, len(c), max([x["amount"] for x in c], default=0), bal["trusted"], bal["untrusted_pending"]))
+    print("wallet %s: %d coins, largest %s" % (core.wallet, len(c), max([x["amount"] for x in c], default=0)))
+    print("  balances (BTC): " + ", ".join("%s %s" % (name, amount) for name, amount in sorted(bal.items())))
     unconf = [x for x in c if x["confirmations"] == 0]
     if unconf:
         print("  %d coins are not confirmed yet" % len(unconf))
