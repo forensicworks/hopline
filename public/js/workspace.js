@@ -56,7 +56,7 @@
     trace: emptyTrace(), vgroups: new Map(), vseq: 0, routeRef: null, routeFocus: null, openDir: 'next',
     undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true, swap: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, claude: { model: 'claude-opus-5-5', remember: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
-    stepMode: 'ask', stepSize: 5, shareMax: SH.DEFAULT_LIMIT, autoBalance: true, autoHistory: true, arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
+    stepMode: 'ask', stepSize: 5, shareMax: SH.DEFAULT_LIMIT, autoBalance: true, autoHistory: true, autoTag: true, tagSeen: new Set(), arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: {}, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -129,7 +129,7 @@
     if ($('reqStats')) updateReqStats();
   }
 
-  function setGraph(g) { state.graph = g; state.explorer = new A.Explorer(state.client, g); state.layoutRes = null; }
+  function setGraph(g) { state.graph = g; state.explorer = new A.Explorer(state.client, g); state.layoutRes = null; state.tagSeen = new Set(g.nodes.keys()); }
 
   function explorerOrigin() {
     if (state.source === 'tor') return A.ONION.replace(/\/api$/, '');
@@ -196,7 +196,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, shareMax: state.shareMax, autoBalance: state.autoBalance, autoHistory: state.autoHistory, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, hoverPreview: state.hoverPreview, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, shareMax: state.shareMax, autoBalance: state.autoBalance, autoHistory: state.autoHistory, autoTag: state.autoTag, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, hoverPreview: state.hoverPreview, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, claude: state.claude, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
   }
   function loadPrefs() {
     var raw = store.get(PREF_KEY); if (!raw) return;
@@ -205,7 +205,7 @@
       if (A.PRESETS[p.source]) state.source = p.source;
       state.fallback = p.fallback !== false;
       if (p.stepMode === 'ask' || p.stepMode === 'batch' || p.stepMode === 'all') state.stepMode = p.stepMode;
-      state.stepSize = num(p.stepSize, 1, 50, 5); state.shareMax = SH.limitOf(p.shareMax); state.autoBalance = p.autoBalance !== false; state.autoHistory = p.autoHistory !== false; state.arrowsInRange = p.arrowsInRange !== false;
+      state.stepSize = num(p.stepSize, 1, 50, 5); state.shareMax = SH.limitOf(p.shareMax); state.autoBalance = p.autoBalance !== false; state.autoHistory = p.autoHistory !== false; state.autoTag = p.autoTag !== false; state.arrowsInRange = p.arrowsInRange !== false;
       state.groupRows = p.groupRows !== false; state.groupBy = cleanGroupBy(p.groupBy); state.dustSats = num(p.dustSats, 0, 1000000000, 10000);
       if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old' || p.chooseSort === 'known') state.chooseSort = p.chooseSort;
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
@@ -657,7 +657,7 @@
   function knownLevel(id) {
     var n = state.graph.nodes.get(id);
     if (!n || n.type !== 'addr') return 0;
-    if (n.label || n.tag) return 2;
+    if (n.label || ownTag(n)) return 2;
     return KNOWN[n.address] ? 1 : 0;
   }
 
@@ -2660,6 +2660,48 @@
     showInspector(); refresh(); scheduleSave();
   }
 
+  // ---- tags from the lists ------------------------------------------------------------------------------------------------------------------------
+  /** The tag of a vertex that is yours: '' when it has none, or when it only repeats what a list says (EXCH on a known exchange), which is the list's word, not yours. */
+  function ownTag(n) { return n && n.tag && !(n.type === 'addr' && TG.isFromLists(n, knownEntry(n.address))) ? n.tag : ''; }
+  /** The tag the lists give a wallet (an exchange: EXCH), or '' when none of its claims names a kind of service or the wallet already has a tag, colour or shape of its own. */
+  function listTagFor(n) {
+    if (!n || n.type !== 'addr' || n.tag || n.color || n.shape) return '';
+    var k = knownEntry(n.address);
+    return k ? TG.fromClaims(LB.claimsOf(k)) : '';
+  }
+  /** Tag these vertices from the lists; { count, by: { EXCH: 3 }, first: the name of the first one }. */
+  function tagFromLists(nodes) {
+    var out = { count: 0, by: {}, first: '' };
+    nodes.forEach(function (n) {
+      var t = listTagFor(n); if (!t) return;
+      TG.apply(n, { tag: t }); out.count++; out.by[t] = (out.by[t] || 0) + 1;
+      if (!out.first) out.first = knownEntry(n.address).label;
+    });
+    return out;
+  }
+  function tagsText(r) {
+    var kinds = Object.keys(r.by).sort(function (a, b) { return r.by[b] - r.by[a] || (a < b ? -1 : 1); });          // the most first, then by name: the same words whatever order the wallets came in
+    return plural(r.count, 'known wallet') + ' from the lists: ' + (kinds.length === 1 && r.count === 1 ? kinds[0] + ' (' + r.first + ')' : kinds.map(function (t) { return t + ' ' + r.by[t]; }).join(', '));
+  }
+  /**
+   * Wallets that appeared since the last look get the tag the lists give them (an exchange gets EXCH), once: what you then change or remove stays as you left it. A graph that
+   * is opened as a whole (a file, a saved session, a shared link, an undo) is taken as it is, and a wallet that arrives while a list is still loading is looked at again when it has.
+   */
+  function autoTagNew() {
+    if (!state.shipped || state.shipped.some(function (p) { return p.enabled && p.loading; })) return;
+    var fresh = [], seen = state.tagSeen;
+    state.graph.nodes.forEach(function (n) { if (!seen.has(n.id)) { seen.add(n.id); fresh.push(n); } });
+    if (!fresh.length || !state.autoTag) return;
+    var r = tagFromLists(fresh);
+    if (r.count) { log('Tagged ' + tagsText(r) + '.'); scheduleSave(); }
+  }
+  /** The button: tag every wallet here that a list names a kind of service for and that has no tag yet (the ones that were here before, or from a list switched on since). */
+  function tagKnownNow() {
+    var r = tagFromLists(Array.from(state.graph.nodes.values()));
+    if (r.count) { stat('tag-known'); showInspector(); refresh(); scheduleSave(); }
+    toast(r.count ? 'Tagged ' + tagsText(r) + '. Change or remove a tag like any other.' : 'No wallet here without a tag is on a list that names a kind of service.');
+  }
+
   /** Bring the details (with the tag controls) up for these vertices. */
   function openTagEditor(ids) {
     state.selected = new Set(ids); state.selectedEdge = null; syncSelection();
@@ -3516,7 +3558,7 @@
     }).catch(function (e) { toast('Import failed: ' + (e && e.message ? e.message : 'the file could not be read') + '', true); });
   }
   function exportOwnLabels(kind) {
-    var entries = LB.fromGraph(state.graph);
+    var entries = LB.fromGraph(state.graph, ownTag);
     if (!entries.length) { toast('Nothing to export: label or tag a wallet first (its details panel).', true); return; }
     var name = 'hopline-labels-' + stamp();
     if (kind === 'json') download(name + '.json', LB.toJson(entries, { name: 'Hopline labels ' + stamp(), source: 'exported from Hopline' }), 'application/json');
@@ -3533,7 +3575,7 @@
   function markOf(address) {
     var n = state.graph.nodes.get(ID.addr(address));
     if (n && n.label) return n.label;
-    if (n && n.tag) return n.tag;
+    if (n && ownTag(n)) return n.tag;
     return KNOWN[address] ? KNOWN[address].label : null;
   }
 
@@ -5011,6 +5053,7 @@
   /** o: { relayout, fit, instant } */
   function refresh(o) {
     o = o || {};
+    autoTagNew();
     cleanViewGroups();
     var rg = state.graph, g = viewGraph(), f = state.filter;                  // g: the real graph plus the group vertices of a trace or of the other layouts; rg: only what is on the chain
     edgeLabelCache.clear();
@@ -5629,7 +5672,7 @@
     try { r = IO.fromJson(text); } catch (e) { toast('Import failed: ' + e.message, true); return; }
     var wasEmpty = state.graph.nodes.size === 0, g = state.graph, snap = snapshotGraph('Import'), n0 = g.nodes.size, fresh = [];
     r.graph.nodes.forEach(function (n) { if ((n.type === 'tx' || n.type === 'addr') && !g.nodes.has(n.id)) fresh.push(n.id); });
-    r.graph.nodes.forEach(function (n) { g.upsertNode(n); });
+    r.graph.nodes.forEach(function (n) { g.upsertNode(n); state.tagSeen.add(n.id); });                 // what a file brings is taken as it is: its tags are the ones its author chose
     r.graph.edges.forEach(function (e) { g.upsertEdge(e); });
     r.graph.nodes.forEach(function (n) { if (n.label !== undefined || n.note !== undefined) { var cur = g.nodes.get(n.id); if (n.label) cur.label = n.label; if (n.note) cur.note = n.note; } });
     if (wasEmpty) applyView(r.view);
@@ -5719,7 +5762,7 @@
     if (!A.PRESETS.tor) { var torOpt = document.querySelector('#source option[value="tor"]'); if (torOpt) torOpt.remove(); }          // a published copy does not offer Tor
     loadPrefs();
     makeClient();
-    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('shareMax').value = state.shareMax; $('groupRows').checked = state.groupRows; $('autoBalance').checked = state.autoBalance; $('autoHistory').checked = state.autoHistory; syncAutoHistN(); $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
+    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('shareMax').value = state.shareMax; $('groupRows').checked = state.groupRows; $('autoBalance').checked = state.autoBalance; $('autoHistory').checked = state.autoHistory; $('autoTag').checked = state.autoTag; syncAutoHistN(); $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets; $('bundleEdges').checked = state.bundleEdges; $('hoverPreview').checked = state.hoverPreview;
@@ -5942,6 +5985,8 @@
     $('arrowsInRange').addEventListener('change', function () { state.arrowsInRange = this.checked; savePrefs(); renderer.dirty = true; showInspector(true); });
     $('autoBalance').addEventListener('change', function () { state.autoBalance = this.checked; savePrefs(); if (this.checked) autoReadSoon(); });
     $('autoHistory').addEventListener('change', function () { state.autoHistory = this.checked; savePrefs(); if (this.checked) autoReadSoon(); });
+    $('autoTag').addEventListener('change', function () { state.autoTag = this.checked; savePrefs(); });
+    $('tagKnownNow').addEventListener('click', tagKnownNow);
     $('groupRows').addEventListener('change', function () { state.groupRows = this.checked; savePrefs(); showInspector(true); });
     $('groupBy').addEventListener('change', function () { state.groupBy = cleanGroupBy(this.value); savePrefs(); showInspector(true); });
     $('dustSats').addEventListener('change', function () { state.dustSats = num(this.value, 0, 1000000000, 10000); this.value = state.dustSats; savePrefs(); showInspector(true); });

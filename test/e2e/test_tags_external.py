@@ -34,6 +34,12 @@ def node(page, id_):
     return page.evaluate("(id) => window.__hopline.state.graph.nodes.get(id)", id_)
 
 
+def no_auto_tag(page):
+    """The real transaction of the fixture pays Robinhood's hot wallet, which the built-in list names as an exchange, so it would arrive tagged EXCH by itself
+    (see test_auto_tag.py). These tests are about tagging by hand a wallet that has no tag, so they switch that setting off first."""
+    page.evaluate("() => { const c = document.getElementById('autoTag'); c.checked = false; c.dispatchEvent(new Event('change')); }")
+
+
 def rclick(page, id_):
     p = xy(page, id_)
     page.mouse.click(p["x"], p["y"], button="right")
@@ -81,6 +87,7 @@ def test_colour_and_shape_can_be_changed_independently_and_reset(fpage):
 
 
 def test_a_custom_tag_is_just_text_and_leaves_the_look_alone(fpage):
+    no_auto_tag(fpage)
     open_query(fpage, NORMAL["txid"])
     select_only(fpage, BIG_ADDR)
     fpage.select_option("#fTag", "__custom")
@@ -153,6 +160,7 @@ def test_the_tag_colour_wins_in_every_colour_mode(fpage):
 
 # ---------------------------------------------------------------- right-click menu
 def test_right_click_a_wallet_opens_its_menu_and_selects_it(fpage):
+    no_auto_tag(fpage)
     open_query(fpage, NORMAL["txid"])
     rclick(fpage, BIG_ADDR)
     assert fpage.is_visible("#ctxMenu")
@@ -165,6 +173,7 @@ def test_right_click_a_wallet_opens_its_menu_and_selects_it(fpage):
 
 
 def test_tagging_from_the_menu(fpage):
+    no_auto_tag(fpage)
     open_query(fpage, NORMAL["txid"])
     rclick(fpage, BIG_ADDR)
     fpage.click("#ctxMenu >> text=Tag as")
@@ -293,6 +302,7 @@ def test_lookup_asks_once_for_consent_sends_the_token_and_shows_the_result(fpage
 def test_a_lookup_result_is_shown_and_can_be_applied_by_choice(ctx, errors, arkham):
     p = ctx.new_page(); p.on("pageerror", lambda e: errors.append(str(e))); p.on("dialog", lambda d: d.accept())
     p.goto(PAGE_URL); p.wait_for_function("window.__hopline && window.__hopline.renderer"); open_controls(p); p.click("#layoutSeg [data-layout=flow]")
+    no_auto_tag(p)
     open_query(p, NORMAL["txid"])
     set_up_proxy(p, "tok123")
     select_only(p, BIG_ADDR)

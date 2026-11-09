@@ -108,3 +108,57 @@ test('SWAP: a preset for a swap or bridge service, with its own colour and shape
   assert.equal(p.name, 'Swap / bridge'); assert.match(p.color, /^#[0-9a-f]{6}$/); assert.ok(T.SHAPES.indexOf(p.shape) >= 0);
   assert.equal(T.cleanTag('swap'), 'SWAP', 'typed in any case it is the preset');
 });
+
+test('a list category that names a kind of service gives the tag for it, and nothing else does', () => {
+  assert.equal(T.fromCategory('Exchange'), 'EXCH');
+  assert.equal(T.fromCategory('EXCHANGE'), 'EXCH');
+  assert.equal(T.fromCategory('  crypto-exchange '), 'EXCH', 'case, punctuation and spacing do not matter');
+  assert.equal(T.fromCategory('Mixing service'), 'MIXER');
+  assert.equal(T.fromCategory('Darknet market'), 'MARKET');
+  assert.equal(T.fromCategory('Gambling'), 'GAMBLING');
+  assert.equal(T.fromCategory('Bridge'), 'SWAP');
+  assert.equal(T.fromCategory('Payment processor'), 'SERVICE');
+  ['TERRORISM', 'RANSOM', 'MINING', 'CYBER2', 'USER', 'ORGANIZATION', '', null, undefined, 42, {}, 'THREAT', 'VICTIM', 'WATCH', 'PAYMENT', '__proto__', 'constructor'].forEach((c) => {
+    assert.equal(T.fromCategory(c), '', 'no tag for ' + String(c));
+  });
+  T.PRESETS.forEach((p) => { const t = T.fromCategory(p.id); if (t) assert.equal(t, p.id, 'a preset id that maps, maps to itself'); });
+  ['THREAT', 'VICTIM', 'WATCH', 'PAYMENT'].forEach((id) => assert.equal(T.fromCategory(id), '', id + ' is the analyst\'s own call'));
+  ['EXCH', 'MIXER', 'MARKET', 'GAMBLING', 'SWAP', 'SERVICE'].forEach((id) => assert.equal(T.fromCategory(id), id, id));
+});
+
+test('a wallet on several lists takes the tag of the first claim that names a kind of service', () => {
+  assert.equal(T.fromClaims([{ category: 'Exchange' }]), 'EXCH');
+  assert.equal(T.fromClaims([{ category: 'CYBER2' }, { category: 'Mixer' }, { category: 'Exchange' }]), 'MIXER');
+  assert.equal(T.fromClaims([{ category: 'Exchange' }, { category: 'Mixer' }]), 'EXCH', 'the order the lists name it in decides');
+  assert.equal(T.fromClaims([{ category: 'RANSOM' }, null, {}]), '');
+  assert.equal(T.fromClaims([]), '');
+  assert.equal(T.fromClaims(undefined), '');
+});
+
+test('the built-in wallet list: the exchanges carry the category Exchange, and every category it uses maps to a tag', () => {
+  const fs = require('fs'), path = require('path');
+  const text = fs.readFileSync(path.join(__dirname, '..', 'public', 'data', 'known-addresses.js'), 'utf8');
+  const known = JSON.parse(text.slice(text.indexOf('= {') + 2, text.lastIndexOf('}') + 1));
+  const cats = new Set(Object.keys(known).map((a) => known[a].category).filter(Boolean));
+  assert.deepEqual([...cats].sort(), ['Exchange', 'Swap']);
+  cats.forEach((c) => assert.ok(T.fromCategory(c), c));
+  const by = (re) => Object.keys(known).filter((a) => re.test(known[a].label));
+  ['Binance', 'Coinbase', 'Kraken'].forEach((n) => { const l = by(new RegExp('^' + n)); assert.ok(l.length, n); l.forEach((a) => assert.equal(T.fromCategory(known[a].category), 'EXCH', known[a].label)); });
+  by(/^Fixed Float/).forEach((a) => assert.equal(T.fromCategory(known[a].category), 'SWAP', 'Fixed Float moves value between coins: a swap service'));
+  by(/hack|Luna Foundation|Cumberland/i).forEach((a) => assert.ok(!known[a].category, known[a].label + ' is not an exchange'));
+});
+
+test('a tag that only repeats what a list said is told apart from one you wrote', () => {
+  const exch = { category: 'Exchange', label: 'Binance' };
+  const look = T.preset('EXCH');
+  assert.equal(T.isFromLists({ tag: 'EXCH', color: look.color, shape: look.shape }, exch), true);
+  assert.equal(T.isFromLists({ tag: 'EXCH' }, exch), true, 'no colour or shape of its own');
+  assert.equal(T.isFromLists({ tag: 'EXCH', color: '#123456', shape: look.shape }, exch), false, 'you changed the colour: it is yours now');
+  assert.equal(T.isFromLists({ tag: 'EXCH', color: look.color, shape: 'star' }, exch), false, 'you changed the shape');
+  assert.equal(T.isFromLists({ tag: 'THREAT' }, exch), false, 'a different tag is yours');
+  assert.equal(T.isFromLists({ tag: 'EXCH' }, { category: 'RANSOM' }), false, 'a list that names no kind of service gives no tag');
+  assert.equal(T.isFromLists({ tag: 'EXCH' }, null), false, 'not on a list: yours');
+  assert.equal(T.isFromLists({}, exch), false);
+  assert.equal(T.isFromLists(null, exch), false);
+  assert.equal(T.isFromLists({ tag: 'MIXER' }, { category: 'CYBER2', claims: [{ category: 'CYBER2' }, { category: 'Mixer' }] }), true, 'the first claim that names a kind of service');
+});

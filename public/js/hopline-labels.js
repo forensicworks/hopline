@@ -149,12 +149,16 @@
   }
 
   // ---- your own labels, as a pack ------------------------------------------------------------------
-  /** The labelled, tagged or annotated wallets of a graph as entries: what you would share with a colleague. */
-  function fromGraph(graph) {
+  /**
+   * The labelled, tagged or annotated wallets of a graph as entries: what you would share with a colleague. tagOf(node), when given, says which tag counts as yours
+   * (the page leaves out a tag that only repeats what a list said); by default it is the vertex's tag.
+   */
+  function fromGraph(graph, tagOf) {
     var out = [];
     graph.nodes.forEach(function (n) {
-      if (n.type !== 'addr' || !n.address || !(n.label || n.tag || n.note)) return;
-      out.push({ address: n.address, label: n.label || n.tag || 'tagged', category: n.tag || '', url: '', note: n.note || '' });
+      var tag = tagOf ? tagOf(n) : n.tag;
+      if (n.type !== 'addr' || !n.address || !(n.label || tag || n.note)) return;
+      out.push({ address: n.address, label: n.label || tag || 'tagged', category: tag || '', url: '', note: n.note || '' });
     });
     return out.sort(function (a, b) { return a.address < b.address ? -1 : a.address > b.address ? 1 : 0; });
   }
