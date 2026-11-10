@@ -100,6 +100,31 @@ test('summary is the address\'s own totals: the whole history, not just what is 
   assert.deepEqual(Wallet.summary(null), { received: 0, sent: 0, balance: 0, txCount: 0, pendingCount: 0, pendingIn: 0, pendingOut: 0, pendingNet: 0 });
 });
 
+test('flow tells what others paid the wallet and what it paid them, leaving the change it paid back to itself out', () => {
+  const { rows } = Wallet.ledger(ME, sample());
+  const f = Wallet.flow(rows);
+  // confirmed only (tx 4 is pending): 1 pays in 99000; 2 spends 100000 and 39000 come back; 3 pays in 29000
+  assert.deepEqual(f, { received: 167000, sent: 100000, own: 39000, ownTxs: 1, fromOthers: 128000, toOthers: 61000, count: 3 });
+  assert.equal(f.received - f.sent, f.fromOthers - f.toOthers, 'the change cancels out of the difference');
+  assert.equal(f.toOthers, 60000 + 1000, 'what it paid out includes the fee');
+});
+
+test('flow of a wallet that never paid itself anything has no own change, and an unconfirmed transaction is not counted', () => {
+  const rows = Wallet.ledger(ME, [sample()[0], sample()[3], sample()[1]]).rows;                    // pending payment out, first payment in, second payment in
+  assert.deepEqual(Wallet.flow(rows), { received: 128000, sent: 0, own: 0, ownTxs: 0, fromOthers: 128000, toOthers: 0, count: 2 });
+  assert.deepEqual(Wallet.flow([]), { received: 0, sent: 0, own: 0, ownTxs: 0, fromOthers: 0, toOthers: 0, count: 0 });
+  assert.deepEqual(Wallet.flow(null), { received: 0, sent: 0, own: 0, ownTxs: 0, fromOthers: 0, toOthers: 0, count: 0 });
+});
+
+test('flow counts the own change once per transaction, as the smaller of what came back and what went in', () => {
+  const merge = tx(12, [[ME, 40000], [ME, 30000]], [[ME, 100000]], 1650011000);                      // takes 70000 and pays 100000 (the rest came from another wallet's input): own is 70000
+  const r = Wallet.rowOthers(Wallet.ledger(ME, [merge]).rows[0]);
+  assert.deepEqual(r, { from: 30000, to: 0, own: 70000 });
+  const two = Wallet.ledger(ME, [merge, sample()[2]]).rows;
+  const f = Wallet.flow(two);
+  assert.equal(f.ownTxs, 2); assert.equal(f.own, 70000 + 39000);
+});
+
 test('csv has a header and a line per transaction, quotes what needs it and defuses spreadsheet formulas', () => {
   const evil = tx(11, [['=HYPERLINK("http://x","y")', 1000]], [[ME, 900]], 1650010000);
   const text = Wallet.csv(Wallet.ledger(ME, [evil].concat(sample()), { balance: 67000 }).rows);

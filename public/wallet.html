@@ -63,11 +63,14 @@ window.addEventListener('error', function (e) {
       <div><dt>Balance</dt><dd id="sBalance"></dd></div>
       <div><dt>Total received</dt><dd id="sReceived"></dd></div>
       <div><dt>Total sent</dt><dd id="sSent"></dd></div>
+      <div id="sFromRow" hidden title="What other wallets paid this one: the total received without the change this wallet paid back to itself"><dt>From others</dt><dd id="sFrom"></dd></div>
+      <div id="sToRow" hidden title="What this wallet paid to other wallets, fees included: the total sent without the change it paid back to itself"><dt>To others</dt><dd id="sTo"></dd></div>
       <div><dt>Pending</dt><dd id="sPending"></dd></div>
       <div><dt>Transactions</dt><dd id="sCount"></dd></div>
       <div><dt>First seen</dt><dd id="sFirst"></dd></div>
       <div><dt>Last seen</dt><dd id="sLast"></dd></div>
     </dl>
+    <p class="hint" id="sFlowHint" hidden></p>
   </section>
 
   <section id="chartSec" hidden aria-label="Balance over time">
