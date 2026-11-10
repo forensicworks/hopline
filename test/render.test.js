@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { niceTicks, distToSegment, shape } = require('../public/js/hopline-render.js');
+const { niceTicks, distToSegment, laneShift, shape } = require('../public/js/hopline-render.js');
 
 const DAY = 86400;
 
@@ -55,4 +55,20 @@ test('shape: triangle-down is the triangle turned over, with the point below and
   assert.deepEqual(apexDown, [100, 62], 'the victim triangle points down');
   const mirrored = up.map(([a, b]) => [a, 2 * 50 - b]).sort(), turned = down.slice().sort();
   assert.deepEqual(turned, mirrored, 'the same triangle, reflected across the middle');
+});
+
+test('laneShift: coins that go opposite ways between two vertices keep to their own sides, a lane each, further apart for thick lines', () => {
+  const a = { x: 100, y: 100 }, b = { x: 300, y: 100 };
+  const there = laneShift(a, b, 2), back = laneShift(b, a, 2);
+  assert.equal(there.x, 0); assert.ok(there.y > 0, 'travelling right, it keeps to the lower side of the screen (the right-hand side of its way)');
+  assert.ok(Math.abs(back.x) < 1e-9 && back.y < 0, 'travelling left, it keeps to the upper side');
+  assert.ok(Math.abs(there.y + back.y) < 1e-9, 'the two lanes are mirror images, so they never meet');
+  assert.equal(Math.round(there.y), 4, 'a thin line: 4 pixels off the middle, 8 between the lanes');
+  assert.equal(Math.round(laneShift(a, b, 10).y), 7, 'a thicker line moves out half its width and a little more');
+  assert.equal(Math.round(laneShift(a, b, 30).y), 17, 'a very thick one (a big amount, zoomed in) still leaves a gap of 4 pixels between the lanes');
+  assert.equal(Math.round(laneShift(a, b, 80).y), 20, 'but never more than 20 pixels');
+  const diag = laneShift({ x: 0, y: 0 }, { x: 100, y: 100 }, 2);
+  assert.ok(Math.abs(diag.x * 1 + diag.y * 1) < 1e-9, 'the shift is at a right angle to the way the line goes');
+  assert.ok(Math.abs(Math.hypot(diag.x, diag.y) - 4) < 1e-9, 'whatever the way it goes');
+  assert.deepEqual(laneShift(a, a, 2), { x: -0, y: 0 }, 'two vertices on one spot: nothing to separate, and no division by zero');
 });

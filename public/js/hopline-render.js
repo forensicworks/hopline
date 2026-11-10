@@ -52,6 +52,23 @@
   }
 
   /** Distance from point p to segment ab (all {x,y}). */
+  /**
+   * Coins that go in opposite directions between the same two vertices (what a wallet put into a transaction, and the change that came back to it) would lie exactly on top of each other
+   * and read as one double-headed arrow. Each is drawn a little to its right as it travels, the way traffic keeps to one side, so there is a lane each way and each keeps its own head;
+   * the shift is half the line's width plus 2 (at least 4, at most 20 pixels), so two lines always leave a gap of 4 pixels between them. laneShift(a, b, width) is the shift of the edge that runs from screen point a to
+   * screen point b and is `width` pixels thick.
+   */
+  function laneShift(a, b, width) {
+    var dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1, lane = Math.min(20, Math.max(4, width / 2 + 2));
+    return { x: -dy / len * lane, y: dx / len * lane };
+  }
+  /** "source|target" of every edge in `ids`: an edge has a partner going the other way when "target|source" is there too. */
+  function edgeEnds(graph, ids) {
+    var ends = new Set();
+    ids.forEach(function (id) { var e = graph.edges.get(id); if (e) ends.add(e.source + '|' + e.target); });
+    return ends;
+  }
+
   function distToSegment(p, a, b) {
     var dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
     var t = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2)) : 0;
@@ -120,6 +137,12 @@
   Renderer.prototype.invalidate = function () { this.dirty = true; };
 
   /** d = { graph, visible, style, known, axis, range:{from,to}, showLabels, lockX(id) -> true for a vertex that may only be dragged up and down (Shift frees it) } */
+  /** The ends of the visible edges ("source|target"), kept until the visible set is another one: asked for on every frame and every pointer move. */
+  Renderer.prototype._ends = function (d) {
+    var c = this._endsCache;
+    if (!c || c.edges !== d.visible.edges || c.size !== d.visible.edges.size || c.graph !== d.graph) c = this._endsCache = { edges: d.visible.edges, size: d.visible.edges.size, graph: d.graph, set: edgeEnds(d.graph, d.visible.edges) };
+    return c.set;
+  };
   Renderer.prototype.setData = function (d) { this.data = d; if (!d || !d.axis) this.axisPointer = null; this.dirty = true; };
 
   Renderer.prototype.setSelection = function (ids) { this.selected = new Set(ids || []); this.dirty = true; };
@@ -243,10 +266,11 @@
       if (dist <= r && dist < bestD) { best = id; bestD = dist; }
     });
     if (best) return { node: best, edge: null };
-    var bestE = null; bestD = Infinity;
+    var bestE = null, ends = this._ends(d); bestD = Infinity;
     d.visible.edges.forEach(function (id) {
       var e = d.graph.edges.get(id), a = self.cur.get(e.source), b = self.cur.get(e.target); if (!a || !b) return;
-      var dist = distToSegment(pt, self._toScreen(a), self._toScreen(b)), tol = Math.max(4, d.style.edgeWidth(e) * s / 2 + 3);
+      var sa = self._toScreen(a), sb = self._toScreen(b), sh = ends.has(e.target + '|' + e.source) ? laneShift(sa, sb, d.style.edgeWidth(e) * s * 0.8) : { x: 0, y: 0 };
+      var dist = distToSegment(pt, { x: sa.x + sh.x, y: sa.y + sh.y }, { x: sb.x + sh.x, y: sb.y + sh.y }), tol = Math.max(4, d.style.edgeWidth(e) * s / 2 + 3);
       if (dist <= tol && dist < bestD) { bestE = id; bestD = dist; }
     });
     return { node: null, edge: bestE };
@@ -532,7 +556,7 @@
     var edgeTexts = [];
     // Coins that go between the same two vertices (several inputs of one transaction from one wallet) lie exactly on top of each other. With d.bundle they are drawn
     // as ONE arrow whose width and label are their total and number; the real edges are untouched (selecting, filters, analysis and exports still see every coin).
-    var bundles = new Map(), bundled = new Set();
+    var bundles = new Map(), bundled = new Set(), ends = this._ends(d);
     if (d.bundle) {
       var byEnds = new Map();
       d.visible.edges.forEach(function (bid) {
@@ -571,7 +595,8 @@
       ctx.setLineDash(e.kind === 'out' && allUnspent ? [6, 4] : []);
       var ra = st.nodeRadius(g.nodes.get(e.source)) * s, rb = st.nodeRadius(g.nodes.get(e.target)) * s + 2;
       var dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
-      var x1 = A.x + ux * ra * 0.6, y1 = A.y + uy * ra * 0.6, x2 = B.x - ux * rb, y2 = B.y - uy * rb;
+      var lane = ends.has(e.target + '|' + e.source) ? laneShift(A, B, w) : { x: 0, y: 0 };                 // a partner goes the other way: keep to our own side of the line
+      var x1 = A.x + ux * ra * 0.6 + lane.x, y1 = A.y + uy * ra * 0.6 + lane.y, x2 = B.x - ux * rb + lane.x, y2 = B.y - uy * rb + lane.y;
       if (onPath) {                                                         // the way the money went: a wide soft glow under the line
         ctx.save(); ctx.globalAlpha = 0.28; ctx.lineWidth = w + 8; ctx.strokeStyle = chain.color; ctx.setLineDash([]);
         ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.restore();
@@ -917,5 +942,5 @@
   /** PNG data URL of the current view (for "save image"). */
   Renderer.prototype.toDataUrl = function () { this.draw(); return this.canvas.toDataURL('image/png'); };
 
-  return { Renderer: Renderer, niceTicks: niceTicks, distToSegment: distToSegment, kindOf: kindOf, shape: shape };
+  return { Renderer: Renderer, niceTicks: niceTicks, distToSegment: distToSegment, laneShift: laneShift, kindOf: kindOf, shape: shape };
 }));
