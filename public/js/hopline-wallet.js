@@ -62,6 +62,29 @@
     return { rows: rows, assoc: list, totals: totals };
   }
 
+  /** What one transaction paid the wallet and took from it, leaving its own change out: in a transaction that spent from the wallet and paid part of it back, the part that came back (the smaller of the two) is the wallet's own. */
+  function rowOthers(r) {
+    var own = Math.min(r.recv, r.sent);
+    return { from: r.recv - own, to: r.sent - own, own: own };
+  }
+
+  /**
+   * What the wallet received from and sent to others, and what it only passed on to itself as change. The address's totals count that change both ways (it was sent, and it was received
+   * again), so a wallet that was emptied and refilled by its own transactions shows far more received than other wallets ever paid it. Confirmed transactions only, as the totals are.
+   * Returns { received, sent, own, ownTxs (in how many transactions), fromOthers, toOthers, count (the confirmed transactions it looked at) } in satoshis, over `rows` (the loaded ones):
+   * received - sent equals fromOthers - toOthers. To others includes the fees.
+   */
+  function flow(rows) {
+    var out = { received: 0, sent: 0, own: 0, ownTxs: 0, fromOthers: 0, toOthers: 0, count: 0 };
+    (rows || []).forEach(function (r) {
+      if (!r.confirmed) return;
+      var o = rowOthers(r);
+      out.count++; out.received += r.recv; out.sent += r.sent; out.fromOthers += o.from; out.toOthers += o.to;
+      if (o.own > 0) { out.own += o.own; out.ownTxs++; }
+    });
+    return out;
+  }
+
   /** The numbers of the summary from the address's own totals (the whole history, not just what is loaded). */
   function summary(stats) {
     var c = (stats && stats.chain_stats) || {}, m = (stats && stats.mempool_stats) || {};
@@ -412,5 +435,5 @@
     return out.join('\r\n') + '\r\n';
   }
 
-  return { ledger: ledger, summary: summary, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, niceTicks: niceTicks, timeTicks: timeTicks, windowSeries: windowSeries, presetWindow: presetWindow, barBuckets: barBuckets, barTotals: barTotals, pinchWindow: pinchWindow, panWindow: panWindow, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
+  return { ledger: ledger, summary: summary, flow: flow, rowOthers: rowOthers, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, niceTicks: niceTicks, timeTicks: timeTicks, windowSeries: windowSeries, presetWindow: presetWindow, barBuckets: barBuckets, barTotals: barTotals, pinchWindow: pinchWindow, panWindow: panWindow, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
 }));

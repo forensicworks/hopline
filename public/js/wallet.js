@@ -154,6 +154,7 @@
     var rv = fxTotal(s.received, 'recv'), sn = fxTotal(s.sent, 'sent');
     setAmount($('sReceived'), s.received, rv && rv.x, rv && rv.note);
     setAmount($('sSent'), s.sent, sn && sn.x, sn && sn.note);
+    drawFlow(W.flow(state.led.rows));
     var pend = $('sPending'); pend.textContent = '';
     if (!s.pendingCount) pend.textContent = 'none';
     else { pend.appendChild(document.createTextNode(plural(s.pendingCount, 'transaction'))); pend.appendChild(el('small', { text: (s.pendingNet >= 0 ? '+' : '−') + amt(Math.abs(s.pendingNet), null) + ' when confirmed' })); }
@@ -163,6 +164,23 @@
     $('sFirst').textContent = t.first == null ? '—' : S.fmtTime(t.first);
     $('sLast').textContent = t.last == null ? '—' : S.fmtTime(t.last);
     $('summary').hidden = false;
+  }
+
+  /**
+   * From others / To others: the totals above without the wallet's own change. Shown only when there is some (a wallet that never paid itself change has nothing to take out). The two are worked out
+   * from the transactions that are loaded, so until the whole history is here they say so: the totals above are the address's own, for all of it.
+   */
+  function drawFlow(fl) {
+    var show = fl.own > 0, complete = historyComplete();
+    $('sFromRow').hidden = $('sToRow').hidden = $('sFlowHint').hidden = !show;
+    if (!show) return;
+    var fo = fxOthers(fl.fromOthers, 'from'), to = fxOthers(fl.toOthers, 'to');
+    setAmount($('sFrom'), fl.fromOthers, fo && fo.x, fo && fo.note);
+    setAmount($('sTo'), fl.toOthers, to && to.x, to && to.note);
+    if (!complete) [$('sFrom'), $('sTo')].forEach(function (b) { b.appendChild(el('small', { text: 'in the ' + plural(fl.count, 'loaded transaction') })); });
+    $('sFlowHint').textContent = btc(fl.own) + ' of what this wallet received and of what it sent is its own change: it was spent in ' + plural(fl.ownTxs, 'transaction')
+      + ' that paid it back to the same wallet, so the totals count it both ways. From others and To others leave it out: what other wallets paid it, and what it paid out, fees included.'
+      + (complete ? '' : ' They are worked out from the ' + plural(fl.count, 'confirmed transaction') + ' loaded so far: Load all for the whole history.');
   }
 
   function drawAssoc() {
@@ -305,6 +323,16 @@
       var n = fxNow(sats); if (!n) return null;
       return { x: { text: n.text, approx: n.approx, title: n.title + '. Load the whole history to price each transaction at its own time.' }, note: 'at today\'s price' };
     }
+    var y = fx(sats, null); return y ? { x: y, note: f.basis === 'today' ? 'at today\'s price' : '' } : null;
+  }
+  /**
+   * The value of what others paid the wallet (which = 'from') or what it paid them ('to'): a fixed price converts the figure as it is, "each transaction's own time" adds up the loaded transactions one by one
+   * (the figure is made of those same transactions, so that is exact even before the whole history is here). Returns { x, note } or null.
+   */
+  function fxOthers(sats, which) {
+    if (!fiatOn()) return null;
+    var f = state.fiat;
+    if (f.basis === 'each') { var s = fxSum(function (add) { state.led.rows.forEach(function (r) { if (r.confirmed) add(W.rowOthers(r)[which], r.time); }); }); return s ? { x: s, note: '' } : null; }
     var y = fx(sats, null); return y ? { x: y, note: f.basis === 'today' ? 'at today\'s price' : '' } : null;
   }
   /** The same as a small element that says, on hover, which price it used. */
