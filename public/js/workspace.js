@@ -5490,6 +5490,19 @@
     });
   }
 
+  /**
+   * What the built-in list and the label packs that are switched on say about a wallet, with where it came from and the date of its data, for the nodes CSV and the GraphML file: the
+   * reader of the file can tell a public list's claim from the analyst's own label, tag and note without this browser session. Your own labels are among the claims; the writers leave them out.
+   */
+  function exportSources() {
+    var meta = {}, ver = '';
+    PK.active(state.shipped, state.packs).concat(state.packs.filter(function (p) { return p.enabled; })).forEach(function (p) {
+      meta[p.name] = { source: p.source || '', licence: p.licence || '', attribution: p.attribution || '', asOf: p.asOf || '', sourceUrl: p.sourceUrl || '' };
+    });
+    try { var sc = document.querySelector('script[src*="workspace.js"]'), m = sc && /[?&]v=([\w.-]+)/.exec(sc.getAttribute('src')); if (m) ver = ' ' + m[1]; } catch (e) { /* no version in the address: a copy run from a folder */ }
+    return { claims: function (a) { return LB.claimsOf(KNOWN[a]); }, packs: meta, meta: { generated: Date.now(), generator: 'Hopline workspace' + ver, dataSource: sourceBase() } };
+  }
+
   /** How the fiat values in a report were worked out, in words. */
   function fiatNoteText() { return PR.note(state.fiat, S.fmtTimeFull); }
 
@@ -5584,9 +5597,9 @@
     var name = 'hopline-' + stamp();
     if (fiatOn() && !fiatLoaded() && (kind === 'csv-edges' || kind === 'graphml')) toast('Prices are not loaded, so the fiat columns are empty.', true);
     if (kind === 'json') download(name + '.json', IO.toJson(g, { only: only, view: viewState(), source: sourceBase() }), 'application/json');
-    else if (kind === 'csv-nodes') download(name + '-nodes.csv', '﻿' + IO.toCsv(g, 'nodes', { only: only, analysis: exportAnalysis() }), 'text/csv;charset=utf-8');
+    else if (kind === 'csv-nodes') download(name + '-nodes.csv', '﻿' + IO.toCsv(g, 'nodes', { only: only, analysis: exportAnalysis(), sources: exportSources() }), 'text/csv;charset=utf-8');
     else if (kind === 'csv-edges') download(name + '-edges.csv', '﻿' + IO.toCsv(g, 'edges', { only: only, fiat: exportFiat(), analysis: exportAnalysis() }), 'text/csv;charset=utf-8');
-    else if (kind === 'graphml') download(name + '.graphml', IO.toGraphMl(g, { only: only, fiat: exportFiat(), analysis: exportAnalysis() }), 'application/xml');
+    else if (kind === 'graphml') download(name + '.graphml', IO.toGraphMl(g, { only: only, fiat: exportFiat(), analysis: exportAnalysis(), sources: exportSources() }), 'application/xml');
     else if (kind === 'png') { var a = el('a', { href: renderer.toDataUrl(), download: name + '.png' }); document.body.appendChild(a); a.click(); a.remove(); }
     $('exportMenu').open = false;
     log('Exported ' + kind + (only ? ' (visible part)' : ''));
