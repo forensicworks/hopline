@@ -16,7 +16,7 @@ The results are written by the runners: [benchmark-results.md](benchmark-results
 | 1b | The synthetic cases again on a new seed (20261109), the rules unchanged, reported once | done 2026-11-09: [A fresh seed](#a-fresh-seed-2026-11-09); the full tables are in [benchmark-results-seed-20261109.md](benchmark-results-seed-20261109.md) |
 | 2 | Real wallet software on signet or testnet4, truth from the wallets' own change chain | done for three wallets: Sparrow 2.5.5 and Electrum 4.8.3 on testnet4 (286 transactions), and Bitcoin Core 31.1 on signet with a change type different from its receive type (90 transactions, 2026-11-09: [A wallet that changes to another type](#a-wallet-that-changes-to-another-type-bitcoin-core-on-signet-2026-11-09)), in [benchmark-wallets-results.md](benchmark-wallets-results.md). BlueWallet and a hardware wallet are not measured; see [benchmark-wallets.md](benchmark-wallets.md) for what a person needs to add one |
 | 3 | Documented public cases (court and FBI documents) as case studies | one case done (Colonial Pipeline and DarkSide); the court documents themselves could not be read, see below |
-| 4 | Recalibrating on what the results show, one change at a time, each judged on a sample it was not made on, and a page for readers | two changes made and each tested on a holdout (below), and the one-sign change guess measured; the confidence tiers are not changed; the wiki has a first Accuracy page |
+| 4 | Recalibrating on what the results show, one change at a time, each judged on a sample it was not made on, and a page for readers | two changes made and each tested on a holdout (below), and the one-sign change guess measured and decided (2026-11-10): [nothing is changed](#the-one-sign-question-decided-nothing-changed-2026-11-10); the confidence tiers are not changed; the wiki has a first Accuracy page |
 
 ## What is measured
 
@@ -144,6 +144,33 @@ The fresh seed left one question open: a medium guess that rests on one sign is 
 
 **What it does not say.** One wallet in one configuration, made to hit the weak spot, so it bounds how bad the sign can be and says nothing about how many wallets change to another type. A tiny scale at 1 sat/vB (Core chooses coins differently at larger amounts), planned payments that are small next to the coin they come from, which is why always taking the largest output is right 89.7% of the time here and the change guess is not better than that: compare the signs, not the total. Signet, three wrong guesses.
 
+## The one-sign question: decided, nothing changed (2026-11-10)
+
+The roadmap asked whether a change guess that rests on one sign should count as *low* instead of *medium*. Everything measured about it:
+
+| Data | A *medium* guess on one sign was right |
+|---|---|
+| Synthetic cases, first seed (2026-10-26) | 89.5% (518 of 579), against 99.5% (385 of 387) on two signs |
+| Synthetic cases, fresh seed (2026-11-09) | 89.2% (412 of 462), below the *low* tier as a whole (94.8%) |
+| Sparrow and Electrum on testnet4 | 24 of 24. Both wallets change to the type they receive on, so the weak sign could not fail |
+| Bitcoin Core on signet, receives p2sh-segwit and changes to bech32 | 35 of 38 on the type sign alone; the 3 wrong ones are p2sh coins paid to a p2sh address |
+
+**The decision: the rule is not changed.** A guess that rests on one sign stays *medium*. It is a decision for now, with the evidence above, not a finding that the cap is wrong. The reasons:
+
+- **The failure is understood and narrow.** The sign "the only output of the inputs' address type" names the payment, not the change, when the wallet pays change to an address of another type than the coins it spends and the recipient has the type of the coins. The signet case is that case, built on purpose (p2sh coins, a p2sh recipient, change to bech32), and in it the sign was wrong 3 times of 3. Wherever the recipient's type differed from the coins' type it was right 35 times of 35.
+- **How often real wallets do that is not known.** The signet wallet shows how bad the sign can be; it says nothing about how many wallets change to another type, and that is what decides whether a cap would help more than it costs. The synthetic gap (a one-sign *medium* guess right 89% of the time, the *low* tier 91% on the first seed and 95% on the fresh one) comes from a generator that chooses the address types, and the fresh seed repeated it with the same generator.
+- **A cap would change a label, not what the page does.** *Follow the change* in Auto-expand follows any change guess, a *low* one as well, so one-sign guesses called *low* would still be followed. The page already says it on every guess that rests on one sign: *"Only one sign points to this output. Treat this as a lead to check, not as the change: follow both outputs before relying on it."* What a cap would change is the word *medium*, the per-tier numbers (they would read cleaner) and which guesses the hover card shows (medium and high only).
+- **There is no sample left to judge a change on.** A rule is changed one step at a time and judged on data it was not made on. The held-out sample (seed 20261110, 5,035 transactions) is unopened and is kept for the change itself; today there is no change to judge.
+
+**How to read a *medium* guess.** Look at how many reasons it has in the details of the transaction. Two or more agreeing signs were right 99.5% of the time on the synthetic cases (first seed). One sign, above all "same address type" alone, is a lead: it can point at the payment when the wallet has just spent coins of the type it receives on and paid a recipient of that type. Follow both outputs before relying on it. About two thirds (66%) of the guesses on the first sample of the real chain rest on one sign ([benchmark-base-rates.md](benchmark-base-rates.md)), so this is the usual case, not the exception.
+
+**What would reopen it.**
+- A real-wallet case, from other software or other settings (a hardware wallet, BlueWallet, Core with other options), in which one-sign *medium* guesses are right less often than the *low* ones on the same case.
+- A measure of how often real wallets change to another type than the coins they spend.
+- The thing that would act on the weakness is probably not the label but Auto-expand: stopping *follow the change* at a guess that rests on one sign. It is not done, and it would stop Auto-expand at about two thirds of the real guesses.
+
+Either way the change is made once and judged on the unopened holdout (how many guesses change tier) and on a labelled seed that was not used before.
+
 ## What real traffic showed (2026-10-26)
 
 4,674 transactions from 8 blocks between 2013 and 2026 ([benchmark-base-rates.md](benchmark-base-rates.md)). Nobody knows who owns what in them, so none of this says whether a guess is right.
@@ -221,7 +248,7 @@ The roadmap asks whether a change guess that rests on one sign should count as l
 * If one-sign medium guesses were called low, the tiers would read: high 99.9% (903 guesses), medium 99.5% (387), low 90.0% (971). Medium would mean two agreeing signs.
 * On real traffic, 66% of the change guesses rest on one sign, so on real data most "medium" guesses would be called low.
 
-This is a measurement; the rule is **not changed**. The synthetic wallets give "same address type" a good record because most of them change to the type they receive on, and real wallets may not; the real-wallet data ([benchmark-wallets.md](benchmark-wallets.md)) is the test. The first real-wallet run (2026-11-01, Sparrow and Electrum on testnet4, [benchmark-wallets-results.md](benchmark-wallets-results.md)) found all 24 medium guesses on one sign right, every one of them on "same address type" alone. That does not settle it: both wallets change to the type they receive on, which is the case where that sign cannot fail, so this run could not show the weak case. It stays open until a wallet that changes to another type is measured.
+This is a measurement; the rule is **not changed**. The synthetic wallets give "same address type" a good record because most of them change to the type they receive on, and real wallets may not; the real-wallet data ([benchmark-wallets.md](benchmark-wallets.md)) is the test. The first real-wallet run (2026-11-01, Sparrow and Electrum on testnet4, [benchmark-wallets-results.md](benchmark-wallets-results.md)) found all 24 medium guesses on one sign right, every one of them on "same address type" alone. That does not settle it: both wallets change to the type they receive on, which is the case where that sign cannot fail, so this run could not show the weak case. It stays open until a wallet that changes to another type is measured. (It was measured on 2026-11-09 and decided on 2026-11-10: [The one-sign question: decided, nothing changed](#the-one-sign-question-decided-nothing-changed-2026-11-10).)
 
 ## Rules the numbers follow
 
