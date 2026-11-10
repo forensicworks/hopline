@@ -358,3 +358,49 @@ test('presetWindow: the last month, six months or year up to the end, by UTC cal
   assert.equal(Wallet.presetWindow('1y', sec(2022, 1, 15)).from, sec(2021, 1, 15), 'over a New Year');
   assert.equal(Wallet.presetWindow('all', 5), null); assert.equal(Wallet.presetWindow('custom', 5), null); assert.equal(Wallet.presetWindow('1m', null), null);
 });
+
+// ---- in and out per period, and fingers -----------------------------------------------------------------------------------
+test('barBuckets: the finest period that gives few enough bars, in UTC, with weeks that begin on a Monday', () => {
+  const day = Wallet.barBuckets(sec(2022, 3, 1, 12), sec(2022, 7, 3, 12), 140);
+  assert.equal(day.unit, 'day'); assert.equal(day.buckets.length, 125);
+  assert.deepEqual(day.buckets[0], { from: sec(2022, 3, 1), to: sec(2022, 3, 2) }, 'the first period begins before the window does');
+  const week = Wallet.barBuckets(sec(2022, 3, 1, 12), sec(2022, 7, 3, 12), 20);
+  assert.equal(week.unit, 'week'); assert.equal(week.buckets[0].from, sec(2022, 2, 28)); assert.equal(new Date(week.buckets[0].from * 1000).getUTCDay(), 1);
+  week.buckets.forEach((k, i) => { assert.equal(k.to - k.from, 7 * 86400); if (i) assert.equal(k.from, week.buckets[i - 1].to, 'no gap, no overlap'); });
+  assert.equal(Wallet.barBuckets(sec(2022, 3, 1, 9), sec(2022, 3, 1, 15), 20).unit, 'hour');
+  const month = Wallet.barBuckets(sec(2021, 1, 15), sec(2022, 3, 10), 20);
+  assert.equal(month.unit, 'month'); assert.equal(month.buckets.length, 15); assert.deepEqual(month.buckets[1], { from: sec(2021, 2, 1), to: sec(2021, 3, 1) });
+  const year = Wallet.barBuckets(sec(2015, 3, 1), sec(2024, 7, 3), 6);
+  assert.equal(year.unit, 'year'); assert.equal(year.buckets.length, 10, 'every year is there, though there are more than asked for: nothing is cut off');
+});
+
+test('barTotals: in and out by what each transaction did to the balance, so in minus out is how the balance changed', () => {
+  const pts = [{ time: sec(2022, 3, 1, 12), net: 100000 }, { time: sec(2022, 3, 1, 13), net: 50000 }, { time: sec(2022, 3, 2, 12), net: -30150 }, { time: sec(2022, 3, 2, 13), net: 0 }, { time: sec(2022, 3, 4, 1), net: 5 }];
+  const plan = Wallet.barBuckets(sec(2022, 3, 1, 12), sec(2022, 3, 4, 12), 50);
+  assert.equal(plan.unit, 'day');
+  const t = Wallet.barTotals(pts, plan.buckets);
+  assert.deepEqual(t.map((k) => [k.inn, k.out, k.ins, k.outs, k.count]), [[150000, 0, 2, 0, 2], [0, 30150, 0, 1, 2], [0, 0, 0, 0, 0], [5, 0, 1, 0, 1]]);
+  assert.equal(t.reduce((a, k) => a + k.inn - k.out, 0), 100000 + 50000 - 30150 + 5);
+  assert.equal(Wallet.barTotals(pts, plan.buckets, (p) => p.net / 1000)[0].inn, 150, 'in a currency: the amount given for each');
+  assert.deepEqual(Wallet.barTotals([{ time: sec(2020, 1, 1), net: 9 }, { time: sec(2023, 1, 1), net: 9 }], plan.buckets).map((k) => k.count), [0, 0, 0, 0], 'outside the periods: left out');
+});
+
+test('pinchWindow: the times under the fingers stay under them, inside the bounds and not too short', () => {
+  const bounds = { from: 0, to: 5000 };
+  assert.deepEqual(Wallet.pinchWindow(1000, 2000, 0, 400, 400, bounds, 60), { from: 1000, to: 2000 }, 'fingers at the two edges of the plot: that is the period');
+  assert.deepEqual(Wallet.pinchWindow(1000, 2000, 100, 300, 400, bounds, 60), { from: 500, to: 2500 }, 'closer together: more shows');
+  assert.deepEqual(Wallet.pinchWindow(100, 200, 200, 300, 400, bounds, 60), { from: 0, to: 400 }, 'pushed against the start of the bounds');
+  assert.deepEqual(Wallet.pinchWindow(4900, 5000, 100, 200, 400, bounds, 60), { from: 4600, to: 5000 }, 'and against the end');
+  assert.deepEqual(Wallet.pinchWindow(0, 100, 0, 2, 400, bounds, 60), { from: 0, to: 5000 }, 'never longer than the bounds');
+  assert.deepEqual(Wallet.pinchWindow(1000, 1010, 0, 400, 400, bounds, 60), { from: 1000, to: 1060 }, 'never shorter than asked');
+  assert.equal(Wallet.pinchWindow(1000, 2000, 300, 100, 400, bounds, 60), null, 'fingers that crossed');
+  assert.equal(Wallet.pinchWindow(1000, 2000, 100, 100.5, 400, bounds, 60), null, 'fingers that came together');
+});
+
+test('panWindow: the period slides the other way from the finger and stays inside the bounds', () => {
+  const bounds = { from: 0, to: 5000 };
+  assert.deepEqual(Wallet.panWindow(1000, 2000, 50, 400, bounds), { from: 875, to: 1875 }, 'the finger moved right: earlier times come in');
+  assert.deepEqual(Wallet.panWindow(1000, 2000, -50, 400, bounds), { from: 1125, to: 2125 });
+  assert.deepEqual(Wallet.panWindow(0, 1000, 100, 400, bounds), { from: 0, to: 1000 }, 'cannot go before the first');
+  assert.deepEqual(Wallet.panWindow(4000, 5000, -100, 400, bounds), { from: 4000, to: 5000 }, 'or past the last');
+});

@@ -83,6 +83,8 @@ window.addEventListener('error', function (e) {
       <button type="button" id="chartReset" hidden title="Show everything that is loaded again">Reset zoom</button>
       <span class="spacer"></span>
       <label title="Show the period of the From and To dates under Transactions, instead of the buttons or a dragged selection"><input type="checkbox" id="chartFollow"> Follow the From and To dates</label>
+      <label title="Under the chart, show what came in and what went out in each day, week or month"><input type="checkbox" id="chartBars"> In and out</label>
+      <label title="Load the whole history as soon as the wallet is open, when it has up to 250 transactions (and within the limit beside Load all). Bigger wallets wait for Load all."><input type="checkbox" id="chartAuto"> Load the whole history by itself</label>
     </div>
     <p class="chartbanner" id="chartBanner" role="status" hidden><span id="chartBannerText"></span> <button type="button" id="chartLoadAll" title="Load the rest of the history, a page at a time, up to the limit under Transactions">Load all</button><button type="button" id="chartCancel" hidden>Cancel</button></p>
     <div class="chartwrap">
@@ -90,6 +92,7 @@ window.addEventListener('error', function (e) {
       <span id="chartLine" class="chartline" hidden></span>
       <span id="chartDot" class="chartdot" hidden></span>
       <div id="chartSel" class="chartsel" hidden></div>
+      <div id="chartBand" class="chartband" hidden></div>
       <div id="chartTip" class="charttip" hidden></div>
     </div>
     <p class="hint" id="chartText"></p>
