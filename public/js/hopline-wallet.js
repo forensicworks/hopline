@@ -140,6 +140,113 @@
     return { points: pts, start: pts.length ? { time: pts[0].time, balance: pts[0].balance - pts[0].net } : null };
   }
 
+  // ---- the balance chart: round axes and a period ----------------------------------------------------------------------
+  var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  function utcParts(sec) { var d = new Date(sec * 1000); return { y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate(), h: d.getUTCHours(), i: d.getUTCMinutes() }; }
+
+  /** The smallest 1, 2 or 5 times a power of ten that is at least `raw`. */
+  function niceStep(raw) {
+    if (!(raw > 0) || !isFinite(raw)) return 1;
+    var pow = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10 + 1e-12)), f = raw / pow;
+    return (f <= 1.0000001 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * pow;
+  }
+
+  /**
+   * Round values for the side axis of a chart: about `n` of them, from a multiple of the step at or below `lo` to one at or above `hi`.
+   * Returns { ticks, lo, hi, step } where lo and hi are the first and last tick (so the axis can be stretched to them). `opts.integer` keeps the step a whole number (satoshis).
+   */
+  function niceTicks(lo, hi, n, opts) {
+    n = Math.max(2, Math.round(n) || 5);
+    if (!(hi > lo)) hi = lo + 1;
+    var step = niceStep((hi - lo) / (n - 1));
+    if (opts && opts.integer && step < 1) step = 1;
+    var first = Math.floor(lo / step + 1e-9), last = Math.ceil(hi / step - 1e-9), ticks = [];
+    for (var k = first; k <= last; k++) ticks.push(Number((k * step).toPrecision(12)));
+    return { ticks: ticks, lo: ticks[0], hi: ticks[ticks.length - 1], step: step };
+  }
+
+  // From the finest step to the coarsest: the first one that gives no more ticks than the chart has room for is used.
+  var TICK_PLANS = [['minute', 5], ['minute', 15], ['minute', 30], ['hour', 1], ['hour', 3], ['hour', 6], ['hour', 12], ['day', 1], ['day', 2], ['day', 5], ['day', 10], ['day', 15],
+                    ['month', 1], ['month', 2], ['month', 3], ['month', 6], ['year', 1], ['year', 2], ['year', 5], ['year', 10], ['year', 20], ['year', 50], ['year', 100]];
+  function ticksOf(unit, step, t0, t1) {
+    var out = [], t, guard = 0;
+    if (unit === 'minute' || unit === 'hour') {
+      var gap = step * (unit === 'minute' ? 60 : 3600);
+      for (t = Math.ceil(t0 / gap) * gap; t <= t1 && guard < 500; t += gap, guard++) out.push(t);
+    } else if (unit === 'day') {
+      var p0 = utcParts(t0), day = Date.UTC(p0.y, p0.m, p0.d) / 1000;
+      for (; day <= t1 && guard < 500; day += 86400, guard++) {
+        var dt = new Date(day * 1000), dom = dt.getUTCDate(), left = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate() - dom + 1;   // days left in the month, this one included
+        if (day >= t0 && (dom - 1) % step === 0 && (step === 1 || left > step / 2)) out.push(day);                                                   // not one that crowds the 1st of the next month
+      }
+    } else if (unit === 'month') {
+      var q = utcParts(t0), y = q.y, m = q.m;
+      for (; guard < 2000; m++, guard++) {
+        if (m > 11) { m = 0; y++; }
+        t = Date.UTC(y, m, 1) / 1000; if (t > t1) break;
+        if (t >= t0 && m % step === 0) out.push(t);
+      }
+    } else {
+      for (var yr = utcParts(t0).y; guard < 500; yr++, guard++) {
+        t = Date.UTC(yr, 0, 1) / 1000; if (t > t1) break;
+        if (t >= t0 && yr % step === 0) out.push(t);
+      }
+    }
+    return out;
+  }
+  function tickLabel(unit, t, first, withYear) {
+    var p = utcParts(t);
+    if (unit === 'minute' || unit === 'hour') return p.h === 0 && p.i === 0 ? p.d + ' ' + MONTH_NAMES[p.m] : pad2(p.h) + ':' + pad2(p.i);
+    if (unit === 'day') return p.d + ' ' + MONTH_NAMES[p.m] + (withYear ? ' ' + p.y : '');
+    if (unit === 'month') return MONTH_NAMES[p.m] + (p.m === 0 || first ? ' ' + p.y : '');
+    return String(p.y);
+  }
+  /**
+   * Ticks for a time axis between t0 and t1 (unix seconds), on round UTC moments (whole hours, days of the month, months, years), at most `max` of them:
+   * [{ time, label }], oldest first. Where no step fits (a very short span, or one moment) the two ends are given with their date.
+   */
+  function timeTicks(t0, t1, max) {
+    max = Math.max(2, Math.round(max) || 6);
+    var span = t1 - t0, chosen = null;
+    if (span > 0) {
+      for (var i = 0; i < TICK_PLANS.length && !chosen; i++) {
+        var unit = TICK_PLANS[i][0], step = TICK_PLANS[i][1];
+        if (unit === 'day' && span > 400 * 86400) continue;
+        var times = ticksOf(unit, step, t0, t1);
+        if (times.length <= max) chosen = { unit: unit, times: times };
+      }
+    }
+    if (!chosen || chosen.times.length < 2) {
+      var short = span < 2 * 86400;
+      var end = function (t) { var p = utcParts(t); return p.y + '-' + pad2(p.m + 1) + '-' + pad2(p.d) + (short ? ' ' + pad2(p.h) + ':' + pad2(p.i) : ''); };
+      return span > 0 ? [{ time: t0, label: end(t0) }, { time: t1, label: end(t1) }] : [{ time: t0, label: end(t0) }];
+    }
+    var withYear = utcParts(chosen.times[0]).y !== utcParts(chosen.times[chosen.times.length - 1]).y;
+    return chosen.times.map(function (t, i) { return { time: t, label: tickLabel(chosen.unit, t, i === 0, withYear) }; });
+  }
+
+  /**
+   * The balance series cut to the period from..to (unix seconds): { start: { time, balance, at }, points }. `start` is the balance as the period opens
+   * (that of the last transaction before it, or where the whole series started) and `at` is the moment that balance was struck, which is the moment a price is wanted for.
+   */
+  function windowSeries(series, from, to) {
+    var before = null, inside = [];
+    series.points.forEach(function (p) { if (p.time < from) before = p; else if (p.time <= to) inside.push(p); });
+    return { start: { time: from, balance: before ? before.balance : series.start.balance, at: before ? before.time : series.start.time }, points: inside };
+  }
+
+  var PRESET_MONTHS = { '1m': 1, '6m': 6, '1y': 12 };
+  /** The last month, six months or year up to `end` (unix seconds, UTC calendar months): { from, to }, or null for any other key. */
+  function presetWindow(key, end) {
+    var months = PRESET_MONTHS[key];
+    if (!months || end == null) return null;
+    var d = new Date(end * 1000), day = d.getUTCDate();
+    d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - months);
+    d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()));
+    return { from: Math.floor(d.getTime() / 1000), to: end };
+  }
+
   // ---- the whole wallet: addresses spent together ------------------------------------------------------------------
   /**
    * Addresses that were spent together with this one in the transactions given (the common-input rule: inputs of one transaction usually share an owner),
@@ -233,5 +340,5 @@
     return out.join('\r\n') + '\r\n';
   }
 
-  return { ledger: ledger, summary: summary, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
+  return { ledger: ledger, summary: summary, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, niceTicks: niceTicks, timeTicks: timeTicks, windowSeries: windowSeries, presetWindow: presetWindow, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
 }));
