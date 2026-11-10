@@ -5,8 +5,8 @@
  * is proof of who controls what. In particular:
  *   - change guess       which output of a transaction most likely returns to the sender (never "certain")
  *   - patterns           consolidation, batch payment, CoinJoin-like, peel chain (a chain of single-coin payments), round amount,
- *                        and a swap memo (an OP_RETURN that asks THORChain to swap the payment into another chain's asset, or carries the request ID of a
- *                        cross-chain service such as Relay)
+ *                        and a swap or bridge memo (an OP_RETURN that asks THORChain to swap the payment into another chain's asset, that THORChain writes on a payout or a
+ *                        refund it makes, that carries the request ID of a cross-chain service such as Relay, or that is a Rootstock peg-in)
  *   - clusters           addresses spent together in one transaction (the "common-input" rule), leaving out
  *                        transactions that look like CoinJoins and any you excluded by hand
  *   - successors         which way an automatic expansion should go from a transaction, and why it stops
@@ -182,25 +182,59 @@
     return /^0x[0-9a-fA-F]{64}$/.test(s) ? { requestId: s.toLowerCase() } : null;
   }
   /**
-   * The swap memo or the request ID in one of a transaction's OP_RETURN outputs, with the output it is in, or null: { form: 'thorchain', ...swapMemo } or { form: 'request', requestId },
-   * and { vout, id } (the output and its vertex).
+   * The memo THORChain writes on a payment it MAKES: "OUT:" and the hash of the inbound transaction that started the swap, or "REFUND:" and the hash of the payment it gives back
+   * (THORChain's memo documentation lists both as the memos of outbound transactions; an outbound can also be sent without one, so this is found only where it is written).
+   * Returns { fn: 'OUT' | 'REFUND', hash (64 hex digits, lower case) } or null. It is what the sender wrote: anyone can write the same text.
+   */
+  function outMemo(text) {
+    if (typeof text !== 'string') return null;
+    var m = /^(OUT|REFUND):([0-9a-fA-F]{64})$/i.exec(text.trim());
+    return m ? { fn: m[1].toUpperCase(), hash: m[2].toLowerCase() } : null;
+  }
+  /**
+   * A Rootstock peg-in, as RSKIP-170 lays out its OP_RETURN payload (the data, as hex): "RSKT" (52534b54), the protocol version 01, the 20 bytes of the destination address on Rootstock,
+   * and optionally a Bitcoin refund address (a type byte, 01 for P2PKH or 02 for P2SH, then its 20-byte hash). Nothing else is taken for one: another length, another version or another
+   * type byte is not. Returns { version, dest ('0x' and 40 hex digits), refund: { type, hash } | null } or null. The payment to the bridge is another output of the transaction.
+   */
+  function rootstockMemo(hex) {
+    if (typeof hex !== 'string') return null;
+    var h = hex.toLowerCase();
+    if ((h.length !== 50 && h.length !== 92) || h.indexOf('52534b5401') !== 0 || !/^[0-9a-f]+$/.test(h)) return null;
+    var m = { version: 1, dest: '0x' + h.substr(10, 40), refund: null };
+    if (h.length === 92) {
+      var t = h.substr(50, 2);
+      if (t !== '01' && t !== '02') return null;
+      m.refund = { type: t === '01' ? 'P2PKH' : 'P2SH', hash: h.substr(52, 40) };
+    }
+    return m;
+  }
+  /** A swap that is asked for or a payment sent into a bridge (the money goes in) as opposed to a payout or a refund (it comes out): only these are hand-offs of a trail that goes forward. */
+  function swapGoesIn(m) { return !!m && (m.form === 'thorchain' || m.form === 'request' || m.form === 'rootstock'); }
+  /**
+   * The swap or bridge memo in one of a transaction's OP_RETURN outputs, with the output it is in, or null. form: 'thorchain' (a swap asked for: ...swapMemo), 'request' (a cross-chain request ID),
+   * 'payout' or 'refund' (what THORChain writes on a payment it makes: { hash }) or 'rootstock' (a peg-in: ...rootstockMemo); and { vout, id } (the output and its vertex).
    */
   function swapOf(v) {
     var hit = null;
     if (!v || v.coinbase) return null;
     v.outputs.forEach(function (o) {
       if (hit || o.type !== 'data') return;
-      var n = v.graph.nodes.get(o.id), m = n ? swapMemo(n.dataText) : null;
+      var n = v.graph.nodes.get(o.id), m = n ? swapMemo(n.dataText) : null, out;
       if (m) m.form = 'thorchain';
       else if (n && (m = requestIdMemo(n.dataText))) m.form = 'request';
+      else if (n && (out = outMemo(n.dataText))) { m = { hash: out.hash, fn: out.fn }; m.form = out.fn === 'OUT' ? 'payout' : 'refund'; }
+      else if (n && (m = rootstockMemo(n.dataHex))) m.form = 'rootstock';
       if (m) { m.vout = o.vout; m.id = o.id; hit = m; }
     });
     return hit;
   }
   function shortId(x) { return x.slice(0, 10) + '…' + x.slice(-6); }
-  /** What a memo says, in words: for a swap, where the payment is to be swapped to, how, and the fee asked for; for a request ID, the ID. */
+  /** What a memo says, in words: for a swap, where the payment is to be swapped to, how, and the fee asked for; for a request ID, the ID; for a payout or a refund, the hash it names; for a peg-in, where it goes. */
   function swapText(m) {
     if (m.form === 'request') return 'request ID ' + m.requestId;
+    if (m.form === 'payout') return 'payout of the swap that began with transaction ' + m.hash;
+    if (m.form === 'refund') return 'refund of the payment in transaction ' + m.hash;
+    if (m.form === 'rootstock') return 'peg-in to Rootstock, to ' + m.dest + (m.refund ? ', refund to a Bitcoin ' + m.refund.type + ' address with hash ' + m.refund.hash : ', refund to the sender');
     var bits = ['into ' + m.asset];
     if (m.dest) bits.push('paid out to ' + m.dest);
     if (m.limit) bits.push('limit ' + m.limit);
@@ -209,11 +243,32 @@
     return bits.join(', ');
   }
   /** The memo as a line of a list: "Swap memo: into ETH.WBTC, paid out to ..." or "Cross-chain request: ID 0xabababab...ababab". */
-  function swapLabel(m) { return m.form === 'request' ? 'Cross-chain request: ID ' + shortId(m.requestId) : 'Swap memo: ' + swapText(m); }
+  function swapLabel(m) {
+    if (m.form === 'request') return 'Cross-chain request: ID ' + shortId(m.requestId);
+    if (m.form === 'payout') return 'Swap payout: inbound ' + shortId(m.hash);
+    if (m.form === 'refund') return 'Swap refund: payment ' + shortId(m.hash);
+    if (m.form === 'rootstock') return 'Rootstock peg-in: to ' + shortId(m.dest);
+    return 'Swap memo: ' + swapText(m);
+  }
   /** A transaction whose OP_RETURN asks for a swap or carries a cross-chain request ID: { kind: 'swap', ... } or null. A claim by the sender, as the title says. */
   function swapFlag(v) {
     var m = swapOf(v);
     if (!m) return null;
+    if (m.form === 'payout') {
+      return { kind: 'swap', short: 'SWAP OUT', color: COLORS.swap, memo: m,
+               title: 'THORChain\'s memo on a payment it makes: OUT: and the hash of the inbound transaction, ' + m.hash + '. If THORChain wrote it, this pays out a swap that began with that transaction, usually on another chain (the memo does not say which). '
+                      + 'Anyone can write the same text, so check who owns the wallet that sent this. The hash is a lead to follow on the other side, not a finding here; an outbound can also be sent with no memo at all.' };
+    }
+    if (m.form === 'refund') {
+      return { kind: 'swap', short: 'SWAP REFUND', color: COLORS.swap, memo: m,
+               title: 'THORChain\'s memo on a payment it makes: REFUND: and the hash of the payment it gives back, ' + m.hash + '. If THORChain wrote it, the swap that payment asked for was not carried out and this returns the money, usually to the wallet that sent it. '
+                      + 'Anyone can write the same text, so check who owns the wallet that sent this: a lead, not a finding.' };
+    }
+    if (m.form === 'rootstock') {
+      return { kind: 'swap', short: 'PEG-IN RSK', color: COLORS.swap, memo: m,
+               title: 'A Rootstock peg-in in an OP_RETURN (RSKIP-170): ' + swapText(m) + '. It is what the sender wrote: it asks the bridge to credit that Rootstock address, it does not show that anything was credited, and the payment to the bridge is one of the other outputs of the transaction. '
+                      + 'Whoever controls the destination on Rootstock is a lead to follow there, not a finding here.' };
+    }
     if (m.form === 'request') {
       return { kind: 'swap', short: 'SWAP ID', color: COLORS.swap, memo: m,
                title: 'A request ID in an OP_RETURN: ' + m.requestId + '. A cross-chain service (Relay is one) writes this on a Bitcoin payment so that its request can be found on its side. It does not say where the money went, '
@@ -557,7 +612,7 @@
   }
 
   return {
-    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, roundFlag: roundFlag, swapMemo: swapMemo, requestIdMemo: requestIdMemo, swapOf: swapOf, swapText: swapText, swapLabel: swapLabel, swapFlag: swapFlag, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
+    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, roundFlag: roundFlag, swapMemo: swapMemo, outMemo: outMemo, rootstockMemo: rootstockMemo, swapGoesIn: swapGoesIn, requestIdMemo: requestIdMemo, swapOf: swapOf, swapText: swapText, swapLabel: swapLabel, swapFlag: swapFlag, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
     CHANGE_SIGNALS: CHANGE_SIGNALS, signalOf: signalOf, peelStep: peelStep, peelChains: peelChains, clusters: clusters, suggestNames: suggestNames, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
   };
 }));

@@ -1,5 +1,5 @@
-"""SWAP: an OP_RETURN in THORChain's swap-memo format. A badge, a chip, a row in the Findings, a detection, a hand-off row, a switch; and the SWAP tag for a swap or bridge service.
-The memo, the wallets and the transactions here are invented in the shape THORChain documents: none of them is a real transaction."""
+"""SWAP: an OP_RETURN in THORChain's swap-memo format, the OUT: and REFUND: memos THORChain writes on a payment it makes, and a Rootstock peg-in. A badge, a chip, a row in the Findings, a detection, a hand-off row, a switch;
+and the SWAP tag for a swap or bridge service. The memos, the wallets and the transactions here are invented in the shape the documents give: none of them is a real transaction."""
 import json
 
 import pytest
@@ -7,6 +7,7 @@ import pytest
 from chains import IN, OUT, addr, tid, tx
 from conftest import NORMAL
 from helpers import idle, open_query, settle
+from test_copy import capture, copied
 from test_find_strip import labels
 from test_trace import drawn_texts
 
@@ -71,7 +72,7 @@ def test_the_details_of_the_transaction_say_what_the_memo_asks_for(page, mock):
 
 
 def test_other_memos_and_other_text_are_not_swaps(page, mock):
-    swap_tx(mock, 1, memo="OUT:" + "ab" * 32)                                          # a THORChain payout, not a swap request
+    swap_tx(mock, 1, memo="+:ETH.ETH:" + DEST)                                         # THORChain's memo for adding liquidity: not a swap request, not a payout, not a refund
     swap_tx(mock, 2, memo="hello world", payer="bob")
     swap_tx(mock, 3, memo="=:e:short", payer="carl")                                   # the one-letter asset form needs an address-length destination
     for n in (1, 2, 3):
@@ -274,3 +275,101 @@ def test_the_hand_offs_run_from_every_starting_point_unless_one_is_picked(tpage,
     assert ids and ids[0] == "tx:" + tid(3) and ids[-1] == "tx:" + tid(4), "the route starts at the row's own start: %s" % ids
     tpage.evaluate("(id) => { window.__hopline.state.routeRef = id; window.__hopline.refresh(); }", "tx:" + tid(1)); settle(tpage)
     assert tpage.inner_text("#findStrip [data-key=handoff]").endswith("1"), "a pick is honoured: one start, one hand-off"
+
+
+# ---- payouts, refunds and a Rootstock peg-in -----------------------------------------------------------------------------------------------------------------------
+
+INBOUND = "A7" * 32                                                                    # invented: 64 hex digits, upper case, as the THORChain documentation shows an inbound hash
+RSK_DEST = "0e537aad84447a2c2a7590d5f2665ef5cf9b667a"                                  # the example address of RSKIP-170
+RSK = "52534b54" + "01" + RSK_DEST + "01" + "4f4c767a2d308eebb3f0f1247f9163c896e0b7d2"
+
+
+def hex_out(hexstr):
+    return {"scriptpubkey": "6a%02x%s" % (len(hexstr) // 2, hexstr), "scriptpubkey_type": "op_return", "value": 0}
+
+
+def memo_tx(mock, n, out, payer="vaultx"):
+    """A transaction paid by the payer, to a user and back, carrying the given OP_RETURN output."""
+    tx(mock, n, [IN(90 + n, 0, payer, 5_000_150)], [OUT("user%d" % n, 3_123_456), OUT("back%d" % n, 1_876_544), out])
+    return "tx:" + tid(n)
+
+
+def test_a_payout_a_refund_and_a_peg_in_get_their_own_badges_and_count_as_swaps(page, mock):
+    out = memo_tx(mock, 1, data_out("OUT:" + INBOUND))
+    ref = memo_tx(mock, 2, data_out("REFUND:" + tid(7)))
+    peg = memo_tx(mock, 3, hex_out(RSK))
+    for n in (1, 2, 3):
+        open_query(page, tid(n))
+    f = flags(page)
+    assert f[out] == ["SWAP OUT"] and f[ref] == ["SWAP REFUND"] and f[peg] == ["PEG-IN RSK"], f
+    assert labels(page).get("swap") == "SWAP3"
+    assert "payout or refund" in page.get_attribute("#findStrip [data-key=swap]", "title") and "Rootstock" in page.get_attribute("#findStrip [data-key=swap]", "title")
+    assert badge_text_drawn(page, out), "the badge is drawn above the transaction"
+    page.evaluate("() => window.__hopline.openFindings()"); settle(page)
+    page.locator("#detKinds button:has-text('SWAP 3')").click(); settle(page)
+    text = page.inner_text("#detList")
+    assert "OUT:" in text and "REFUND:" in text and "RSKIP-170" in text, text
+
+
+def test_the_details_say_what_each_memo_names_and_are_clear_that_it_is_the_senders_word(page, mock):
+    out = memo_tx(mock, 1, data_out("OUT:" + INBOUND))
+    ref = memo_tx(mock, 2, data_out("REFUND:" + tid(7)))
+    peg = memo_tx(mock, 3, hex_out(RSK))
+    for n in (1, 2, 3):
+        open_query(page, tid(n))
+    page.evaluate("(id) => window.__hopline.setSel([id])", out); settle(page)
+    text = page.inner_text("#inspBody")
+    assert "SWAP OUT" in text and INBOUND.lower() in text and "usually on another chain" in text and "Anyone can write the same text" in text, text
+    page.evaluate("(id) => window.__hopline.setSel([id])", ref); settle(page)
+    text = page.inner_text("#inspBody")
+    assert "SWAP REFUND" in text and tid(7) in text and "was not carried out" in text
+    page.evaluate("(id) => window.__hopline.setSel([id])", peg); settle(page)
+    text = page.inner_text("#inspBody")
+    assert "PEG-IN RSK" in text and "0x" + RSK_DEST in text and "refund to a Bitcoin P2PKH address" in text and "RSKIP-170" in text
+
+
+def test_the_buttons_copy_the_hash_or_the_address_and_a_refund_opens_the_payment_it_gives_back(page, mock):
+    tx(mock, 7, [IN(95, 0, "sender", 4_000_150)], [OUT("vaultx", 4_000_000)])                       # the payment that is refunded
+    out = memo_tx(mock, 1, data_out("OUT:" + INBOUND))
+    ref = memo_tx(mock, 2, data_out("REFUND:" + tid(7)))
+    peg = memo_tx(mock, 3, hex_out(RSK))
+    for n in (1, 2, 3):
+        open_query(page, tid(n))
+    capture(page)
+    page.evaluate("(id) => window.__hopline.setSel([id])", out); settle(page)
+    page.click("#inspBody button:has-text('Copy inbound hash')")
+    page.evaluate("(id) => window.__hopline.setSel([id])", peg); settle(page)
+    page.click("#inspBody button:has-text('Copy Rootstock address')")
+    assert copied(page) == [INBOUND.lower(), "0x" + RSK_DEST]
+    page.evaluate("(id) => window.__hopline.setSel([id])", ref); settle(page)
+    assert page.locator("#inspBody button:has-text('Copy inbound hash')").count() == 0, "only a payout has that one"
+    assert "tx:" + tid(7) not in set(page.evaluate("() => [...window.__hopline.state.graph.nodes.keys()]"))
+    page.click("#inspBody button:has-text('Open the refunded payment')"); idle(page); settle(page)
+    assert page.evaluate("() => window.__hopline.state.focus") == "tx:" + tid(7), "the payment that was refunded is loaded and shown"
+
+
+def test_a_plain_transaction_has_none_of_these_buttons(page, mock):
+    open_query(page, NORMAL["txid"])
+    page.evaluate("(id) => window.__hopline.setSel([id])", "tx:" + NORMAL["txid"]); settle(page)
+    for label in ("Copy inbound hash", "Open the refunded payment", "Copy Rootstock address"):
+        assert page.locator("#inspBody button:has-text('%s')" % label).count() == 0, label
+
+
+def test_the_hand_offs_have_a_row_for_a_peg_in_the_trail_reaches_and_none_for_a_payout(tpage, mock):
+    tx(mock, 1, [IN(90, 0, "ran", 900_150)], [OUT("mid", 900_000)], spent={0: 2})
+    memo_tx(mock, 2, hex_out(RSK), payer="mid")
+    mock.routes["/tx/" + tid(2)]["vin"][0] = IN(1, 0, "mid", 900_000)                  # tx 2 spends what tx 1 paid to mid
+    open_query(tpage, tid(1)); open_query(tpage, tid(2))
+    tpage.evaluate("() => window.__hopline.openFindings()"); settle(tpage)
+    tpage.click("#findStrip [data-key=handoff]"); settle(tpage)
+    row = tpage.locator("#anFindings [data-handoff=deposit][data-swap]")
+    assert row.count() == 1 and "Rootstock peg-in: to 0x" in row.inner_text()
+
+
+def test_a_payout_the_trail_reaches_is_not_a_hand_off(tpage, mock):
+    tx(mock, 1, [IN(90, 0, "ran", 900_150)], [OUT("mid", 900_000)], spent={0: 2})
+    memo_tx(mock, 2, data_out("OUT:" + INBOUND), payer="mid")
+    mock.routes["/tx/" + tid(2)]["vin"][0] = IN(1, 0, "mid", 900_000)
+    open_query(tpage, tid(1)); open_query(tpage, tid(2))
+    tpage.evaluate("() => window.__hopline.openFindings()"); settle(tpage)
+    assert tpage.locator("#findStrip [data-key=handoff]").count() == 0, "money coming out of the service is not a place the trail went into it"

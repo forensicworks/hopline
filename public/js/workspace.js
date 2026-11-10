@@ -2405,6 +2405,20 @@
     var m = AN.swapOf(AN.txView(state.graph, n.id)), href = m && m.form === 'request' ? XT.relayUrl(m.requestId) : '';
     return href ? el('a', { href: href, target: '_blank', rel: 'noopener noreferrer', title: RELAY_TITLE, text: 'Look up in Relay ↗' }) : null;
   }
+  /**
+   * What a payout, a refund or a peg-in memo names, as buttons in the details of its transaction: the hash of the inbound transaction of a payout (it is usually on another chain, so it is only copied),
+   * the payment a refund gives back (it is on this chain: it can be opened here), the destination address of a peg-in on Rootstock (copied). Nothing is sent anywhere.
+   */
+  function memoButtons(n) {
+    if (!n || n.type !== 'tx') return [];
+    var m = AN.swapOf(AN.txView(state.graph, n.id));
+    if (!m) return [];
+    if (m.form === 'payout') return [el('button', { type: 'button', text: 'Copy inbound hash', title: 'The hash in the memo: the transaction that began the swap, usually on another chain. Look it up on that chain\'s explorer or on THORChain\'s.', onclick: function () { copy(m.hash, 'the inbound transaction hash'); } })];
+    if (m.form === 'refund') return [el('button', { type: 'button', text: 'Open the refunded payment', title: 'Load and show the transaction the memo names: the payment that is given back', onclick: function () { navigate(ID.tx(m.hash)); } }),
+                                      el('button', { type: 'button', text: 'Copy hash', title: 'The hash in the memo', onclick: function () { copy(m.hash, 'the transaction hash'); } })];
+    if (m.form === 'rootstock') return [el('button', { type: 'button', text: 'Copy Rootstock address', title: 'The destination the peg-in asks the bridge to credit, on Rootstock', onclick: function () { copy(m.dest, 'the Rootstock address'); } })];
+    return [];
+  }
   function arkhamLink(n) {
     var href = arkhamHref(n);
     return href ? el('a', { href: href, target: '_blank', rel: 'noopener noreferrer', title: ARKHAM_TITLE, text: 'Check in Arkham ↗' }) : null;
@@ -3254,8 +3268,8 @@
         el('button', { type: 'button', text: '↔ Both', onclick: function () { expandNode(n.id, 'both'); } })
       ]));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
-        el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), arkhamLink(n), relayLink(n), hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])
-      ]));
+        el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), arkhamLink(n), relayLink(n)
+      ].concat(memoButtons(n), [hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])])));
       box.appendChild(autoButtons(n));
       (txAnalysisSection(n) || []).forEach(function (s) { box.appendChild(s); });
       var rt1 = routeDetails(n); if (rt1) box.appendChild(rt1);
@@ -4727,7 +4741,7 @@
       an.tx.forEach(function (r, id) { r.flags.forEach(function (f) { (byKind[f.kind] = byKind[f.kind] || { f: f, ids: [] }).ids.push(id); }); });
       ['coinjoin', 'consolidation', 'batch', 'round', 'swap'].forEach(function (k) {
         if (byKind[k]) add(k, FIND_NAME[k], byKind[k].ids, byKind[k].f.color, k === 'swap' ? 'transactions with a swap memo or a cross-chain request ID' : FIND_NAME[k] + ' transactions',
-                           k === 'swap' ? plural(byKind[k].ids.length, 'transaction') + ' with a swap memo in THORChain\'s format (an OP_RETURN asking for the payment to be swapped into an asset on another chain, and the address it is to be paid out to) or a cross-chain request ID (the text a service such as Relay writes so that its request can be found). What the sender wrote, not proof that anything was carried out. Click to select them.'
+                           k === 'swap' ? plural(byKind[k].ids.length, 'transaction') + ' with a swap or bridge memo: a swap in THORChain\'s format (an OP_RETURN asking for the payment to be swapped into an asset on another chain, and the address it is to be paid out to), a payout or refund memo THORChain writes on a payment it makes (OUT: or REFUND: and a hash), a cross-chain request ID (the text a service such as Relay writes so that its request can be found) or a Rootstock peg-in. What the sender wrote, not proof that anything was carried out. Click to select them.'
                                         : plural(byKind[k].ids.length, 'transaction') + ' flagged ' + FIND_NAME[k] + '. Click to select them.');
       });
       if (byKind.peel && an.chains.length) {
