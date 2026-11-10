@@ -47,7 +47,7 @@
 
   // ---- state ----------------------------------------------------------------------------------
   var state = {
-    graph: new M.Graph(), layout: 'trace', colorBy: 'type', sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
+    graph: new M.Graph(), layout: 'trace', colorBy: 'type', arrowDir: false, dirPalette: 'rg', sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
     keep: new Set(), pinned: new Map(), selected: new Set(), selectedEdge: null,
     source: 'clearnet', fallback: true, customBase: '', keys: {}, keyRemember: false, pace: { concurrency: 8, delayMs: 20 }, capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: !HOSTED,
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
@@ -5163,7 +5163,7 @@
     analysis();                                                              // the canvas hooks below read the cached result
     applyChain(); redoStillValid();
     var structural = scope();
-    var style = S.makeStyle(g, structural, { colorBy: state.colorBy, sizeBy: effectiveSizeBy() });
+    var style = S.makeStyle(g, structural, { colorBy: state.colorBy, sizeBy: effectiveSizeBy(), direction: state.arrowDir ? state.dirPalette : null });
     function radiusOf(id) { var nd = g.nodes.get(id); return nd ? style.nodeRadius(nd) : 0; }       // how big a shape is drawn: the force layout leaves room for it
     if (traceOn() && state.arrange !== 'columns') {                          // a trace spread over time, by force, or by time and amount: the same layouts as the other views, over what is shown
       if (o.relayout || o.traceChanged || !state.layoutRes || state.layoutRes.arr !== state.arrange) {
@@ -5232,6 +5232,8 @@
       box.appendChild(legendItem(lg.unknown, 'time unknown'));
     } else lg.items.forEach(function (i) { box.appendChild(legendItem(i.color, i.label)); });
     box.appendChild(el('div', { 'class': 'item', text: 'Edge width = amount · dashed = unspent output' }));
+    var dirPal = state.arrowDir ? S.directionPalette(state.dirPalette) : null;
+    if (dirPal) { box.appendChild(legendItem(dirPal['in'], 'input arrow: a coin that is spent (wallet into transaction)')); box.appendChild(legendItem(dirPal.out, 'output arrow: a coin that is created (transaction to wallet)')); }
     box.appendChild(el('div', { 'class': 'item', text: effectiveSizeBy() === 'area' ? 'Shape size = value (area proportional to the amount)' : 'Shape size = value (compact scale: sizes differ little)' }));
     if (state.analysis.change && state.an && state.an.changeEdges.size) box.appendChild(legendItem(AN.COLORS.change, 'amber edge = possible or likely change (a guess)'));
     if (state.analysis.flags && state.an && Array.from(state.an.tx.values()).some(function (r) { return r.flags.some(function (f) { return state.analysis.kinds[f.kind] !== false; }); })) {
@@ -5561,9 +5563,11 @@
     if (!COLORS[name]) return;
     state.colorBy = name; setSeg('colorSeg', 'data-color', name); refresh(); scheduleSave();
   }
+  /** The palette box only matters while the arrows are coloured by direction. */
+  function syncDirUi() { $('arrowDir').checked = state.arrowDir; $('dirPalette').value = state.dirPalette; $('dirPalette').disabled = !state.arrowDir; }
 
   // ---- export / import ------------------------------------------------------------------------
-  function viewState() { return { sizeBy: state.sizeBy, trace: traceData(), vgroups: viewGroupData(), routeRef: state.routeRef, arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, expandRange: state.expandRange, source: state.source === 'custom' ? 'clearnet' : state.source }; }
+  function viewState() { return { sizeBy: state.sizeBy, trace: traceData(), vgroups: viewGroupData(), routeRef: state.routeRef, arrange: state.arrange, hidden: Array.from(state.hidden).filter(function (id) { return state.graph.nodes.has(id); }).slice(0, 5000), layout: state.layout, timeScale: state.timeScale, colorBy: state.colorBy, arrowDir: state.arrowDir, dirPalette: state.dirPalette, focus: state.focus, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, filter: state.filter, expandRange: state.expandRange, source: state.source === 'custom' ? 'clearnet' : state.source }; }
 
   function download(name, text, mime) {
     var blob = new Blob([text], { type: mime }), a = el('a', { href: URL.createObjectURL(blob), download: name });
@@ -5851,6 +5855,9 @@
     if (SCALES[v.timeScale]) { state.timeScale = v.timeScale; setSeg('scaleSeg', 'data-scale', v.timeScale); }
     $('traceArrange').value = state.arrange; updateScaleRow();
     if (COLORS[v.colorBy]) { state.colorBy = v.colorBy; setSeg('colorSeg', 'data-color', v.colorBy); }
+    if (typeof v.arrowDir === 'boolean') state.arrowDir = v.arrowDir;
+    if (S.directionPalette(v.dirPalette)) state.dirPalette = v.dirPalette;
+    syncDirUi();
     if (SIZES[v.sizeBy]) { state.sizeBy = v.sizeBy; setSeg('sizeSeg', 'data-size', v.sizeBy); }
     if (typeof v.focusOn === 'boolean') { state.focusOn = v.focusOn; $('focusOn').checked = v.focusOn; }
     if (typeof v.hops === 'number') { state.hops = num(v.hops, 1, 3, 2); $('depth').value = String(state.hops); }
@@ -6174,6 +6181,8 @@
     Array.prototype.forEach.call($('layoutSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setLayout(b.getAttribute('data-layout')); }); });
     Array.prototype.forEach.call($('scaleSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setScale(b.getAttribute('data-scale')); }); });
     Array.prototype.forEach.call($('colorSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setColor(b.getAttribute('data-color')); }); });
+    $('arrowDir').addEventListener('change', function () { state.arrowDir = this.checked; syncDirUi(); refresh(); scheduleSave(); });
+    $('dirPalette').addEventListener('change', function () { state.dirPalette = S.directionPalette(this.value) ? this.value : 'rg'; syncDirUi(); refresh(); scheduleSave(); });
     Array.prototype.forEach.call($('sizeSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setSizeBy(b.getAttribute('data-size')); }); });
     $('showLabels').addEventListener('change', function () { state.showLabels = this.checked; refresh(); savePrefs(); });
     $('persist').addEventListener('change', function () {

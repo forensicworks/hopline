@@ -15,6 +15,17 @@
   var TYPE_COLORS = { tx: '#5b8def', addr: '#e0a458', coinbase: '#f2c94c', data: '#9aa3ad', nonstd: '#7c8794', group: '#b48ee0' };
   var UNKNOWN = '#6b7280';
 
+  /**
+   * What an arrow's colour says when the arrows are coloured by direction: an input arrow is a coin that is spent (a wallet into a transaction), an output arrow a coin that is created (a
+   * transaction to a wallet). Red for the coin that leaves and green for the coin that arrives is the wallet page's own convention; red and green are hard to tell apart with red-green colour
+   * blindness, so a second pair is offered (blue and lime: at least 45 apart for all three kinds of colour blindness, test/arrow-direction.test.js checks it). Both read on the dark canvas.
+   */
+  var DIRECTION_PALETTES = {
+    rg: { name: 'Red and green', 'in': '#ff6b6b', out: '#4ade80' },
+    bl: { name: 'Blue and lime', 'in': '#3b8bff', out: '#d8f547' }
+  };
+  /** The palette of a key, or null for anything that is not one (a key such as "constructor" is not). */
+  function directionPalette(key) { return typeof key === 'string' && Object.prototype.hasOwnProperty.call(DIRECTION_PALETTES, key) ? DIRECTION_PALETTES[key] : null; }
   // old -> new: violet -> blue -> teal -> green -> yellow. Every stop is bright enough to read on the dark canvas.
   var AGE_STOPS = [[0.00, [150, 110, 255]], [0.25, [70, 150, 255]], [0.50, [40, 205, 185]], [0.75, [150, 225, 100]], [1.00, [255, 225, 80]]];
 
@@ -57,14 +68,14 @@
 
   /**
    * Builds the style functions for the currently visible part of the graph.
-   * opts: { colorBy: 'type'|'age'|'script', sizeBy: 'log'|'area', minWidth, maxWidth, minRadius, maxRadius }
+   * opts: { colorBy: 'type'|'age'|'script', sizeBy: 'log'|'area', direction: a key of DIRECTION_PALETTES or null (colour the arrows by direction: it wins over the age colour of an arrow), minWidth, maxWidth, minRadius, maxRadius }
    *   sizeBy 'log'   (default) a compact log scale between minRadius and maxRadius: sizes differ little, and values within a factor of ten (opts.valueSpan, in powers of ten) get similar sizes
    *   sizeBy 'area'  the AREA of a shape is proportional to its value (radius ~ sqrt), up to areaMaxRadius for the largest,
    *                  never below areaMinRadius so a tiny amount is still a visible dot
    */
   function makeStyle(graph, visible, opts) {
     opts = opts || {};
-    var colorBy = opts.colorBy || 'type';
+    var colorBy = opts.colorBy || 'type', dirPal = directionPalette(opts.direction);
     var minW = opts.minWidth || 1, maxW = opts.maxWidth || 12, minR = opts.minRadius || 5, maxR = opts.maxRadius || 16;
     var byArea = opts.sizeBy === 'area', areaMin = opts.areaMinRadius || 4, areaMax = opts.areaMaxRadius || 20;
 
@@ -108,6 +119,7 @@
         return TYPE_COLORS[n.type] || UNKNOWN;
       },
       edgeColor: function (e) {
+        if (dirPal && (e.kind === 'in' || e.kind === 'out')) return dirPal[e.kind];                 // the renderer lets a selected arrow, a highlighted route and the amber change arrow keep their own colour
         if (colorBy === 'age') {
           var tx = graph.nodes.get(e.kind === 'out' ? e.source : e.target);
           var t = tx && tx.time != null ? tx.time : e.time;
@@ -161,6 +173,6 @@
   }
   function shortId(s, n) { n = n || 6; return s && s.length > 2 * n + 1 ? s.slice(0, n) + '…' + s.slice(-n) : (s || ''); }
 
-  return { SCRIPT_COLORS: SCRIPT_COLORS, TYPE_COLORS: TYPE_COLORS, ageColor: ageColor, logScale: logScale, linScale: linScale,
+  return { SCRIPT_COLORS: SCRIPT_COLORS, TYPE_COLORS: TYPE_COLORS, DIRECTION_PALETTES: DIRECTION_PALETTES, directionPalette: directionPalette, ageColor: ageColor, logScale: logScale, linScale: linScale,
            makeStyle: makeStyle, legend: legend, fmtBtc: fmtBtc, fmtBtcShort: fmtBtcShort, fmtTime: fmtTime, fmtTimeFull: fmtTimeFull, shortId: shortId };
 }));
