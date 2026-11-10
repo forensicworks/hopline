@@ -220,7 +220,7 @@ test('trace and handoffs: a wallet a list names that is not a service is a row o
   const t = run(['trace', FILE, '--ref', a('origin'), '--known', list, '--compact']).json();
   assert.deepEqual(t.handoffs.map((r) => [r.kind, r.dir, r.service, r.txid]), [['named', 'deposit', 'Ransomware: Acme', tid(11)], ['service', 'deposit', 'Binance Hot Wallet', tid(12)]]);
   const c = run(['handoffs', FILE, '--ref', a('origin'), '--known', list, '--csv']).out.split('\r\n');
-  assert.ok(/,named,,\S+$/.test(c[1]) && /,service,,\S+$/.test(c[2]), c.slice(1, 3).join(' | '));        // then the swap memo (empty here) and the starting point the row comes from
+  assert.ok(/,named,,\S+,Built-in list,,,,$/.test(c[1]) && /,service,,\S+,Built-in list,,,,$/.test(c[2]), c.slice(1, 3).join(' | '));        // then the swap memo (empty here), the starting point the row comes from, and the list that names the wallet
   assert.deepEqual(run(['handoffs', FILE, '--ref', a('origin')]).json().map((r) => r.kind), ['service'], 'with the built-in list alone there is only the exchange');
 });
 
@@ -265,4 +265,37 @@ test('summary and prompt carry the trail when there is a reference, and say noth
   assert.equal(s.trace.handoffs[0].service, 'Binance Hot Wallet');
   const p = run(['prompt', FILE, '--task', 'triage', '--ref', a('origin')]);
   assert.equal(p.code, 0); assert.match(p.out, /"handoffs":\[\["2022-04-15/);
+});
+
+// ---- who said it: the name of a wallet says which list, under which licence, from when ------------------------------------------------------------------------------
+
+/** What the site's own pack list says about a pack: the entry of packs/index.js, read as data. */
+function shippedPack(id) {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'public', 'packs', 'index.js'), 'utf8');
+  return JSON.parse(text.slice(text.indexOf('[', text.indexOf('HOPLINE_PACK_INDEX')), text.lastIndexOf(']') + 1)).find((e) => e.id === id);
+}
+
+test('summary: a name from a shipped pack carries the pack\'s licence, credit, date and link; a name from the built-in list carries none', () => {
+  const pack = fs.readFileSync(path.join(__dirname, '..', 'public', 'packs', 'ofac-sdn.js'), 'utf8'), sanctioned = /^\{"address":"([^"]+)"/m.exec(pack)[1], meta = shippedPack('ofac-sdn');
+  const g = new Graph();
+  add(g, 62, [IN(250, 3, a('payer2'), 50000)], [OUT(sanctioned, 40000), OUT(BINANCE, 9000)]);
+  const file = path.join(dir, 'prov-ws.json'); fs.writeFileSync(file, IO.toJson(g, {}));
+  const w = run(['summary', file]).json().wallets, ofac = w.find((x) => x.address === sanctioned).known, binance = w.find((x) => x.address === BINANCE).known;
+  assert.equal(ofac.licence, meta.licence); assert.equal(ofac.asOf, meta.asOf); assert.ok(meta.licence && meta.asOf, 'the shipped pack says both');
+  assert.ok(ofac.url && ofac.url.startsWith('http'), 'a link to read it: ' + ofac.url);
+  assert.equal(ofac.attribution, meta.attribution || undefined);
+  assert.equal(binance.licence, undefined); assert.equal(binance.asOf, undefined); assert.equal(binance.name, 'Binance Hot Wallet');
+});
+
+test('trace and handoffs: each row says what the lists say about its service wallet, as JSON and in the CSV; a name of your own is no list', () => {
+  const list = path.join(dir, 'named-known2.js');
+  fs.writeFileSync(list, 'window.HOPLINE_KNOWN = ' + JSON.stringify({ [BINANCE]: { label: 'Binance Hot Wallet', category: 'EXCH' }, [a('peel1')]: { label: 'Ransomware: Acme' } }) + ';\n');
+  const t = run(['trace', FILE, '--ref', a('origin'), '--known', list, '--compact']).json();
+  assert.deepEqual(t.handoffs.map((r) => r.source.list), ['Built-in list', 'Built-in list'], 'trace rows carry the source too');
+  const rows = run(['handoffs', FILE, '--ref', a('origin'), '--known', list]).json();
+  assert.deepEqual(rows.map((r) => [r.kind, r.source]), [['named', { list: 'Built-in list', licence: '', attribution: '', asOf: '', url: '' }], ['service', { list: 'Built-in list', licence: '', attribution: '', asOf: '', url: '' }]]);
+  const c = run(['handoffs', FILE, '--ref', a('origin'), '--known', list, '--csv']).out.split('\r\n'), head = c[0].split(',');
+  assert.equal(c[1].split(',')[head.indexOf('source_list')], 'Built-in list');
+  const none = run(['handoffs', FILE, '--ref', a('origin'), '--no-known']);
+  assert.equal(none.code === 0 ? none.json().length : 0, 0, 'with no lists there is no hand-off, so no source to name');
 });

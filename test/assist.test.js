@@ -467,3 +467,13 @@ test('prompt: a short form of the trail goes into the evidence, with the first h
   assert.ok(ev.limits.some((l) => /12 of 20 service hand-offs/.test(l)));
   assert.equal(JSON.parse(As.prompt(As.summary(g, An.analyse(g, {}), {}), 'triage', {}).user.split('<<EVIDENCE (JSON)\n')[1].split('\nEVIDENCE>>')[0]).trace, undefined, 'no trail, no field');
 });
+
+test('summary: the name of a wallet from a list says which list, under which licence, from when and where to read it, and that text is untrusted', () => {
+  const s = scene();
+  const m = As.summary(s.g, An.analyse(s.g), { known: (ad) => (ad === a('pay60') ? { name: 'Some Exchange', category: 'EXCH', source: 'Ransomwhere', licence: 'CC BY 4.0', attribution: 'Jack\u0000 Cable', asOf: '2024-10-27', url: 'https://ransomwhe.re/x' } : null) });
+  const w = m.wallets.find((x) => x.address === a('pay60'));
+  assert.deepEqual(w.known, { name: 'Some Exchange', category: 'EXCH', source: 'Ransomwhere', licence: 'CC BY 4.0', attribution: 'Jack Cable', asOf: '2024-10-27', url: 'https://ransomwhe.re/x' }, 'cleaned like the rest');
+  ['wallets[].known.licence', 'wallets[].known.attribution', 'wallets[].known.asOf', 'wallets[].known.url'].forEach((f) => assert.ok(m.untrustedFields.includes(f), f));
+  const plain = As.summary(s.g, An.analyse(s.g), { known: (ad) => (ad === a('pay60') ? { name: 'Some Exchange', category: 'EXCH', source: 'built-in list' } : null) });
+  assert.deepEqual(plain.wallets.find((x) => x.address === a('pay60')).known, { name: 'Some Exchange', category: 'EXCH', source: 'built-in list' }, 'a list that says nothing about itself adds nothing');
+});

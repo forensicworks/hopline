@@ -101,9 +101,18 @@ function load(args) {
     var packs = args.flags['no-packs'] ? [] : loadPacks(args.flags.packs || path.join(__dirname, '..', 'public', 'packs'), !!args.flags.packs, String(args.flags.with || '').split(',').filter(Boolean));
     if (packs.length) known = LB.buildKnown(known || {}, packs);
   }
-  var knownFn = known ? function (a) { return Object.prototype.hasOwnProperty.call(known, a) ? known[a] : null; } : null;
+  var meta = {};
+  (packs || []).forEach(function (p) { meta[p.name] = { source: p.source || '', licence: p.licence || '', attribution: p.attribution || '', asOf: p.asOf || '', sourceUrl: p.sourceUrl || '' }; });
+  var raw = known ? function (a) { return Object.prototype.hasOwnProperty.call(known, a) ? known[a] : null; } : null;
+  // a name from a list says which list, under which licence and from when: what the pack says about itself goes with the entry
+  var knownFn = raw ? function (a) {
+    var e = raw(a); if (!e) return null;
+    var m = meta[e.pack] || {}, c = LB.claimsOf(e)[0] || {};
+    return Object.assign({}, e, { licence: m.licence || '', attribution: m.attribution || '', asOf: c.asOf || m.asOf || '', url: e.url || m.sourceUrl || '' });
+  } : null;
+  var sources = raw ? { claims: function (a) { return LB.claimsOf(raw(a)); }, packs: meta, meta: { generator: 'Hopline command line' } } : null;
   var an = AN.analyse(loaded.graph, { known: function (a) { var n = loaded.graph.nodes.get('addr:' + a); return !!(n && (n.label || n.tag)) || !!(knownFn && knownFn(a)); } });
-  return { graph: loaded.graph, an: an, known: knownFn, view: loaded.view };
+  return { graph: loaded.graph, an: an, known: knownFn, view: loaded.view, sources: sources };
 }
 
 /** A wallet or a transaction named on the command line: an address, a 64-character id, or a vertex id (addr:... / tx:...). null when it is not in the workspace. */
@@ -128,6 +137,12 @@ function traceOf(args, ctx, needRef) {
   if (!t.ref) return null;
   var r = RT.trace(t.idx, t.ref, { starts: t.starts, hub: t.hub, name: t.name, listed: t.listed, stop: t.name });
   r.referenceName = t.name(t.ref) || '';
+  return r;
+}
+/** The trace with a `source` on each hand-off row, for the commands that print rows: what the lists say about the service wallet (a name of your own is not a list's claim). */
+function traceWithSources(args, ctx, needRef) {
+  var r = traceOf(args, ctx, needRef);
+  if (r && r.handoffs) r.handoffs = IO.annotateHandoffs(r.handoffs, ctx.sources);
   return r;
 }
 
@@ -181,11 +196,11 @@ function main(argv) {
     print(args, res);
     return res.ok ? 0 : 1;
   }
-  if (cmd === 'trace') { ctx = load(args); print(args, traceOf(args, ctx, true)); return 0; }
+  if (cmd === 'trace') { ctx = load(args); print(args, traceWithSources(args, ctx, true)); return 0; }
   if (cmd === 'handoffs') {
     ctx = load(args);
     var rows = traceOf(args, ctx, true).handoffs;
-    if (args.flags.csv) process.stdout.write(IO.handoffsCsv(rows)); else print(args, rows);
+    if (args.flags.csv) process.stdout.write(IO.handoffsCsv(rows, { sources: ctx.sources })); else print(args, IO.annotateHandoffs(rows, ctx.sources));
     return 0;
   }
   if (cmd === 'route') {
