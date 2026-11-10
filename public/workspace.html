@@ -72,7 +72,8 @@ window.addEventListener('error', function (e) {
         <button type="button" data-export="link" title="Copy a link that opens what is on screen (what you hid is left out) for anyone you send it to: the canvas itself is in the link, after the #, which no server receives. Over the limit only the vertices nearest START go in, and you are told">Link to this canvas (copy)</button>
         <label class="check" title="The most vertices the link may hold (5 to 500). About 80 to 100 characters of link for each, so 50 is about 4,000 characters, which chat and mail carry; over the limit, the ones nearest START are kept">Most vertices in the link <input type="number" id="shareMax" min="5" max="500" step="5" value="50" aria-label="Most vertices in the link"></label>
         <label class="check" title="Notes are what you wrote for yourself and are left out unless you tick this; labels and tags are part of the picture and always go"><input type="checkbox" id="shareNotes"> Include my notes</label>
-        <input type="text" id="shareOut" readonly hidden aria-label="The link to this canvas" spellcheck="false">
+        <button type="button" data-export="idlink" title="Copy a short link that lists only the IDs of the transactions on screen: no labels, tags, notes or layout. Whoever opens it loads them from their own data source, so it needs the network and the picture is drawn afresh. About 45 characters for each transaction, so it holds up to about 1,300 where a canvas link holds 50 by default">Link to these transactions, IDs only (copy)</button>
+        <input type="text" id="shareOut" readonly hidden aria-label="The link" spellcheck="false">
         <p class="hint" id="shareNote" hidden></p>
       </div>
       <div class="menu-group">
