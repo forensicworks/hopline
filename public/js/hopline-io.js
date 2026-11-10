@@ -132,10 +132,34 @@
     return Ext.entries(n).map(function (e) { return e.sourceName + ': ' + (e.found ? e.label + (e.category ? ' (' + e.category + ')' : '') : 'no entry') + (e.at ? ' [' + Style.fmtTimeFull(e.at) + ']' : ''); }).join(' | ');
   }
 
+  var BUILTIN = 'Built-in list';
+  /**
+   * What the lists that name a wallet say about it, kept apart from the analyst's own label, tag and note: { pack, label, category, url, note, licence, attribution, asOf, sanctions, count, all } or {}.
+   * `sources.claims(address)` gives every claim in order (an entry with `own` is the analyst's own and is left out here); `sources.packs` says what each pack says about itself
+   * by name: { source, licence, attribution, asOf, sourceUrl }. The first claim fills the single fields; `all` has every claim, each with its list, its category, the date of its data and its licence.
+   */
+  function srcOf(n, sources) {
+    if (!sources || typeof sources.claims !== 'function' || n.type !== 'addr' || !n.address) return {};
+    var claims = (sources.claims(n.address) || []).filter(function (c) { return c && !c.own; });
+    if (!claims.length) return {};
+    var meta = sources.packs || {};
+    function metaOf(c) { return (c.pack && meta[c.pack]) || {}; }
+    var c = claims[0], pm = metaOf(c);
+    var all = claims.map(function (k) {
+      var m = metaOf(k), asOf = k.asOf || m.asOf, bits = [k.category, asOf ? 'data as of ' + asOf : '', m.licence ? 'licence: ' + m.licence : '', k.sanctions ? 'sanctions list' : ''].filter(Boolean);
+      return (k.pack || BUILTIN) + ': ' + k.label + (bits.length ? ' [' + bits.join('; ') + ']' : '');
+    });
+    return { pack: c.pack || BUILTIN, label: c.label, category: c.category, url: c.url || pm.sourceUrl || '', note: c.note, licence: pm.licence || '', attribution: pm.attribution || '',
+             asOf: c.asOf || pm.asOf || '', sanctions: claims.some(function (k) { return k.sanctions === true; }), count: claims.length, all: all.join(' | ') };
+  }
+
   var NODE_COLS = ['id', 'type', 'label', 'note', 'address', 'txid', 'vout', 'script_type', 'time_unix', 'time_utc', 'height', 'confirmed',
                    'first_seen_unix', 'last_seen_unix', 'received_sat', 'sent_sat', 'degree', 'op_return_text', 'op_return_hex',
                    'tag', 'color', 'shape', 'ext_arkham_name', 'ext_arkham_type', 'ext_arkham_label',
-                   'patterns', 'cluster', 'cluster_size', 'excluded_from_clustering', 'data_source', 'retrieved_unix', 'retrieved_utc', 'version', 'locktime', 'balance_sat', 'balance_pending_sat', 'balance_as_of_utc', 'ext_lookups'];
+                   'patterns', 'cluster', 'cluster_size', 'excluded_from_clustering', 'data_source', 'retrieved_unix', 'retrieved_utc', 'version', 'locktime', 'balance_sat', 'balance_pending_sat', 'balance_as_of_utc', 'ext_lookups',
+                   'src_pack', 'src_label', 'src_category', 'src_url', 'src_note', 'src_licence', 'src_attribution', 'src_as_of', 'src_sanctions', 'src_count', 'src_all'];
+  /** The columns that say what a public list or a built-in list says about a wallet (src_*): not your label, tag or note (label, note, tag), and not a guess of Hopline's (patterns, cluster, likely_change). */
+  var SRC_COLS = NODE_COLS.filter(function (c) { return c.indexOf('src_') === 0; });
   var EDGE_COLS = ['edge_id', 'txid', 'kind', 'source', 'source_label', 'target', 'target_label', 'amount_sat', 'amount_btc', 'time_unix', 'time_utc',
                    'confirmed', 'spent', 'spent_by_txid', 'fiat_value', 'fiat_currency', 'fiat_price_per_btc', 'fiat_basis', 'likely_change'];
 
@@ -161,14 +185,15 @@
     } else {
       lines.push(row(NODE_COLS));
       p.nodes.forEach(function (n) {
-        var ark = (n.ext && n.ext.arkham) || {}, an = opts.analysis ? opts.analysis.node(n) : {}, bal = Model.balanceOf(n);
+        var ark = (n.ext && n.ext.arkham) || {}, an = opts.analysis ? opts.analysis.node(n) : {}, bal = Model.balanceOf(n), src = srcOf(n, opts.sources);
         lines.push(row([cell(n.id), cell(n.type), cell(n.label), cell(n.note), cell(n.address), cell(n.txid), cell(n.vout), cell(n.scriptType),
                         cell(n.time), cell(n.time != null ? Style.fmtTime(n.time) : ''), cell(n.height), cell(n.confirmed),
                         cell(n.firstSeen), cell(n.lastSeen), cell(n.received), cell(n.sent), cell(n.degree), cell(n.dataText), cell(n.dataHex),
                         cell(n.tag), cell(n.color), cell(n.shape), cell(ark.name), cell(ark.type), cell(ark.label),
                         cell(an.patterns), cell(an.cluster), cell(an.clusterSize), cell(n.noCluster === true ? 'true' : ''),
                         cell(n.source), cell(n.fetchedAt), cell(n.fetchedAt != null ? Style.fmtTimeFull(n.fetchedAt) : ''), cell(n.version), cell(n.locktime),
-                        cell(bal ? bal.confirmed : ''), cell(bal ? bal.pending : ''), cell(bal && n.statsAt != null ? Style.fmtTimeFull(n.statsAt) : ''), cell(lookupsText(n))]));
+                        cell(bal ? bal.confirmed : ''), cell(bal ? bal.pending : ''), cell(bal && n.statsAt != null ? Style.fmtTimeFull(n.statsAt) : ''), cell(lookupsText(n)),
+                        cell(src.pack), cell(src.label), cell(src.category), cell(src.url), cell(src.note), cell(src.licence), cell(src.attribution), cell(src.asOf), cell(src.sanctions ? 'true' : ''), cell(src.count, true), cell(src.all)]));
       });
     }
     return lines.join('\r\n') + '\r\n';
@@ -211,7 +236,13 @@
   var G_NODE = [['label', 'string'], ['type', 'string'], ['note', 'string'], ['address', 'string'], ['txid', 'string'], ['script_type', 'string'],
                 ['time', 'long'], ['time_utc', 'string'], ['received', 'long'], ['sent', 'long'], ['degree', 'int'], ['op_return_text', 'string'],
                 ['tag', 'string'], ['color', 'string'], ['shape', 'string'], ['ext_arkham_name', 'string'], ['ext_arkham_type', 'string'],
-                ['patterns', 'string'], ['cluster', 'string'], ['cluster_size', 'int'], ['excluded_from_clustering', 'boolean'], ['balance', 'long']];
+                ['patterns', 'string'], ['cluster', 'string'], ['cluster_size', 'int'], ['excluded_from_clustering', 'boolean'], ['balance', 'long'], ['ext_lookups', 'string'],
+                ['src_pack', 'string'], ['src_label', 'string'], ['src_category', 'string'], ['src_url', 'string'], ['src_note', 'string'], ['src_licence', 'string'], ['src_attribution', 'string'],
+                ['src_as_of', 'string'], ['src_sanctions', 'boolean'], ['src_count', 'int'], ['src_all', 'string']];
+  /** What a GraphML file says about itself (graph attributes, which Gephi shows apart, and NetworkX and yEd read): when, by what, from where, and which lists its src_* attributes came from. */
+  var G_GRAPH = [['exported_utc', 'string'], ['generator', 'string'], ['data_source', 'string'], ['field_groups', 'string'], ['sources_used', 'string']];
+  var FIELD_GROUPS = 'Who said it. ANALYST (entered by the person who made this file): label, note, tag, color, shape. PUBLIC OR OUTSIDE SOURCE (what a list or a service says, with its name, licence and the date of its data: a claim, not a finding): src_* and ext_*. '
+    + 'HOPLINE INFERENCE (guesses from the chain, not facts): patterns, cluster, cluster_size, excluded_from_clustering, likely_change. Everything else is on-chain data or arithmetic on it.';
   var G_EDGE = [['kind', 'string'], ['txid', 'string'], ['amount', 'long'], ['amount_btc', 'string'], ['time', 'long'], ['time_utc', 'string'], ['spent', 'boolean'],
                 ['fiat_value', 'double'], ['fiat_currency', 'string'], ['fiat_price_per_btc', 'double'], ['fiat_basis', 'string'], ['likely_change', 'string']];
 
@@ -222,8 +253,21 @@
     out.push('<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">');
     G_NODE.forEach(function (k) { out.push('  <key id="n_' + k[0] + '" for="node" attr.name="' + k[0] + '" attr.type="' + k[1] + '"/>'); });
     G_EDGE.forEach(function (k) { out.push('  <key id="e_' + k[0] + '" for="edge" attr.name="' + k[0] + '" attr.type="' + k[1] + '"/>'); });
+    G_GRAPH.forEach(function (k) { out.push('  <key id="g_' + k[0] + '" for="graph" attr.name="' + k[0] + '" attr.type="' + k[1] + '"/>'); });
     out.push('  <graph id="hopline" edgedefault="directed">');
     function data(prefix, name, v) { if (v !== null && v !== undefined && v !== '') out.push('      <data key="' + prefix + name + '">' + xml(v) + '</data>'); }
+    var used = new Set(), usedText = [];
+    p.nodes.forEach(function (n) {                                                      // which lists the src_* attributes of these wallets came from
+      var s = opts.sources && n.type === 'addr' ? (opts.sources.claims && opts.sources.claims(n.address) || []) : [];
+      s.forEach(function (c) { if (c && !c.own && !used.has(c.pack || BUILTIN)) { used.add(c.pack || BUILTIN); var m = (opts.sources.packs || {})[c.pack] || {};
+        usedText.push((c.pack || BUILTIN) + [m.source, m.licence && 'licence: ' + m.licence, m.attribution && 'credit: ' + m.attribution, (c.asOf || m.asOf) && 'data as of ' + (c.asOf || m.asOf), m.sourceUrl].filter(Boolean).map(function (b, i) { return (i ? '; ' : ' - ') + b; }).join('')); } });
+    });
+    var meta = (opts.sources && opts.sources.meta) || {};
+    out.push('    <data key="g_exported_utc">' + xml(new Date(meta.generated != null ? meta.generated : Date.now()).toISOString()) + '</data>');
+    if (meta.generator) out.push('    <data key="g_generator">' + xml(meta.generator) + '</data>');
+    if (meta.dataSource) out.push('    <data key="g_data_source">' + xml(meta.dataSource) + '</data>');
+    out.push('    <data key="g_field_groups">' + xml(FIELD_GROUPS) + '</data>');
+    if (usedText.length) out.push('    <data key="g_sources_used">' + xml(usedText.join(' | ')) + '</data>');
     p.nodes.forEach(function (n) {
       out.push('    <node id="' + xml(n.id) + '">');
       data('n_', 'label', n.label || (n.type === 'tx' ? Style.shortId(n.txid) : n.type === 'addr' ? Style.shortId(n.address, 8) : n.type));
@@ -232,8 +276,11 @@
       data('n_', 'received', n.received); data('n_', 'sent', n.sent); data('n_', 'degree', n.degree); data('n_', 'op_return_text', n.dataText);
       data('n_', 'tag', n.tag); data('n_', 'color', n.color); data('n_', 'shape', n.shape);
       if (n.ext && n.ext.arkham) { data('n_', 'ext_arkham_name', n.ext.arkham.name || n.ext.arkham.label); data('n_', 'ext_arkham_type', n.ext.arkham.type); }
-      var an = opts.analysis ? opts.analysis.node(n) : {}, bal = Model.balanceOf(n);
+      var an = opts.analysis ? opts.analysis.node(n) : {}, bal = Model.balanceOf(n), src = srcOf(n, opts.sources);
       if (bal) data('n_', 'balance', bal.confirmed);
+      data('n_', 'ext_lookups', lookupsText(n));
+      data('n_', 'src_pack', src.pack); data('n_', 'src_label', src.label); data('n_', 'src_category', src.category); data('n_', 'src_url', src.url); data('n_', 'src_note', src.note);
+      data('n_', 'src_licence', src.licence); data('n_', 'src_attribution', src.attribution); data('n_', 'src_as_of', src.asOf); if (src.sanctions) data('n_', 'src_sanctions', true); data('n_', 'src_count', src.count); data('n_', 'src_all', src.all);
       data('n_', 'patterns', an.patterns); data('n_', 'cluster', an.cluster); data('n_', 'cluster_size', an.clusterSize); if (n.noCluster === true) data('n_', 'excluded_from_clustering', true);
       out.push('    </node>');
     });
@@ -252,5 +299,5 @@
   }
 
   return { FORMAT: FORMAT, VERSION: VERSION, isFormat: isFormat, toJson: toJson, fromJson: fromJson, toCsv: toCsv, toGraphMl: toGraphMl,
-           defuse: defuse, xml: xml, NODE_COLS: NODE_COLS, EDGE_COLS: EDGE_COLS, handoffsCsv: handoffsCsv, HANDOFF_COLS: HANDOFF_COLS };
+           defuse: defuse, xml: xml, NODE_COLS: NODE_COLS, SRC_COLS: SRC_COLS, EDGE_COLS: EDGE_COLS, handoffsCsv: handoffsCsv, HANDOFF_COLS: HANDOFF_COLS };
 }));

@@ -334,7 +334,7 @@ test('the node CSV names what each outside source said about a wallet in one cel
   g.upsertNode({ id: ID.addr('B'), type: 'addr', address: 'B', ext: { arkham: { found: false, at: 1700000000 } } });
   g.upsertNode({ id: ID.addr('C'), type: 'addr', address: 'C' });
   const rows = parseCsv(IO.toCsv(g, 'nodes')), col = rows[0].indexOf('ext_lookups');
-  assert.equal(IO.NODE_COLS[IO.NODE_COLS.length - 1], 'ext_lookups', 'added at the end: the columns a script already reads stay where they were');
+  assert.equal(IO.NODE_COLS.indexOf('ext_lookups'), IO.NODE_COLS.length - 1 - IO.SRC_COLS.length, 'added at the end (only the src_ columns come after it): the columns a script already reads stay where they were');
   const by = (id) => rows.find((r) => r[0] === ID.addr(id))[col];
   assert.equal(by('A'), 'Arkham Intelligence: =HYPERLINK("http://x") · Hot (cex) [2023-11-14 22:13:20 UTC]', 'the cell starts with the source, never with the name, so a name that begins with = cannot start a formula');
   assert.equal(by('B'), 'Arkham Intelligence: no entry [2023-11-14 22:13:20 UTC]');
@@ -377,4 +377,88 @@ test('handoffsCsv: the start column says which starting point a row comes from, 
                 { kind: 'swap', dir: 'deposit', service: 'M', address: null, txid: 'cd'.repeat(32), time: 1650000000, amount: null, outputs: 0, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false, from: 'tx:' + 'ee'.repeat(32) }];
   const lines = IO.handoffsCsv(rows).split('\r\n');
   assert.ok(lines[1].endsWith(',service,,bc1qstart'), lines[1]); assert.ok(lines[2].endsWith(',swap memo,,' + 'ee'.repeat(32)), lines[2]);
+});
+
+// ---- who said it: public lists kept apart from the analyst's own label, tag and note --------------------------------------
+const SRC_PACKS = { 'OFAC SDN list (Bitcoin)': { source: 'U.S. Treasury OFAC SDN list', licence: 'Public domain (U.S. government work)', attribution: '', asOf: '2026-10-28', sourceUrl: 'https://sanctionslist.ofac.treas.gov/Home/SdnList' },
+                    'Ransomwhere': { source: 'ransomwhe.re', licence: 'CC BY 4.0', attribution: 'Jack Cable and contributors', asOf: '2024-10-27', sourceUrl: 'https://ransomwhe.re' } };
+const claimsOf = (map) => (a) => map[a] || [];
+function srcGraph() {
+  const g = new Graph();
+  g.upsertNode({ id: ID.addr('A'), type: 'addr', address: 'A', label: 'My suspect', note: 'my hypothesis', tag: 'RANSOM' });
+  g.upsertNode({ id: ID.addr('B'), type: 'addr', address: 'B' });
+  g.upsertNode({ id: ID.addr('C'), type: 'addr', address: 'C' });
+  g.upsertNode({ id: ID.tx('t1'), type: 'tx', txid: 't1' });
+  const sources = {
+    claims: claimsOf({
+      A: [{ label: 'My suspect', pack: 'own', own: true, category: 'RANSOM', url: '', note: 'my hypothesis', sanctions: false },
+          { label: 'Evil Corp wallet', pack: 'OFAC SDN list (Bitcoin)', category: 'CYBER2', url: 'https://sanctionssearch.ofac.treas.gov/Details.aspx?id=1', note: '', sanctions: true, asOf: '2026-10-28' },
+          { label: 'Ransomware: LockBit', pack: 'Ransomwhere', category: 'RANSOM', url: 'https://ransomwhe.re/x', note: '3 payments', sanctions: false, asOf: '2024-10-27' }],
+      B: [{ label: '=HYPERLINK("http://x")', pack: '', category: 'exchange', url: '', note: '', sanctions: false }],
+      C: [{ label: 'Only mine', pack: 'own', own: true, category: '', url: '', note: '', sanctions: false }] }),
+    packs: SRC_PACKS, meta: { generated: Date.UTC(2026, 10, 9, 12, 0, 0), generator: 'Hopline workspace abc1234', dataSource: 'https://mempool.space/api' } };
+  return { g, sources };
+}
+
+test('src columns: what lists say sits in their own columns, with the list, its licence and the date of its data; your label, note and tag are not among them', () => {
+  const { g, sources } = srcGraph();
+  const rows = parseCsv(IO.toCsv(g, 'nodes', { sources })), c = (n) => rows[0].indexOf(n), by = (id) => rows.find((r) => r[0] === ID.addr(id));
+  IO.SRC_COLS.forEach((n) => assert.ok(c(n) >= 0, n));
+  const a = by('A');
+  assert.equal(a[c('label')], 'My suspect', 'the analyst label is where it was'); assert.equal(a[c('note')], 'my hypothesis'); assert.equal(a[c('tag')], 'RANSOM');
+  assert.equal(a[c('src_pack')], 'OFAC SDN list (Bitcoin)', 'the first list that is not yours fills the single fields');
+  assert.equal(a[c('src_label')], 'Evil Corp wallet'); assert.equal(a[c('src_category')], 'CYBER2'); assert.equal(a[c('src_url')], 'https://sanctionssearch.ofac.treas.gov/Details.aspx?id=1');
+  assert.equal(a[c('src_licence')], 'Public domain (U.S. government work)'); assert.equal(a[c('src_as_of')], '2026-10-28'); assert.equal(a[c('src_sanctions')], 'true'); assert.equal(a[c('src_count')], '2');
+  assert.ok(a[c('src_all')].startsWith('OFAC SDN list (Bitcoin): Evil Corp wallet [CYBER2; data as of 2026-10-28; licence: Public domain (U.S. government work); sanctions list] | Ransomwhere: Ransomware: LockBit ['), a[c('src_all')]);
+  assert.ok(a[c('src_all')].includes('licence: CC BY 4.0'), 'every claim carries its own licence');
+  assert.ok(!a[c('src_all')].includes('My suspect') && !a[c('src_all')].includes('my hypothesis'), 'what you wrote yourself is never in the src columns');
+});
+
+test('src columns: a wallet only you named, a wallet nobody named and a transaction have them empty; the built-in list is named as such; a name that could run as a formula is defused', () => {
+  const { g, sources } = srcGraph();
+  const rows = parseCsv(IO.toCsv(g, 'nodes', { sources })), c = (n) => rows[0].indexOf(n), by = (id, kind) => rows.find((r) => r[0] === (kind || ID.addr)(id));
+  const b = by('B');
+  assert.equal(b[c('src_pack')], 'Built-in list'); assert.equal(b[c('src_sanctions')], ''); assert.equal(b[c('src_count')], '1');
+  assert.equal(b[c('src_label')], "'=HYPERLINK(\"http://x\")", 'a spreadsheet cannot run it');
+  IO.SRC_COLS.forEach((n) => { assert.equal(by('C')[c(n)], '', 'only you named it: ' + n); assert.equal(by('t1', ID.tx)[c(n)], '', 'a transaction: ' + n); });
+  const plain = parseCsv(IO.toCsv(g, 'nodes'));
+  plain.slice(1).forEach((r) => IO.SRC_COLS.forEach((n) => assert.equal(r[plain[0].indexOf(n)], '', 'no sources given, no src columns: ' + n)));
+});
+
+test('GraphML: the src attributes and the lookups carry the sources, and the file says when, by what and from where it was made and which lists it used', () => {
+  const { g, sources } = srcGraph();
+  const x = IO.toGraphMl(g, { sources });
+  IO.SRC_COLS.forEach((n) => assert.ok(x.includes('<key id="n_' + n + '" for="node" attr.name="' + n + '"'), n));
+  ['exported_utc', 'generator', 'data_source', 'field_groups', 'sources_used'].forEach((n) => assert.ok(x.includes('<key id="g_' + n + '" for="graph" attr.name="' + n + '"'), 'graph attribute ' + n));
+  assert.ok(x.includes('<data key="g_exported_utc">2026-11-09T12:00:00.000Z</data>'));
+  assert.ok(x.includes('<data key="g_generator">Hopline workspace abc1234</data>') && x.includes('<data key="g_data_source">https://mempool.space/api</data>'));
+  const used = x.match(/<data key="g_sources_used">([^<]*)<\/data>/)[1];
+  assert.ok(used.includes('OFAC SDN list (Bitcoin) - U.S. Treasury OFAC SDN list; licence: Public domain (U.S. government work); data as of 2026-10-28; https://sanctionslist.ofac.treas.gov/Home/SdnList'), used);
+  assert.ok(used.includes('Ransomwhere - ransomwhe.re; licence: CC BY 4.0; credit: Jack Cable and contributors; data as of 2024-10-27') && used.includes('Built-in list'), used);
+  assert.ok(!used.includes('own'), 'your own labels are not a source');
+  assert.ok(/<data key="g_field_groups">[^<]*ANALYST[^<]*label, note, tag[^<]*src_\* and ext_\*[^<]*HOPLINE INFERENCE[^<]*likely_change/.test(x), 'the legend says whose each group of fields is');
+  const a = x.slice(x.indexOf('<node id="addr:A">'), x.indexOf('</node>', x.indexOf('<node id="addr:A">')));
+  assert.ok(a.includes('<data key="n_label">My suspect</data>') && a.includes('<data key="n_src_pack">OFAC SDN list (Bitcoin)</data>') && a.includes('<data key="n_src_sanctions">true</data>') && a.includes('<data key="n_src_as_of">2026-10-28</data>'));
+  const declared = new Set([...x.matchAll(/<key id="([^"]+)"/g)].map((m) => m[1]));
+  [...x.matchAll(/<data key="([^"]+)"/g)].forEach((m) => assert.ok(declared.has(m[1]), 'undeclared key ' + m[1]));
+});
+
+test('GraphML: only the lists that name an exported wallet are listed as sources; with no sources given the file still says when it was made and the legend', () => {
+  const { g, sources } = srcGraph();
+  const only = { nodes: new Set([ID.addr('C'), ID.addr('B')]), edges: new Set() };
+  const used = IO.toGraphMl(g, { sources, only }).match(/<data key="g_sources_used">([^<]*)<\/data>/)[1];
+  assert.ok(used === 'Built-in list', used);
+  const bare = IO.toGraphMl(g);
+  assert.ok(/<data key="g_exported_utc">\d{4}-\d\d-\d\dT/.test(bare) && bare.includes('<data key="g_field_groups">') && !bare.includes('g_sources_used">'));
+});
+
+test('GraphML with sources is still well-formed XML, whatever a list wrote (parsed by Python)', (ctx) => {
+  const probe = spawnSync('python', ['-I', '-c', 'import xml.etree.ElementTree'], { encoding: 'utf8' });
+  if (probe.error || probe.status !== 0) return ctx.skip('python not available');
+  const { g, sources } = srcGraph();
+  sources.claims = claimsOf({ A: [{ label: 'a<b>&"\'\u0007 😀', pack: 'OFAC SDN list (Bitcoin)', category: '<x>', url: 'https://x/?a=1&b=2', note: 'n', sanctions: true, asOf: '2026-10-28' }] });
+  const code = 'import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.stdin.buffer.read()); ns="{http://graphml.graphdrawing.org/xmlns}"; print(len(list(r.iter(ns+"node"))), len(list(r.iter(ns+"data"))) > 0)';
+  const r = spawnSync('python', ['-I', '-c', code], { input: Buffer.from(IO.toGraphMl(g, { sources }), 'utf8'), encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), g.nodes.size + ' True');
 });
