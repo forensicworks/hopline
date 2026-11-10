@@ -351,6 +351,28 @@
     this.nodes.forEach(function (n) { if (n.type === 'tx' && n.time != null) { n.firstSeen = n.time; n.lastSeen = n.time; } });
   };
 
+  /**
+   * What an address received and sent in the graph, told into money from and to others and its own change: in a transaction that spent from the address and paid some of it
+   * back to it, the part that came back (the smaller of what it received and what it sent there) is its own, and counts both ways. So `received` and `sent` are the totals
+   * (what refreshDerived puts on the vertex), `fromOthers` and `toOthers` leave the own change out, and received minus sent equals fromOthers minus toOthers.
+   * Returns { received, sent, own, ownTxs (in how many transactions), fromOthers, toOthers, txs: [{ id, time, recv, sent }] } in satoshis.
+   */
+  Graph.prototype.flowOf = function (id) {
+    var per = new Map(), g = this, received = 0, sent = 0;
+    this.edgesOf(id).forEach(function (e) {
+      var tx, side;
+      if (e.kind === 'out' && e.target === id) { tx = e.source; side = 'recv'; received += e.amount; }
+      else if (e.kind === 'in' && e.source === id) { tx = e.target; side = 'sent'; sent += e.amount; }
+      else return;
+      var r = per.get(tx);
+      if (!r) { var t = g.nodes.get(tx); r = { id: tx, time: t ? t.time : null, recv: 0, sent: 0 }; per.set(tx, r); }
+      r[side] += e.amount;
+    });
+    var own = 0, ownTxs = 0, txs = [];
+    per.forEach(function (r) { var m = Math.min(r.recv, r.sent); if (m > 0) { own += m; ownTxs++; } txs.push(r); });
+    return { received: received, sent: sent, own: own, ownTxs: ownTxs, fromOthers: received - own, toOthers: sent - own, txs: txs };
+  };
+
   /** {min, max, pending, unknown} over confirmed transaction times in the graph (or only the vertices in `only`). */
   Graph.prototype.timeBounds = function (only) {
     var min = null, max = null, pending = 0, unknown = 0;
