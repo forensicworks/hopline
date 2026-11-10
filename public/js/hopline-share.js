@@ -31,7 +31,7 @@
 
   var PREFIX = '#s1/', IDS_PREFIX = '#i1/';
   var IDS_FORMAT = 'hopline-ids', MAX_IDS = 3000;               // an IDs link: its own format name, and the most transactions one may list (made or opened)
-  var IDS_VIEW = ['layout', 'arrange', 'colorBy', 'sizeBy', 'timeScale', 'focusOn', 'hops'];                    // the settings an IDs link carries; the reader's own checks do the rest
+  var IDS_VIEW = ['layout', 'arrange', 'colorBy', 'arrowDir', 'dirPalette', 'sizeBy', 'timeScale', 'focusOn', 'hops'];                    // the settings an IDs link carries; the reader's own checks do the rest
   var HEX64 = /^[0-9a-f]{64}$/, FOCUS_OK = /^(tx|addr):[A-Za-z0-9]{8,120}$/, ADDR_OK = /^[A-Za-z0-9]{8,120}$/;
   var MAX_LABELS = 6000, LABEL_MAX = 200, TAG_MAX = 60, NOTE_MAX = 4000, MAX_TRACE = 5000;      // what an IDs link may carry besides the ids
   var FORMAT = 'hopline-workspace', VERSION = 1;               // the workspace file's own names (HoplineIO): a link carries one, so a test keeps these two honest
@@ -41,7 +41,7 @@
   var MAX_JSON = 4000000;                                       // the largest text a link may unpack to
   var MAX_NODES_IN = 5000;                                      // the most vertices a link may claim
   var DROP = ['ext', 'fetchedAt', 'spendsCheckedAt', 'statsAt', 'statsSource', 'source'];                       // what other services said, and where and when a vertex was fetched from
-  var VIEW_KEYS = ['layout', 'arrange', 'colorBy', 'sizeBy', 'timeScale', 'focus', 'focusOn', 'hops'];          // the parts of the view that make the same picture; the rest is the reader's own
+  var VIEW_KEYS = ['layout', 'arrange', 'colorBy', 'arrowDir', 'dirPalette', 'sizeBy', 'timeScale', 'focus', 'focusOn', 'hops'];          // the parts of the view that make the same picture; the rest is the reader's own
   var TOO_BIG = 'unpacked size over the limit';
 
   function limitOf(v) { var n = Math.floor(Number(v)); return isFinite(n) ? Math.max(MIN_LIMIT, Math.min(MAX_LIMIT, n)) : DEFAULT_LIMIT; }

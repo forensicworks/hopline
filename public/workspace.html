@@ -167,6 +167,11 @@ window.addEventListener('error', function (e) {
           <button type="button" role="radio" data-color="age" aria-checked="false" title="Older → newer">Age</button>
           <button type="button" role="radio" data-color="script" aria-checked="false" title="p2pkh, p2sh, segwit, taproot…">Script</button>
         </div>
+        <label class="check" title="Input arrows (a coin that is spent: a wallet into a transaction) and output arrows (a coin that is created: a transaction to a wallet) each get a colour. A selected arrow, an arrow on a highlighted route or chain and the amber arrow of a possible change keep theirs, and Colour by Age no longer colours the arrows while this is on (the vertices keep it). The arrowheads show the direction either way"><input type="checkbox" id="arrowDir"> Colour arrows by direction</label>
+        <select id="dirPalette" aria-label="Arrow colours" title="Red and green are hard to tell apart with red-green colour blindness: Blue and lime is clear for all three kinds" disabled>
+          <option value="rg">Input red, output green</option>
+          <option value="bl">Input blue, output lime</option>
+        </select>
         <span class="lbl">Shape size</span>
         <div class="seg" id="sizeSeg" role="radiogroup" aria-label="Shape size">
           <button type="button" role="radio" data-size="auto" aria-checked="true" title="Proportional to value in the Force layout, compact in the others">Auto</button>
