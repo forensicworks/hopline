@@ -349,3 +349,48 @@ test('historyOpen: the totals of a wallet say whether more of its transactions c
   assert.equal(historyOpen(w(Object.assign({ received: 900, histNext: 'abc' }, read)), 'next'), true, 'a further page of history is waiting');
   assert.equal(historyOpen(w({ txCount: 2, received: 1, sent: 0, fundedSum: 900, spentSum: 900 }), 'next'), false, 'its history was asked for: the page says what is left');
 });
+
+// ---- flowOf: what an address got from and gave to others, apart from its own change ---------------------------------------------------------
+const hex2 = (n) => n.toString(16).padStart(2, '0').repeat(32);
+/** A confirmed transaction n: ins are [address, value, number of the transaction it spends from, its output index], outs are [address, value]. */
+const flowTx = (n, time, ins, outs) => ({
+  txid: hex2(n), fee: 100, weight: 400, status: { confirmed: true, block_height: 700000 + n, block_time: time },
+  vin: ins.map(([a, v, p, k]) => ({ txid: hex2(p), vout: k, is_coinbase: false, prevout: { scriptpubkey_address: a, scriptpubkey_type: 'v0_p2wpkh', value: v } })),
+  vout: outs.map(([a, v]) => ({ scriptpubkey_address: a, scriptpubkey_type: 'v0_p2wpkh', value: v }))
+});
+
+test('flowOf: change that comes back to the wallet counts both ways and is told apart from what others paid it and what it paid them', () => {
+  const g = new Graph();
+  g.addTx(flowTx(11, 1000, [['payer', 150000, 90, 0]], [['w', 100000], ['payer2', 49000]]));          // 100,000 in from others
+  g.addTx(flowTx(12, 2000, [['w', 100000, 11, 0]], [['shop', 30000], ['w', 69850]]));                  // 30,000 out and 150 of fee; 69,850 came back as change
+  g.addTx(flowTx(13, 3000, [['w', 69850, 12, 1]], [['shop2', 40000], ['w', 29700]]));                  // 40,000 out and 150 of fee; 29,700 came back
+  g.refreshDerived();
+  const f = g.flowOf(ID.addr('w')), w = g.node(ID.addr('w'));
+  assert.equal(f.received, w.received); assert.equal(f.sent, w.sent);
+  assert.equal(f.received, 100000 + 69850 + 29700); assert.equal(f.sent, 100000 + 69850);
+  assert.equal(f.own, 69850 + 29700, 'what came back in each transaction that spent from it');
+  assert.equal(f.ownTxs, 2);
+  assert.equal(f.fromOthers, 100000); assert.equal(f.toOthers, 30000 + 150 + 40000 + 150, 'what left and did not come back: the payments and the fees');
+  assert.equal(f.received - f.sent, f.fromOthers - f.toOthers, 'the balance moves by what others paid minus what it paid them');
+  assert.deepEqual(f.txs.map((r) => [r.time, r.recv, r.sent]).sort((a, b) => a[0] - b[0]), [[1000, 100000, 0], [2000, 69850, 100000], [3000, 29700, 69850]]);
+});
+
+test('flowOf: a wallet that never paid itself has no own change, and the two totals are the plain ones', () => {
+  const g = new Graph();
+  g.addTx(flowTx(21, 1000, [['payer', 90000, 91, 0]], [['w', 80000]]));
+  g.addTx(flowTx(22, 2000, [['w', 80000, 21, 0]], [['shop', 79000]]));
+  g.refreshDerived();
+  const f = g.flowOf(ID.addr('w'));
+  assert.equal(f.own, 0); assert.equal(f.ownTxs, 0); assert.equal(f.fromOthers, 80000); assert.equal(f.toOthers, 80000);
+  assert.deepEqual(g.flowOf(ID.addr('nobody')), { received: 0, sent: 0, own: 0, ownTxs: 0, fromOthers: 0, toOthers: 0, txs: [] }, 'an address that is not in the graph');
+});
+
+test('flowOf: in a transaction that paid the wallet more than it spent from it, only what it spent is its own', () => {
+  const g = new Graph();
+  g.addTx(flowTx(31, 1000, [['w', 50000, 92, 0], ['other', 100000, 93, 0]], [['w', 120000], ['third', 29000]]));   // w put in 50,000 and got 120,000: 50,000 of it is its own
+  g.refreshDerived();
+  const f = g.flowOf(ID.addr('w'));
+  assert.equal(f.received, 120000 + 50000, 'the 50,000 it spent had been paid to it by an earlier transaction');
+  assert.equal(f.own, 50000); assert.equal(f.fromOthers, 120000); assert.equal(f.toOthers, 0);
+  assert.equal(f.received - f.sent, f.fromOthers - f.toOthers);
+});

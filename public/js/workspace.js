@@ -2248,6 +2248,25 @@
              title: 'Sum of each transfer converted at its own ' + (state.fiat.basis === 'today' ? "(today's)" : state.fiat.basis === 'ref' ? '(reference)' : 'transaction') + ' price' };
   }
 
+  /** The fiat value of amounts [{ sats, time }], each at its own transaction's time, as fiatSum gives it ({ value, approx, text, title }), or null. */
+  function fiatSumList(items) {
+    var sum = 0, any = false, approx = false, cur = state.fiat.currency;
+    if (!fiatOn()) return null;
+    items.forEach(function (it) {
+      if (!(it.sats > 0)) return;
+      var x = fiatOf(it.sats, it.time); if (!x) return;
+      sum += x.value; any = true; approx = approx || x.approx;
+    });
+    if (!any) return null;
+    return { value: sum, approx: approx, text: (approx ? '≈ ' : '') + PR.format(sum, cur),
+             title: 'Sum of each transfer converted at its own ' + (state.fiat.basis === 'today' ? "(today's)" : state.fiat.basis === 'ref' ? '(reference)' : 'transaction') + ' price' };
+  }
+  /** What an address received from and sent to others, leaving its own change out (see Graph.flowOf), as fiat sums: { from, to }. */
+  function fiatFlow(flow) {
+    return { from: fiatSumList(flow.txs.map(function (r) { return { sats: r.recv - Math.min(r.recv, r.sent), time: r.time }; })),
+             to: fiatSumList(flow.txs.map(function (r) { return { sats: r.sent - Math.min(r.recv, r.sent), time: r.time }; })) };
+  }
+
   function fiatLoaded() {
     var f = state.fiat;
     if (f.currency === 'off') return false;
@@ -3245,11 +3264,19 @@
       kv(dl, 'Script type', n.scriptType);
       kvf(dl, 'Received here', S.fmtBtc(n.received) + ' BTC (in this graph)', fiatSum(n, true));
       kvf(dl, 'Sent from here', S.fmtBtc(n.sent) + ' BTC (in this graph)', fiatSum(n, false));
+      var flow = state.graph.flowOf(n.id);
+      if (flow.own > 0) {                                                                // it paid itself change: the totals above count that money both ways
+        var ff = fiatFlow(flow);
+        kvf(dl, 'From others', S.fmtBtc(flow.fromOthers) + ' BTC', ff.from);
+        kvf(dl, 'To others', S.fmtBtc(flow.toOthers) + ' BTC', ff.to);
+      }
       var balButton = balanceRows(dl, n, box);
       kv(dl, 'First seen', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
       kv(dl, 'Last seen', n.lastSeen != null ? S.fmtTime(n.lastSeen) : null);
       if (n.txCount != null) kv(dl, 'Transactions', fmtInt(n.txCount) + ' on chain' + (M.historyRead(n) ? (n.histNext || !n.histDone ? '' : ' (all loaded)') : M.historyOpen(n) ? ', history not loaded: press Load history' : ' (all of them are in the graph)'));
       box.appendChild(dl);
+      if (flow.own > 0) box.appendChild(el('p', { 'class': 'hint flowhint', text: S.fmtBtc(flow.own) + ' BTC of what this wallet received and of what it sent is its own change: it was spent in ' + plural(flow.ownTxs, 'transaction')
+                                                                           + ' that paid it back to the same wallet, so the totals count it both ways. From others and To others leave it out: what other wallets paid it, and what it paid out, fees included (in this graph).' }));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), balButton]));
       var ta2 = traceActions(n); if (ta2) box.appendChild(ta2);
       var acts = [el('button', { type: 'button', text: n.histNext ? 'Load more history' : 'Load history', disabled: n.histDone ? 'disabled' : null, onclick: function () { expandNode(n.id); } }),
@@ -3407,7 +3434,9 @@
         if (ar && ar.change && AN.rank(ar.change.confidence) >= 2) line(AN.changeTitle(ar.change.confidence), 'output ' + ar.change.vout + ' (' + ar.change.confidence + ' confidence)');
       } else if (n.type === 'addr') {
         line('Address', S.shortId(n.address, 12)); if (KNOWN[n.address]) line('Known', KNOWN[n.address].label);
-        line('Type', n.scriptType); line('Received', mixText(S.fmtBtc(n.received) + ' BTC', fiatSum(n, true))); line('First seen', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
+        line('Type', n.scriptType); line('Received', mixText(S.fmtBtc(n.received) + ' BTC', fiatSum(n, true)));
+        var fl = g.flowOf(n.id); if (fl.own > 0) line('From others', mixText(S.fmtBtc(fl.fromOthers) + ' BTC', fiatFlow(fl).from) + ' · the rest, ' + S.fmtBtc(fl.own) + ' BTC, is its own change');
+        line('First seen', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
         var cl = analysis().clusters.byAddr.get(n.id); if (cl) line('Cluster', cl.label + ' · ' + cl.size + ' addresses spent together');
       } else if (n.type === 'data') { line('OP_RETURN', n.dataText || (n.dataHex ? n.dataHex.slice(0, 48) + (n.dataHex.length > 48 ? '…' : '') : 'empty')); }
       else if (n.type === 'coinbase') line('Coinbase', 'newly created coins');
