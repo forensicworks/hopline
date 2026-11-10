@@ -171,6 +171,8 @@ The roadmap asked whether a change guess that rests on one sign should count as 
 
 Either way the change is made once and judged on the unopened holdout (how many guesses change tier) and on a labelled seed that was not used before.
 
+**What keeps this section true.** `test/one-sign.test.js` checks that the numbers above come out of the committed cases (518 of 579, 385 of 387, 412 of 462, 24 of 24, 35 of 38, the 3 wrong guesses all p2sh coins paid to a p2sh address, and the 66.1% of real guesses on one sign), that a guess on one sign says "Only one sign points to this output", and that *follow the change* follows a low guess. `test/e2e/test_one_sign_page.py` checks in the browser that the card on the graph shows a medium guess and not a low one, that the details say it, and that Auto-expand follows both. None of them judges the decision: if one fails, the analysis has changed under it, and the section or the code has to change on purpose.
+
 ## What real traffic showed (2026-10-26)
 
 4,674 transactions from 8 blocks between 2013 and 2026 ([benchmark-base-rates.md](benchmark-base-rates.md)). Nobody knows who owns what in them, so none of this says whether a guess is right.
