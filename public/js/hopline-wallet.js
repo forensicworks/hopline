@@ -270,6 +270,10 @@
     return { from: Math.floor(d.getTime() / 1000), to: end };
   }
 
+  function isoDay(t) { return new Date(t * 1000).toISOString().slice(0, 10); }
+  /** The From and To dates ("YYYY-MM-DD", UTC, both days included) that make the list show a period of the chart (unix seconds); the list takes whole days, so it reaches to the ends of the first and last day. */
+  function periodDates(from, to) { return { from: isoDay(from), to: isoDay(to) }; }
+
   // ---- in and out per period: the bars under the balance chart, and moving the period with fingers --------------------------------
   var DAY = 86400;
   function startOf(unit, t) {
@@ -435,5 +439,5 @@
     return out.join('\r\n') + '\r\n';
   }
 
-  return { ledger: ledger, summary: summary, flow: flow, rowOthers: rowOthers, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, niceTicks: niceTicks, timeTicks: timeTicks, windowSeries: windowSeries, presetWindow: presetWindow, barBuckets: barBuckets, barTotals: barTotals, pinchWindow: pinchWindow, panWindow: panWindow, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
+  return { ledger: ledger, summary: summary, flow: flow, rowOthers: rowOthers, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, niceTicks: niceTicks, timeTicks: timeTicks, windowSeries: windowSeries, presetWindow: presetWindow, periodDates: periodDates, barBuckets: barBuckets, barTotals: barTotals, pinchWindow: pinchWindow, panWindow: panWindow, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
 }));

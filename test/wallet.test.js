@@ -125,6 +125,14 @@ test('flow counts the own change once per transaction, as the smaller of what ca
   assert.equal(f.ownTxs, 2); assert.equal(f.own, 70000 + 39000);
 });
 
+test('periodDates: the From and To dates, in UTC, that give the list a period of the chart', () => {
+  const t = (y, m, d, h = 0, mi = 0, sec = 0) => Date.UTC(y, m - 1, d, h, mi, sec) / 1000;
+  assert.deepEqual(Wallet.periodDates(t(2022, 3, 2), t(2022, 3, 2, 23, 59, 59)), { from: '2022-03-02', to: '2022-03-02' }, 'a day of the bars: that one day');
+  assert.deepEqual(Wallet.periodDates(t(2022, 6, 3, 12), t(2022, 7, 3, 12)), { from: '2022-06-03', to: '2022-07-03' }, 'a month back from the newest transaction');
+  assert.deepEqual(Wallet.periodDates(t(2022, 3, 2, 13, 30), t(2022, 3, 9, 8, 15)), { from: '2022-03-02', to: '2022-03-09' }, 'a dragged selection: the days it starts and ends on');
+  assert.deepEqual(Wallet.periodDates(t(2021, 12, 31, 23, 59, 59), t(2022, 1, 1, 0, 0, 0)), { from: '2021-12-31', to: '2022-01-01' }, 'across a year end, by UTC, not by the time zone of the browser');
+});
+
 test('csv has a header and a line per transaction, quotes what needs it and defuses spreadsheet formulas', () => {
   const evil = tx(11, [['=HYPERLINK("http://x","y")', 1000]], [[ME, 900]], 1650010000);
   const text = Wallet.csv(Wallet.ledger(ME, [evil].concat(sample()), { balance: 67000 }).rows);
