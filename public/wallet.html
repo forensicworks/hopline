@@ -71,10 +71,25 @@ window.addEventListener('error', function (e) {
   </section>
 
   <section id="chartSec" hidden aria-label="Balance over time">
-    <h2>Balance over time</h2>
+    <div class="chartbar">
+      <h2>Balance over time</h2>
+      <div class="seg" id="rangeSeg" role="radiogroup" aria-label="Period shown">
+        <button type="button" role="radio" data-range="1m" aria-checked="false" title="The last month, up to the newest transaction loaded">1M</button>
+        <button type="button" role="radio" data-range="6m" aria-checked="false" title="The last six months, up to the newest transaction loaded">6M</button>
+        <button type="button" role="radio" data-range="1y" aria-checked="false" title="The last year, up to the newest transaction loaded">1Y</button>
+        <button type="button" role="radio" data-range="all" aria-checked="true" title="Everything that is loaded">All</button>
+      </div>
+      <span id="chartRange" class="hint" role="status"></span>
+      <button type="button" id="chartReset" hidden title="Show everything that is loaded again">Reset zoom</button>
+      <span class="spacer"></span>
+      <label title="Show the period of the From and To dates under Transactions, instead of the buttons or a dragged selection"><input type="checkbox" id="chartFollow"> Follow the From and To dates</label>
+    </div>
+    <p class="chartbanner" id="chartBanner" role="status" hidden><span id="chartBannerText"></span> <button type="button" id="chartLoadAll" title="Load the rest of the history, a page at a time, up to the limit under Transactions">Load all</button><button type="button" id="chartCancel" hidden>Cancel</button></p>
     <div class="chartwrap">
       <canvas id="chart" tabindex="0" role="img" aria-label="Balance over time"></canvas>
+      <span id="chartLine" class="chartline" hidden></span>
       <span id="chartDot" class="chartdot" hidden></span>
+      <div id="chartSel" class="chartsel" hidden></div>
       <div id="chartTip" class="charttip" hidden></div>
     </div>
     <p class="hint" id="chartText"></p>

@@ -285,3 +285,76 @@ test('graphOf: no totals without stats, an empty list is an empty graph, and a t
   assert.equal(g.nodes.get(Model.ID.addr(ME)).fundedSum, undefined);
   const e = Wallet.graphOf(ME, []); assert.equal(e.nodes.size, 0); assert.equal(Wallet.graphOf(ME, null).edges.size, 0);
 });
+
+// ---- the balance chart: round axes and a period ---------------------------------------------------------------------------
+const sec = (y, m, d, h = 0, i = 0) => Date.UTC(y, m - 1, d, h, i) / 1000;
+const labels = (t0, t1, max) => Wallet.timeTicks(t0, t1, max).map((t) => t.label);
+
+test('niceTicks: round values from at or below the lowest to at or above the highest, one step apart', () => {
+  const t = Wallet.niceTicks(0, 550000, 5, { integer: true });
+  assert.deepEqual(t.ticks, [0, 200000, 400000, 600000]);
+  assert.equal(t.lo, 0); assert.equal(t.hi, 600000); assert.equal(t.step, 200000);
+  assert.deepEqual(Wallet.niceTicks(1234, 1301, 5, { integer: true }).ticks, [1220, 1240, 1260, 1280, 1300, 1320], 'a period that does not start at nothing');
+  assert.deepEqual(Wallet.niceTicks(0, 1, 5).ticks, [0, 0.5, 1], 'fractions are allowed, for a currency');
+  assert.deepEqual(Wallet.niceTicks(0, 1, 5, { integer: true }).ticks, [0, 1], 'satoshis are whole');
+  assert.deepEqual(Wallet.niceTicks(5, 5, 5, { integer: true }).ticks, [5, 6], 'nothing to span: one step above');
+  assert.deepEqual(Wallet.niceTicks(0, 0.3, 4).ticks, [0, 0.1, 0.2, 0.3], 'no floating-point crumbs');
+});
+
+test('niceTicks: always covers the values and gives about as many ticks as asked for', () => {
+  for (const [lo, hi] of [[0, 1], [0, 99], [3, 4], [12345, 98765], [0, 2.1e9], [0, 21e14], [-50, 130], [1e8, 1.0004e8]]) {
+    for (const n of [3, 5, 7]) {
+      const t = Wallet.niceTicks(lo, hi, n);
+      assert.ok(t.ticks[0] <= lo && t.ticks[t.ticks.length - 1] >= hi, lo + '..' + hi);
+      assert.ok(t.ticks.length >= 2 && t.ticks.length <= n + 2, lo + '..' + hi + ' n=' + n + ': ' + t.ticks.length);
+      t.ticks.slice(1).forEach((v, i) => assert.ok(Math.abs(v - t.ticks[i] - t.step) < t.step * 1e-6, 'even steps'));
+    }
+  }
+});
+
+test('timeTicks: round moments in UTC, labelled to suit the span', () => {
+  assert.deepEqual(labels(sec(2019, 5, 1), sec(2024, 11, 9), 8), ['2020', '2021', '2022', '2023', '2024']);
+  assert.deepEqual(labels(sec(2022, 3, 1, 12), sec(2022, 9, 3, 12), 8), ['Apr 2022', 'May', 'Jun', 'Jul', 'Aug', 'Sep'], 'months, with the year on the first');
+  assert.deepEqual(labels(sec(2022, 3, 1), sec(2022, 3, 31), 8), ['1 Mar', '6 Mar', '11 Mar', '16 Mar', '21 Mar', '26 Mar'], 'days of the month; the 31st would crowd the 1st');
+  assert.deepEqual(labels(sec(2022, 3, 1, 9), sec(2022, 3, 2, 15), 8), ['12:00', '18:00', '2 Mar', '06:00', '12:00'], 'hours, the date where midnight falls');
+  assert.ok(labels(sec(2021, 12, 20), sec(2022, 1, 12), 8).every((l) => /\d{4}$/.test(l)), 'days over a New Year carry the year');
+});
+
+test('timeTicks: never more than asked for, oldest first, all inside the span', () => {
+  const spans = [[0, 60 * 20], [0, 3600 * 5], [0, 86400 * 3], [0, 86400 * 45], [0, 86400 * 200], [0, 86400 * 400], [0, 86400 * 365 * 3], [0, 86400 * 365 * 15], [sec(2021, 1, 31, 7), sec(2021, 3, 2, 22)]];
+  for (const [a, b] of spans) {
+    for (const max of [2, 4, 8, 12]) {
+      const t = Wallet.timeTicks(a, b, max);
+      assert.ok(t.length >= 1 && t.length <= Math.max(max, 2), a + '..' + b + ' max ' + max + ': ' + t.length);
+      t.forEach((k, i) => { assert.ok(k.time >= a && k.time <= b, 'inside'); if (i) assert.ok(k.time > t[i - 1].time, 'ascending'); assert.ok(k.label, 'labelled'); });
+    }
+  }
+});
+
+test('timeTicks: a span too short for any step, or one moment, gives its ends with their dates', () => {
+  assert.deepEqual(Wallet.timeTicks(100, 100, 8), [{ time: 100, label: '1970-01-01 00:01' }]);
+  assert.deepEqual(Wallet.timeTicks(100, 160, 8).map((t) => t.label), ['1970-01-01 00:01', '1970-01-01 00:02']);
+});
+
+test('windowSeries: the balance as the period opens, and the transactions inside it', () => {
+  const series = { points: [{ time: 10, balance: 100 }, { time: 20, balance: 150 }, { time: 30, balance: 120 }], start: { time: 10, balance: 0 } };
+  const times = (w) => w.points.map((p) => p.time);
+  let w = Wallet.windowSeries(series, 15, 30);
+  assert.deepEqual(w.start, { time: 15, balance: 100, at: 10 }, 'what the transaction before it left');
+  assert.deepEqual(times(w), [20, 30], 'both ends are inside');
+  w = Wallet.windowSeries(series, 5, 25);
+  assert.deepEqual(w.start, { time: 5, balance: 0, at: 10 }, 'before the first: where the whole series started');
+  assert.deepEqual(times(w), [10, 20]);
+  w = Wallet.windowSeries(series, 40, 50);
+  assert.deepEqual(w.start, { time: 40, balance: 120, at: 30 }); assert.deepEqual(times(w), [], 'a quiet period: the balance stayed');
+  assert.deepEqual(times(Wallet.windowSeries(series, 20, 20)), [20]);
+});
+
+test('presetWindow: the last month, six months or year up to the end, by UTC calendar months', () => {
+  assert.deepEqual(Wallet.presetWindow('1m', sec(2022, 7, 3, 12)), { from: sec(2022, 6, 3, 12), to: sec(2022, 7, 3, 12) });
+  assert.equal(Wallet.presetWindow('1m', sec(2022, 3, 31, 12)).from, sec(2022, 2, 28, 12), 'a month with no 31st ends on its last day');
+  assert.equal(Wallet.presetWindow('6m', sec(2022, 8, 31, 12)).from, sec(2022, 2, 28, 12));
+  assert.equal(Wallet.presetWindow('1y', sec(2024, 2, 29, 12)).from, sec(2023, 2, 28, 12), 'a leap day a year back');
+  assert.equal(Wallet.presetWindow('1y', sec(2022, 1, 15)).from, sec(2021, 1, 15), 'over a New Year');
+  assert.equal(Wallet.presetWindow('all', 5), null); assert.equal(Wallet.presetWindow('custom', 5), null); assert.equal(Wallet.presetWindow('1m', null), null);
+});

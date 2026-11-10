@@ -55,7 +55,7 @@ def test_the_chart_is_drawn_from_the_balance_after_each_transaction(wpage, mock)
     assert painted > 800, "something was drawn"
     text = wpage.inner_text("#chartText")
     assert "25 confirmed transactions loaded" in text and "Highest 0.00550000 BTC" in text and "lowest 0.00000000 BTC" in text
-    assert "Only part of the history" not in text, "all 25 of 25 are loaded"
+    assert wpage.is_hidden("#chartBanner"), "all 25 of 25 are loaded: nothing to warn about"
     assert "Balance over time" in wpage.get_attribute("#chart", "aria-label") and "Highest" in wpage.get_attribute("#chart", "aria-label")
 
 
@@ -104,7 +104,9 @@ def test_with_only_part_of_the_history_loaded_the_chart_says_so(wpage, mock):
     history(mock, 125); funded(mock, 125)
     goto(wpage)
     assert len(points(wpage)) == 25
-    assert "Only part of the history is loaded" in wpage.inner_text("#chartText")
+    banner = wpage.inner_text("#chartBanner")
+    assert "Only the newest 25 of 125 transactions are loaded" in banner and "starts on 2022-06-09," in banner and "worked back from today" in banner, banner
+    assert wpage.is_visible("#chartLoadAll")
     first = points(wpage)[0]
     assert first[3] == sum(10000 + i * 1000 for i in range(125)) - sum(10000 + i * 1000 for i in range(101, 125)), "worked back from today's balance"
 
