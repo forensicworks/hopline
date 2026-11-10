@@ -341,13 +341,15 @@ test('the node CSV names what each outside source said about a wallet in one cel
   assert.equal(by('C'), '', 'a wallet nobody was asked about has an empty cell');
 });
 
+const noSrc = (line) => line.replace(/(,[^,]*){5}$/, '');                       // a row without its last five cells, the source_* columns added after "start"
 test('handoffsCsv: the kind column says service, or named for a wallet a sanctions or ransomware list names', () => {
   const lines = IO.handoffsCsv([
     { kind: 'named', dir: 'deposit', service: 'Ransomware: Acme', address: 'bc1qlst', txid: 'ab'.repeat(32), time: 1650000000, amount: 100, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false },
     { dir: 'withdrawal', service: 'Exchange', address: 'bc1qex', txid: 'cd'.repeat(32), time: 1650000000, amount: 5, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 1, merges: false }]).split('\r\n');
-  assert.deepEqual(IO.HANDOFF_COLS.slice(-3), ['kind', 'swap_memo', 'start'], 'added at the end, so the columns a script already reads stay where they were');
-  assert.ok(lines[1].endsWith(',false,named,,'), lines[1]);
-  assert.ok(lines[2].endsWith(',false,service,,'), 'a row from before the kind existed is a service: ' + lines[2]);
+  assert.deepEqual(IO.HANDOFF_COLS.slice(-8, -5), ['kind', 'swap_memo', 'start'], 'added at the end, so the columns a script already reads stay where they were');
+  assert.deepEqual(IO.HANDOFF_COLS.slice(-5), ['source_list', 'source_licence', 'source_attribution', 'source_as_of', 'source_url'], 'and the source columns come after them');
+  assert.ok(noSrc(lines[1]).endsWith(',false,named,,'), lines[1]);
+  assert.ok(noSrc(lines[2]).endsWith(',false,service,,'), 'a row from before the kind existed is a service: ' + lines[2]);
 });
 
 test('the reference that was picked survives an export and an import, and an id that was changed on the way follows it', () => {
@@ -359,7 +361,7 @@ test('the reference that was picked survives an export and an import, and an id 
 
 test('handoffsCsv: a swap-memo row says so in its kind and leaves the amount and the service wallet empty', () => {
   const rows = [{ kind: 'swap', dir: 'deposit', service: 'Swap memo: into ETH.WBTC, paid out to 0xabc', address: null, txid: 'ef'.repeat(32), time: 1650000000, amount: null, outputs: 0, walletAddress: 'bc1qbefore', depth: 2, nIn: 1, nOut: 3, merges: false }];
-  const line = IO.handoffsCsv(rows).split('\r\n')[1], cells = line.split(',');
+  const line = noSrc(IO.handoffsCsv(rows).split('\r\n')[1]), cells = line.split(',');
   assert.equal(cells[cells.length - 3], 'swap memo'); assert.equal(cells[cells.length - 2], '', 'the memo column is empty when the service is the memo'); assert.equal(cells[cells.length - 1], '');
   assert.ok(line.startsWith('deposit,"Swap memo: into ETH.WBTC, paid out to 0xabc",,'), line);
   assert.ok(line.includes(',1650000000,2022-04-15 05:20 UTC,,,0,bc1qbefore,2,1,3,false,'), 'no amount, neither in satoshis nor in BTC: ' + line);
@@ -368,15 +370,15 @@ test('handoffsCsv: a swap-memo row says so in its kind and leaves the amount and
 test('handoffsCsv: the last column carries the swap memo noted on a service hand-off, and is empty for the rest', () => {
   const rows = [{ kind: 'service', dir: 'deposit', service: 'A service', address: 'bc1qsvc', txid: 'ab'.repeat(32), time: 1650000000, amount: 5, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false,
                   memoText: 'Cross-chain request: ID 0xabababab...ababab' }];
-  assert.ok(IO.HANDOFF_COLS.indexOf('swap_memo') === IO.HANDOFF_COLS.length - 2);
-  assert.ok(IO.handoffsCsv(rows).split('\r\n')[1].endsWith(',service,Cross-chain request: ID 0xabababab...ababab,'));
+  assert.ok(IO.HANDOFF_COLS.indexOf('swap_memo') === IO.HANDOFF_COLS.length - 7);
+  assert.ok(noSrc(IO.handoffsCsv(rows).split('\r\n')[1]).endsWith(',service,Cross-chain request: ID 0xabababab...ababab,'));
 });
 
 test('handoffsCsv: the start column says which starting point a row comes from, without the vertex prefix', () => {
   const rows = [{ kind: 'service', dir: 'deposit', service: 'S', address: 'bc1qsvc', txid: 'ab'.repeat(32), time: 1650000000, amount: 5, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false, from: 'addr:bc1qstart' },
                 { kind: 'swap', dir: 'deposit', service: 'M', address: null, txid: 'cd'.repeat(32), time: 1650000000, amount: null, outputs: 0, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false, from: 'tx:' + 'ee'.repeat(32) }];
   const lines = IO.handoffsCsv(rows).split('\r\n');
-  assert.ok(lines[1].endsWith(',service,,bc1qstart'), lines[1]); assert.ok(lines[2].endsWith(',swap memo,,' + 'ee'.repeat(32)), lines[2]);
+  assert.ok(noSrc(lines[1]).endsWith(',service,,bc1qstart'), lines[1]); assert.ok(noSrc(lines[2]).endsWith(',swap memo,,' + 'ee'.repeat(32)), lines[2]);
 });
 
 // ---- who said it: public lists kept apart from the analyst's own label, tag and note --------------------------------------
@@ -461,4 +463,74 @@ test('GraphML with sources is still well-formed XML, whatever a list wrote (pars
   const r = spawnSync('python', ['-I', '-c', code], { input: Buffer.from(IO.toGraphMl(g, { sources }), 'utf8'), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), g.nodes.size + ' True');
+});
+
+// ---- JSON: the file keeps what public lists say apart from the analyst's own words, and says where each list came from ----------------------------------------------
+
+test('JSON provenance: every list claim about an exported wallet, with its list, licence and date, apart from your label, tag and note', () => {
+  const { g, sources } = srcGraph();
+  const j = JSON.parse(IO.toJson(g, { sources, now: Date.UTC(2026, 10, 10) })), p = j.provenance;
+  assert.ok(p && /^Who said it\. ANALYST/.test(p.about) && p.about.includes('provenance.wallets') && p.generator === 'Hopline workspace abc1234');
+  assert.deepEqual(Object.keys(p.wallets).sort(), ['A', 'B'], 'wallets with a claim from a list: not the one only you named, not the one nobody named, not a transaction');
+  assert.deepEqual(p.wallets.A.map((c) => c.list), ['OFAC SDN list (Bitcoin)', 'Ransomwhere'], 'every claim, in order, and your own is not one of them');
+  const ofac = p.wallets.A[0];
+  assert.deepEqual([ofac.label, ofac.category, ofac.licence, ofac.asOf, ofac.sanctions, ofac.url], ['Evil Corp wallet', 'CYBER2', 'Public domain (U.S. government work)', '2026-10-28', true, 'https://sanctionssearch.ofac.treas.gov/Details.aspx?id=1']);
+  const rw = p.wallets.A[1];
+  assert.deepEqual([rw.licence, rw.attribution, rw.asOf, rw.note, rw.sanctions], ['CC BY 4.0', 'Jack Cable and contributors', '2024-10-27', '3 payments', undefined]);
+  assert.equal(p.wallets.B[0].list, 'Built-in list'); assert.equal(p.wallets.B[0].licence, '', 'the built-in list has no licence to name');
+  const a = j.nodes.find((n) => n.id === ID.addr('A'));
+  assert.deepEqual([a.label, a.note, a.tag], ['My suspect', 'my hypothesis', 'RANSOM'], 'yours stay on the vertex');
+  assert.ok(!JSON.stringify(p).includes('my hypothesis') && !JSON.stringify(p).includes('My suspect'), 'and are not in the provenance');
+});
+
+test('JSON provenance: the lists used are named once each, with what each says about itself', () => {
+  const { g, sources } = srcGraph();
+  const lists = JSON.parse(IO.toJson(g, { sources })).provenance.lists;
+  assert.deepEqual(lists.map((l) => l.list), ['OFAC SDN list (Bitcoin)', 'Ransomwhere', 'Built-in list']);
+  assert.deepEqual(lists[1], { list: 'Ransomwhere', source: 'ransomwhe.re', licence: 'CC BY 4.0', attribution: 'Jack Cable and contributors', asOf: '2024-10-27', sourceUrl: 'https://ransomwhe.re' });
+  assert.equal(IO.listsText(lists), IO.listsText(IO.listsUsed(Array.from(g.nodes.values()), sources)));
+  const only = new Set([ID.addr('B')]);
+  const some = JSON.parse(IO.toJson(g, { sources, only: { nodes: only, edges: new Set() } })).provenance;
+  assert.deepEqual(some.lists.map((l) => l.list), ['Built-in list'], 'an export of part of the graph lists only what that part used');
+  assert.deepEqual(Object.keys(some.wallets), ['B']);
+});
+
+test('JSON provenance: a file made without sources has none (null), and an import ignores the block either way', () => {
+  const { g, sources } = srcGraph();
+  assert.equal(JSON.parse(IO.toJson(g, {})).provenance, null);
+  const withSources = IO.toJson(g, { sources }), r = IO.fromJson(withSources), plain = IO.fromJson(IO.toJson(g, {}));
+  assert.equal(r.graph.nodes.size, plain.graph.nodes.size); assert.deepEqual(r.warnings, []);
+  assert.equal(r.graph.nodes.get(ID.addr('A')).label, 'My suspect');
+  assert.ok(!('provenance' in r.graph.nodes.get(ID.addr('A'))), 'nothing of it lands on a vertex: it is a record of the export, rebuilt from the lists at the next one');
+  const again = JSON.parse(IO.toJson(r.graph, { sources })); assert.deepEqual(again.provenance.lists.map((l) => l.list), ['OFAC SDN list (Bitcoin)', 'Ransomwhere', 'Built-in list']);
+});
+
+test('JSON provenance: text from a list stays text (a name that could run as a formula is only stored, never defused or run)', () => {
+  const { g, sources } = srcGraph();
+  assert.equal(JSON.parse(IO.toJson(g, { sources })).provenance.wallets.B[0].label, '=HYPERLINK("http://x")', 'JSON is not a spreadsheet: the text is kept as it is');
+});
+
+// ---- hand-offs: what the lists say about the service wallet of a row ----------------------------------------------------------------------------------------------
+
+const HROW = (o) => Object.assign({ kind: 'service', dir: 'deposit', service: 'Some name', address: 'B', txid: 'ab'.repeat(32), time: 1650000000, amount: 5, outputs: 1, walletAddress: null, depth: 1, nIn: 1, nOut: 2, merges: false }, o);
+
+test('hand-offs: annotateHandoffs gives each row a source (the list, its licence, credit, date and link), or null for a wallet no list names', () => {
+  const { sources } = srcGraph();
+  const rows = IO.annotateHandoffs([HROW({ address: 'A', service: 'Ransomware: LockBit', kind: 'named' }), HROW({ address: 'B' }), HROW({ address: 'C', service: 'My own name' }), HROW({ address: null, kind: 'swap', service: 'Swap memo: into ETH.WBTC' })], sources);
+  assert.deepEqual(rows[0].source, { list: 'OFAC SDN list (Bitcoin)', licence: 'Public domain (U.S. government work)', attribution: '', asOf: '2026-10-28', url: 'https://sanctionssearch.ofac.treas.gov/Details.aspx?id=1' }, 'the first list that names the wallet');
+  assert.deepEqual(rows[1].source, { list: 'Built-in list', licence: '', attribution: '', asOf: '', url: '' });
+  assert.equal(rows[2].source, null, 'a name only you gave is yours, not a list\'s');
+  assert.equal(rows[3].source, null, 'a swap memo has no service wallet');
+  assert.equal(rows[0].service, 'Ransomware: LockBit', 'the rest of the row is as it was');
+  assert.ok(IO.annotateHandoffs([HROW({})], null)[0].source === null && IO.annotateHandoffs(null, null).length === 0, 'without sources every source is null');
+});
+
+test('hand-offs CSV: the source columns come after the start column, are filled from the sources, and are empty without them', () => {
+  const { sources } = srcGraph(), c = (n) => IO.HANDOFF_COLS.indexOf(n);
+  const rows = [HROW({ address: 'A', service: 'Ransomware: LockBit', kind: 'named' }), HROW({ address: 'C', service: 'My own name' })];
+  const lines = IO.handoffsCsv(rows, { sources }).split('\r\n'), a = lines[1].split(','), b = lines[2].split(',');
+  assert.ok(c('source_list') > c('start') && IO.HANDOFF_COLS.slice(-5).join() === 'source_list,source_licence,source_attribution,source_as_of,source_url');
+  assert.deepEqual([a[c('source_list')], a[c('source_licence')], a[c('source_as_of')]], ['OFAC SDN list (Bitcoin)', 'Public domain (U.S. government work)', '2026-10-28']);
+  assert.deepEqual(b.slice(c('source_list')), ['', '', '', '', ''], 'a name of your own: no source');
+  assert.deepEqual(IO.handoffsCsv(rows).split('\r\n')[1].split(',').slice(c('source_list')), ['', '', '', '', ''], 'no sources given: the columns are there and empty');
 });

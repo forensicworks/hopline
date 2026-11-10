@@ -1,7 +1,8 @@
 /*
  * Hopline import / export. Pure string in, string out (no DOM, no downloads), so it is testable under node.
  *
- *   JSON     the full workspace: graph, labels, notes and view settings. The only format that imports back.
+ *   JSON     the full workspace: graph, labels, notes and view settings, and (when the caller says where names come from) a "provenance" block that keeps what public lists say
+ *            about the wallets apart from your own label, tag and note. The only format that imports back; an import ignores the block.
  *   CSV      nodes and edges as two tables, for spreadsheets and for Gephi / Maltego table import.
  *   GraphML  a directed graph with typed attributes, for Gephi, Maltego, yEd, Cytoscape, NetworkX.
  *
@@ -38,6 +39,7 @@
       source: opts.source || null,
       view: opts.view || null,
       positions: opts.positions || null,
+      provenance: provenanceBlock(p.nodes, opts.sources),
       nodes: p.nodes, edges: p.edges
     }, null, 1);
   }
@@ -153,6 +155,50 @@
              asOf: c.asOf || pm.asOf || '', sanctions: claims.some(function (k) { return k.sanctions === true; }), count: claims.length, all: all.join(' | ') };
   }
 
+  /** The lists that name the wallets among `nodes`, once each, with what each says about itself: [{ list, source, licence, attribution, asOf, sourceUrl }] (empty without `sources`). */
+  function listsUsed(nodes, sources) {
+    var used = new Set(), out = [];
+    if (!sources || typeof sources.claims !== 'function') return out;
+    nodes.forEach(function (n) {
+      if (n.type !== 'addr' || !n.address) return;
+      (sources.claims(n.address) || []).forEach(function (c) {
+        if (!c || c.own || used.has(c.pack || BUILTIN)) return;
+        used.add(c.pack || BUILTIN);
+        var m = (sources.packs || {})[c.pack] || {};
+        out.push({ list: c.pack || BUILTIN, source: m.source || '', licence: m.licence || '', attribution: m.attribution || '', asOf: c.asOf || m.asOf || '', sourceUrl: m.sourceUrl || '' });
+      });
+    });
+    return out;
+  }
+  /** The lists as one line of text, each with its source, licence, credit, the date of its data and its link: "OFAC SDN list - US Treasury; licence: Public domain; data as of 2026-10-28 | Built-in list". */
+  function listsText(lists) {
+    return lists.map(function (l) {
+      return l.list + [l.source, l.licence && 'licence: ' + l.licence, l.attribution && 'credit: ' + l.attribution, l.asOf && 'data as of ' + l.asOf, l.sourceUrl].filter(Boolean).map(function (b, i) { return (i ? '; ' : ' - ') + b; }).join('');
+    }).join(' | ');
+  }
+  var JSON_ABOUT = 'Who said it. ANALYST (entered by the person who made this file): nodes[].label, note, tag, color, shape. PUBLIC OR OUTSIDE SOURCE (what a list or a service says, with its name, licence and the date of its data: a claim, not a finding): provenance.wallets and nodes[].ext. '
+    + 'Hopline\'s own guesses (patterns, clusters, likely change) are not stored in this file. Everything else is on-chain data or arithmetic on it.';
+  /**
+   * What the lists say about the wallets in a JSON file, apart from the analyst's own label, tag and note: { about, generator, lists: [...], wallets: { address: [{ list, label, category, url, note, licence, attribution,
+   * asOf, sanctions }] } } with every claim of every list that names the wallet. null without `sources` (a file made by the wallet page, which looks nothing up).
+   */
+  function provenanceBlock(nodes, sources) {
+    if (!sources || typeof sources.claims !== 'function') return null;
+    var wallets = {}, meta = sources.meta || {};
+    nodes.forEach(function (n) {
+      if (n.type !== 'addr' || !n.address) return;
+      var claims = (sources.claims(n.address) || []).filter(function (c) { return c && !c.own; });
+      if (!claims.length) return;
+      wallets[n.address] = claims.map(function (c) {
+        var m = (sources.packs || {})[c.pack] || {}, o = { list: c.pack || BUILTIN, label: c.label, category: c.category || '', url: c.url || m.sourceUrl || '', note: c.note || '',
+                                                            licence: m.licence || '', attribution: m.attribution || '', asOf: c.asOf || m.asOf || '' };
+        if (c.sanctions === true) o.sanctions = true;
+        return o;
+      });
+    });
+    return { about: JSON_ABOUT, generator: meta.generator || '', lists: listsUsed(nodes, sources), wallets: wallets };
+  }
+
   var NODE_COLS = ['id', 'type', 'label', 'note', 'address', 'txid', 'vout', 'script_type', 'time_unix', 'time_utc', 'height', 'confirmed',
                    'first_seen_unix', 'last_seen_unix', 'received_sat', 'sent_sat', 'degree', 'op_return_text', 'op_return_hex',
                    'tag', 'color', 'shape', 'ext_arkham_name', 'ext_arkham_type', 'ext_arkham_label',
@@ -200,13 +246,24 @@
   }
 
   // ---- service hand-offs ------------------------------------------------------------------------
-  var HANDOFF_COLS = ['direction', 'service', 'service_wallet', 'txid', 'time_unix', 'time_utc', 'amount_sat', 'amount_btc', 'outputs_to_service', 'wallet_before_or_after', 'transactions_from_reference', 'inputs', 'outputs', 'merges_inputs', 'kind', 'swap_memo', 'start'];
+  var HANDOFF_COLS = ['direction', 'service', 'service_wallet', 'txid', 'time_unix', 'time_utc', 'amount_sat', 'amount_btc', 'outputs_to_service', 'wallet_before_or_after', 'transactions_from_reference', 'inputs', 'outputs', 'merges_inputs', 'kind', 'swap_memo', 'start', 'source_list', 'source_licence', 'source_attribution', 'source_as_of', 'source_url'];
+  /** What the lists say about the service wallet of a hand-off row, apart from the name the row shows (which may be your own label): { list, licence, attribution, asOf, url } or null. */
+  function handoffSource(r, sources) {
+    var s = r && r.address ? srcOf({ type: 'addr', address: r.address }, sources) : {};
+    return s.pack ? { list: s.pack, licence: s.licence || '', attribution: s.attribution || '', asOf: s.asOf || '', url: s.url || '' } : null;
+  }
+  /** The rows of HoplineRoute.handoffs with a `source` on each: what the lists say about its wallet, or null (a name of your own, a swap memo, or no list). */
+  function annotateHandoffs(rows, sources) {
+    return (rows || []).map(function (r) { return Object.assign({}, r, { source: handoffSource(r, sources) }); });
+  }
   /** The rows of HoplineRoute.handoffs as CSV (direction: deposit = into the wallet, withdrawal = out of it; kind: service, or named for a wallet a sanctions or ransomware list names). Names from lists are defused like any other text. */
-  function handoffsCsv(rows) {
-    var lines = [row(HANDOFF_COLS)];
+  function handoffsCsv(rows, opts) {
+    var lines = [row(HANDOFF_COLS)], sources = opts && opts.sources;
     (rows || []).forEach(function (r) {
+      var hs = handoffSource(r, sources) || {};
       lines.push(row([cell(r.dir), cell(r.service), cell(r.address), cell(r.txid), cell(r.time), cell(r.time != null ? Style.fmtTime(r.time) : ''), cell(r.amount, true), cell(r.amount == null ? null : Style.fmtBtc(r.amount), true),
-                      cell(r.outputs, true), cell(r.walletAddress || ''), cell(r.depth, true), cell(r.nIn), cell(r.nOut), cell(r.merges), cell(r.kind === 'named' ? 'named' : r.kind === 'swap' ? 'swap memo' : 'service'), cell(r.memoText || ''), cell(r.from ? String(r.from).replace(/^(addr|tx):/, '') : '')]));
+                      cell(r.outputs, true), cell(r.walletAddress || ''), cell(r.depth, true), cell(r.nIn), cell(r.nOut), cell(r.merges), cell(r.kind === 'named' ? 'named' : r.kind === 'swap' ? 'swap memo' : 'service'), cell(r.memoText || ''), cell(r.from ? String(r.from).replace(/^(addr|tx):/, '') : ''),
+                      cell(hs.list), cell(hs.licence), cell(hs.attribution), cell(hs.asOf), cell(hs.url)]));
     });
     return lines.join('\r\n') + '\r\n';
   }
@@ -256,18 +313,13 @@
     G_GRAPH.forEach(function (k) { out.push('  <key id="g_' + k[0] + '" for="graph" attr.name="' + k[0] + '" attr.type="' + k[1] + '"/>'); });
     out.push('  <graph id="hopline" edgedefault="directed">');
     function data(prefix, name, v) { if (v !== null && v !== undefined && v !== '') out.push('      <data key="' + prefix + name + '">' + xml(v) + '</data>'); }
-    var used = new Set(), usedText = [];
-    p.nodes.forEach(function (n) {                                                      // which lists the src_* attributes of these wallets came from
-      var s = opts.sources && n.type === 'addr' ? (opts.sources.claims && opts.sources.claims(n.address) || []) : [];
-      s.forEach(function (c) { if (c && !c.own && !used.has(c.pack || BUILTIN)) { used.add(c.pack || BUILTIN); var m = (opts.sources.packs || {})[c.pack] || {};
-        usedText.push((c.pack || BUILTIN) + [m.source, m.licence && 'licence: ' + m.licence, m.attribution && 'credit: ' + m.attribution, (c.asOf || m.asOf) && 'data as of ' + (c.asOf || m.asOf), m.sourceUrl].filter(Boolean).map(function (b, i) { return (i ? '; ' : ' - ') + b; }).join('')); } });
-    });
+    var usedText = listsText(listsUsed(p.nodes, opts.sources));                           // which lists the src_* attributes of these wallets came from
     var meta = (opts.sources && opts.sources.meta) || {};
     out.push('    <data key="g_exported_utc">' + xml(new Date(meta.generated != null ? meta.generated : Date.now()).toISOString()) + '</data>');
     if (meta.generator) out.push('    <data key="g_generator">' + xml(meta.generator) + '</data>');
     if (meta.dataSource) out.push('    <data key="g_data_source">' + xml(meta.dataSource) + '</data>');
     out.push('    <data key="g_field_groups">' + xml(FIELD_GROUPS) + '</data>');
-    if (usedText.length) out.push('    <data key="g_sources_used">' + xml(usedText.join(' | ')) + '</data>');
+    if (usedText) out.push('    <data key="g_sources_used">' + xml(usedText) + '</data>');
     p.nodes.forEach(function (n) {
       out.push('    <node id="' + xml(n.id) + '">');
       data('n_', 'label', n.label || (n.type === 'tx' ? Style.shortId(n.txid) : n.type === 'addr' ? Style.shortId(n.address, 8) : n.type));
@@ -299,5 +351,5 @@
   }
 
   return { FORMAT: FORMAT, VERSION: VERSION, isFormat: isFormat, toJson: toJson, fromJson: fromJson, toCsv: toCsv, toGraphMl: toGraphMl,
-           defuse: defuse, xml: xml, NODE_COLS: NODE_COLS, SRC_COLS: SRC_COLS, EDGE_COLS: EDGE_COLS, handoffsCsv: handoffsCsv, HANDOFF_COLS: HANDOFF_COLS };
+           defuse: defuse, xml: xml, NODE_COLS: NODE_COLS, SRC_COLS: SRC_COLS, EDGE_COLS: EDGE_COLS, handoffsCsv: handoffsCsv, HANDOFF_COLS: HANDOFF_COLS, annotateHandoffs: annotateHandoffs, listsUsed: listsUsed, listsText: listsText };
 }));

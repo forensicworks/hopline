@@ -45,7 +45,7 @@ def case(mock):
 
 
 def named_list(extra=()):
-    return json.dumps({"format": "hopline-labels", "version": 1, "name": "Test list", "source": "a test",
+    return json.dumps({"format": "hopline-labels", "version": 1, "name": "Test list", "source": "a test", "licence": "CC BY 4.0", "asOf": "2026-10-28",
                        "labels": [{"address": EX, "label": "Test exchange", "category": "exchange"}, {"address": K2, "label": "Other wallet", "category": "service"}] + list(extra)})
 
 
@@ -245,8 +245,12 @@ def test_the_service_hand_offs_are_listed_downloaded_and_open_the_route(tpage, m
     lines = p.read_text(encoding="utf-8-sig").splitlines()
     assert lines[0].startswith("direction,service,service_wallet,txid,")
     assert lines[1].startswith("withdrawal,Test exchange," + EX + "," + tid(1) + ","), lines[1]
-    assert lines[1].split(",")[-1] == tid(3), "the start column says which starting point the row comes from: " + lines[1]
-    assert any(l.startswith("withdrawal,Other wallet,") and l.split(",")[-1] == tid(6) for l in lines), lines
+    head = lines[0].split(",")
+    assert head[-5:] == ["source_list", "source_licence", "source_attribution", "source_as_of", "source_url"], "the source columns come after the start column"
+    assert lines[1].split(",")[head.index("start")] == tid(3), "the start column says which starting point the row comes from: " + lines[1]
+    assert any(l.startswith("withdrawal,Other wallet,") and l.split(",")[head.index("start")] == tid(6) for l in lines), lines
+    row1 = lines[1].split(",")
+    assert [row1[head.index(c)] for c in ("source_list", "source_licence", "source_as_of")] == ["Test list", "CC BY 4.0", "2026-10-28"], "what the list that names the service wallet says about itself: " + lines[1]
     shot(tpage, "handoffs.png")
     row.locator(".linkrow").click(); idle(tpage); settle(tpage)
     c = lit(tpage)
@@ -274,8 +278,9 @@ def test_a_wallet_a_list_names_that_is_not_a_service_is_a_hand_off_marked_named(
     p = tmp_path / "handoffs.csv"
     dl.value.save_as(p)
     lines = p.read_text(encoding="utf-8-sig").splitlines()
-    assert lines[0].endswith(",kind,swap_memo,start") and any(l.startswith("deposit,Ransomware: Acme,") and l.split(",")[-3] == "named" for l in lines), lines
-    assert any(l.startswith("withdrawal,Test exchange,") and l.split(",")[-3] == "service" for l in lines), lines
+    head = lines[0].split(",")
+    assert ",kind,swap_memo,start," in lines[0] and any(l.startswith("deposit,Ransomware: Acme,") and l.split(",")[head.index("kind")] == "named" for l in lines), lines
+    assert any(l.startswith("withdrawal,Test exchange,") and l.split(",")[head.index("kind")] == "service" for l in lines), lines
     shot(tpage, "handoffs_named.png")
     named.locator(".linkrow").click(); idle(tpage); settle(tpage)
     c = lit(tpage)

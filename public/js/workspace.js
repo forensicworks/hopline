@@ -4128,7 +4128,7 @@
     if (rows.length > 12) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (rows.length - 12) + ' more in the copy and the CSV' }));
     box.appendChild(el('div', { 'class': 'insp-actions' }, [
       el('button', { type: 'button', text: 'Copy table', onclick: function () { copy(handoffText(rows), 'the hand-off table'); } }),
-      el('button', { type: 'button', text: 'Download CSV', onclick: function () { stat('handoffs-csv'); download('hopline-handoffs-' + new Date().toISOString().slice(0, 10) + '.csv', '﻿' + IO.handoffsCsv(rows), 'text/csv;charset=utf-8'); } })]));
+      el('button', { type: 'button', text: 'Download CSV', onclick: function () { stat('handoffs-csv'); download('hopline-handoffs-' + new Date().toISOString().slice(0, 10) + '.csv', '﻿' + IO.handoffsCsv(rows, { sources: exportSources() }), 'text/csv;charset=utf-8'); } })]));
     box.appendChild(el('p', { 'class': 'hint', text: 'The wallet just before a deposit (or just after a withdrawal) is a candidate for the customer\'s or the service\'s deposit address. A request to the service names the transaction, the time and the amount. The name is a list\'s claim, and only the loaded transactions are followed.' }));
   }
 
@@ -4414,7 +4414,12 @@
              model: typeof a.model === 'string' ? a.model.replace(/[^\w.:\/@+\-]/g, '').slice(0, 100) : '', rows: num(a.rows, 5, 400, 60) };
   }
   var ai = { busy: null, focus: null };                                                  // busy: the controller of a question in flight
-  function assistKnown(a) { var k = KNOWN[a]; return k ? { label: k.label, category: k.category, source: k.pack || k.source || 'built-in list', sanctions: k.sanctions === true, alsoListedAs: k.alt || [] } : null; }
+  function assistKnown(a) {
+    var k = KNOWN[a]; if (!k) return null;
+    var c = LB.claimsOf(k)[0] || {}, m = packMeta()[k.pack] || {};                          // the first claim, and what its list says about itself
+    return { label: k.label, category: k.category, source: k.pack || k.source || 'built-in list', sanctions: k.sanctions === true, alsoListedAs: k.alt || [],
+             licence: m.licence || '', attribution: m.attribution || '', asOf: c.asOf || m.asOf || '', url: k.url || m.sourceUrl || '' };
+  }
   function assistSummary() { return AS.summary(state.graph, analysis(), { generated: new Date().toISOString(), title: LB.cleanText($('reportTitle').value, 120), known: assistKnown, trace: routeTraceData() }); }
 
   /** The prompt for the chosen task, or null (with a message) when it cannot be made. */
@@ -5575,11 +5580,16 @@
    * What the built-in list and the label packs that are switched on say about a wallet, with where it came from and the date of its data, for the nodes CSV and the GraphML file: the
    * reader of the file can tell a public list's claim from the analyst's own label, tag and note without this browser session. Your own labels are among the claims; the writers leave them out.
    */
-  function exportSources() {
-    var meta = {}, ver = '';
+  /** What each pack that is switched on says about itself, by name: { source, licence, attribution, asOf, sourceUrl }. */
+  function packMeta() {
+    var meta = {};
     PK.active(state.shipped, state.packs).concat(state.packs.filter(function (p) { return p.enabled; })).forEach(function (p) {
       meta[p.name] = { source: p.source || '', licence: p.licence || '', attribution: p.attribution || '', asOf: p.asOf || '', sourceUrl: p.sourceUrl || '' };
     });
+    return meta;
+  }
+  function exportSources() {
+    var meta = packMeta(), ver = '';
     try { var sc = document.querySelector('script[src*="workspace.js"]'), m = sc && /[?&]v=([\w.-]+)/.exec(sc.getAttribute('src')); if (m) ver = ' ' + m[1]; } catch (e) { /* no version in the address: a copy run from a folder */ }
     return { claims: function (a) { return LB.claimsOf(KNOWN[a]); }, packs: meta, meta: { generated: Date.now(), generator: 'Hopline workspace' + ver, dataSource: sourceBase() } };
   }
@@ -5678,7 +5688,7 @@
     if (only && kind === 'json' && traceOn()) only = withGroupMembers(only);
     var name = 'hopline-' + stamp();
     if (fiatOn() && !fiatLoaded() && (kind === 'csv-edges' || kind === 'graphml')) toast('Prices are not loaded, so the fiat columns are empty.', true);
-    if (kind === 'json') download(name + '.json', IO.toJson(g, { only: only, view: viewState(), source: sourceBase() }), 'application/json');
+    if (kind === 'json') download(name + '.json', IO.toJson(g, { only: only, view: viewState(), source: sourceBase(), sources: exportSources() }), 'application/json');
     else if (kind === 'csv-nodes') download(name + '-nodes.csv', '﻿' + IO.toCsv(g, 'nodes', { only: only, analysis: exportAnalysis(), sources: exportSources() }), 'text/csv;charset=utf-8');
     else if (kind === 'csv-edges') download(name + '-edges.csv', '﻿' + IO.toCsv(g, 'edges', { only: only, fiat: exportFiat(), analysis: exportAnalysis() }), 'text/csv;charset=utf-8');
     else if (kind === 'graphml') download(name + '.graphml', IO.toGraphMl(g, { only: only, fiat: exportFiat(), analysis: exportAnalysis(), sources: exportSources() }), 'application/xml');

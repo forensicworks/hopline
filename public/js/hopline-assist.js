@@ -47,7 +47,7 @@
     'Only what was loaded is analysed: a transaction that was not loaded is not in the evidence, so absence here is not absence on the chain.',
     'A service hand-off is where money that was traced met a wallet a list names as a service (an exchange, for example), found by following each coin to the transaction that spent it; a missing hand-off or a trail that is still open only means none was found in what was loaded. A hand-off whose kind is "named" is not a service but a wallet a sanctions or ransomware list names, which the trail passes through.'
   ];
-  var UNTRUSTED = ['wallets[].label', 'wallets[].tag', 'wallets[].note', 'wallets[].known.name', 'wallets[].known.category', 'wallets[].known.source', 'trace.referenceName', 'trace.handoffs[].service', 'trace.openEnds.next.named[].label', 'trace.openEnds.prev.named[].label'];
+  var UNTRUSTED = ['wallets[].label', 'wallets[].tag', 'wallets[].note', 'wallets[].known.name', 'wallets[].known.category', 'wallets[].known.source', 'wallets[].known.licence', 'wallets[].known.attribution', 'wallets[].known.asOf', 'wallets[].known.url', 'trace.referenceName', 'trace.handoffs[].service', 'trace.openEnds.next.named[].label', 'trace.openEnds.prev.named[].label'];
 
   // ---- small helpers ----------------------------------------------------------------------------
   // control characters, line and paragraph separators, zero-width and direction-changing characters (built from code points so the file holds no invisible characters)
@@ -63,6 +63,10 @@
   function knownOf(k) {
     if (!k) return null;
     var out = { name: plainText(k.label || k.name), category: plainText(k.category, 60), source: plainText(k.source || k.pack || '', 120) };
+    if (k.licence) out.licence = plainText(k.licence, 120);                                  // what the list says about itself: its licence, who to credit, the date of its data and a link
+    if (k.attribution) out.attribution = plainText(k.attribution, 200);
+    if (k.asOf) out.asOf = plainText(k.asOf, 40);
+    if (k.url) out.url = plainText(k.url, 300);
     if (k.sanctions === true) out.sanctions = true;
     if (Array.isArray(k.alsoListedAs) && k.alsoListedAs.length) out.alsoListedAs = k.alsoListedAs.slice(0, 5).map(function (x) { return plainText(x, 200); });
     return out;

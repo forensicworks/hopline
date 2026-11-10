@@ -1080,7 +1080,15 @@
     var want = new Set(rows.map(function (r) { return r.txid; }));
     return W.graphOf(state.addr, state.txs.filter(function (t) { return want.has(t.txid); }), { stats: state.stats, at: state.statsAt, source: state.statsSource, fetched: state.fetched });
   }
-  function exportJson(rows) { download(fileName('json'), IO.toJson(exportGraph(rows), { source: state.client.base }), 'application/json'); }
+  /** What the lists that are on say about a wallet and about themselves, so the JSON file can keep their claims apart from your labels (see HoplineIO.toJson). */
+  function exportSources() {
+    var meta = {};
+    PK.active(shipped, imported).concat(imported.filter(function (p) { return p.enabled; })).forEach(function (p) {
+      meta[p.name] = { source: p.source || '', licence: p.licence || '', attribution: p.attribution || '', asOf: p.asOf || '', sourceUrl: p.sourceUrl || '' };
+    });
+    return { claims: function (a) { return LB.claimsOf(KNOWN[a]); }, packs: meta, meta: { generator: 'Hopline wallet overview' } };
+  }
+  function exportJson(rows) { download(fileName('json'), IO.toJson(exportGraph(rows), { source: state.client.base, sources: exportSources() }), 'application/json'); }
 
   /** What the report covers, in words: the whole history, the part that is loaded, or the part the search and limits showed. */
   function scopeText(n, only) {
