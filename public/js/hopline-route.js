@@ -324,8 +324,8 @@
   // ---- where the money meets a service ---------------------------------------------------------------
   /**
    * The places where money from the reference went into a service wallet (a deposit) or money from one came into the trail (a withdrawal), oldest first.
-   * A transaction on the trail forward whose OP_RETURN asks for a swap (a THORChain-format memo, see AN.swapMemo) or carries a cross-chain request ID (AN.requestIdMemo) is a row of
-   * kind 'swap': the money went into a swap or a transfer to another chain, and a swap memo names where it is to be paid out. Its service is the memo in words, its id the transaction,
+   * A transaction on the trail forward whose OP_RETURN asks for a swap (a THORChain-format memo, see AN.swapMemo), carries a cross-chain request ID (AN.requestIdMemo) or is a Rootstock peg-in
+   * (AN.rootstockMemo) is a row of kind 'swap': the money went into a swap or a transfer to another chain, and a swap memo names where it is to be paid out (a payout or refund memo is not a row). Its service is the memo in words, its id the transaction,
    * and its amount is not known (the memo does not say which output pays the service).
    * opts: { hub(vertexId), stop(vertexId) -> name, listed(vertexId) -> the name a list gives a wallet that is not a service, max }. Several outputs of one
    * transaction to one wallet are one row. The trail is followed THROUGH every wallet that is not a service, whatever its name or tag (a victim wallet you
@@ -371,7 +371,7 @@
       var visit = d[0] !== 'next' ? null : function (t, depth, node, wallet) {
         if (refs.indexOf(t) >= 0) return;
         var m = AN.swapOf(AN.txView(graph, t));
-        if (!m) return;
+        if (!m || !AN.swapGoesIn(m)) return;                                          // a payout or a refund is money coming out of the service, not a place the trail went into it
         var w = wallet ? graph.nodes.get(wallet) : null;
         rows.push({ kind: 'swap', dir: 'deposit', service: AN.swapLabel(m), memoText: AN.swapLabel(m), id: t, address: null, txid: t.slice(3), time: node.time == null ? null : node.time, amount: null, outputs: 0, wallet: wallet, walletAddress: w && w.address ? w.address : null,
                     depth: depth, nIn: node.nIn == null ? null : node.nIn, nOut: node.nOut == null ? null : node.nOut, merges: node.nIn != null && node.nIn >= MERGE_INPUTS, memo: m });

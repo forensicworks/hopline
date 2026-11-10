@@ -751,3 +751,21 @@ test('trace: the hand-offs run from every start passed, the open ends from the r
   assert.equal(t.reference, A('one')); assert.deepEqual(t.handoffs.map((r) => r.from), [A('one'), A('two')]);
   assert.deepEqual(R.trace(idx, A('one'), { hub: svcHub, name: svcLabel }).handoffs.map((r) => r.from), [A('one')], 'without starts it is the reference alone, as before');
 });
+
+test('handoffs: a Rootstock peg-in is a swap row (the money went into a bridge); a payout or a refund memo is not (the money came out of one)', () => {
+  const rsk = '52534b5401' + '0e537aad84447a2c2a7590d5f2665ef5cf9b667a';
+  const hexOut = (hex) => ({ scriptpubkey: '6a' + (hex.length / 2).toString(16).padStart(2, '0') + hex, scriptpubkey_type: 'op_return', value: 0 });
+  function trailTo(memo) {
+    const g = new Graph();
+    g.addTx(esplora(1, 1000, [[90, 0, 'ran', 900]], [['mid', 800]]));
+    const t = esplora(2, 2000, [[1, 0, 'mid', 800]], [['svc', 500], ['back', 290]]);
+    t.vout.push(memo);
+    g.addTx(t);
+    g.addOutspends(tid(1), [{ spent: true, txid: tid(2), vin: 0, status: { confirmed: true, block_time: 2000 } }]);
+    return R.handoffs(R.index(g), A('ran'), { hub: () => false, stop: () => null });
+  }
+  const peg = trailTo(hexOut(rsk));
+  assert.equal(peg.length, 1); assert.equal(peg[0].kind, 'swap'); assert.equal(peg[0].memo.form, 'rootstock'); assert.match(peg[0].service, /^Rootstock peg-in: to 0x0e537aad/); assert.equal(peg[0].amount, null);
+  assert.deepEqual(trailTo(memoOut('OUT:' + 'a7'.repeat(32))), [], 'a payout is money coming out of the service, not a place the trail went into it');
+  assert.deepEqual(trailTo(memoOut('REFUND:' + 'a7'.repeat(32))), []);
+});

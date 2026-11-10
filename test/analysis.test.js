@@ -670,7 +670,7 @@ test('classify: no flag without a memo, for another memo, for a memo that is not
   const g = new Graph();
   const hello = add(g, 1, [IN(80, 0, a('src'), 5000000)], [OUT(a('x'), 3123457)]);
   assert.deepEqual(An.classify(An.txView(g, hello)), []);
-  const other = addMemo(g, 2, [IN(81, 0, a('src2'), 5000000)], [OUT(a('x2'), 3123457), OUT(a('y2'), 1812345)], 'OUT:' + 'ab'.repeat(32));
+  const other = addMemo(g, 2, [IN(81, 0, a('src2'), 5000000)], [OUT(a('x2'), 3123457), OUT(a('y2'), 1812345)], '+:ETH.ETH:' + DEST);                  // THORChain's memo for adding liquidity: not a swap, not a payout, not a refund
   assert.deepEqual(An.classify(An.txView(g, other)), []);
   const swapped = addMemo(g, 3, [IN(82, 0, a('src3'), 5000000)], [OUT(a('x3'), 3123457), OUT(a('y3'), 1812345)], MEMO);
   g.removeEdge('out:' + tid(3) + ':0');
@@ -684,6 +684,74 @@ test('swapOf: the memo with the output it is in, and none for a transaction that
   assert.equal(m.vout, 2); assert.equal(m.id, ID.data(tid(1), 2)); assert.equal(m.asset, 'ETH.WBTC');
   assert.equal(An.swapOf(An.txView(g, ID.tx(tid(80)))), null);
   assert.equal(An.swapOf(null), null);
+});
+
+// ---- THORChain payouts and refunds, and a Rootstock peg-in ----------------------------------------------------------------------------------------------------------
+const INBOUND = 'A709EC70E2254ECE1E32CCF857047663E395C7CA259CB9C3099652C552A409D4';        // invented, in the shape the THORChain documentation shows: 64 hex digits, upper case
+const hexScript = (hex) => { const n = hex.length / 2; return '6a' + (n <= 75 ? '' : '4c') + n.toString(16).padStart(2, '0') + hex; };
+function addHexMemo(g, n, ins, outs, hex, time) {
+  const t = esplora(n, ins, outs.concat([{ data: true }]), time);
+  t.vout[t.vout.length - 1].scriptpubkey = hexScript(hex);
+  g.addTx(t);
+  return ID.tx(tid(n));
+}
+const RSK_DEST = '0e537aad84447a2c2a7590d5f2665ef5cf9b667a';                                // the example address of RSKIP-170
+const RSK_REFUND = '4f4c767a2d308eebb3f0f1247f9163c896e0b7d2';
+const RSK = '52534b54' + '01' + RSK_DEST;                                                    // RSKT, version 1, the destination: 25 bytes
+const RSK_WITH_REFUND = RSK + '01' + RSK_REFUND;                                             // and a P2PKH refund address: 46 bytes (the RSKIP's own example)
+
+test('outMemo: OUT: or REFUND: and the 64 hex digits of a transaction hash, and nothing else', () => {
+  assert.deepEqual(An.outMemo('OUT:' + INBOUND), { fn: 'OUT', hash: INBOUND.toLowerCase() });
+  assert.deepEqual(An.outMemo('REFUND:' + INBOUND), { fn: 'REFUND', hash: INBOUND.toLowerCase() }, 'the hash is kept in lower case, as a transaction id is written here');
+  assert.equal(An.outMemo('out:' + INBOUND.toLowerCase()).fn, 'OUT', 'the function is not case sensitive');
+  assert.equal(An.outMemo('  OUT:' + INBOUND + ' ').hash, INBOUND.toLowerCase(), 'a space round it does not matter');
+  ['OUT:' + INBOUND + 'A', 'OUT:' + INBOUND.slice(0, -1), 'OUT:', 'OUT:' + 'Z'.repeat(64), 'OUT ' + INBOUND, 'x OUT:' + INBOUND, 'OUT:' + INBOUND + ':1', 'MIGRATE:3494355', 'RAGNAROK:3494355', 'CONSOLIDATE', '=:ETH.ETH:' + DEST, '', null, undefined, 42]
+    .forEach((t) => assert.equal(An.outMemo(t), null, String(t)));
+});
+
+test('rootstockMemo: RSKT, version 1 and the 20-byte destination, with or without a Bitcoin refund address, exactly as RSKIP-170 lays it out', () => {
+  assert.deepEqual(An.rootstockMemo(RSK), { version: 1, dest: '0x' + RSK_DEST, refund: null });
+  assert.deepEqual(An.rootstockMemo(RSK_WITH_REFUND), { version: 1, dest: '0x' + RSK_DEST, refund: { type: 'P2PKH', hash: RSK_REFUND } });
+  assert.equal(An.rootstockMemo(RSK + '02' + RSK_REFUND).refund.type, 'P2SH');
+  assert.equal(An.rootstockMemo(RSK_WITH_REFUND.toUpperCase()).dest, '0x' + RSK_DEST, 'upper case hex reads the same');
+  [RSK.slice(0, -2), RSK + '00', RSK + '01', RSK_WITH_REFUND + '00', RSK + '03' + RSK_REFUND, '52534b54' + '02' + RSK_DEST, '52534b55' + '01' + RSK_DEST, '00' + RSK, RSK.replace('0e53', 'zz53'), '', null, undefined, 7]
+    .forEach((h) => assert.equal(An.rootstockMemo(h), null, String(h)));
+});
+
+test('classify: an OUT: memo is flagged as a payout THORChain says it made, a lead and not a finding; REFUND: as a refund', () => {
+  const g = new Graph();
+  const out = addMemo(g, 1, [IN(80, 0, a('vault'), 5000000)], [OUT(a('user'), 3123457), OUT(a('back'), 1812345)], 'OUT:' + INBOUND);
+  const f = An.classify(An.txView(g, out));
+  assert.deepEqual(f.map((x) => x.kind), ['swap']); assert.equal(f[0].short, 'SWAP OUT'); assert.equal(f[0].color, An.COLORS.swap);
+  assert.equal(f[0].memo.form, 'payout'); assert.equal(f[0].memo.hash, INBOUND.toLowerCase());
+  assert.match(f[0].title, /If THORChain wrote it/); assert.match(f[0].title, /usually on another chain \(the memo does not say which\)/); assert.match(f[0].title, /Anyone can write the same text/); assert.match(f[0].title, /with no memo at all/);
+  assert.equal(An.swapLabel(f[0].memo), 'Swap payout: inbound ' + INBOUND.toLowerCase().slice(0, 10) + '…' + INBOUND.toLowerCase().slice(-6));
+  assert.match(An.swapText(f[0].memo), /^payout of the swap that began with transaction a709ec70/);
+  const ref = addMemo(g, 2, [IN(81, 0, a('vault2'), 5000000)], [OUT(a('user2'), 3123457), OUT(a('back2'), 1812345)], 'REFUND:' + INBOUND);
+  const r = An.classify(An.txView(g, ref));
+  assert.equal(r[0].short, 'SWAP REFUND'); assert.equal(r[0].memo.form, 'refund');
+  assert.match(r[0].title, /the swap that payment asked for was not carried out/); assert.match(r[0].title, /Anyone can write the same text/);
+  assert.match(An.swapLabel(r[0].memo), /^Swap refund: payment a709ec70/);
+});
+
+test('classify: a Rootstock peg-in is flagged with its destination and refund address, as what the sender wrote', () => {
+  const g = new Graph();
+  const id = addHexMemo(g, 1, [IN(80, 0, a('src'), 5000000)], [OUT(a('bridge'), 3123457), OUT(a('back'), 1812345)], RSK_WITH_REFUND);
+  const f = An.classify(An.txView(g, id));
+  assert.deepEqual(f.map((x) => x.kind), ['swap']); assert.equal(f[0].short, 'PEG-IN RSK'); assert.equal(f[0].color, An.COLORS.swap);
+  assert.equal(f[0].memo.form, 'rootstock'); assert.equal(f[0].memo.dest, '0x' + RSK_DEST);
+  assert.match(f[0].title, /RSKIP-170/); assert.match(f[0].title, new RegExp('peg-in to Rootstock, to 0x' + RSK_DEST)); assert.match(f[0].title, /refund to a Bitcoin P2PKH address with hash 4f4c767a/);
+  assert.match(f[0].title, /does not show that anything was credited/);
+  assert.match(An.swapLabel(f[0].memo), /^Rootstock peg-in: to 0x0e537aad/);
+  const plain = addHexMemo(g, 2, [IN(81, 0, a('src2'), 5000000)], [OUT(a('bridge2'), 3123457), OUT(a('back2'), 1812345)], RSK);
+  assert.match(An.swapText(An.swapOf(An.txView(g, plain))), /refund to the sender$/, 'with no refund address the bridge refunds the sender');
+  const odd = addHexMemo(g, 3, [IN(82, 0, a('src3'), 5000000)], [OUT(a('x3'), 3123457), OUT(a('y3'), 1812345)], '52534b54' + '02' + RSK_DEST);
+  assert.deepEqual(An.classify(An.txView(g, odd)), [], 'another protocol version is not read: only the layout the RSKIP gives is');
+});
+
+test('swapGoesIn: a swap asked for, a request ID and a peg-in are money going in; a payout and a refund are money coming out', () => {
+  assert.equal(An.swapGoesIn({ form: 'thorchain' }), true); assert.equal(An.swapGoesIn({ form: 'request' }), true); assert.equal(An.swapGoesIn({ form: 'rootstock' }), true);
+  assert.equal(An.swapGoesIn({ form: 'payout' }), false); assert.equal(An.swapGoesIn({ form: 'refund' }), false); assert.equal(An.swapGoesIn(null), false);
 });
 
 // ---- cross-chain request IDs --------------------------------------------------------------------
