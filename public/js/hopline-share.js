@@ -9,6 +9,13 @@
  * colouring, the trace). Opening it goes through the same checks as importing a file (HoplineIO.fromJson), after these extra ones:
  * a longest link, a largest unpacked size and a largest number of vertices, so a link made by someone else cannot freeze the page.
  *
+ * A second kind of link carries only the transaction IDs of what is on the canvas, no vertices, labels or layout:
+ *
+ *   #i1/<{ format, version, t: [txid, ...], f: focus, of: how many, view: {...} } as JSON, deflated, in base64url>
+ *
+ * Whoever opens it loads those transactions from their own data source and gets the picture drawn afresh. It costs about 45 characters
+ * for a transaction (no addresses, amounts or times are in it), so it holds far more than a canvas link, but the reader needs the network.
+ *
  * A link has a limit: at most `limit` vertices (default 50, about 4,000 characters on real data), and in any case no more than
  * MAX_CHARS characters. Over the limit it keeps the vertices nearest START (hop by hop, along the edges in either direction) and says
  * how many it left out; build() reports that, and the page warns. Pure functions apart from the compression, which uses the
@@ -20,7 +27,10 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var PREFIX = '#s1/';
+  var PREFIX = '#s1/', IDS_PREFIX = '#i1/';
+  var IDS_FORMAT = 'hopline-ids', MAX_IDS = 3000;               // an IDs link: its own format name, and the most transactions one may list (made or opened)
+  var IDS_VIEW = ['layout', 'arrange', 'colorBy', 'sizeBy', 'timeScale', 'focusOn', 'hops'];                    // the settings an IDs link carries; the reader's own checks do the rest
+  var HEX64 = /^[0-9a-f]{64}$/, FOCUS_OK = /^(tx|addr):[A-Za-z0-9]{8,120}$/;
   var FORMAT = 'hopline-workspace', VERSION = 1;               // the workspace file's own names (HoplineIO): a link carries one, so a test keeps these two honest
   var DEFAULT_LIMIT = 50, MIN_LIMIT = 5, MAX_LIMIT = 500;       // vertices in a link
   var MAX_CHARS = 60000;                                        // the longest link made, after the "#": more than this does not survive chat and mail
@@ -41,9 +51,8 @@
    *   o: { nodes: Set of vertex ids allowed (null: all), edges: Set of edge ids allowed (null: all), starts: [ids], limit }
    * Returns { kept: Set, order: [ids, nearest first], total } where total is how many vertices were allowed.
    */
-  function nearest(graph, o) {
-    o = o || {};
-    var limit = limitOf(o.limit);
+  function nearest(graph, o) { return walk(graph, o || {}, limitOf((o || {}).limit)); }
+  function walk(graph, o, limit) {
     function ok(id) { return graph.nodes.has(id) && (!o.nodes || o.nodes.has(id)); }
     var pool = [];
     graph.nodes.forEach(function (n, id) { if (ok(id)) pool.push(id); });
@@ -110,6 +119,32 @@
     return { text: text, kept: near.kept.size, total: near.total };
   }
 
+  // ---- a link of IDs ----------------------------------------------------------------------------
+  /** The settings of the view an IDs link carries. A trace is not one of them (its places are not in the link), so a trace becomes the automatic Flow layout. */
+  function idsView(v) {
+    var out = {};
+    if (v && typeof v === 'object') IDS_VIEW.forEach(function (k) { var x = v[k]; if (typeof x === 'string' ? x.length <= 40 : typeof x === 'boolean' || (typeof x === 'number' && isFinite(x))) out[k] = x; });
+    if (out.layout === 'trace') out.layout = 'flow';
+    return out;
+  }
+
+  /**
+   * The transactions for an IDs link: the loaded transactions among the allowed vertices (o.nodes, o.edges: what is on screen), nearest START first, at most o.limit (default MAX_IDS).
+   * Returns { payload, ids, total } where total is how many loaded transactions were allowed; the payload is what goes in the link.
+   */
+  function packIds(graph, o) {
+    o = o || {};
+    var cap = Math.max(1, Math.min(MAX_IDS, Math.floor(Number(o.limit)) || MAX_IDS));
+    var order = walk(graph, o, graph.nodes.size || 1).order, txs = [];
+    order.forEach(function (id) { var n = graph.nodes.get(id); if (n && n.type === 'tx' && n.loaded !== false && HEX64.test(n.txid || '')) txs.push(n.txid); });
+    var ids = txs.slice(0, cap), keep = new Set(ids.map(function (t) { return 'tx:' + t; }));
+    var start = (o.starts || [])[0], focus = null;
+    if (start && keep.has(start)) focus = start;
+    else if (start && graph.nodes.has(start) && graph.nodes.get(start).type === 'addr' && graph.edgesOf(start).some(function (e) { return keep.has(e.source) || keep.has(e.target); })) focus = start;
+    return { ids: ids, total: txs.length,
+             payload: { format: IDS_FORMAT, version: 1, t: ids, f: focus, of: txs.length, view: idsView(o.view) } };
+  }
+
   // ---- compression and base64url ----------------------------------------------------------------
   function supported() { return typeof CompressionStream === 'function' && typeof DecompressionStream === 'function' && typeof Response === 'function' && typeof Blob === 'function'; }
 
@@ -149,6 +184,7 @@
 
   // ---- making and reading a link ----------------------------------------------------------------
   function isShareHash(hash) { return typeof hash === 'string' && hash.indexOf(PREFIX) === 0; }
+  function isIdsHash(hash) { return typeof hash === 'string' && hash.indexOf(IDS_PREFIX) === 0; }
 
   /**
    * The link (the part after the "#") for the vertices nearest START, as many as the limit allows and as fit MAX_CHARS.
@@ -171,6 +207,59 @@
       });
     }
     return attempt(asked);
+  }
+
+  /**
+   * The IDs link (the part after the "#") for the loaded transactions on screen, nearest START first, as many as fit MAX_CHARS.
+   * Resolves { fragment, kept, total, chars, trimmed }; rejects with a message the person can read.
+   */
+  function buildIds(graph, o) {
+    o = o || {};
+    if (!supported()) return Promise.reject(new Error('This browser cannot make share links (it has no compression built in). Export the workspace (.json) instead.'));
+    function attempt(lim) {
+      var p = packIds(graph, Object.assign({}, o, { limit: lim }));
+      if (!p.ids.length) throw new Error('No loaded transaction is on the canvas to put in a link.');
+      return deflate(JSON.stringify(p.payload)).then(function (z) {
+        var fragment = IDS_PREFIX + toBase64Url(z);
+        if (fragment.length > MAX_CHARS) {
+          if (p.ids.length <= 1) throw new Error('Even one transaction makes a link of ' + fragment.length + ' characters, more than the ' + MAX_CHARS + ' that chat and mail carry.');
+          return attempt(Math.max(1, Math.min(p.ids.length - 1, Math.floor(p.ids.length * MAX_CHARS / fragment.length * 0.95))));
+        }
+        return { fragment: fragment, kept: p.ids.length, total: p.total, chars: fragment.length, trimmed: p.ids.length < p.total };
+      });
+    }
+    return Promise.resolve().then(function () { return attempt(o.limit); });
+  }
+
+  /**
+   * The transactions an IDs link lists, after the length, character, unpacked-size and count checks, and every entry checked to be a transaction ID.
+   * Resolves { ids, focus, view, of } (of: how many the sender had before cutting the list down, or null). Rejects with a message the person can read.
+   */
+  function decodeIds(hash) {
+    if (!isIdsHash(hash)) return Promise.reject(new Error('This is not a Hopline link to transactions.'));
+    if (!supported()) return Promise.reject(new Error('This browser cannot open share links (it has no compression built in).'));
+    var body = hash.slice(IDS_PREFIX.length);
+    if (!body) return Promise.reject(new Error('The link is empty.'));
+    if (body.length > MAX_FRAGMENT) return Promise.reject(new Error('The link is longer than ' + MAX_FRAGMENT + ' characters, which is more than Hopline makes.'));
+    if (!/^[A-Za-z0-9_-]+$/.test(body)) return Promise.reject(new Error('The link is damaged: it has characters that do not belong in it. A chat or mail program may have changed it.'));
+    var bytes;
+    try { bytes = fromBase64Url(body); } catch (e) { return Promise.reject(new Error('The link is damaged or was cut short: it cannot be unpacked. A chat or mail program may have shortened it.')); }
+    return inflate(bytes, MAX_JSON).then(function (text) {
+      var d; try { d = JSON.parse(text); } catch (e) { throw new Error('The link is damaged: what is inside is cut short or changed.'); }
+      if (!d || d.format !== IDS_FORMAT || !Array.isArray(d.t)) throw new Error('The link does not hold a list of transactions.');
+      if (d.t.length > MAX_IDS) throw new Error('The link lists ' + d.t.length + ' transactions; a link holds at most ' + MAX_IDS + '.');
+      var seen = new Set(), ids = [];
+      d.t.forEach(function (t) {
+        if (typeof t !== 'string' || !HEX64.test(t)) throw new Error('The link has an entry that is not a transaction ID.');
+        if (!seen.has(t)) { seen.add(t); ids.push(t); }
+      });
+      if (!ids.length) throw new Error('The link lists no transactions.');
+      var of = typeof d.of === 'number' && isFinite(d.of) && d.of >= ids.length ? Math.floor(d.of) : null;
+      return { ids: ids, focus: typeof d.f === 'string' && FOCUS_OK.test(d.f) ? d.f : null, view: idsView(d.view), of: of };
+    }, function (err) {
+      if (err && err.message === TOO_BIG) throw new Error('The link unpacks to more than ' + Math.round(MAX_JSON / 1e6) + ' MB, so it is not one Hopline made.');
+      throw new Error('The link is damaged or was cut short: it cannot be unpacked. A chat or mail program may have shortened it.');
+    });
   }
 
   /**
@@ -198,7 +287,7 @@
     });
   }
 
-  return { PREFIX: PREFIX, FORMAT: FORMAT, VERSION: VERSION, DEFAULT_LIMIT: DEFAULT_LIMIT, MIN_LIMIT: MIN_LIMIT, MAX_LIMIT: MAX_LIMIT, MAX_CHARS: MAX_CHARS,
-           limitOf: limitOf, nearest: nearest, slim: slim, pruneView: pruneView, pack: pack, isShareHash: isShareHash, supported: supported, build: build, decode: decode,
+  return { PREFIX: PREFIX, IDS_PREFIX: IDS_PREFIX, MAX_IDS: MAX_IDS, FORMAT: FORMAT, VERSION: VERSION, DEFAULT_LIMIT: DEFAULT_LIMIT, MIN_LIMIT: MIN_LIMIT, MAX_LIMIT: MAX_LIMIT, MAX_CHARS: MAX_CHARS,
+           limitOf: limitOf, nearest: nearest, slim: slim, pruneView: pruneView, pack: pack, isShareHash: isShareHash, isIdsHash: isIdsHash, supported: supported, build: build, decode: decode, packIds: packIds, buildIds: buildIds, decodeIds: decodeIds, idsView: idsView,
            toBase64Url: toBase64Url, fromBase64Url: fromBase64Url, deflate: deflate };
 }));

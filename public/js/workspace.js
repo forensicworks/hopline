@@ -262,6 +262,7 @@
       var errs = (r.errors || []).filter(function (e) { return !/request cap/.test(e); });
       if (errs.length) msg += ' ' + errs.length + ' request(s) failed: ' + errs[0] + (errs.length > 1 ? ' …' : '');
       if (big) msg += ' That is a lot: Undo load takes it back.';
+      if (o && o.note) msg += ' ' + o.note;
       if (!(o && o.quiet) || errs.length || r.failed) toast(msg, !!errs.length || !!r.failed, undo, big ? 0 : 8000);
       return r;
     }).catch(function (e) {
@@ -1688,6 +1689,7 @@
 
   function onPopState() {
     if (SH.isShareHash(window.location.hash)) { openShared(window.location.hash); return; }          // a share link pasted into the address bar of a page that is open
+    if (SH.isIdsHash(window.location.hash)) { openIdLink(window.location.hash); return; }
     var p = NV.parseHash(window.location.hash);
     if (!p) return;
     p.id = canonicalId(p.id);
@@ -5644,6 +5646,7 @@
     var g = state.graph;
     if (!g.nodes.size) { toast('Nothing to export yet.', true); return; }
     if (kind === 'report') { $('exportMenu').open = false; doReport(); return; }
+    if (kind === 'idlink') { doShareIds(); return; }
     if (kind === 'link') { doShare(); return; }                              // the menu stays open: the link and any warning are shown in it
     g.refreshDerived(); stat('export-' + kind);
     var only = $('exportVisible').checked ? computeView(state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()) : null;
@@ -5673,33 +5676,96 @@
   function shareSay(text, warn) {
     var n = $('shareNote'); n.textContent = text; n.hidden = !text; n.classList.toggle('warn', !!warn);          // stays in the menu after the message has gone
   }
-  function doShare() {
+  /** What a link is made from: the vertices on screen and how many folded groups are among them. Null, with a message, when there is nothing to share. */
+  function shareScope() {
     var g = state.graph;
-    if (!g.nodes.size) { toast('Nothing on the canvas to share yet.', true); return; }
-    if (!SH.supported()) { toast('This browser cannot make share links (it has no compression built in). Export the workspace (.json) instead.', true); return; }
+    if (!g.nodes.size) { toast('Nothing on the canvas to share yet.', true); return null; }
+    if (!SH.supported()) { toast('This browser cannot make share links (it has no compression built in). Export the workspace (.json) instead.', true); return null; }
     g.refreshDerived();
     var vis = computeView(state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()), groups = 0;
     vis.nodes.forEach(function (id) { if (!g.nodes.has(id)) groups++; });                                       // a folded group is on the canvas but is not a vertex of the graph
-    if (groups === vis.nodes.size) { toast('Nothing on the canvas to share yet.', true); return; }
+    if (groups === vis.nodes.size) { toast('Nothing on the canvas to share yet.', true); return null; }
+    return { vis: vis, groups: groups };
+  }
+  /** What every link says besides what it cut: folded groups are not in it, and a link made from a copy on the disk opens only there. */
+  function shareExtraWarnings(groups) {
+    var warn = [];
+    if (groups) warn.push(plural(groups, 'folded group') + ' on the canvas ' + (groups === 1 ? 'is' : 'are') + ' not in the link: open a group first to share what is in it.');
+    if (window.location.protocol === 'file:') warn.push('This copy of Hopline is opened from your disk, so the link opens only on this computer. Publish a copy to share it with others.');
+    return warn;
+  }
+  /** Show the link in the menu with its warnings, and copy it; the message says `said` and then the warnings. */
+  function shareFinish(link, warn, said, logText) {
+    var out = $('shareOut'); out.value = link; out.hidden = false;
+    shareSay(warn.join(' '), !!warn.length);
+    log(logText);
+    copy(link, 'the link', function () { toast(said + warn.join(' '), !!warn.length, null, warn.length ? 14000 : 6000); });
+  }
+  function doShare() {
+    var sc = shareScope(); if (!sc) return;
+    var vis = sc.vis, g = state.graph;
     state.shareMax = SH.limitOf($('shareMax').value); $('shareMax').value = state.shareMax; savePrefs();
     var notes = $('shareNotes').checked;
     SH.build(g, { nodes: vis.nodes, edges: vis.edges, starts: shareStarts(), limit: state.shareMax, notes: notes, view: viewState() }).then(function (r) {
       var link = shareBase() + r.fragment, warn = [];
       if (r.trimmed) warn.push((r.bySize ? 'The link would be too long for chat and mail, so it holds only the ' : 'Over the limit of ' + state.shareMax + ': the link holds only the ') + r.kept + ' vertices nearest START, not all ' + r.total + '. The rest is not in it. '
                                + (r.bySize ? 'Share fewer vertices, or export the workspace (.json) to share everything.' : 'Raise the limit to share more, or export the workspace (.json) to share everything.'));
-      if (groups) warn.push(plural(groups, 'folded group') + ' on the canvas ' + (groups === 1 ? 'is' : 'are') + ' not in the link: open a group first to share what is in it.');
-      if (window.location.protocol === 'file:') warn.push('This copy of Hopline is opened from your disk, so the link opens only on this computer. Publish a copy to share it with others.');
-      var out = $('shareOut'); out.value = link; out.hidden = false;
-      shareSay(warn.join(' '), !!warn.length);
-      stat('share-link'); log('Link made: ' + r.kept + ' of ' + r.total + ' vertices, ' + r.chars + ' characters' + (notes ? ', notes included' : ''));
-      var said = (r.trimmed ? 'Link copied, but not everything is in it. ' : 'Link copied: ' + plural(r.kept, 'vertex', 'vertices') + ', ' + r.chars.toLocaleString('en-US') + ' characters (labels and tags are in it' + (notes ? ', and your notes' : ', your notes are not') + '). ') + warn.join(' ');
-      copy(link, 'the link', function () { toast(said, !!warn.length, null, warn.length ? 14000 : 6000); });
+      warn = warn.concat(shareExtraWarnings(sc.groups));
+      stat('share-link');
+      shareFinish(link, warn, r.trimmed ? 'Link copied, but not everything is in it. ' : 'Link copied: ' + plural(r.kept, 'vertex', 'vertices') + ', ' + r.chars.toLocaleString('en-US') + ' characters (labels and tags are in it' + (notes ? ', and your notes' : ', your notes are not') + '). ',
+                  'Link made: ' + r.kept + ' of ' + r.total + ' vertices, ' + r.chars + ' characters' + (notes ? ', notes included' : ''));
+    }, function (e) { shareSay(e.message, true); toast(e.message, true, null, 12000); });
+  }
+  /**
+   * A link that lists only the IDs of the loaded transactions on screen, nearest START first (public/js/hopline-share.js): no vertices, labels, tags, notes or layout. Whoever opens it loads the
+   * transactions from their own data source and gets the picture drawn afresh, so it holds many more transactions than a canvas link.
+   */
+  function doShareIds() {
+    var sc = shareScope(); if (!sc) return;
+    SH.buildIds(state.graph, { nodes: sc.vis.nodes, edges: sc.vis.edges, starts: shareStarts(), view: viewState() }).then(function (r) {
+      var link = shareBase() + r.fragment, warn = [];
+      if (r.trimmed) warn.push('The link would be too long for chat and mail, so it lists only the ' + r.kept + ' transactions nearest START, not all ' + r.total + '. The rest is not in it. Share fewer transactions, or export the workspace (.json) to share everything.');
+      warn = warn.concat(shareExtraWarnings(sc.groups));
+      stat('share-ids');
+      shareFinish(link, warn, r.trimmed ? 'Link copied, but not every transaction is in it. ' : 'Link copied: ' + plural(r.kept, 'transaction') + ', ' + r.chars.toLocaleString('en-US') + ' characters. Whoever opens it loads them from their own data source (about ' + (2 * r.kept) + ' requests); your labels, tags, notes and layout are not in it. ',
+                  'IDs link made: ' + r.kept + ' of ' + r.total + ' transactions, ' + r.chars + ' characters');
     }, function (e) { shareSay(e.message, true); toast(e.message, true, null, 12000); });
   }
   /** Open the canvas in a share link. It is imported like a workspace file (same checks, merged if something is open, undo offered); the address is cleaned so a reload does not open it again. */
   function openShared(hash) {
-    function clean() { try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the link stays in the address, harmless */ } }
-    return SH.decode(hash).then(function (r) { clean(); stat('open-share'); doImport(r.text, { share: r }); }, function (e) { clean(); toast('This link could not be opened: ' + e.message, true, null, 12000); });
+    return SH.decode(hash).then(function (r) { cleanShareAddress(); stat('open-share'); doImport(r.text, { share: r }); }, function (e) { cleanShareAddress(); toast('This link could not be opened: ' + e.message, true, null, 12000); });
+  }
+  function cleanShareAddress() { try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the link stays in the address, harmless */ } }
+
+  var ASK_OVER = 25;                                                                    // an IDs link that lists more transactions than this asks before it loads them: that is a few hundred requests to a server
+  /**
+   * Open a link of transaction IDs: load those transactions from the data source in use (with which of their outputs are spent), merged into what is on screen. On an empty canvas the link's view
+   * settings and focus are applied too. A long list asks first, naming the server that will be asked; Cancel stops the load, and Undo load takes it back.
+   */
+  function openIdLink(hash) {
+    return SH.decodeIds(hash).then(function (r) {
+      cleanShareAddress();
+      var g = state.graph, todo = r.ids.filter(function (t) { var n = g.nodes.get(ID.tx(t)); return !(n && n.loaded && n.outspendsLoaded); });
+      if (!todo.length) { toast('All ' + plural(r.ids.length, 'transaction') + ' of this link ' + (r.ids.length === 1 ? 'is' : 'are') + ' on the canvas already.'); return null; }
+      if (todo.length > ASK_OVER && !window.confirm('This link lists ' + todo.length + ' transactions. Opening it asks ' + hostOf(state.client.base) + ' for each of them (about ' + 2 * todo.length + ' requests), so that server learns which transactions you look at.\n\nContinue?')) {
+        toast('The link was not opened.'); return null;
+      }
+      stat('open-ids-link');
+      var wasEmpty = g.nodes.size === 0;
+      var cut = r.of && r.of > r.ids.length ? 'The sender cut the list down to the ' + r.ids.length + ' transactions nearest START (they had ' + r.of + '), so this is not the whole picture.' : '';
+      return run('Open ' + plural(todo.length, 'transaction') + ' from a link', function () {
+        return state.explorer.loadMany(todo, 0, true).then(function (res) { if (wasEmpty) finishIdLink(r); return res; });
+      }, { maxRequests: todo.length * 2 + 20, note: cut });
+    }, function (e) { cleanShareAddress(); toast('This link could not be opened: ' + e.message, true, null, 12000); });
+  }
+  /** On a canvas that was empty: the picture settings of the link and where it starts. */
+  function finishIdLink(r) {
+    var g = state.graph;
+    applyView(Object.assign({}, r.view, { focus: r.focus || ID.tx(r.ids[0]) }));
+    if (state.focus && !g.nodes.has(state.focus)) state.focus = null;
+    traceSanitize(); if (traceOn() && !state.trace.seed) { state.layout = 'flow'; setSeg('layoutSeg', 'data-layout', 'flow'); document.body.classList.remove('trace-on'); updateScaleRow(); }
+    if (state.focus) { state.keep.add(state.focus); state.nav.reset(); visitNav(state.focus); }
+    state.layoutRes = null; updateNavUi(); updateTraceUi();
   }
 
   function applyView(v) {
@@ -6121,7 +6187,9 @@
     if (src && A.PRESETS[src] && src !== 'custom') { state.source = src; applySourceUi(); makeClient(); }
     var openTarget = null;
     var shared = SH.isShareHash(location.hash) ? location.hash : null;
+    var idLink = SH.isIdsHash(location.hash) ? location.hash : null;
     if (shared) openTarget = function () { openShared(shared); };                                    // a link to a canvas is opened at once; the saved session waits beside it, as for a vertex in the address
+    else if (idLink) openTarget = function () { openIdLink(idLink); };
     else if (hp && (hp.id.indexOf('tx:') === 0 || hp.id.indexOf('addr:') === 0)) openTarget = function () { navigate(hp.id); };
     else if (q) openTarget = function () { $('q').value = q; openQuery(q); };
     if (openTarget && !hp) { offerRestore(null, true); openTarget(); }                 // a link that names what to open (the wallet page's "Open in workspace") is followed at once; the saved session waits beside it and nothing is autosaved until it is answered
