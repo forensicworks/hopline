@@ -25,6 +25,8 @@ def no_js_errors(errors):
 
 @pytest.fixture
 def wpage(ctx, errors):
+    # the wallet page loads a small wallet's whole history by itself unless told not to; most tests look at the first page and Load more, so it starts off here (a test that wants it on says so)
+    ctx.add_init_script("try { if (localStorage.getItem('hopline.walletchart.v1') === null) localStorage.setItem('hopline.walletchart.v1', JSON.stringify({ auto: false })); } catch (e) {}")
     p = ctx.new_page()
     p.on("pageerror", lambda e: errors.append("pageerror: " + str(e)))
     p.on("console", lambda m: errors.append("console: " + m.text) if m.type == "error" else None)

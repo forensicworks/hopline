@@ -247,6 +247,78 @@
     return { from: Math.floor(d.getTime() / 1000), to: end };
   }
 
+  // ---- in and out per period: the bars under the balance chart, and moving the period with fingers --------------------------------
+  var DAY = 86400;
+  function startOf(unit, t) {
+    if (unit === 'hour') return Math.floor(t / 3600) * 3600;
+    if (unit === 'day') return Math.floor(t / DAY) * DAY;
+    if (unit === 'week') return Math.floor((t - 4 * DAY) / (7 * DAY)) * 7 * DAY + 4 * DAY;      // weeks begin on a Monday (1 January 1970 was a Thursday)
+    var p = utcParts(t);
+    return (unit === 'month' ? Date.UTC(p.y, p.m, 1) : Date.UTC(p.y, 0, 1)) / 1000;
+  }
+  function nextStart(unit, t) {
+    if (unit === 'hour') return t + 3600;
+    if (unit === 'day') return t + DAY;
+    if (unit === 'week') return t + 7 * DAY;
+    var p = utcParts(t);
+    return (unit === 'month' ? Date.UTC(p.y, p.m + 1, 1) : Date.UTC(p.y + 1, 0, 1)) / 1000;
+  }
+  /**
+   * The periods for the in and out bars over a..b (unix seconds): the finest of hours, days, weeks (Monday to Sunday), months and years, in UTC, that gives no more than `max` of them.
+   * Returns { unit, buckets: [{ from, to }] } (`to` is where the next one begins); the first and last may reach beyond a and b.
+   */
+  function barBuckets(a, b, max) {
+    var units = ['hour', 'day', 'week', 'month', 'year'], list = [];
+    for (var i = 0; i < units.length; i++) {
+      var cap = i === units.length - 1 ? 1000 : Math.max(1, max);                       // years are the coarsest there is: all of them, however many
+      list = [];
+      for (var s = startOf(units[i], a); s <= b && list.length <= cap; s = list[list.length - 1].to) list.push({ from: s, to: nextStart(units[i], s) });
+      if (list.length <= cap) return { unit: units[i], buckets: list };
+    }
+    return { unit: 'year', buckets: list };
+  }
+  /**
+   * What came in and what went out in each of the periods: by what each transaction did to the wallet (its net), so in minus out is the change of the balance over the period.
+   * `points` are balanceSeries points, oldest first; amountOf(point) gives a signed amount in the unit drawn (default: the net, in satoshis).
+   * Returns [{ from, to, inn, out, ins, outs, count }]: the two totals (both positive), how many transactions came in and went out, and how many there were.
+   */
+  function barTotals(points, buckets, amountOf) {
+    var out = buckets.map(function (k) { return { from: k.from, to: k.to, inn: 0, out: 0, ins: 0, outs: 0, count: 0 }; }), i = 0;
+    amountOf = amountOf || function (p) { return p.net; };
+    for (var j = 0; j < points.length && i < out.length; j++) {
+      var p = points[j];
+      while (i < out.length && p.time >= out[i].to) i++;
+      if (i >= out.length) break;
+      if (p.time < out[i].from) continue;
+      var v = amountOf(p);
+      out[i].count++;
+      if (v > 0) { out[i].inn += v; out[i].ins++; } else if (v < 0) { out[i].out -= v; out[i].outs++; }
+    }
+    return out;
+  }
+
+  /** A period of the same length (or `minSpan` at least, the length of `bounds` at most) that lies within bounds { from, to }, as near to from..to as it can be. */
+  function fitWindow(from, to, bounds, minSpan) {
+    var span = Math.min(bounds.to - bounds.from, Math.max(minSpan || 0, to - from));
+    if (from + span > bounds.to) from = bounds.to - span;
+    if (from < bounds.from) from = bounds.from;
+    return { from: Math.round(from), to: Math.round(from + span) };
+  }
+  /**
+   * Two fingers moved: the period that puts the time under each finger (ta before tb, as they went down) under it again. xa and xb are where the fingers are now, in pixels from the
+   * left edge of a plot that is pw wide. Null when the fingers crossed or came together. Kept within bounds { from, to } and no shorter than minSpan seconds.
+   */
+  function pinchWindow(ta, tb, xa, xb, pw, bounds, minSpan) {
+    if (!(tb > ta) || !(xb - xa > 1) || !(pw > 0)) return null;
+    var span = (tb - ta) / ((xb - xa) / pw), from = ta - xa / pw * span;
+    return fitWindow(from, from + span, bounds, minSpan);
+  }
+  /** One finger moved dx pixels across a plot pw wide: the period from..to slides the other way, and stays within bounds { from, to }. */
+  function panWindow(from, to, dx, pw, bounds) {
+    var span = to - from, shift = -dx / pw * span;
+    return fitWindow(from + shift, to + shift, bounds, 0);
+  }
+
   // ---- the whole wallet: addresses spent together ------------------------------------------------------------------
   /**
    * Addresses that were spent together with this one in the transactions given (the common-input rule: inputs of one transaction usually share an owner),
@@ -340,5 +412,5 @@
     return out.join('\r\n') + '\r\n';
   }
 
-  return { ledger: ledger, summary: summary, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, niceTicks: niceTicks, timeTicks: timeTicks, windowSeries: windowSeries, presetWindow: presetWindow, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
+  return { ledger: ledger, summary: summary, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, niceTicks: niceTicks, timeTicks: timeTicks, windowSeries: windowSeries, presetWindow: presetWindow, barBuckets: barBuckets, barTotals: barTotals, pinchWindow: pinchWindow, panWindow: panWindow, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
 }));

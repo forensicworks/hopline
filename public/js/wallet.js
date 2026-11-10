@@ -364,9 +364,14 @@
   }
 
   // ---- the balance over time -------------------------------------------------------------------------------------
-  // key is the period shown: 'all', or '1m' / '6m' / '1y' counted back from the newest transaction loaded, or 'custom' (a dragged selection, kept in view = { from, to });
-  // follow: the From and To dates of the list choose the period instead. pts, xticks and yticks are what is on the chart (the end-to-end tests read them).
-  var chart = { pts: [], sel: -1, w: 0, h: 260, key: 'all', view: null, follow: false, drag: null, swallow: false, xticks: [], yticks: [], L: 0, T: 0, pw: 0, ph: 0, from: 0, to: 0 };
+  // key is the period shown: 'all', or '1m' / '6m' / '1y' counted back from the newest transaction loaded, or 'custom' (a dragged or pinched selection, kept in view = { from, to });
+  // follow: the From and To dates of the list choose the period instead. pts, buckets, xticks and yticks are what is on the chart (the end-to-end tests read them).
+  var chart = { pts: [], sel: -1, w: 0, h: 260, key: 'all', view: null, follow: false, drag: null, swallow: false, xticks: [], yticks: [], buckets: [], unit: '', strip: null, fiat: false,
+                L: 0, T: 0, pw: 0, ph: 0, from: 0, to: 0, bounds: { from: 0, to: 0 } };
+  // what is kept for the chart in this browser: the bars of what came in and went out, and loading the whole history by itself (kept apart from the workspace's settings, which it rewrites)
+  var WPREF_KEY = 'hopline.walletchart.v1', wprefs = { auto: true, bars: true }, AUTO_MAX = 250, BAR_H = 64, BAR_GAP = 14, UP = '#6be675', DOWN = '#ff9f43';
+  try { var wp = JSON.parse(store.get(WPREF_KEY) || '{}') || {}; wprefs.auto = wp.auto !== false; wprefs.bars = wp.bars !== false; } catch (e) { /* nothing saved: both are on */ }
+  function saveWprefs() { try { window.localStorage.setItem(WPREF_KEY, JSON.stringify(wprefs)); } catch (e) { /* no storage: the choice lasts while the page is open */ } }
   function themeColor(name, fallback) { var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v || fallback; }
   var rgbOf = {};
   /** A colour of the theme (in whatever form it is written) with an opacity, for a fade. */
@@ -385,6 +390,7 @@
   /** The period the chart shows, { from, to, zoomed, following } in unix seconds: within the loaded transactions, except that the From and To dates may reach beyond them. */
   function chartWindow(s) {
     var P = s.points, t0 = P[0].time, last = P[P.length - 1].time, t1 = last <= t0 ? t0 + 86400 : last;   // all in one moment: give it a day's width
+    chart.bounds = { from: t0, to: t1 };
     if (chart.follow && (state.f.from != null || state.f.to != null)) {
       var a = state.f.from != null ? state.f.from : t0, b = state.f.to != null ? state.f.to : t1;
       return { from: a, to: b <= a ? a + 86400 : b, zoomed: true, following: true };
@@ -396,14 +402,21 @@
     }
     return { from: t0, to: t1, zoomed: false, following: false };
   }
+  /** A number for the edge of the bars: bare (the unit is on the axis above), short. */
+  function bareAmt(v, fiatPlot, inSat) {
+    if (fiatPlot) return fiatShort(v);
+    if (inSat) return fmtInt(Math.round(v));
+    return String(Number((v / 1e8).toPrecision(2)).toFixed(8)).replace(/0+$/, '').replace(/\.$/, '');
+  }
   function drawChart() {
     var s = W.balanceSeries(state.led.rows), sec = $('chartSec'), cv = $('chart');
-    sec.hidden = !s.points.length; chart.pts = []; chart.xticks = []; chart.yticks = []; chartSelect(-1);
+    sec.hidden = !s.points.length; chart.pts = []; chart.xticks = []; chart.yticks = []; chart.buckets = []; chart.strip = null; chartSelect(-1);
     if (!s.points.length) { chartBanner(); return; }
     var win = chartWindow(s), ws = W.windowSeries(s, win.from, win.to), P = ws.points, a = win.from, b = win.to;
     // In the currency alone (Show: the currency), the curve is the value of the balance after each transaction at the price chosen for that moment, and so is the axis; if a price is
     // missing anywhere it stays in Bitcoin and says so. With Bitcoin, or Bitcoin and the currency, the curve is in Bitcoin and the tooltip carries the currency.
     var wantFiat = fiatOn() && state.fiat.show === 'fiat', fiatPlot = wantFiat && [{ balance: ws.start.balance, time: ws.start.at }].concat(P).every(function (q) { return !!fx(q.balance, q.time); });
+    chart.fiat = fiatPlot;
     function pv(bal, t) { return fiatPlot ? fx(bal, t).value : bal; }
     var v0 = pv(ws.start.balance, ws.start.at), lo = v0, hi = v0, low = v0, high = v0, lowAt = ws.start.at, highAt = ws.start.at, lowS = ws.start.balance, highS = ws.start.balance;
     P.forEach(function (p) {
@@ -412,12 +425,13 @@
     });
     if (!win.zoomed) { lo = Math.min(0, lo); hi = Math.max(0, hi); }                  // the whole history is drawn from nothing; a period is drawn as close as it needs
     if (hi === lo) { if (lo === 0) hi = 1; else { var pad = Math.abs(lo) * 0.05; lo = lo > 0 ? Math.max(0, lo - pad) : lo - pad; hi += pad; } }
-    var w = Math.max(280, Math.floor(cv.clientWidth || (cv.parentNode && cv.parentNode.clientWidth) || 640)), h = chart.h, dpr = window.devicePixelRatio || 1;
+    var w = Math.max(280, Math.floor(cv.clientWidth || (cv.parentNode && cv.parentNode.clientWidth) || 640)), dpr = window.devicePixelRatio || 1;
+    var barsOn = wprefs.bars, h = chart.h + (barsOn ? BAR_H + BAR_GAP : 0);
     chart.w = w;
-    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    cv.style.height = h + 'px'; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
     var g = cv.getContext('2d'); if (!g) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-    var T = 20, B = 28, R = 16, ph = h - T - B;
+    var T = 20, B = 28, R = 16, ph = chart.h - T - B;
     var nt = W.niceTicks(lo, hi, Math.max(3, Math.min(7, Math.floor(ph / 42))), { integer: !fiatPlot }); lo = nt.lo; hi = nt.hi;
     var inSat = !fiatPlot && hi < 100000, unit = fiatPlot ? '' : inSat ? 'sat' : 'BTC';
     var dec = Math.max(0, Math.min(8, 8 - Math.floor(Math.log(nt.step) / Math.LN10 + 1e-9)));
@@ -426,19 +440,29 @@
       if (inSat) return fmtInt(Math.round(v));
       return (v / 1e8).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
     }
+    // what came in and what went out in each period, by what each transaction did to the balance (so in minus out is how the balance changed)
+    var bars = null, peak = 0;
+    if (barsOn) {
+      var plan = W.barBuckets(a, b, Math.max(8, Math.floor((w - 100) / 7)));
+      chart.unit = plan.unit;
+      bars = W.barTotals(s.points, plan.buckets, function (p) { if (!fiatPlot) return p.net; var x = fx(Math.abs(p.net), p.time); return x ? (p.net < 0 ? -1 : 1) * x.value : 0; });
+      bars.forEach(function (k) { if (k.to > a && k.from < b) peak = Math.max(peak, k.inn, k.out); });
+    }
     var accent = themeColor('--accent', '#aee7f8'), dim = themeColor('--dim', '#b9a9b9'), grid = themeColor('--line', '#4a3a4a');
     g.font = '11.5px Calibri, "Segoe UI", Arial, sans-serif'; g.lineWidth = 1;
-    var yText = nt.ticks.map(axisText), L = Math.ceil(Math.max.apply(null, yText.map(function (t) { return g.measureText(t).width; }).concat([unit ? g.measureText(unit).width : 0]))) + 14, pw = w - L - R;
+    var yText = nt.ticks.map(axisText), edge = peak ? '+' + bareAmt(peak, fiatPlot, inSat) : '';
+    var L = Math.ceil(Math.max.apply(null, yText.concat([unit, edge]).map(function (t) { return g.measureText(t).width; }))) + 14, pw = w - L - R;
     chart.L = L; chart.T = T; chart.pw = pw; chart.ph = ph; chart.from = a; chart.to = b;
+    var stripTop = T + ph + BAR_GAP, stripBottom = stripTop + BAR_H, axisY = (barsOn ? stripBottom : T + ph);
     function X(t) { return L + (t - a) / (b - a) * pw; }
     function Y(v) { return T + (1 - (v - lo) / (hi - lo)) * ph; }
     // the time axis: round moments, a faint line down from each
     g.textBaseline = 'top';
     W.timeTicks(a, b, Math.max(2, Math.floor(pw / 100))).forEach(function (k) {
       var x = Math.round(X(k.time)) + 0.5, tw = g.measureText(k.label).width;
-      g.strokeStyle = grid; g.globalAlpha = 0.45; g.beginPath(); g.moveTo(x, T); g.lineTo(x, T + ph + 4); g.stroke(); g.globalAlpha = 1;
+      g.strokeStyle = grid; g.globalAlpha = 0.45; g.beginPath(); g.moveTo(x, T); g.lineTo(x, axisY + 4); g.stroke(); g.globalAlpha = 1;
       g.fillStyle = dim; g.textAlign = x - tw / 2 < 2 ? 'left' : x + tw / 2 > w - 2 ? 'right' : 'center';
-      g.fillText(k.label, g.textAlign === 'left' ? 2 : g.textAlign === 'right' ? w - 2 : x, T + ph + 9);
+      g.fillText(k.label, g.textAlign === 'left' ? 2 : g.textAlign === 'right' ? w - 2 : x, axisY + 9);
       chart.xticks.push({ x: x, label: k.label });
     });
     // the side axis: round values, a line across at each
@@ -460,20 +484,39 @@
     g.strokeStyle = accent; g.lineWidth = 1.6; g.lineJoin = 'round'; g.stroke(path);
     chart.pts = P.map(function (p) { return { x: X(p.time), y: Y(pv(p.balance, p.time)), p: p }; });
     if (P.length <= 150) { g.fillStyle = accent; chart.pts.forEach(function (q) { g.beginPath(); g.arc(q.x, q.y, 2.2, 0, 6.2832); g.fill(); }); }
+    // the bars: what came in above the line, what went out below it, on one scale
+    if (bars) {
+      var mid = stripTop + BAR_H / 2, half = BAR_H / 2 - 3, k = peak ? half / peak : 0;
+      chart.strip = { top: stripTop, bottom: stripBottom };
+      g.lineWidth = 1; g.strokeStyle = grid; g.beginPath(); g.moveTo(L, Math.round(mid) + 0.5); g.lineTo(w - R, Math.round(mid) + 0.5); g.stroke();
+      g.font = '10.5px Calibri, "Segoe UI", Arial, sans-serif'; g.fillStyle = dim; g.textAlign = 'right'; g.textBaseline = 'middle';
+      if (peak) { g.fillText(edge, L - 8, stripTop + 6); g.fillText('−' + edge.slice(1), L - 8, stripBottom - 6); }
+      bars.forEach(function (bk) {
+        var x0 = X(Math.max(bk.from, a)), x1 = X(Math.min(bk.to, b)), bw = x1 - x0;
+        if (bw < 0.5 || bk.to <= a || bk.from > b) return;
+        var gap = bw > 4 ? 1 : 0, x = x0 + gap / 2, ww = Math.max(1, bw - gap);
+        g.globalAlpha = 0.85;
+        if (bk.inn) { g.fillStyle = UP; g.fillRect(x, mid - Math.max(1, bk.inn * k), ww, Math.max(1, bk.inn * k)); }
+        if (bk.out) { g.fillStyle = DOWN; g.fillRect(x, mid, ww, Math.max(1, bk.out * k)); }
+        g.globalAlpha = 1;
+        chart.buckets.push({ x0: x0, x1: x1, b: bk });
+      });
+    }
     var text = !P.length
       ? 'No confirmed transaction from ' + S.fmtTime(a, false) + ' to ' + S.fmtTime(b, false) + ' among the ' + fmtInt(s.points.length) + ' loaded: the balance stayed at ' + amt(ws.start.balance, ws.start.at) + '.'
       : 'The balance after each of the ' + fmtInt(P.length) + ' confirmed transactions ' + (win.zoomed ? 'in this period (of ' + fmtInt(s.points.length) + ' loaded)' : 'loaded') + ', from ' + S.fmtTime(P[0].time, false) + ' to ' + S.fmtTime(P[P.length - 1].time, false)
         + '. Highest ' + amt(highS, highAt) + ', lowest ' + amt(lowS, lowAt) + '. Hover for a transaction, click it to find it below, drag across the chart to zoom in.';
+    if (bars) text += ' The bars below show, for each ' + chart.unit + ', what came in (up) and what went out (down): the sum of what its transactions did to the balance. Click a bar to zoom to that ' + chart.unit + '.';
     text += fiatPlot ? ' The axis is in ' + state.fiat.currency + ': the balance after each transaction at ' + (state.fiat.basis === 'today' ? 'today\'s price' : state.fiat.basis === 'ref' ? 'the price of the moment chosen in the workspace' : 'the price of its own moment') + '.'
          : wantFiat ? ' A price is missing for some of these moments, so the chart is in Bitcoin.' : '';
     $('chartText').textContent = text; cv.setAttribute('aria-label', 'Balance over time. ' + text);
     chartBar(win); chartBanner(s.points[0].time);
   }
-  /** The period buttons, the dates of the period shown and the way back. */
+  /** The period buttons, the dates of the period shown, the way back and the two settings. */
   function chartBar(win) {
     var key = chart.follow ? '' : chart.key === 'custom' ? '' : chart.key;
     Array.prototype.forEach.call($('rangeSeg').querySelectorAll('button'), function (b) { b.setAttribute('aria-checked', String(b.getAttribute('data-range') === key)); });
-    $('chartFollow').checked = chart.follow;
+    $('chartFollow').checked = chart.follow; $('chartBars').checked = wprefs.bars; $('chartAuto').checked = wprefs.auto;
     $('chartReset').hidden = !win.zoomed;
     $('chartRange').textContent = win.zoomed ? S.fmtTime(win.from, false) + ' to ' + S.fmtTime(win.to, false) + (win.following ? ' (the From and To dates)' : '') : '';
   }
@@ -505,8 +548,16 @@
     while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (pts[mid].x < x) lo = mid; else hi = mid; }
     return Math.abs(pts[lo].x - x) <= Math.abs(pts[hi].x - x) ? lo : hi;
   }
+  /** Is this pointer over the bars of what came in and went out? And which bar (an index into chart.buckets, or -1)? */
+  function inStrip(e) { var y = e.clientY - $('chart').getBoundingClientRect().top; return !!chart.strip && y >= chart.strip.top - 4 && y <= chart.strip.bottom + 4; }
+  function barAt(clientX) {
+    var x = clientX - $('chart').getBoundingClientRect().left;
+    for (var i = 0; i < chart.buckets.length; i++) if (x >= chart.buckets[i].x0 && x < chart.buckets[i].x1) return i;
+    return -1;
+  }
   function chartSelect(i) {
     var tip = $('chartTip'), dot = $('chartDot'), line = $('chartLine'), cv = $('chart'), q = chart.pts[i];
+    $('chartBand').hidden = true;
     if (!q) { chart.sel = -1; tip.hidden = true; dot.hidden = true; line.hidden = true; return; }
     chart.sel = i;
     var p = q.p, ox = cv.offsetLeft, oy = cv.offsetTop;
@@ -521,6 +572,28 @@
     var tw = tip.offsetWidth || 200;
     tip.style.left = Math.max(4, Math.min(ox + chart.w - tw - 4, ox + q.x + 12)) + 'px'; tip.style.top = Math.max(2, oy + q.y - tip.offsetHeight - 10) + 'px';
   }
+  /** The name of a bar's period: a day, "Week of 2022-06-06 to 2022-06-12", a month, a year. */
+  function bucketName(unit, from, to) {
+    var d = function (t) { return S.fmtTime(t, false); };
+    return unit === 'hour' ? S.fmtTime(from) : unit === 'day' ? d(from) : unit === 'week' ? 'Week of ' + d(from) + ' to ' + d(to - 1) : unit === 'month' ? d(from).slice(0, 7) : d(from).slice(0, 4);
+  }
+  function chartAmt(v) { return chart.fiat ? PR.format(v, state.fiat.currency) : btc(v); }
+  /** Point at a bar: its period, what came in and went out and how the balance changed, with the period marked. */
+  function barSelect(i) {
+    var tip = $('chartTip'), band = $('chartBand'), cv = $('chart'), q = chart.buckets[i];
+    chartSelect(-1);
+    if (!q) return;
+    var k = q.b, ox = cv.offsetLeft, oy = cv.offsetTop, net = k.inn - k.out;
+    tip.textContent = '';
+    tip.appendChild(el('b', { text: bucketName(chart.unit, k.from, k.to) }));
+    if (k.ins) tip.appendChild(el('div', { 'class': 'up', text: 'Came in: +' + chartAmt(k.inn) + ' (' + plural(k.ins, 'transaction') + ')' }));
+    if (k.outs) tip.appendChild(el('div', { 'class': 'down', text: 'Went out: −' + chartAmt(k.out) + ' (' + plural(k.outs, 'transaction') + ')' }));
+    tip.appendChild(el('div', { 'class': 'small', text: k.count ? 'The balance changed by ' + (net < 0 ? '−' : '+') + chartAmt(Math.abs(net)) : 'No transaction' }));
+    tip.hidden = false; band.hidden = false;
+    band.style.left = (ox + q.x0) + 'px'; band.style.width = Math.max(2, q.x1 - q.x0) + 'px'; band.style.top = (oy + chart.strip.top) + 'px'; band.style.height = (chart.strip.bottom - chart.strip.top) + 'px';
+    var tw = tip.offsetWidth || 200;
+    tip.style.left = Math.max(4, Math.min(ox + chart.w - tw - 4, ox + (q.x0 + q.x1) / 2 - tw / 2)) + 'px'; tip.style.top = Math.max(2, oy + chart.strip.top - tip.offsetHeight - 6) + 'px';
+  }
   /** Show another period: one of the buttons ('1m', '6m', '1y', 'all'), or 'custom' with the period in `view`. The From and To dates stop choosing it. */
   function setRange(key, view) {
     chart.key = key; chart.view = view || null; chart.follow = false;
@@ -528,10 +601,18 @@
   }
   function wireChart() {
     var cv = $('chart');
-    cv.addEventListener('mousemove', function (e) { if (chart.drag && chart.drag.moved) return; chartSelect(chartNearest(e.clientX)); });
+    cv.addEventListener('mousemove', function (e) {
+      if (chart.drag && chart.drag.moved) return;
+      if (inStrip(e)) barSelect(barAt(e.clientX)); else chartSelect(chartNearest(e.clientX));
+    });
     cv.addEventListener('mouseleave', function () { if (document.activeElement !== cv) chartSelect(-1); });
     cv.addEventListener('click', function (e) {
       if (chart.swallow) { chart.swallow = false; return; }                           // the click that ends a drag is not a click on a point
+      if (inStrip(e)) {                                                              // a bar: look at its period
+        var j = barAt(e.clientX), k = j >= 0 ? chart.buckets[j].b : null;
+        if (k) { var from = Math.max(k.from, chart.bounds.from), to = Math.min(k.to - 1, chart.bounds.to); if (to - from >= 60 && to - from < chart.to - chart.from - 1) setRange('custom', { from: from, to: to }); }
+        return;
+      }
       var i = chartNearest(e.clientX); if (i >= 0) { chartSelect(i); focusTx(chart.pts[i].p.txid); }
     });
     cv.addEventListener('blur', function () { chartSelect(-1); });
@@ -545,17 +626,56 @@
       else return;
       e.preventDefault(); chartSelect(i);
     });
-    // drag across the chart to look at that period
+    // a mouse drags across the chart to look at that period
     function plotX(e) { return Math.max(chart.L, Math.min(chart.L + chart.pw, e.clientX - cv.getBoundingClientRect().left)); }
     function cancelDrag() { if (chart.drag && chart.drag.moved) chart.swallow = true; chart.drag = null; $('chartSel').hidden = true; }
+    // fingers: two pinch (and move together) to zoom and pan the period, one slides a zoomed chart along
+    var fingers = new Map(), grip = null, frame = 0, wanted = null;
+    function plotPx(clientX) { return clientX - cv.getBoundingClientRect().left - chart.L; }
+    function regrip() {
+      var ids = [];
+      fingers.forEach(function (x, id) { ids.push(id); });
+      if (ids.length === 2) {
+        ids.sort(function (p, q) { return fingers.get(p) - fingers.get(q); });
+        var span = chart.to - chart.from;
+        grip = { kind: 'pinch', ids: ids, ta: chart.from + plotPx(fingers.get(ids[0])) / chart.pw * span, tb: chart.from + plotPx(fingers.get(ids[1])) / chart.pw * span };
+      } else if (ids.length === 1) grip = { kind: 'pan', id: ids[0], x: fingers.get(ids[0]), from: chart.from, to: chart.to, moved: false };
+      else grip = null;
+    }
+    function showWindow(win) {
+      wanted = win;
+      if (frame) return;
+      frame = (window.requestAnimationFrame || window.setTimeout)(function () {
+        frame = 0; var x = wanted; wanted = null; if (!x) return;
+        if (x.from <= chart.bounds.from + 1 && x.to >= chart.bounds.to - 1) setRange('all'); else setRange('custom', x);
+      });
+    }
     cv.addEventListener('pointerdown', function (e) {
       chart.swallow = false;
+      if (e.pointerType === 'touch') {
+        chart.drag = null; fingers.set(e.pointerId, e.clientX); regrip();
+        try { cv.setPointerCapture(e.pointerId); } catch (err) { /* a browser without it: the fingers still work inside the chart */ }
+        return;
+      }
       var x = e.clientX - cv.getBoundingClientRect().left;
       if (e.button > 0 || !chart.pw || x < chart.L - 4 || x > chart.L + chart.pw + 4) { chart.drag = null; return; }
       chart.drag = { x0: plotX(e), x1: plotX(e), moved: false, id: e.pointerId };
       try { cv.setPointerCapture(e.pointerId); } catch (err) { /* a browser without it: the drag still works inside the chart */ }
     });
     cv.addEventListener('pointermove', function (e) {
+      if (e.pointerType === 'touch') {
+        if (!fingers.has(e.pointerId) || !grip) return;
+        fingers.set(e.pointerId, e.clientX);
+        var win = null;
+        if (grip.kind === 'pinch') win = W.pinchWindow(grip.ta, grip.tb, plotPx(fingers.get(grip.ids[0])), plotPx(fingers.get(grip.ids[1])), chart.pw, chart.bounds, 3600);
+        else {
+          var dx = fingers.get(grip.id) - grip.x;
+          if (!grip.moved && Math.abs(dx) < 8) return;
+          grip.moved = true; win = W.panWindow(grip.from, grip.to, dx, chart.pw, chart.bounds);
+        }
+        if (win) { chart.swallow = true; showWindow(win); }
+        return;
+      }
       var d = chart.drag; if (!d || e.pointerId !== d.id) return;
       d.x1 = plotX(e); if (Math.abs(d.x1 - d.x0) > 4) d.moved = true;
       if (!d.moved) return;
@@ -563,7 +683,9 @@
       var sel = $('chartSel'); sel.hidden = false;
       sel.style.left = (cv.offsetLeft + Math.min(d.x0, d.x1)) + 'px'; sel.style.width = Math.abs(d.x1 - d.x0) + 'px'; sel.style.top = (cv.offsetTop + chart.T) + 'px'; sel.style.height = chart.ph + 'px';
     });
+    function lift(e) { if (fingers.delete(e.pointerId)) regrip(); }
     cv.addEventListener('pointerup', function (e) {
+      if (e.pointerType === 'touch') { lift(e); return; }
       var d = chart.drag; if (!d || e.pointerId !== d.id) return;
       cancelDrag();
       try { cv.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
@@ -571,10 +693,12 @@
       var span = chart.to - chart.from, from = Math.round(chart.from + (Math.min(d.x0, d.x1) - chart.L) / chart.pw * span), to = Math.round(chart.from + (Math.max(d.x0, d.x1) - chart.L) / chart.pw * span);
       if (to - from >= 60) setRange('custom', { from: from, to: to });
     });
-    cv.addEventListener('pointercancel', cancelDrag);
+    cv.addEventListener('pointercancel', function (e) { if (e.pointerType === 'touch') lift(e); else cancelDrag(); });
     Array.prototype.forEach.call($('rangeSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setRange(b.getAttribute('data-range')); }); });
     $('chartReset').addEventListener('click', function () { setRange('all'); });
     $('chartFollow').addEventListener('change', function () { chart.follow = this.checked; if (state.led) drawChart(); });
+    $('chartBars').addEventListener('change', function () { wprefs.bars = this.checked; saveWprefs(); if (state.led) drawChart(); });
+    $('chartAuto').addEventListener('change', function () { wprefs.auto = this.checked; saveWprefs(); if (this.checked) autoLoad(); });
     $('chartLoadAll').addEventListener('click', function () { $('loadAll').click(); });
     $('chartCancel').addEventListener('click', function () { $('allCancel').click(); });
     var timer = null;
@@ -829,6 +953,17 @@
     }());
   }
 
+  /**
+   * With "Load the whole history by itself" on, a wallet of up to AUTO_MAX transactions (and within the limit beside Load all) has the rest of its history loaded as soon as the first
+   * page is here, so the chart is complete. A bigger wallet waits for Load all.
+   */
+  function autoLoad() {
+    if (!wprefs.auto || state.busy || state.done || allLoad.running || !state.led) return;
+    var total = W.summary(state.stats).txCount;
+    if (!total || total > Math.min(AUTO_MAX, capValue()) || historyComplete()) return;
+    loadAll();
+  }
+
   // ---- loading -------------------------------------------------------------------------------------------
   function lastChainTxid() {
     for (var i = state.txs.length - 1; i >= 0; i--) if (state.txs[i].status && state.txs[i].status.confirmed) return state.txs[i].txid;
@@ -852,7 +987,7 @@
       clearTimeout(waitTimer);
       state.stats = r[0]; state.txs = []; state.done = false; chart.key = 'all'; chart.view = null;
       state.fetched = new Map(); state.statsAt = Math.floor(Date.now() / 1000); state.statsSource = state.client.sourceOf(r[0]);
-      try { addPage(r[1], true); state.busy = false; message(state.switched || ''); drawHead(); redraw(); }
+      try { addPage(r[1], true); state.busy = false; message(state.switched || ''); drawHead(); redraw(); autoLoad(); }
       catch (e) { showFailure('The data arrived but could not be shown', e, load); }
     }, function (e) {
       clearTimeout(waitTimer);
