@@ -9,12 +9,14 @@
  * colouring, the trace). Opening it goes through the same checks as importing a file (HoplineIO.fromJson), after these extra ones:
  * a longest link, a largest unpacked size and a largest number of vertices, so a link made by someone else cannot freeze the page.
  *
- * A second kind of link carries only the transaction IDs of what is on the canvas, no vertices, labels or layout:
+ * A second kind of link carries only the transaction IDs of what is on the canvas, no vertices, amounts or times:
  *
- *   #i1/<{ format, version, t: [txid, ...], f: focus, of: how many, view: {...} } as JSON, deflated, in base64url>
+ *   #i1/<{ format, version, t: [txid, ...], f: focus, of: how many, view: {...}, l: [labels], trace: {...} } as JSON, deflated, in base64url>
  *
  * Whoever opens it loads those transactions from their own data source and gets the picture drawn afresh. It costs about 45 characters
- * for a transaction (no addresses, amounts or times are in it), so it holds far more than a canvas link, but the reader needs the network.
+ * for a transaction, so it holds far more than a canvas link, but the reader needs the network. Two things can be added, each only when the sender asks:
+ * `l`, the labels and tags (and notes) of the vertices, as [reference, label, tag, note] with the reference the position of a transaction in `t` or the address of a wallet,
+ * and `trace`, the trace as the workspace file saves it (starting points, the vertices it shows, their places and where each came from, without groups).
  *
  * A link has a limit: at most `limit` vertices (default 50, about 4,000 characters on real data), and in any case no more than
  * MAX_CHARS characters. Over the limit it keeps the vertices nearest START (hop by hop, along the edges in either direction) and says
@@ -30,7 +32,8 @@
   var PREFIX = '#s1/', IDS_PREFIX = '#i1/';
   var IDS_FORMAT = 'hopline-ids', MAX_IDS = 3000;               // an IDs link: its own format name, and the most transactions one may list (made or opened)
   var IDS_VIEW = ['layout', 'arrange', 'colorBy', 'sizeBy', 'timeScale', 'focusOn', 'hops'];                    // the settings an IDs link carries; the reader's own checks do the rest
-  var HEX64 = /^[0-9a-f]{64}$/, FOCUS_OK = /^(tx|addr):[A-Za-z0-9]{8,120}$/;
+  var HEX64 = /^[0-9a-f]{64}$/, FOCUS_OK = /^(tx|addr):[A-Za-z0-9]{8,120}$/, ADDR_OK = /^[A-Za-z0-9]{8,120}$/;
+  var MAX_LABELS = 6000, LABEL_MAX = 200, TAG_MAX = 60, NOTE_MAX = 4000, MAX_TRACE = 5000;      // what an IDs link may carry besides the ids
   var FORMAT = 'hopline-workspace', VERSION = 1;               // the workspace file's own names (HoplineIO): a link carries one, so a test keeps these two honest
   var DEFAULT_LIMIT = 50, MIN_LIMIT = 5, MAX_LIMIT = 500;       // vertices in a link
   var MAX_CHARS = 60000;                                        // the longest link made, after the "#": more than this does not survive chat and mail
@@ -120,12 +123,47 @@
   }
 
   // ---- a link of IDs ----------------------------------------------------------------------------
-  /** The settings of the view an IDs link carries. A trace is not one of them (its places are not in the link), so a trace becomes the automatic Flow layout. */
-  function idsView(v) {
+  /** The settings of the view an IDs link carries. The Trace layout stays only when the link carries a trace (`hasTrace`): without its places the reader gets the automatic Flow layout. */
+  function idsView(v, hasTrace) {
     var out = {};
     if (v && typeof v === 'object') IDS_VIEW.forEach(function (k) { var x = v[k]; if (typeof x === 'string' ? x.length <= 40 : typeof x === 'boolean' || (typeof x === 'number' && isFinite(x))) out[k] = x; });
-    if (out.layout === 'trace') out.layout = 'flow';
+    if (out.layout === 'trace' && !hasTrace) out.layout = 'flow';
     return out;
+  }
+  function clip(x, max) { return typeof x === 'string' ? x.slice(0, max) : ''; }
+  /**
+   * The labels, tags and (when asked) notes of the vertices that go in the link: [reference, label, tag, note] with the note, and then the tag, left off when empty. The reference is the
+   * position of a transaction in `ids`, or the address of a wallet. A vertex that is not among `vertices` (cut off, or not next to a transaction in the link) is not in it.
+   */
+  function labelsOf(graph, ids, vertices, notes) {
+    var out = [], at = new Map();
+    ids.forEach(function (t, i) { at.set('tx:' + t, i); });
+    vertices.forEach(function (id) {
+      var n = graph.nodes.get(id);
+      if (!n) return;
+      var label = clip(n.label, LABEL_MAX), tag = clip(n.tag, TAG_MAX), note = notes ? clip(n.note, NOTE_MAX) : '';
+      if (!label && !tag && !note) return;
+      var ref = n.type === 'tx' ? at.get(id) : n.type === 'addr' && ADDR_OK.test(n.address || '') ? n.address : undefined;
+      if (ref === undefined) return;
+      out.push(note ? [ref, label, tag, note] : tag ? [ref, label, tag] : [ref, label]);
+    });
+    return out.slice(0, MAX_LABELS);
+  }
+  /** A trace as an IDs link carries it, checked: { seed, seeds, shown, pos, prov } in the workspace file's own form (vertex ids, places as [x, y], where each came from), without groups; null when it is not one. */
+  function cleanTrace(t) {
+    if (!t || typeof t !== 'object' || typeof t.seed !== 'string' || !FOCUS_OK.test(t.seed)) return null;
+    function ids(a) { return (Array.isArray(a) ? a : []).slice(0, MAX_TRACE).filter(function (x) { return typeof x === 'string' && FOCUS_OK.test(x); }); }
+    var shown = ids(t.shown), pos = {}, prov = {};
+    if (!shown.length) return null;
+    if (t.pos && typeof t.pos === 'object') Object.keys(t.pos).slice(0, MAX_TRACE).forEach(function (id) {
+      var a = t.pos[id];
+      if (FOCUS_OK.test(id) && Array.isArray(a) && a.length === 2 && isFinite(a[0]) && isFinite(a[1]) && Math.abs(a[0]) < 1e6 && Math.abs(a[1]) < 1e6) pos[id] = [a[0], a[1]];
+    });
+    if (t.prov && typeof t.prov === 'object') Object.keys(t.prov).slice(0, MAX_TRACE).forEach(function (id) {
+      var a = t.prov[id];
+      if (FOCUS_OK.test(id) && Array.isArray(a) && typeof a[0] === 'string' && FOCUS_OK.test(a[0]) && (a[1] === 'next' || a[1] === 'prev')) prov[id] = [a[0], a[1]];
+    });
+    return { seed: t.seed, seeds: ids(t.seeds), shown: shown, pos: pos, prov: prov };
   }
 
   /**
@@ -141,8 +179,21 @@
     var start = (o.starts || [])[0], focus = null;
     if (start && keep.has(start)) focus = start;
     else if (start && graph.nodes.has(start) && graph.nodes.get(start).type === 'addr' && graph.edgesOf(start).some(function (e) { return keep.has(e.source) || keep.has(e.target); })) focus = start;
-    return { ids: ids, total: txs.length,
-             payload: { format: IDS_FORMAT, version: 1, t: ids, f: focus, of: txs.length, view: idsView(o.view) } };
+    // what the reader's graph will hold once it has loaded the transactions: them, and the wallets next to them along the edges that are on screen
+    var vertices = new Set(keep);
+    ids.forEach(function (t) {
+      graph.edgesOf('tx:' + t).forEach(function (e) {
+        if (o.edges && !o.edges.has(e.id)) return;
+        var other = e.source === 'tx:' + t ? e.target : e.source;
+        if (graph.nodes.has(other) && (!o.nodes || o.nodes.has(other))) vertices.add(other);
+      });
+    });
+    var tv = o.trace ? pruneView({ trace: o.trace }, vertices) : null, trace = tv && tv.trace ? tv.trace : null;
+    var payload = { format: IDS_FORMAT, version: 1, t: ids, f: focus, of: txs.length, view: idsView(o.view, !!trace) };
+    var labels = o.labels ? labelsOf(graph, ids, vertices, !!o.notes) : [];
+    if (labels.length) payload.l = labels;
+    if (trace) payload.trace = trace;
+    return { ids: ids, total: txs.length, labels: labels.length, trace: !!trace, payload: payload };
   }
 
   // ---- compression and base64url ----------------------------------------------------------------
@@ -225,7 +276,7 @@
           if (p.ids.length <= 1) throw new Error('Even one transaction makes a link of ' + fragment.length + ' characters, more than the ' + MAX_CHARS + ' that chat and mail carry.');
           return attempt(Math.max(1, Math.min(p.ids.length - 1, Math.floor(p.ids.length * MAX_CHARS / fragment.length * 0.95))));
         }
-        return { fragment: fragment, kept: p.ids.length, total: p.total, chars: fragment.length, trimmed: p.ids.length < p.total };
+        return { fragment: fragment, kept: p.ids.length, total: p.total, chars: fragment.length, trimmed: p.ids.length < p.total, labels: p.labels, trace: p.trace };
       });
     }
     return Promise.resolve().then(function () { return attempt(o.limit); });
@@ -254,8 +305,17 @@
         if (!seen.has(t)) { seen.add(t); ids.push(t); }
       });
       if (!ids.length) throw new Error('The link lists no transactions.');
-      var of = typeof d.of === 'number' && isFinite(d.of) && d.of >= ids.length ? Math.floor(d.of) : null;
-      return { ids: ids, focus: typeof d.f === 'string' && FOCUS_OK.test(d.f) ? d.f : null, view: idsView(d.view), of: of };
+      var of = typeof d.of === 'number' && isFinite(d.of) && d.of >= ids.length ? Math.floor(d.of) : null, labels = [], trace = cleanTrace(d.trace);
+      if (Array.isArray(d.l)) d.l.slice(0, MAX_LABELS).forEach(function (e) {              // [reference, label, tag, note]: a position in the list of transactions, or a wallet's address
+        if (!Array.isArray(e) || e.length < 2 || e.length > 4) return;
+        var ref = e[0], id = null;
+        if (typeof ref === 'number' && ref === Math.floor(ref) && ref >= 0 && ref < d.t.length && typeof d.t[ref] === 'string' && HEX64.test(d.t[ref])) id = 'tx:' + d.t[ref];
+        else if (typeof ref === 'string' && ADDR_OK.test(ref)) id = 'addr:' + ref;
+        if (!id) return;
+        var label = clip(e[1], LABEL_MAX), tag = clip(e[2], TAG_MAX), note = clip(e[3], NOTE_MAX);
+        if (label || tag || note) labels.push({ id: id, label: label, tag: tag, note: note });
+      });
+      return { ids: ids, focus: typeof d.f === 'string' && FOCUS_OK.test(d.f) ? d.f : null, view: idsView(d.view, !!trace), of: of, labels: labels, trace: trace };
     }, function (err) {
       if (err && err.message === TOO_BIG) throw new Error('The link unpacks to more than ' + Math.round(MAX_JSON / 1e6) + ' MB, so it is not one Hopline made.');
       throw new Error('The link is damaged or was cut short: it cannot be unpacked. A chat or mail program may have shortened it.');

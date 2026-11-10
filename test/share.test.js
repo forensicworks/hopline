@@ -241,6 +241,114 @@ test('decodeIds: duplicates are listed once, a made-up focus is dropped, the set
   assert.equal((await S.decodeIds(frag(Object.assign({}, base, { of: 'many' })))).of, null);
 });
 
+/** The same path as chain_, with wallet addresses as long as real ones (a reference to a wallet in an IDs link must look like an address). */
+function chainA_(n) {
+  const g = new Graph(), w = (i) => 'bc1qwallet' + i;
+  for (let i = 0; i < n; i++) {
+    g.upsertNode({ id: 'tx:' + hex(i), type: 'tx', txid: hex(i), loaded: true });
+    g.upsertNode({ id: 'addr:' + w(i), type: 'addr', address: w(i) });
+    g.upsertEdge({ id: 'out:' + hex(i) + ':0', source: 'tx:' + hex(i), target: 'addr:' + w(i), kind: 'out', amount: 1000 });
+    if (i) g.upsertEdge({ id: 'in:' + hex(i) + ':0', source: 'addr:' + w(i - 1), target: 'tx:' + hex(i), kind: 'in', amount: 1000 });
+  }
+  return g;
+}
+
+// ---- an IDs link with the sender's labels and tags, or with the trace -------------------------------------------------------------------------------------------------
+
+function labelled() {
+  const g = chainA_(10);
+  g.nodes.get('tx:' + hex(3)).label = 'Payment to the broker'; g.nodes.get('tx:' + hex(3)).tag = 'PAYMENT'; g.nodes.get('tx:' + hex(3)).note = 'asked for twice';
+  g.nodes.get('tx:' + hex(4)).tag = 'WATCH';
+  g.nodes.get('addr:bc1qwallet3').label = 'Suspect wallet';
+  g.nodes.get('addr:bc1qwallet5').note = 'only a note';
+  return g;
+}
+
+test('packIds with labels: the label, tag and (when asked) note of each vertex that goes in, by position in the list for a transaction and by address for a wallet', () => {
+  const g = labelled(), start = 'tx:' + hex(0);
+  assert.equal(S.packIds(g, { starts: [start] }).payload.l, undefined, 'not asked for: nothing of yours is in it');
+  const p = S.packIds(g, { starts: [start], labels: true }), at = (id) => p.payload.t.indexOf(id);
+  assert.deepEqual(p.payload.l.find((e) => e[0] === at(hex(3))), [at(hex(3)), 'Payment to the broker', 'PAYMENT'], 'a transaction is a position in t, and the note is left off');
+  assert.deepEqual(p.payload.l.find((e) => e[0] === at(hex(4))), [at(hex(4)), '', 'WATCH'], 'a tag alone');
+  assert.deepEqual(p.payload.l.find((e) => e[0] === 'bc1qwallet3'), ['bc1qwallet3', 'Suspect wallet'], 'a wallet is its address');
+  assert.equal(p.payload.l.find((e) => e[0] === 'bc1qwallet5'), undefined, 'a note alone is nothing without the notes box');
+  assert.equal(p.labels, 3);
+  const n = S.packIds(g, { starts: [start], labels: true, notes: true });
+  assert.deepEqual(n.payload.l.find((e) => e[0] === n.payload.t.indexOf(hex(3))), [n.payload.t.indexOf(hex(3)), 'Payment to the broker', 'PAYMENT', 'asked for twice']);
+  assert.deepEqual(n.payload.l.find((e) => e[0] === 'bc1qwallet5'), ['bc1qwallet5', '', '', 'only a note'], 'with notes a note alone counts');
+  assert.equal(S.packIds(g, { starts: [start], labels: true, notes: true }).labels, 4, 'the two transactions and the two wallets that have something');
+});
+
+test('packIds with labels: a vertex that is cut off, or is not next to a transaction in the link, is not in it', () => {
+  const g = labelled();
+  const few = S.packIds(g, { starts: ['tx:' + hex(3)], labels: true, limit: 1 });
+  assert.deepEqual(few.payload.t, [hex(3)]);
+  assert.deepEqual(few.payload.l.map((e) => e[0]), [0, 'bc1qwallet3'], 'only the kept transaction and the wallets next to it: the tag on the 5th transaction is not here');
+  const hidden = S.packIds(g, { starts: ['tx:' + hex(3)], labels: true, nodes: new Set(Array.from(g.nodes.keys()).filter((id) => id !== 'addr:bc1qwallet3')) });
+  assert.ok(!hidden.payload.l.some((e) => e[0] === 'bc1qwallet3'), 'a vertex that is not on screen is not in it');
+  const bare = S.packIds(chainA_(5), { starts: ['tx:' + hex(0)], labels: true });
+  assert.equal(bare.payload.l, undefined); assert.equal(bare.labels, 0, 'nothing labelled: no list at all');
+});
+
+const traceOf = (g, ids, extra) => Object.assign({ seed: 'tx:' + hex(ids[0]), seeds: ['tx:' + hex(ids[0])], shown: ids.flatMap((i) => ['tx:' + hex(i), 'addr:bc1qwallet' + i]),
+  pos: Object.fromEntries(ids.flatMap((i, k) => [['tx:' + hex(i), [k * 200, 0]], ['addr:bc1qwallet' + i, [k * 200 + 100, 40]]])),
+  prov: Object.fromEntries(ids.slice(1).map((i) => ['tx:' + hex(i), ['addr:bc1qwallet' + (i - 1), 'next']])) }, extra);
+
+test('packIds with a trace: the trace as the workspace file saves it, cut to what goes in, and the Trace layout stays only when it is there', () => {
+  const g = chainA_(10), trace = traceOf(g, [2, 3, 4, 5]), start = 'tx:' + hex(2);
+  const p = S.packIds(g, { starts: [start], trace, view: { layout: 'trace', colorBy: 'age' } });
+  assert.deepEqual(Object.keys(p.payload.trace).sort(), ['pos', 'prov', 'seed', 'seeds', 'shown'], 'no groups, no other fields');
+  assert.equal(p.payload.trace.seed, start); assert.equal(p.payload.trace.shown.length, 8); assert.deepEqual(p.payload.trace.pos['tx:' + hex(3)], [200, 0]);
+  assert.equal(p.payload.view.layout, 'trace'); assert.equal(p.trace, true);
+  const without = S.packIds(g, { starts: [start], view: { layout: 'trace' } });
+  assert.equal(without.payload.trace, undefined); assert.equal(without.payload.view.layout, 'flow', 'no trace in the link: the automatic layout');
+  const cut = S.packIds(g, { starts: [start], trace, limit: 2, view: { layout: 'trace' } });
+  assert.ok(cut.payload.trace.shown.every((id) => id === 'tx:' + hex(2) || id === 'tx:' + hex(3) || /^addr:bc1qwallet[2-4]$/.test(id)), 'what is cut off is not in the trace: ' + cut.payload.trace.shown.join());
+  assert.ok(!cut.payload.trace.shown.includes('tx:' + hex(5)));
+  const gone = S.packIds(g, { starts: [start], trace: traceOf(g, [8, 9]), limit: 2, view: { layout: 'trace' } });
+  assert.equal(gone.payload.trace, undefined, 'a trace none of whose vertices is in the link is not carried'); assert.equal(gone.payload.view.layout, 'flow');
+  const grouped = S.packIds(g, { starts: [start], trace: traceOf(g, [2, 3], { groups: [{ id: 'grp:1', anchor: 'tx:' + hex(2), dir: 'next', members: ['tx:x', 'tx:y'] }], seq: 3 }) });
+  assert.equal(grouped.payload.trace.groups, undefined, 'a group is left out');
+});
+
+test('buildIds and decodeIds: labels and the trace come out as they went in, with the transaction ids still in the sender\'s order', async () => {
+  const g = labelled(), trace = traceOf(g, [3, 4, 5]), start = 'tx:' + hex(3);
+  const r = await S.buildIds(g, { starts: [start], labels: true, notes: true, trace, view: { layout: 'trace' } });
+  assert.equal(r.labels, 4); assert.equal(r.trace, true);
+  const back = await S.decodeIds(r.fragment);
+  assert.equal(back.ids[0], hex(3));
+  const byId = Object.fromEntries(back.labels.map((x) => [x.id, x]));
+  assert.deepEqual(byId['tx:' + hex(3)], { id: 'tx:' + hex(3), label: 'Payment to the broker', tag: 'PAYMENT', note: 'asked for twice' });
+  assert.deepEqual(byId['tx:' + hex(4)], { id: 'tx:' + hex(4), label: '', tag: 'WATCH', note: '' });
+  assert.deepEqual(byId['addr:bc1qwallet3'], { id: 'addr:bc1qwallet3', label: 'Suspect wallet', tag: '', note: '' });
+  assert.equal(back.view.layout, 'trace'); assert.equal(back.trace.seed, start); assert.deepEqual(back.trace.pos['tx:' + hex(4)], [200, 0]); assert.deepEqual(back.trace.prov['tx:' + hex(4)], ['addr:bc1qwallet3', 'next']);
+  const plain = await S.buildIds(g, { starts: [start] });
+  assert.ok(r.chars > plain.chars, 'they cost characters: ' + plain.chars + ' without, ' + r.chars + ' with');
+  const bare = await S.decodeIds(plain.fragment);
+  assert.deepEqual(bare.labels, []); assert.equal(bare.trace, null);
+});
+
+test('decodeIds: labels and a trace from a link somebody else made are checked, and what does not fit is dropped', async () => {
+  const frag = (obj) => S.IDS_PREFIX + S.toBase64Url(zlib.deflateRawSync(Buffer.from(JSON.stringify(obj))));
+  const ok = { format: 'hopline-ids', version: 1, t: [hex(1), hex(2), hex(1)], f: null, of: 3, view: { layout: 'trace' } };
+  const long = 'x'.repeat(5000);
+  const lab = await S.decodeIds(frag(Object.assign({}, ok, { l: [[0, 'one', 'WATCH'], [1, long, long, long], [2, 'dup position'], [3, 'past the end'], [-1, 'negative'], [0.5, 'half'], ['abc', 'short address'], ['bc1q' + 'x'.repeat(30), 'a wallet'],
+    ['has space in it ok no', 'bad address'], [0], [0, 'five', 'a', 'b', 'c'], 'not an entry', null, [0, '', '', ''], [0, 7, 8, 9], [{}, 'object ref']] })));
+  assert.deepEqual(lab.labels.map((x) => x.id), ['tx:' + hex(1), 'tx:' + hex(2), 'tx:' + hex(1), 'addr:bc1q' + 'x'.repeat(30)], 'only entries with a position inside the list or a plausible address and some text');
+  assert.equal(lab.labels[1].label.length, 200); assert.equal(lab.labels[1].tag.length, 60); assert.equal(lab.labels[1].note.length, 4000, 'every field is cut to its length');
+  assert.equal(lab.labels[2].id, 'tx:' + hex(1), 'a position counts in the list as written, duplicates included');
+  assert.equal(lab.view.layout, 'flow', 'a trace layout without a trace is the automatic layout');
+  const trace = { seed: 'tx:' + hex(1), seeds: ['tx:' + hex(1), 'oops', 7], shown: ['tx:' + hex(1), 'addr:abcdefgh', 'x:bad', 5, '<script>'], pos: { ['tx:' + hex(1)]: [1, 2], 'addr:abcdefgh': [1e9, 0], '__proto__': [1, 2], 'tx:zz': 'no' }, prov: { 'addr:abcdefgh': ['tx:' + hex(1), 'next'], ['tx:' + hex(1)]: ['x', 'next'], 'tx:cccccccc': ['tx:' + hex(1), 'sideways'] },
+    groups: [{ id: 'grp:1' }], seq: 9, extra: 'x' };
+  const tr = await S.decodeIds(frag(Object.assign({}, ok, { trace })));
+  assert.deepEqual(tr.trace, { seed: 'tx:' + hex(1), seeds: ['tx:' + hex(1)], shown: ['tx:' + hex(1), 'addr:abcdefgh'], pos: { ['tx:' + hex(1)]: [1, 2] }, prov: { 'addr:abcdefgh': ['tx:' + hex(1), 'next'] } }, 'only well-formed ids, places and origins, no groups, nothing else');
+  assert.equal(tr.view.layout, 'trace', 'with a trace the layout stays');
+  assert.equal(Object.getPrototypeOf(tr.trace.pos), Object.prototype, 'a key like __proto__ did nothing');
+  for (const bad of [null, 'x', 5, [], { seed: 5 }, { seed: 'nope', shown: ['tx:abcdefgh'] }, { seed: 'tx:abcdefgh' }, { seed: 'tx:abcdefgh', shown: [] }, { seed: 'tx:abcdefgh', shown: ['nope'] }]) {
+    assert.equal((await S.decodeIds(frag(Object.assign({}, ok, { trace: bad })))).trace, null, JSON.stringify(bad));
+  }
+});
+
 test('isIdsHash: only the IDs link\'s own prefix, and the two kinds of link are told apart', () => {
   assert.equal(S.isIdsHash('#i1/abc'), true); assert.equal(S.isIdsHash('#s1/abc'), false); assert.equal(S.isIdsHash('#f1/tx:abc'), false); assert.equal(S.isIdsHash(''), false); assert.equal(S.isIdsHash(null), false); assert.equal(S.isIdsHash('#I1/abc'), false);
   assert.equal(S.isShareHash('#i1/abc'), false, 'an IDs link is not a canvas link');
