@@ -2757,9 +2757,14 @@
                           title: 'Show this vertex and what is around it', onclick: function () { if (!state.focusOn) { state.focusOn = true; $('focusOn').checked = true; savePrefs(); } navigate(n.id); } });
   }
 
-  /** One row per neighbouring transaction; clicking moves the focus there. `row` = {id, label, amount, time, dir}. */
-  function linkRows(title, rows) {
-    var LIMIT = 40, list = el('div', { 'class': 'linkrows' });
+  /**
+   * One row per neighbouring transaction; clicking moves the focus there. `row` = {id, label, amount, time, dir}.
+   * Pointing at a row (or focusing it) rings that transaction on the graph and fades the rest, as the findings do, and a row is marked while its transaction is under the pointer on the graph.
+   * With two or more of them in the graph the heading has "Select all": it selects the ones that are on screen, and pointing at it rings them all. `what` names them in the messages.
+   */
+  function linkRows(title, rows, what) {
+    var LIMIT = 40, list = el('div', { 'class': 'linkrows' }), here = [];
+    rows.forEach(function (r) { if (r.id && state.graph.nodes.has(r.id) && here.indexOf(r.id) < 0) here.push(r.id); });
     rows.slice(0, LIMIT).forEach(function (r) {
       var kids = [el('span', { text: r.label })];
       if (r.time != null) kids.push(el('span', { 'class': 'when', text: S.fmtTime(r.time), title: S.fmtTimeFull(r.time) }));
@@ -2767,10 +2772,18 @@
       var fx = r.amount != null ? fiatOf(r.amount, r.time) : null;
       var line = r.id && state.graph.nodes.has(r.id) ? el('button', { type: 'button', 'class': 'linkrow', title: r.id + (fx ? ' · ' + fx.text : ''), onclick: function () { navigate(r.id); } }, kids)
                                                         : el('div', { 'class': 'linkrow plain' }, kids);
+      if (r.id && state.graph.nodes.has(r.id)) lit(line, [r.id], null);
       list.appendChild(r.id && /^(tx|addr):/.test(r.id) ? withCopy(line, plainId(r.id), r.id.indexOf('tx:') === 0 ? 'transaction id' : 'address') : line);
     });
     if (rows.length > LIMIT) list.appendChild(el('div', { 'class': 'hint', text: '… and ' + (rows.length - LIMIT) + ' more' }));
-    return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: title + ' (' + rows.length + ')' }), list]);
+    var head = [el('span', { text: title + ' (' + rows.length + ')' })];
+    if (here.length > 1) {
+      var all = el('button', { type: 'button', 'class': 'selall', text: 'Select all ' + here.length,
+                               title: 'Select ' + (here.length === rows.length ? 'all ' + here.length : 'the ' + here.length + ' that are in the graph') + ' on the graph (the ones that are on screen)', onclick: function () { selectIds(here, what); } });
+      previewFor(all, function () { return { ids: here, color: null }; });
+      head.push(all);
+    }
+    return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl' }, head), list]);
   }
 
   // ---- a wallet's transactions, told apart: in and out ----------------------------------------------
@@ -3060,8 +3073,8 @@
           else spent.push({ id: null, label: e.spent === false ? '→ unspent' : '→ spender unknown', amount: e.amount, time: null });
         }
       });
-      if (funded.length) out.push(linkRows('Funded by', funded));
-      if (spent.length) out.push(linkRows('Spent by', spent));
+      if (funded.length) out.push(linkRows('Funded by', funded, 'funding transactions'));
+      if (spent.length) out.push(linkRows('Spent by', spent, 'spending transactions'));
       if (!funded.length && !spent.length && n.loaded && !n.outspendsLoaded) out.push(el('p', { 'class': 'hint', text: 'Focus here to load what spent its outputs.' }));
     } else if (n.type === 'addr') {
       var sec = walletTxSection(n); if (sec) out.push(sec);
@@ -3148,7 +3161,7 @@
     if (view === 'none') { insp.hidden = true; return; }
     if (view === 'findings') { insp.hidden = false; return; }
     if (soft && box.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && state.selected.size === 1) return;   // user is typing
-    box.textContent = '';
+    box.textContent = ''; previewGuard();
     var gsel = Array.from(state.selected).filter(isGroupVertex);
     if (gsel.length === 1 && state.selected.size === 1) { insp.hidden = false; return showGroup(gsel[0], box); }
     var ids = Array.from(state.selected).filter(function (id) { return g.nodes.has(id); });
@@ -4583,13 +4596,25 @@
   // shown or moved, and the tooltip says how many of the vertices are on screen. (Members folded into a group are not on screen one by one, so they are not counted.)
   var hlList = [], hlTimer = null, hlMarked = [], hlMarkedFor = null, lastChips = [];
   function hlOnScreen(ids) { var vis = renderer && renderer.data ? renderer.data.visible.nodes : null, k = 0; if (vis) ids.forEach(function (id) { if (vis.has(id)) k++; }); return k; }
-  function previewOff() { clearTimeout(hlTimer); if (renderer) renderer.setPreview(null); }
+  var previewNode = null;                                                              // the chip or row the preview on the graph stands for
+  function previewOff() { clearTimeout(hlTimer); previewNode = null; if (renderer) renderer.setPreview(null); }
+  /**
+   * The element a preview stands for can leave the page while the pointer is on it (a list drawn again, as when a button in it selects things): its mouseleave never comes and the
+   * ring and the fade would stay, looking like a selection that cannot be cleared. So the preview is taken off as soon as that element is gone, or neither under the pointer nor focused:
+   * on every pointer move and key press, and whenever the details are drawn again.
+   */
+  function previewGuard() {
+    if (previewNode && (!previewNode.isConnected || (!previewNode.matches(':hover') && document.activeElement !== previewNode))) previewOff();
+  }
+  document.addEventListener('mousemove', previewGuard, true);
+  document.addEventListener('keydown', previewGuard, true);
   /** A chip or a row stands for vertices: `get()` says which ({ ids, color }), asked when the pointer arrives, so what it says is never out of date. */
   function previewFor(node, get) {
     var base = node.title || '';
     function enter() {
       if (!state.hoverPreview) return;
       var c = get(); if (!c || !c.ids || !c.ids.length) return;
+      previewNode = node;
       var shown = hlOnScreen(c.ids);
       node.title = (base ? base + ' ' : '') + '(' + shown + ' of ' + c.ids.length + ' on screen)';
       clearTimeout(hlTimer);
