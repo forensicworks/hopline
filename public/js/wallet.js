@@ -546,25 +546,27 @@
     Array.prototype.forEach.call($('rangeSeg').querySelectorAll('button'), function (b) { b.setAttribute('aria-checked', String(b.getAttribute('data-range') === key)); });
     $('chartFollow').checked = chart.follow; $('chartBars').checked = wprefs.bars; $('chartAuto').checked = wprefs.auto;
     $('chartReset').hidden = !win.zoomed;
-    chart.period = win.zoomed && !win.following ? W.periodDates(win.from, win.to) : null;
+    chart.period = win.zoomed && !win.following ? W.periodFields(win.from, win.to) : null;
     syncChartFilter();
     $('chartRange').textContent = win.zoomed ? S.fmtTime(win.from, false) + ' to ' + S.fmtTime(win.to, false) + (win.following ? ' (the From and To dates)' : '') : '';
   }
+  /** A From or To of a period as text: the day, and the time of day when the field has one. */
+  function fieldText(f) { return f.date + (f.time ? ' ' + f.time : ''); }
   /**
-   * "Filter the list to this period": offered while the chart shows a period of its own (zoomed in, and not following the From and To dates), and greyed out when the list already has exactly those days.
-   * The list takes whole UTC days, so it may hold a few more transactions than the chart's period reaches at its two ends.
+   * "Filter the list to this period": offered while the chart shows a period of its own (zoomed in, and not following the From and To fields), and greyed out when the list already has exactly it.
+   * It sets the date and the time of both fields, to the second, so the list holds the transactions the chart's period holds, no more and no fewer.
    */
   function syncChartFilter() {
     var b = $('chartFilter'), p = chart.period;
     b.hidden = !p;
     if (!p) return;
-    var same = $('fFrom').value === p.from && $('fTo').value === p.to;
+    var same = state.f.from === p.fromSec && state.f.to === p.toSec;
     b.disabled = same;
-    b.title = same ? 'The list under Transactions already shows exactly these days' : 'Set the From and To dates under Transactions to ' + p.from + ' to ' + p.to + ' (whole days, UTC), so the list shows just this period. The search and the amount limits stay as they are.';
+    b.title = same ? 'The list under Transactions already shows exactly this period' : 'Set the From and To under Transactions to ' + fieldText(p.from) + ' and ' + fieldText(p.to) + ' (UTC), so the list shows just this period. The search and the amount limits stay as they are.';
   }
   function filterToPeriod() {
     var p = chart.period; if (!p) return;
-    $('fFrom').value = p.from; $('fTo').value = p.to; onFilter();
+    $('fFrom').value = p.from.date; $('fFromTime').value = p.from.time; $('fTo').value = p.to.date; $('fToTime').value = p.to.time; onFilter();
     $('ledgerTools').scrollIntoView({ block: 'center' });
   }
   /** The line on the chart that says the history is only partly loaded (with the way to load the rest), or how far the loading is. */
@@ -945,11 +947,9 @@
   // ---- finding things in what is loaded -------------------------------------------------------------------------
   var SHOW = 100;                                                                      // cards drawn at once; the rest are one button away
   function fmtInt(n) { return Number(n).toLocaleString('en-US'); }
-  function utcStart(v) { var t = v ? Date.parse(v + 'T00:00:00Z') / 1000 : NaN; return isFinite(t) ? t : null; }
-  function utcEnd(v) { var t = v ? Date.parse(v + 'T23:59:59Z') / 1000 : NaN; return isFinite(t) ? t : null; }
   function satsOf(v) { var x = parseFloat(String(v).replace(',', '.')); return isFinite(x) && x >= 0 ? Math.round(x * 1e8) : null; }
   function readFilters() {
-    state.f = { text: $('fText').value, from: utcStart($('fFrom').value), to: utcEnd($('fTo').value), min: satsOf($('fMin').value), max: satsOf($('fMax').value) };
+    state.f = { text: $('fText').value, from: W.momentOf($('fFrom').value, $('fFromTime').value, false), to: W.momentOf($('fTo').value, $('fToTime').value, true), min: satsOf($('fMin').value), max: satsOf($('fMax').value) };
   }
   function filtersOn() { var f = state.f; return !!(f.text.trim() || f.from != null || f.to != null || f.min != null || f.max != null); }
   function filterSpec(dir) { var f = state.f; return { dir: dir || state.dir, text: f.text, from: f.from, to: f.to, minSats: f.min, maxSats: f.max }; }
@@ -959,14 +959,14 @@
   var filterTimer = null;
   function wireFilters() {
     $('fText').addEventListener('input', function () { clearTimeout(filterTimer); filterTimer = setTimeout(onFilter, 150); });
-    ['fFrom', 'fTo', 'fMin', 'fMax'].forEach(function (id) { $(id).addEventListener('change', onFilter); });
+    ['fFrom', 'fFromTime', 'fTo', 'fToTime', 'fMin', 'fMax'].forEach(function (id) { $(id).addEventListener('change', onFilter); });
     $('fMin').addEventListener('input', function () { clearTimeout(filterTimer); filterTimer = setTimeout(onFilter, 250); });
     $('fMax').addEventListener('input', function () { clearTimeout(filterTimer); filterTimer = setTimeout(onFilter, 250); });
     $('fClear').addEventListener('click', function () { clearFilters(); });
   }
   /** Empty the search and the limits; with `andDirection` the All/In/Out choice goes back to All as well. */
   function clearFilters(andDirection) {
-    $('fText').value = ''; $('fFrom').value = ''; $('fTo').value = ''; $('fMin').value = ''; $('fMax').value = '';
+    $('fText').value = ''; $('fFrom').value = ''; $('fFromTime').value = ''; $('fTo').value = ''; $('fToTime').value = ''; $('fMin').value = ''; $('fMax').value = '';
     if (andDirection) state.dir = 'all';
     onFilter();
   }
