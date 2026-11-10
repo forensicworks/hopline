@@ -125,12 +125,41 @@ test('flow counts the own change once per transaction, as the smaller of what ca
   assert.equal(f.ownTxs, 2); assert.equal(f.own, 70000 + 39000);
 });
 
-test('periodDates: the From and To dates, in UTC, that give the list a period of the chart', () => {
-  const t = (y, m, d, h = 0, mi = 0, sec = 0) => Date.UTC(y, m - 1, d, h, mi, sec) / 1000;
-  assert.deepEqual(Wallet.periodDates(t(2022, 3, 2), t(2022, 3, 2, 23, 59, 59)), { from: '2022-03-02', to: '2022-03-02' }, 'a day of the bars: that one day');
-  assert.deepEqual(Wallet.periodDates(t(2022, 6, 3, 12), t(2022, 7, 3, 12)), { from: '2022-06-03', to: '2022-07-03' }, 'a month back from the newest transaction');
-  assert.deepEqual(Wallet.periodDates(t(2022, 3, 2, 13, 30), t(2022, 3, 9, 8, 15)), { from: '2022-03-02', to: '2022-03-09' }, 'a dragged selection: the days it starts and ends on');
-  assert.deepEqual(Wallet.periodDates(t(2021, 12, 31, 23, 59, 59), t(2022, 1, 1, 0, 0, 0)), { from: '2021-12-31', to: '2022-01-01' }, 'across a year end, by UTC, not by the time zone of the browser');
+const at = (y, m, d, h = 0, mi = 0, sec = 0) => Date.UTC(y, m - 1, d, h, mi, sec) / 1000;
+
+test('momentOf: the date and the time of day of a From or To field, in UTC, to the second', () => {
+  assert.equal(Wallet.momentOf('2022-03-05', '', false), at(2022, 3, 5), 'no time in From: the start of the day');
+  assert.equal(Wallet.momentOf('2022-03-05', '', true), at(2022, 3, 5, 23, 59, 59), 'no time in To: its last second');
+  assert.equal(Wallet.momentOf('2022-03-05', '14:30:07', false), at(2022, 3, 5, 14, 30, 7));
+  assert.equal(Wallet.momentOf('2022-03-05', '14:30:07', true), at(2022, 3, 5, 14, 30, 7), 'with seconds it is exact at both ends');
+  assert.equal(Wallet.momentOf('2022-03-05', '14:30', false), at(2022, 3, 5, 14, 30, 0), 'From 14:30 starts on its first second');
+  assert.equal(Wallet.momentOf('2022-03-05', '14:30', true), at(2022, 3, 5, 14, 30, 59), 'To 14:30 reaches to the end of that minute');
+  assert.equal(Wallet.momentOf('2022-03-05', ' 14:30 ', false), at(2022, 3, 5, 14, 30, 0), 'spaces round it do not matter');
+  assert.equal(Wallet.momentOf('', '14:30', false), null, 'a time without a date is not a moment');
+  assert.equal(Wallet.momentOf('', '', false), null); assert.equal(Wallet.momentOf(null, null, true), null);
+  assert.equal(Wallet.momentOf('2022-13-40', '', false), null, 'not a date');
+  assert.equal(Wallet.momentOf('22-03-05', '', false), null);
+  assert.equal(Wallet.momentOf('2022-03-05', '25:00', false), null, 'not a time');
+  assert.equal(Wallet.momentOf('2022-03-05', '7:5', false), null);
+  assert.equal(Wallet.momentOf('2022-03-05', '12:00:00.5', false), null);
+});
+
+test('periodFields: the From and To fields, in UTC, that give the list exactly a period of the chart', () => {
+  const day = Wallet.periodFields(at(2022, 3, 2), at(2022, 3, 2, 23, 59, 59));
+  assert.deepEqual(day, { from: { date: '2022-03-02', time: '' }, to: { date: '2022-03-02', time: '' }, fromSec: at(2022, 3, 2), toSec: at(2022, 3, 2, 23, 59, 59) }, 'a day of the bars: the times are left empty, which means the whole day');
+  const month = Wallet.periodFields(at(2022, 6, 3, 12), at(2022, 7, 3, 12));
+  assert.deepEqual([month.from, month.to], [{ date: '2022-06-03', time: '12:00:00' }, { date: '2022-07-03', time: '12:00:00' }], 'a month back from the newest transaction: its own times');
+  const drag = Wallet.periodFields(at(2022, 3, 2, 13, 30, 5), at(2022, 3, 9, 8, 15, 1));
+  assert.deepEqual([drag.from, drag.to], [{ date: '2022-03-02', time: '13:30:05' }, { date: '2022-03-09', time: '08:15:01' }], 'a dragged selection: to the second');
+  const year = Wallet.periodFields(at(2021, 12, 31, 23, 59, 59), at(2022, 1, 1, 0, 0, 0));
+  assert.deepEqual([year.from.date, year.to.date, year.to.time], ['2021-12-31', '2022-01-01', '00:00:00'], 'across a year end, by UTC, not by the time zone of the browser');
+});
+
+test('the fields a period gives read back as the same period', () => {
+  [[at(2022, 3, 2), at(2022, 3, 2, 23, 59, 59)], [at(2022, 6, 3, 12), at(2022, 7, 3, 12)], [at(2022, 3, 2, 13, 30, 5), at(2022, 3, 9, 8, 15, 1)], [at(2021, 12, 31, 23, 59, 59), at(2022, 1, 1)]].forEach(([from, to]) => {
+    const p = Wallet.periodFields(from, to);
+    assert.equal(Wallet.momentOf(p.from.date, p.from.time, false), from); assert.equal(Wallet.momentOf(p.to.date, p.to.time, true), to);
+  });
 });
 
 test('csv has a header and a line per transaction, quotes what needs it and defuses spreadsheet formulas', () => {

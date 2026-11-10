@@ -271,8 +271,28 @@
   }
 
   function isoDay(t) { return new Date(t * 1000).toISOString().slice(0, 10); }
-  /** The From and To dates ("YYYY-MM-DD", UTC, both days included) that make the list show a period of the chart (unix seconds); the list takes whole days, so it reaches to the ends of the first and last day. */
-  function periodDates(from, to) { return { from: isoDay(from), to: isoDay(to) }; }
+  function isoTime(t) { return new Date(t * 1000).toISOString().slice(11, 19); }
+  /**
+   * A moment, in unix seconds, from the date and the time of day of a From or To field (UTC): "YYYY-MM-DD" and "HH:MM" or "HH:MM:SS", or null when there is no valid date (a time alone is not a moment).
+   * An empty time is the whole day: its start for From (isEnd false), its end, 23:59:59, for To. A To time without seconds reaches to the end of that minute (14:30 is up to 14:30:59), a From time without them starts on its first second.
+   */
+  function momentOf(date, time, isEnd) {
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    var t = typeof time === 'string' ? time.trim() : '';
+    if (t === '') t = isEnd ? '23:59:59' : '00:00:00';
+    else if (/^\d{2}:\d{2}$/.test(t)) t += isEnd ? ':59' : ':00';
+    else if (!/^\d{2}:\d{2}:\d{2}$/.test(t)) return null;
+    var ms = Date.parse(date + 'T' + t + 'Z');
+    return isFinite(ms) ? ms / 1000 : null;
+  }
+  /**
+   * The From and To fields (UTC) that make the list show exactly a period of the chart (unix seconds, both ends included): { from: { date, time }, to: { date, time }, fromSec, toSec }.
+   * A time that is the start of the day (From) or its last second (To) is left empty: the field then says "the whole day", which is what it means.
+   */
+  function periodFields(from, to) {
+    var f = isoTime(from), t = isoTime(to);
+    return { from: { date: isoDay(from), time: f === '00:00:00' ? '' : f }, to: { date: isoDay(to), time: t === '23:59:59' ? '' : t }, fromSec: from, toSec: to };
+  }
 
   // ---- in and out per period: the bars under the balance chart, and moving the period with fingers --------------------------------
   var DAY = 86400;
@@ -439,5 +459,5 @@
     return out.join('\r\n') + '\r\n';
   }
 
-  return { ledger: ledger, summary: summary, flow: flow, rowOthers: rowOthers, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, niceTicks: niceTicks, timeTicks: timeTicks, windowSeries: windowSeries, presetWindow: presetWindow, periodDates: periodDates, barBuckets: barBuckets, barTotals: barTotals, pinchWindow: pinchWindow, panWindow: panWindow, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
+  return { ledger: ledger, summary: summary, flow: flow, rowOthers: rowOthers, csv: csv, COLUMNS: COLUMNS, FIAT_COLUMNS: FIAT_COLUMNS, filterRows: filterRows, rowAmount: rowAmount, counterparties: counterparties, balanceSeries: balanceSeries, niceTicks: niceTicks, timeTicks: timeTicks, windowSeries: windowSeries, presetWindow: presetWindow, momentOf: momentOf, periodFields: periodFields, barBuckets: barBuckets, barTotals: barTotals, pinchWindow: pinchWindow, panWindow: panWindow, cluster: cluster, traceQuery: traceQuery, graphOf: graphOf };
 }));

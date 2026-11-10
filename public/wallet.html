@@ -166,8 +166,8 @@ window.addEventListener('error', function (e) {
     <div id="allBar" class="allbar" hidden role="status"><span id="allText"></span> <button type="button" id="allCancel">Cancel</button></div>
     <div class="ledgertools" id="ledgerTools">
       <input id="fText" type="text" placeholder="Search addresses, names, transaction ids, blocks…" aria-label="Search the loaded transactions" spellcheck="false" autocomplete="off">
-      <label>from <input id="fFrom" type="date" aria-label="From date (UTC)"></label>
-      <label>to <input id="fTo" type="date" aria-label="To date (UTC)"></label>
+      <label>from <input id="fFrom" type="date" aria-label="From date (UTC)"><input id="fFromTime" type="time" step="1" aria-label="From time (UTC); empty is the start of the day" title="UTC. Empty: the day from its start"></label>
+      <label>to <input id="fTo" type="date" aria-label="To date (UTC)"><input id="fToTime" type="time" step="1" aria-label="To time (UTC); empty is the end of the day" title="UTC. Empty: the day to its last second"></label>
       <label>at least <input id="fMin" type="text" inputmode="decimal" size="7" placeholder="0" aria-label="Smallest amount, in BTC"> BTC</label>
       <label>at most <input id="fMax" type="text" inputmode="decimal" size="7" aria-label="Largest amount, in BTC"> BTC</label>
       <button type="button" id="fClear" hidden>Clear</button>
