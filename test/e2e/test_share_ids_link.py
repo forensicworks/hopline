@@ -96,7 +96,7 @@ def test_it_says_how_many_transactions_and_what_the_reader_will_do_and_what_is_n
     text = toast_text(page)
     n = len(page.evaluate(LOADED_JS))
     assert "Link copied: %d transactions" % n in text and "about %d requests" % (2 * n) in text, text
-    assert "labels, tags, notes and layout are not in it" in text
+    assert "your labels, tags and notes are not in it, and neither is the layout" in text
     assert page.is_visible("#shareOut")
 
 

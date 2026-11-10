@@ -262,7 +262,8 @@
       var errs = (r.errors || []).filter(function (e) { return !/request cap/.test(e); });
       if (errs.length) msg += ' ' + errs.length + ' request(s) failed: ' + errs[0] + (errs.length > 1 ? ' …' : '');
       if (big) msg += ' That is a lot: Undo load takes it back.';
-      if (o && o.note) msg += ' ' + o.note;
+      var note = o && (typeof o.note === 'function' ? o.note() : o.note);
+      if (note) msg += ' ' + note;
       if (!(o && o.quiet) || errs.length || r.failed) toast(msg, !!errs.length || !!r.failed, undo, big ? 0 : 8000);
       return r;
     }).catch(function (e) {
@@ -5771,13 +5772,16 @@
    */
   function doShareIds() {
     var sc = shareScope(); if (!sc) return;
-    SH.buildIds(state.graph, { nodes: sc.vis.nodes, edges: sc.vis.edges, starts: shareStarts(), view: viewState() }).then(function (r) {
+    var withLabels = $('idsLabels').checked, notes = $('shareNotes').checked, wantTrace = $('idsTrace').checked, trace = wantTrace && traceOn() ? traceData() : null;
+    SH.buildIds(state.graph, { nodes: sc.vis.nodes, edges: sc.vis.edges, starts: shareStarts(), view: viewState(), labels: withLabels, notes: notes, trace: trace }).then(function (r) {
       var link = shareBase() + r.fragment, warn = [];
+      if (wantTrace && !trace) warn.push('There is no trace on screen (the Trace layout is off), so none is in the link.');
+      if (withLabels && !r.labels) warn.push('None of the vertices in the link has a label or a tag' + (notes ? ' or a note' : '') + ', so none is in it.');
       if (r.trimmed) warn.push('The link would be too long for chat and mail, so it lists only the ' + r.kept + ' transactions nearest START, not all ' + r.total + '. The rest is not in it. Share fewer transactions, or export the workspace (.json) to share everything.');
       warn = warn.concat(shareExtraWarnings(sc.groups));
       stat('share-ids');
-      shareFinish(link, warn, r.trimmed ? 'Link copied, but not every transaction is in it. ' : 'Link copied: ' + plural(r.kept, 'transaction') + ', ' + r.chars.toLocaleString('en-US') + ' characters. Whoever opens it loads them from their own data source (about ' + (2 * r.kept) + ' requests); your labels, tags, notes and layout are not in it. ',
-                  'IDs link made: ' + r.kept + ' of ' + r.total + ' transactions, ' + r.chars + ' characters');
+      shareFinish(link, warn, r.trimmed ? 'Link copied, but not every transaction is in it. ' : 'Link copied: ' + plural(r.kept, 'transaction') + ', ' + r.chars.toLocaleString('en-US') + ' characters. Whoever opens it loads them from their own data source (about ' + (2 * r.kept) + ' requests); ' + (r.labels ? plural(r.labels, 'label or tag') + (notes ? ' (and notes)' : '') + ' of yours ' + (r.labels === 1 ? 'is' : 'are') + ' in it' : 'your labels, tags and notes are not in it') + ', ' + (r.trace ? 'and so is the trace with the places of its vertices' : 'and neither is the layout') + '. ',
+                  'IDs link made: ' + r.kept + ' of ' + r.total + ' transactions, ' + r.chars + ' characters' + (r.labels ? ', ' + r.labels + ' labels or tags' + (notes ? ' and notes' : '') : '') + (r.trace ? ', with the trace' : ''));
     }, function (e) { shareSay(e.message, true); toast(e.message, true, null, 12000); });
   }
   /** Open the canvas in a share link. It is imported like a workspace file (same checks, merged if something is open, undo offered); the address is cleaned so a reload does not open it again. */
@@ -5802,19 +5806,38 @@
       stat('open-ids-link');
       var wasEmpty = g.nodes.size === 0;
       var cut = r.of && r.of > r.ids.length ? 'The sender cut the list down to the ' + r.ids.length + ' transactions nearest START (they had ' + r.of + '), so this is not the whole picture.' : '';
+      var applied = null;
       return run('Open ' + plural(todo.length, 'transaction') + ' from a link', function () {
-        return state.explorer.loadMany(todo, 0, true).then(function (res) { if (wasEmpty) finishIdLink(r); return res; });
-      }, { maxRequests: todo.length * 2 + 20, note: cut });
+        return state.explorer.loadMany(todo, 0, true).then(function (res) { applied = finishIdLink(r, wasEmpty); return res; });
+      }, { maxRequests: todo.length * 2 + 20, note: function () { return [cut, applied && applied.text].filter(Boolean).join(' '); } });
     }, function (e) { cleanShareAddress(); toast('This link could not be opened: ' + e.message, true, null, 12000); });
   }
-  /** On a canvas that was empty: the picture settings of the link and where it starts. */
-  function finishIdLink(r) {
-    var g = state.graph;
-    applyView(Object.assign({}, r.view, { focus: r.focus || ID.tx(r.ids[0]) }));
-    if (state.focus && !g.nodes.has(state.focus)) state.focus = null;
-    traceSanitize(); if (traceOn() && !state.trace.seed) { state.layout = 'flow'; setSeg('layoutSeg', 'data-layout', 'flow'); document.body.classList.remove('trace-on'); updateScaleRow(); }
-    if (state.focus) { state.keep.add(state.focus); state.nav.reset(); visitNav(state.focus); }
-    state.layoutRes = null; updateNavUi(); updateTraceUi();
+  /**
+   * What a link brings besides the transactions, once they are loaded: its labels and tags (a label or tag the reader already has on a vertex stays theirs), and, on a canvas that was empty, the
+   * picture settings, the trace if it has one and where it starts; on a canvas that shows something, the link's trace goes below the trace that is there. Returns { text } to add to the message.
+   */
+  function finishIdLink(r, wasEmpty) {
+    var g = state.graph, used = 0, kept = 0, onTrace = 0;
+    (r.labels || []).forEach(function (x) {
+      var n = g.nodes.get(canonicalId(x.id));
+      if (!n) return;
+      var did = false, mine = false, tag = x.tag ? (TG.sanitize({ tag: x.tag }).tag || '') : '';
+      if (x.label) { if (n.label) mine = true; else { n.label = LB.cleanText(x.label, 120); did = true; } }
+      if (tag) { if (n.tag) mine = true; else { n.tag = tag; state.tagSeen.add(n.id); did = true; } }
+      if (x.note) { if (n.note) mine = true; else { n.note = x.note.slice(0, 4000); did = true; } }
+      if (did) used++; if (mine) kept++;
+    });
+    if (wasEmpty) {
+      applyView(Object.assign({}, r.view, { focus: r.focus || ID.tx(r.ids[0]), trace: r.trace || undefined }));
+      if (state.focus && !g.nodes.has(state.focus)) state.focus = null;
+      traceSanitize(); if (traceOn() && !state.trace.seed) { state.layout = 'flow'; setSeg('layoutSeg', 'data-layout', 'flow'); document.body.classList.remove('trace-on'); updateScaleRow(); }
+      if (state.focus) { state.keep.add(state.focus); state.nav.reset(); visitNav(state.focus); }
+      state.layoutRes = null; updateNavUi(); updateTraceUi();
+    } else if (r.trace && traceOn() && state.trace.seed) onTrace = traceMergeImported(r.trace);
+    var parts = [];
+    if (r.labels && r.labels.length) parts.push(plural(used, 'label or tag') + ' from the link ' + (used === 1 ? 'was' : 'were') + ' put on the canvas' + (kept ? ' (' + kept + ' vertices kept your own)' : '') + '.');
+    if (onTrace) parts.push('Its trace (' + plural(onTrace, 'vertex', 'vertices') + ') is shown below the current one.');
+    return { text: parts.join(' ') };
   }
 
   function applyView(v) {
