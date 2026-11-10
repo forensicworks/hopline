@@ -394,7 +394,7 @@
   // ---- the balance over time -------------------------------------------------------------------------------------
   // key is the period shown: 'all', or '1m' / '6m' / '1y' counted back from the newest transaction loaded, or 'custom' (a dragged or pinched selection, kept in view = { from, to });
   // follow: the From and To dates of the list choose the period instead. pts, buckets, xticks and yticks are what is on the chart (the end-to-end tests read them).
-  var chart = { pts: [], sel: -1, w: 0, h: 260, key: 'all', view: null, follow: false, drag: null, swallow: false, xticks: [], yticks: [], buckets: [], unit: '', strip: null, fiat: false,
+  var chart = { period: null, pts: [], sel: -1, w: 0, h: 260, key: 'all', view: null, follow: false, drag: null, swallow: false, xticks: [], yticks: [], buckets: [], unit: '', strip: null, fiat: false,
                 L: 0, T: 0, pw: 0, ph: 0, from: 0, to: 0, bounds: { from: 0, to: 0 } };
   // what is kept for the chart in this browser: the bars of what came in and went out, and loading the whole history by itself (kept apart from the workspace's settings, which it rewrites)
   var WPREF_KEY = 'hopline.walletchart.v1', wprefs = { auto: true, bars: true }, AUTO_MAX = 250, BAR_H = 64, BAR_GAP = 14, UP = '#6be675', DOWN = '#ff9f43';
@@ -546,7 +546,26 @@
     Array.prototype.forEach.call($('rangeSeg').querySelectorAll('button'), function (b) { b.setAttribute('aria-checked', String(b.getAttribute('data-range') === key)); });
     $('chartFollow').checked = chart.follow; $('chartBars').checked = wprefs.bars; $('chartAuto').checked = wprefs.auto;
     $('chartReset').hidden = !win.zoomed;
+    chart.period = win.zoomed && !win.following ? W.periodDates(win.from, win.to) : null;
+    syncChartFilter();
     $('chartRange').textContent = win.zoomed ? S.fmtTime(win.from, false) + ' to ' + S.fmtTime(win.to, false) + (win.following ? ' (the From and To dates)' : '') : '';
+  }
+  /**
+   * "Filter the list to this period": offered while the chart shows a period of its own (zoomed in, and not following the From and To dates), and greyed out when the list already has exactly those days.
+   * The list takes whole UTC days, so it may hold a few more transactions than the chart's period reaches at its two ends.
+   */
+  function syncChartFilter() {
+    var b = $('chartFilter'), p = chart.period;
+    b.hidden = !p;
+    if (!p) return;
+    var same = $('fFrom').value === p.from && $('fTo').value === p.to;
+    b.disabled = same;
+    b.title = same ? 'The list under Transactions already shows exactly these days' : 'Set the From and To dates under Transactions to ' + p.from + ' to ' + p.to + ' (whole days, UTC), so the list shows just this period. The search and the amount limits stay as they are.';
+  }
+  function filterToPeriod() {
+    var p = chart.period; if (!p) return;
+    $('fFrom').value = p.from; $('fTo').value = p.to; onFilter();
+    $('ledgerTools').scrollIntoView({ block: 'center' });
   }
   /** The line on the chart that says the history is only partly loaded (with the way to load the rest), or how far the loading is. */
   function chartBanner(oldest) {
@@ -724,6 +743,7 @@
     cv.addEventListener('pointercancel', function (e) { if (e.pointerType === 'touch') lift(e); else cancelDrag(); });
     Array.prototype.forEach.call($('rangeSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setRange(b.getAttribute('data-range')); }); });
     $('chartReset').addEventListener('click', function () { setRange('all'); });
+    $('chartFilter').addEventListener('click', filterToPeriod);
     $('chartFollow').addEventListener('change', function () { chart.follow = this.checked; if (state.led) drawChart(); });
     $('chartBars').addEventListener('change', function () { wprefs.bars = this.checked; saveWprefs(); if (state.led) drawChart(); });
     $('chartAuto').addEventListener('change', function () { wprefs.auto = this.checked; saveWprefs(); if (this.checked) autoLoad(); });
@@ -935,7 +955,7 @@
   function filterSpec(dir) { var f = state.f; return { dir: dir || state.dir, text: f.text, from: f.from, to: f.to, minSats: f.min, maxSats: f.max }; }
   /** The loaded transactions that match the direction and the search, the dates and the amounts. */
   function visibleRows() { return W.filterRows(state.led.rows, filterSpec()); }
-  function onFilter() { readFilters(); state.shown = SHOW; if (state.led) { drawLedger(); if (chart.follow) drawChart(); } }
+  function onFilter() { readFilters(); state.shown = SHOW; if (state.led) { drawLedger(); if (chart.follow) drawChart(); else syncChartFilter(); } }
   var filterTimer = null;
   function wireFilters() {
     $('fText').addEventListener('input', function () { clearTimeout(filterTimer); filterTimer = setTimeout(onFilter, 150); });

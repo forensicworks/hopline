@@ -1800,6 +1800,24 @@
   }
 
   function setSel(ids) { state.selected = new Set(ids); state.selectedEdge = null; syncSelection(); }
+  /** The vertex a Select all came from, while exactly the vertices it selected are still selected; null once the selection is anything else (or that vertex is gone). */
+  function backTarget() {
+    var f = state.selectedFrom;
+    if (!f || !state.graph.nodes.has(f.id) || f.ids.length !== state.selected.size) return null;
+    return f.ids.every(function (id) { return state.selected.has(id); }) ? f.id : null;
+  }
+  /** At the top of "N selected": the way back to the transaction (or wallet) whose Funded by / Spent by list was selected, and Clear selection. */
+  function selectionButtons(ids) {
+    var btns = [], from = backTarget(), n = from ? state.graph.nodes.get(from) : null;
+    if (n) {
+      var kind = n.type === 'tx' ? 'transaction' : n.type === 'addr' ? 'wallet' : 'vertex', back = el('button', { type: 'button', 'class': 'selback', text: '← Back to the ' + kind,
+        title: 'Select just the ' + kind + ' these were listed under again (' + (n.label || plainId(from)) + ')', onclick: function () { selectIds([from], kind === 'transaction' ? 'transactions' : 'wallets'); } });
+      lit(back, [from], null);
+      btns.push(back);
+    }
+    btns.push(el('button', { type: 'button', 'class': 'selclear', text: 'Clear selection', title: 'Deselect all ' + ids.length + ' (Esc, or a click on empty space on the graph, does the same)', onclick: function () { setSel([]); } }));
+    return el('div', { 'class': 'insp-actions selbuttons' }, btns);
+  }
   function selectAllVisible() { setSel(visibleIds()); }
   function setBoxMode(on) {
     state.boxMode = !!on; renderer.boxMode = state.boxMode;
@@ -2094,6 +2112,7 @@
   // ---- selection and inspector ----------------------------------------------------------------
   function selectOnly(id) { state.selected = id ? new Set([id]) : new Set(); state.selectedEdge = null; syncSelection(); }
   function syncSelection() {
+    if (state.selectedFrom && !backTarget()) state.selectedFrom = null;                  // the selection is not what Select all made any more: it is forgotten, even if the same vertices are picked again by hand
     renderer.setSelection(Array.from(state.selected)); renderer.selectedEdge = state.selectedEdge;
     if (!holdRight && (state.selected.size || state.selectedEdge)) state.rightTab = 'details';
     showInspector(); updateTraceUi(); updateAutoUi(); detMarkSel(); autoReadSoon();
@@ -2800,7 +2819,7 @@
     var head = [el('span', { text: title + ' (' + rows.length + ')' })];
     if (here.length > 1) {
       var all = el('button', { type: 'button', 'class': 'selall', text: 'Select all ' + here.length,
-                               title: 'Select ' + (here.length === rows.length ? 'all ' + here.length : 'the ' + here.length + ' that are in the graph') + ' on the graph (the ones that are on screen)', onclick: function () { selectIds(here, what); } });
+                               title: 'Select ' + (here.length === rows.length ? 'all ' + here.length : 'the ' + here.length + ' that are in the graph') + ' on the graph (the ones that are on screen)', onclick: function () { selectIds(here, what, state.selected.size === 1 ? Array.from(state.selected)[0] : null); } });
       previewFor(all, function () { return { ids: here, color: null }; });
       head.push(all);
     }
@@ -3191,6 +3210,7 @@
     insp.hidden = false;
     if (ids.length > 1) {
       box.appendChild(el('h3', { text: ids.length + ' selected' }));
+      box.appendChild(selectionButtons(ids));
       var tot = 0; ids.forEach(function (id) { var n = g.nodes.get(id); tot += (n.type === 'tx' ? n.valueOut : n.received) || 0; });
       var dl0 = el('dl', { 'class': 'kv' }); kv(dl0, 'Total value', S.fmtBtc(tot) + ' BTC'); box.appendChild(dl0);
       var kinds = { addr: 0, tx: 0 }; ids.forEach(function (id) { var t = g.nodes.get(id).type; if (t in kinds) kinds[t]++; });
@@ -3648,12 +3668,17 @@
   function clusterColor(id) { var cl = state.an ? state.an.clusters.byAddr.get(id) : null; return cl ? clusterColorOf(cl) : null; }
   function changeEdgeMark(e) { return e.kind === 'out' && state.an && state.an.changeEdges.has(e.id) ? AN.COLORS.change : null; }
 
-  /** Select the given vertices that are on screen, and say so when some are not. */
-  function selectIds(ids, what) {
+  /**
+   * Select the given vertices that are on screen, and say so when some are not. `from` (optional) is the vertex the list belonged to, a transaction's Funded by or Spent by: while exactly these are
+   * selected the details offer a way back to it (see backTarget).
+   */
+  function selectIds(ids, what, from) {
     var vis = renderer.data ? renderer.data.visible.nodes : null;
     var show = vis ? ids.filter(function (id) { return vis.has(id); }) : ids.slice();
     if (!show.length) { toast('None of the ' + what + ' is on screen (the layout or a filter hides them).'); return; }
-    state.selected = new Set(show); state.selectedEdge = null; holdRight++; syncSelection(); holdRight--; renderer.ensureVisible(show); renderer.pulse(show);
+    state.selected = new Set(show); state.selectedEdge = null;
+    state.selectedFrom = from && show.indexOf(from) < 0 ? { id: from, ids: show.slice() } : null;
+    holdRight++; syncSelection(); holdRight--; renderer.ensureVisible(show); renderer.pulse(show);
     if (show.length < ids.length) toast(show.length + ' of ' + ids.length + ' ' + what + ' are on screen; the rest are hidden by the layout or a filter.');
   }
   function setNoCluster(txId, on) {
