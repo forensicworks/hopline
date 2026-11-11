@@ -23,6 +23,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0          # the whole history: tools/code_version.py needs it to find the last change to the code (version.json)
 
       - name: Unit tests
         run: node --test test/*.test.js
@@ -33,7 +35,9 @@ jobs:
       - name: Build the site folder (on this host it lives under /<repository name>/)
         env:
           REPO_NAME: ${{ github.event.repository.name }}
-        run: python3 tools/build_site.py --out site --base-path "/${REPO_NAME}/" --version "${GITHUB_SHA::7}"
+        run: |
+          CODE_VERSION="$(python3 tools/code_version.py)"
+          python3 tools/build_site.py --out site --base-path "/${REPO_NAME}/" --version "${GITHUB_SHA::7}" --code-version "${CODE_VERSION%% *}" --code-date "${CODE_VERSION##* }"
 
       - name: Package it for Pages
         uses: actions/upload-pages-artifact@v5
