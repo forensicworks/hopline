@@ -394,3 +394,74 @@ test('flowOf: in a transaction that paid the wallet more than it spent from it, 
   assert.equal(f.own, 50000); assert.equal(f.fromOthers, 120000); assert.equal(f.toOthers, 0);
   assert.equal(f.received - f.sent, f.fromOthers - f.toOthers);
 });
+
+// ---- a coin into a wallet whose spending the graph holds in full is unspent, whether or not the outspends were read -----------------------------
+test('spendingComplete: the whole history was read, or the totals say the graph holds all that the wallet spent', () => {
+  const { spendingComplete, historyRead } = require('../public/js/hopline-model.js');
+  const w = (o) => Object.assign({ id: 'addr:w', type: 'addr', address: 'w', received: 0, sent: 0 }, o);
+  assert.equal(spendingComplete(null), false); assert.equal(spendingComplete({ type: 'tx' }), false);
+  assert.equal(spendingComplete(w({})), false, 'nothing known');
+  assert.equal(spendingComplete(w({ txCount: 3, histDone: true })), true, 'its whole history was read');
+  assert.equal(historyRead(w({ txCount: 3 })), true);
+  assert.equal(spendingComplete(w({ txCount: 3 })), false, 'read, but not said to be all of it (a cut-off read, or a file from before)');
+  assert.equal(spendingComplete(w({ txCount: 3, histDone: true, histNext: 'abc' })), false, 'a further page is waiting');
+  const read = { txCount: 2, balanceOnly: true, fundedSum: 900, spentSum: 0, mempoolSpentSum: 0 };
+  assert.equal(spendingComplete(w(read)), true, 'it never spent');
+  assert.equal(spendingComplete(w(Object.assign({}, read, { spentSum: 900 }))), false, 'it spent coins that are not in the graph');
+  assert.equal(spendingComplete(w(Object.assign({}, read, { spentSum: 900, sent: 900 }))), true, 'and once the graph holds all of it');
+  assert.equal(spendingComplete(w(Object.assign({}, read, { mempoolSpentSum: 40 }))), false, 'unconfirmed spending counts');
+  assert.equal(spendingComplete(w(Object.assign({}, read, { histNext: 'abc' }))), false);
+});
+
+test('refreshDerived: an output to a wallet that never spent is unspent, and an output to a wallet nothing is known of is left unknown', () => {
+  const g = new Graph();
+  g.addTx(flowTx(21, 1000, [['payer', 150000, 90, 0]], [['kept', 100000], ['unknown', 49000]]));
+  g.addAddressStats('kept', { chain_stats: { funded_txo_sum: 100000, spent_txo_sum: 0, tx_count: 1 }, mempool_stats: {} }, { at: 1 });          // read for its balance: it never spent
+  g.refreshDerived();
+  const a = g.edges.get(ID.edgeOut(hex2(21), 0)), b = g.edges.get(ID.edgeOut(hex2(21), 1));
+  assert.equal(a.spent, false, 'unspent'); assert.equal(a.spentInferred, true, 'and said to be worked out, not read');
+  assert.equal(b.spent, undefined, 'nothing is known of the other wallet'); assert.equal(b.spentInferred, undefined);
+});
+
+test('refreshDerived: a wallet whose whole history was read has its unspent coins marked, and a coin it spent is left to the transaction that spent it', () => {
+  const g = new Graph();
+  g.addTx(flowTx(31, 1000, [['payer', 150000, 90, 0]], [['w', 100000], ['w', 40000]]));
+  g.addTx(flowTx(32, 2000, [['w', 100000, 31, 0]], [['shop', 99000]]));                                // spends the first coin
+  g.upsertNode({ id: ID.addr('w'), type: 'addr', address: 'w', txCount: 2, histDone: true });
+  g.refreshDerived();
+  const first = g.edges.get(ID.edgeOut(hex2(31), 0)), second = g.edges.get(ID.edgeOut(hex2(31), 1));
+  assert.equal(first.spent, true); assert.equal(first.spentBy.txid, hex2(32), 'a loaded spender is the answer, not a guess'); assert.equal(first.spentInferred, undefined);
+  assert.equal(second.spent, false); assert.equal(second.spentInferred, true, 'the other coin: nothing spends it');
+});
+
+test('refreshDerived: what was worked out is worked out again, and a real answer replaces it', () => {
+  const g = new Graph();
+  g.addTx(flowTx(41, 1000, [['payer', 150000, 90, 0]], [['w', 100000]]));
+  g.upsertNode({ id: ID.addr('w'), type: 'addr', address: 'w', txCount: 1, histDone: true });
+  g.refreshDerived();
+  const e = g.edges.get(ID.edgeOut(hex2(41), 0));
+  assert.equal(e.spent, false);
+  g.node(ID.addr('w')).histNext = 'abc';                                                                // the history turns out to go on: nothing is known any more
+  g.refreshDerived();
+  assert.equal(e.spent, undefined, 'taken back'); assert.equal(e.spentInferred, undefined);
+  delete g.node(ID.addr('w')).histNext; g.refreshDerived();
+  assert.equal(e.spent, false, 'and given again');
+  g.addOutspends(hex2(41), [{ spent: false }]);                                                          // the server was asked: now it is read
+  assert.equal(e.spent, false); assert.equal(e.spentInferred, undefined, 'no longer a guess');
+  g.node(ID.addr('w')).histNext = 'abc'; g.refreshDerived();
+  assert.equal(e.spent, false, 'and it stays when the inference would be taken back');
+  g.addOutspends(hex2(41), [{ spent: true, txid: hex2(42), vin: 0, status: { confirmed: true, block_time: 5000 } }]);
+  assert.equal(e.spent, true); assert.equal(e.spentBy.txid, hex2(42));
+});
+
+test('refreshDerived: only outputs are told apart, and only wallets: a coin to an unspendable or non-standard output is not claimed', () => {
+  const g = new Graph();
+  g.addTx({ txid: hex2(51), fee: 1, weight: 400, status: { confirmed: true, block_height: 1, block_time: 1000 },
+            vin: [{ txid: hex2(90), vout: 0, is_coinbase: false, prevout: { scriptpubkey_address: 'payer', scriptpubkey_type: 'v0_p2wpkh', value: 1000 } }],
+            vout: [{ scriptpubkey_type: 'op_return', scriptpubkey: '6a00', value: 0 }, { scriptpubkey_address: 'w', scriptpubkey_type: 'v0_p2wpkh', value: 900 }] });
+  g.upsertNode({ id: ID.addr('w'), type: 'addr', address: 'w', txCount: 1, histDone: true });
+  g.refreshDerived();
+  assert.equal(g.edges.get(ID.edgeOut(hex2(51), 0)).spent, undefined, 'a data output is not a wallet');
+  assert.equal(g.edges.get(ID.edgeOut(hex2(51), 1)).spent, false);
+  assert.equal(g.edges.get(ID.edgeIn(hex2(51), 0)).spent, undefined, 'an input is not a coin that is held');
+});
