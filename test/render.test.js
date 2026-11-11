@@ -72,3 +72,14 @@ test('laneShift: coins that go opposite ways between two vertices keep to their 
   assert.ok(Math.abs(Math.hypot(diag.x, diag.y) - 4) < 1e-9, 'whatever the way it goes');
   assert.deepEqual(laneShift(a, a, 2), { x: -0, y: 0 }, 'two vertices on one spot: nothing to separate, and no division by zero');
 });
+
+test('dashFor: the dash and the gap of an unspent output grow with the line, so a thick arrow keeps visible gaps', () => {
+  const { dashFor } = require('../public/js/hopline-render.js');
+  assert.deepEqual(dashFor(1), [6, 4], 'a thin line as it was');
+  assert.deepEqual(dashFor(2.5), [6, 4]);
+  const thick = dashFor(10);
+  assert.ok(thick[0] > 6 && thick[1] > 4, 'both grow: ' + thick);
+  assert.ok(thick[1] > 10 * 0.8, 'the gap is longer than most of the line width, so it can be seen between square ends');
+  [1, 3, 6, 9.6, 12, 20].forEach((w) => { const d = dashFor(w); assert.ok(d[1] >= 4 && d[0] >= 6 && d[0] > d[1], 'at ' + w + ': ' + d); });
+  for (let w = 1; w < 20; w += 0.5) assert.ok(dashFor(w + 0.5)[0] >= dashFor(w)[0] && dashFor(w + 0.5)[1] >= dashFor(w)[1], 'never shrinks as the line grows');
+});
