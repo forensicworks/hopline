@@ -111,8 +111,22 @@ def test_unspent_only_keeps_the_payments_whose_coins_are_still_there(fpage, mock
     assert len(order(fpage)) == 6
 
 
+def history_goes_on(page):
+    """The wallet's history turns out not to be all there (a further page is waiting): what spent its coins may be in the part that is not loaded."""
+    page.evaluate("""(id) => { const n = window.__hopline.state.graph.nodes.get(id); n.histNext = 'more'; n.histDone = false; window.__hopline.afterGraphChange(); window.__hopline.setSel([]); }""", "addr:" + W)
+    page.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + W); settle(page)
+
+
+def test_a_payment_nothing_spends_in_a_wallet_whose_whole_history_is_loaded_is_unspent(fpage, mock):
+    opened(fpage, mock)                                                             # only the history was loaded, all of it: 201 and 205 are spent (203 and 204 are in it), 200 and 202 are not spent by anything
+    fpage.check("#inspBody .walletsec .unspentopt input"); settle(fpage)
+    assert order(fpage) == [202, 200]
+    text = fpage.inner_text("#inspBody .walletfilters")
+    assert "2 of 6 listed" in text and "no spend information" not in text, "nothing is left out for want of information: %s" % text
+
+
 def test_a_payment_whose_spending_is_not_known_is_left_out_and_the_list_says_so(fpage, mock):
-    opened(fpage, mock)                                                             # only the history was loaded: 201 and 205 are known to be spent (203 and 204 are in it), 200 and 202 are not known either way
+    opened(fpage, mock); history_goes_on(fpage)                                     # 201 and 205 are known to be spent (203 and 204 are in it), 200 and 202 are not known either way
     fpage.check("#inspBody .walletsec .unspentopt input"); settle(fpage)
     assert order(fpage) == []
     assert "0 of 6 listed" in fpage.inner_text("#inspBody .walletfilters") and "2 payments with no spend information left out" in fpage.inner_text("#inspBody .walletfilters")
@@ -150,7 +164,7 @@ def test_a_choice_survives_selecting_something_else_and_coming_back(fpage, mock)
     assert order(fpage) == [205, 202, 201, 203], "smallest first, services skipped"
 
 
-def test_when_nothing_about_spending_is_known_there_is_no_unspent_choice(fpage, mock):
+def two_payments(fpage, mock):
     tx(mock, 200, [paying(KNOWN_BUILTIN, 60, 0, 51000)], [to(W, 50000)])
     tx(mock, 202, [IN(62, 0, "friend2", 21000)], [to(W, 20000)])
     ids = ["tx:" + tid(n) for n in (202, 200)]
@@ -161,5 +175,17 @@ def test_when_nothing_about_spending_is_known_there_is_no_unspent_choice(fpage, 
     fpage.evaluate("() => { window.__hopline.state.groupRows = false; window.__hopline.setSel([]); }")
     fpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + W); settle(fpage)
     assert len(order(fpage)) == 2
-    assert fpage.locator("#inspBody .walletsec .unspentopt").count() == 0, "the history says nothing about what was spent"
+
+
+def test_a_wallet_that_never_spent_has_the_unspent_choice_and_both_payments_are_unspent(fpage, mock):
+    two_payments(fpage, mock)                                                        # the history is all there and the totals say it never spent: both payments are unspent
+    assert fpage.locator("#inspBody .walletsec .unspentopt").count() == 1
+    fpage.check("#inspBody .walletsec .unspentopt input"); settle(fpage)
+    assert order(fpage) == [202, 200]
+
+
+def test_when_nothing_about_spending_is_known_there_is_no_unspent_choice(fpage, mock):
+    two_payments(fpage, mock); history_goes_on(fpage)
+    assert len(order(fpage)) == 2
+    assert fpage.locator("#inspBody .walletsec .unspentopt").count() == 0, "more of the history may exist, and it can hold what spent them"
     assert fpage.is_visible("#inspBody .walletsec select[aria-label='Which wallets']"), "the other choices are still there"

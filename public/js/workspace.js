@@ -3090,7 +3090,7 @@
       var unknownSpend = V.unspent ? inDir.filter(function (r) { return r.recv > 0 && r.unspent === null; }).length : 0;                    // loading what spent them (Spenders) tells
       var cutInfo = want.length < inDir.length ? el('span', { 'class': 'hint', text: want.length + ' of ' + inDir.length + ' listed' + (unknownSpend ? ' · ' + plural(unknownSpend, 'payment') + ' with no spend information left out' : '') }) : null;
       box.appendChild(el('div', { 'class': 'walletfilters' }, [el('label', {}, ['show ', whoSel]),
-                                                               canUnspent ? el('label', { 'class': 'unspentopt', title: 'Only transactions where this wallet was paid and has not spent that money yet. It is known where the spending transaction is loaded, or where the transactions were opened one by one: a payment with no information is left out.' }, [unspChk, ' unspent only']) : null, cutInfo]));
+                                                               canUnspent ? el('label', { 'class': 'unspentopt', title: 'Only transactions where this wallet was paid and has not spent that money yet. It is known where the spending transaction is loaded, where the transactions were opened one by one, or where the whole history of the wallet is loaded or its totals show it never spent more than the graph holds: a payment with no information is left out.' }, [unspChk, ' unspent only']) : null, cutInfo]));
       var chk = el('input', { type: 'checkbox', 'aria-label': 'Group similar rows' });
       chk.checked = state.groupRows;
       chk.addEventListener('change', function () { state.groupRows = chk.checked; $('groupRows').checked = chk.checked; savePrefs(); draw(); });
