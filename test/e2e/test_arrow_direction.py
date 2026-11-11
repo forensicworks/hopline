@@ -158,7 +158,8 @@ def test_the_legend_names_the_two_arrows_with_their_colours_and_follows_the_pale
 def test_the_checkbox_says_what_it_does_and_the_palette_box_says_why_there_are_two(fpage):
     assert "amber" in fpage.get_attribute("label:has(#arrowDir)", "title") and "Colour by Age" in fpage.get_attribute("label:has(#arrowDir)", "title")
     assert "all three kinds of colour blindness" in fpage.get_attribute("#dirPalette", "title") and "wallet page" in fpage.get_attribute("#dirPalette", "title")
-    assert [fpage.inner_text("#dirPalette option[value=pg]"), fpage.inner_text("#dirPalette option[value=bl]")] == ["Input pink, output green", "Input blue, output lime"]
+    assert "possible change keeps its amber" in fpage.get_attribute("#dirPalette", "title")
+    assert [fpage.inner_text("#dirPalette option[value=pg]"), fpage.inner_text("#dirPalette option[value=bl]")] == ["Input pink, output green, change amber", "Input blue, output lime, change amber"], "the labels say that the change keeps its amber"
     assert fpage.locator("#dirPalette option").count() == 2 and fpage.input_value("#dirPalette") == "pg", "pink and green is the one that is chosen to begin with"
 
 
