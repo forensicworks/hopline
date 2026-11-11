@@ -399,7 +399,7 @@
   var chart = { period: null, pts: [], sel: -1, w: 0, h: 260, key: 'all', view: null, follow: false, drag: null, swallow: false, xticks: [], yticks: [], buckets: [], unit: '', strip: null, fiat: false,
                 L: 0, T: 0, pw: 0, ph: 0, from: 0, to: 0, bounds: { from: 0, to: 0 } };
   // what is kept for the chart in this browser: the bars of what came in and went out, and loading the whole history by itself (kept apart from the workspace's settings, which it rewrites)
-  var WPREF_KEY = 'hopline.walletchart.v1', wprefs = { auto: true, bars: true }, AUTO_MAX = 250, BAR_H = 64, BAR_GAP = 14, UP = '#6be675', DOWN = '#ff9f43';
+  var WPREF_KEY = 'hopline.walletchart.v1', wprefs = { auto: true, bars: true }, AUTO_MAX = 250, BAR_H = 64, BAR_GAP = 14, UP = S.directionColors().arrives, DOWN = S.directionColors().leaves;                     // the colours of the whole site (hopline-style.js)
   try { var wp = JSON.parse(store.get(WPREF_KEY) || '{}') || {}; wprefs.auto = wp.auto !== false; wprefs.bars = wp.bars !== false; } catch (e) { /* nothing saved: both are on */ }
   function saveWprefs() { try { window.localStorage.setItem(WPREF_KEY, JSON.stringify(wprefs)); } catch (e) { /* no storage: the choice lasts while the page is open */ } }
   function themeColor(name, fallback) { var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v || fallback; }

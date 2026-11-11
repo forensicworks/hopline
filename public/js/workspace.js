@@ -47,7 +47,7 @@
 
   // ---- state ----------------------------------------------------------------------------------
   var state = {
-    graph: new M.Graph(), layout: 'trace', colorBy: 'type', arrowDir: false, dirPalette: 'rg', sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
+    graph: new M.Graph(), layout: 'trace', colorBy: 'type', arrowDir: false, dirPalette: S.DEFAULT_DIRECTION, sizeBy: 'auto', timeScale: 'compact', filter: F.defaults(),
     keep: new Set(), pinned: new Map(), selected: new Set(), selectedEdge: null,
     source: 'clearnet', fallback: true, customBase: '', keys: {}, keyRemember: false, pace: { concurrency: 8, delayMs: 20 }, capTx: 25, capReq: 80, capPages: 2, showLabels: true, persist: !HOSTED,
     customPrices: 'server', focus: null, focusOn: true, hops: 2, nav: new NV(), histOk: false, scopeNodes: null,
@@ -6182,7 +6182,7 @@
     Array.prototype.forEach.call($('scaleSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setScale(b.getAttribute('data-scale')); }); });
     Array.prototype.forEach.call($('colorSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setColor(b.getAttribute('data-color')); }); });
     $('arrowDir').addEventListener('change', function () { state.arrowDir = this.checked; syncDirUi(); refresh(); scheduleSave(); });
-    $('dirPalette').addEventListener('change', function () { state.dirPalette = S.directionPalette(this.value) ? this.value : 'rg'; syncDirUi(); refresh(); scheduleSave(); });
+    $('dirPalette').addEventListener('change', function () { state.dirPalette = S.directionPalette(this.value) ? this.value : S.DEFAULT_DIRECTION; syncDirUi(); refresh(); scheduleSave(); });
     Array.prototype.forEach.call($('sizeSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setSizeBy(b.getAttribute('data-size')); }); });
     $('showLabels').addEventListener('change', function () { state.showLabels = this.checked; refresh(); savePrefs(); });
     $('persist').addEventListener('change', function () {

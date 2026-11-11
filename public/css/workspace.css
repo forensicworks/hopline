@@ -11,6 +11,10 @@
   --danger: #ff8a80;
   --focus: #ffd166;
   --out: #ffb454;                    /* amber: anything that sends data off this computer */
+  --arrive: #6be675;                 /* the coins that come in: the one green of the site (hopline-style.js has the pair, a test checks they agree) */
+  --leave: #f06bd0;                  /* the coins that go out: pink */
+  --arrive-tint: rgba(107, 230, 117, 0.14);
+  --leave-tint: rgba(240, 107, 208, 0.14);
   font-family: Calibri, "Segoe UI", Arial, sans-serif;
   font-size: 14px;
   color-scheme: dark;
@@ -190,11 +194,11 @@ body.trace-on #stepbar { display: none !important; }
 .choosergroup[hidden], .groupmembers[hidden] { display: none; }
 .grouphead { background: var(--panel-2); }
 #ctxMenu .groupfold { flex: none; padding: 0 6px; font-size: 13px; }
-.linkrow.in .amt { color: #6be675; }
-.linkrow.out .amt { color: #ff9f43; }
+.linkrow.in .amt { color: var(--arrive); }
+.linkrow.out .amt { color: var(--leave); }
 .dirtag { flex: none; align-self: flex-start; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
-.dirtag.in { color: #6be675; background: rgba(107, 230, 117, 0.14); }
-.dirtag.out { color: #ff9f43; background: rgba(255, 159, 67, 0.14); }
+.dirtag.in { color: var(--arrive); background: var(--arrive-tint); }
+.dirtag.out { color: var(--leave); background: var(--leave-tint); }
 .dirtag.self { color: var(--dim); background: rgba(255, 255, 255, 0.07); }
 .walletsum { font-size: 12px; color: var(--dim); margin: 2px 0 6px; }
 .walletsum .strong { color: var(--text); font-weight: 700; }
