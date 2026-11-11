@@ -1,5 +1,6 @@
 """The script that builds the published copy: only the pages, the hosted settings, the optional counter and version, and no damage to what it must not touch."""
 import importlib.util
+import json
 import pathlib
 
 import pytest
@@ -43,7 +44,9 @@ def test_a_goatcounter_code_becomes_the_counting_address(tmp_path):
 
 @pytest.mark.parametrize("kw", [{"stats_code": "Bad Code"}, {"stats_code": "a"}, {"stats_code": "x/../y"}, {"stats_endpoint": "http://stats.example/count"},
                                 {"stats_endpoint": "https://stats.example/count?site=1"}, {"stats_endpoint": "https://user@stats.example/count"},
-                                {"stats_code": "ok", "stats_endpoint": "https://stats.example/count"}, {"version": "a b"}, {"version": "x" * 41}])
+                                {"stats_code": "ok", "stats_endpoint": "https://stats.example/count"}, {"version": "a b"}, {"version": "x" * 41},
+                                {"code_version": "a b"}, {"code_version": "x" * 41}, {"code_date": "2026-01-03T11:00:00Z"}, {"code_version": "abc1234", "code_date": "yesterday"},
+                                {"code_version": "abc1234", "code_date": "2026-01-03 11:00:00"}])
 def test_odd_input_is_refused_before_anything_is_written(tmp_path, kw):
     out = tmp_path / "site"
     with pytest.raises(SystemExit):
@@ -88,6 +91,36 @@ def test_an_existing_output_is_replaced_but_its_git_folder_is_kept(tmp_path):
     (out / "old.html").write_text("stale", encoding="utf-8"); (out / "public").mkdir(); (out / "public" / "gone.js").write_text("x", encoding="utf-8")
     build_site.build(str(out))
     assert (out / ".git" / "HEAD").is_file() and not (out / "old.html").exists() and not (out / "public" / "gone.js").exists()
+
+
+def test_a_code_version_is_written_to_version_json_and_to_the_hosted_settings(tmp_path):
+    out = tmp_path / "site"
+    build_site.build(str(out), version="deploy1", code_version="0e2f471", code_date="2026-11-11T16:58:57Z")
+    info = json.loads(text(out / "version.json"))
+    assert info == {"version": "0e2f471", "committed": "2026-11-11T16:58:57Z", "about": build_site.ABOUT}, "the code version, not the deploy's own commit used for the script addresses"
+    assert '"version": "0e2f471"' in text(out / "public" / "config.js") and "deploy1" not in text(out / "public" / "config.js")
+    assert 'src="js/workspace.js?v=deploy1"' in text(out / "public" / "workspace.html"), "the address stamp is still the deploy's"
+    assert (out / "version.json").read_bytes().endswith(b"}\n") and b"\r" not in (out / "version.json").read_bytes()
+
+
+def test_without_a_code_version_nothing_about_it_is_written(tmp_path):
+    out = tmp_path / "site"
+    build_site.build(str(out), version="deploy1")
+    assert not (out / "version.json").exists() and "version" not in text(out / "public" / "config.js")
+
+
+def test_a_code_version_without_a_date_is_written_without_one(tmp_path):
+    out = tmp_path / "site"
+    build_site.build(str(out), code_version="0e2f471")
+    assert json.loads(text(out / "version.json")) == {"version": "0e2f471", "about": build_site.ABOUT}
+
+
+def test_the_version_file_is_never_cached_where_the_host_reads_headers(tmp_path):
+    out = tmp_path / "site"
+    build_site.build(str(out), code_version="0e2f471")
+    lines = text(out / "_headers").splitlines()
+    i = lines.index("/version.json")
+    assert lines[i + 1] == "  Cache-Control: no-store", lines
 
 
 def test_the_headers_file_asks_for_no_referrer_no_sniffing_and_no_framing(tmp_path):

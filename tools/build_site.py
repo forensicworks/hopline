@@ -9,6 +9,9 @@ What the published copy differs in (everything else is the source, byte for byte
     name, as described in public/js/hopline-stats.js; without either, nothing is counted;
   * with --version, every script and style address in the three pages gets ?v=<version>, so after a deploy a browser cannot run new pages
     with old scripts (static hosts let browsers keep files for minutes);
+  * with --code-version (the last change to the code: tools/code_version.py works it out) a version.json at the root of the site and the same id in
+    public/config.js (HOPLINE_CONFIG.version), so a published copy can be told from an older one; --code-date is when that change was committed.
+    It is not the ?v= of --version: that one is the deploy's own commit and moves with every deploy, the code version does not move with a pack refresh;
   * a _headers file (read by Cloudflare and Netlify, ignored elsewhere): no referrer is sent from the pages, content types are not guessed, and
     the pages cannot be shown inside another site's frame;
   * a 404.html, so an address that does not exist is a 404 (Cloudflare Pages otherwise answers it with the landing page and status 200); its
@@ -31,10 +34,15 @@ PAGES = ["index.html", os.path.join("public", "wallet.html"), os.path.join("publ
 CODE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}$")
 ENDPOINT = re.compile(r"^https://[A-Za-z0-9.-]+(:\d{1,5})?/[A-Za-z0-9._/-]*$")
 VERSION = re.compile(r"^[0-9A-Za-z._-]{1,40}$")
+CODE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+ABOUT = "The last change to the code of this site. A daily refresh of the label packs does not change it."     # as in tools/code_version.py (a test keeps them equal)
 HEADERS = """/*
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
   Content-Security-Policy: frame-ancestors 'none'
+
+/version.json
+  Cache-Control: no-store
 """
 NOT_FOUND = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not found - Hopline</title>
@@ -46,10 +54,12 @@ BASE_PATH = re.compile(r"^/((?!\.+/)[A-Za-z0-9._-]+/)*$")
 LOCAL_URL = re.compile(r'((?:src|href)=")((?:public/)?(?:config\.js|(?:js|css|data|lib|packs)/[^"?#]+\.(?:js|css)))(")')
 
 
-def config_js(stats_endpoint):
+def config_js(stats_endpoint, code_version=None):
     cfg = {"hosted": True}
     if stats_endpoint:
         cfg["stats"] = {"endpoint": stats_endpoint}
+    if code_version:
+        cfg["version"] = code_version
     return ("/* Written by tools/build_site.py for the published copy: see the comment in the source file of the same name. */\n"
             "window.HOPLINE_CONFIG = Object.assign(window.HOPLINE_CONFIG || {}, %s);\n" % json.dumps(cfg))
 
@@ -70,7 +80,7 @@ def clear(out):
             os.remove(path)
 
 
-def build(out, stats_code=None, stats_endpoint=None, version=None, base_path="/"):
+def build(out, stats_code=None, stats_endpoint=None, version=None, base_path="/", code_version=None, code_date=None):
     given = base_path
     base_path = base_path if base_path.endswith("/") else base_path + "/"
     if not given or not BASE_PATH.match(base_path):
@@ -83,13 +93,24 @@ def build(out, stats_code=None, stats_endpoint=None, version=None, base_path="/"
         raise SystemExit("--stats-endpoint must be an https address without a query or fragment, e.g. https://stats.example.org/count")
     if version and not VERSION.match(version):
         raise SystemExit("--version may only hold letters, digits, dots, hyphens and underscores (40 at most).")
+    if code_version and not VERSION.match(code_version):
+        raise SystemExit("--code-version may only hold letters, digits, dots, hyphens and underscores (40 at most).")
+    if code_date and not (code_version and CODE_DATE.match(code_date)):
+        raise SystemExit("--code-date goes with --code-version and looks like 2026-11-11T16:58:57Z (UTC).")
     endpoint = stats_endpoint or ("https://%s.goatcounter.com/count" % stats_code if stats_code else None)
     clear(out)
     for name in FILES:
         shutil.copy2(os.path.join(ROOT, name), os.path.join(out, name))
     shutil.copytree(os.path.join(ROOT, "public"), os.path.join(out, "public"), ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     with open(os.path.join(out, "public", "config.js"), "w", encoding="utf-8", newline="\n") as f:
-        f.write(config_js(endpoint))
+        f.write(config_js(endpoint, code_version))
+    if code_version:
+        info = {"version": code_version}
+        if code_date:
+            info["committed"] = code_date
+        info["about"] = ABOUT
+        with open(os.path.join(out, "version.json"), "w", encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps(info, indent=2) + "\n")
     if version:
         for page in PAGES:
             path = os.path.join(out, page)
@@ -103,7 +124,7 @@ def build(out, stats_code=None, stats_endpoint=None, version=None, base_path="/"
     with open(os.path.join(out, "404.html"), "w", encoding="utf-8", newline="\n") as f:
         f.write(NOT_FOUND.replace("@BASE@", base_path))
     open(os.path.join(out, ".nojekyll"), "w").close()
-    return {"out": os.path.realpath(out), "stats": endpoint, "version": version}
+    return {"out": os.path.realpath(out), "stats": endpoint, "version": version, "code_version": code_version}
 
 
 def main(argv=None):
@@ -112,10 +133,12 @@ def main(argv=None):
     ap.add_argument("--stats-code", help="GoatCounter site code: count visits at https://CODE.goatcounter.com/count")
     ap.add_argument("--stats-endpoint", help="count visits at this https address instead (your own GoatCounter)")
     ap.add_argument("--version", help="added to script and style addresses as ?v=VERSION (for example the short commit id)")
+    ap.add_argument("--code-version", help="the id of the last change to the code (tools/code_version.py): written to version.json at the root and to config.js")
+    ap.add_argument("--code-date", help="when that change was committed, UTC, like 2026-11-11T16:58:57Z (goes with --code-version)")
     ap.add_argument("--base-path", default="/", help="where the site lives on its host, for the one link that cannot be relative: / (the default) or, for a GitHub project site, /hopline/")
     a = ap.parse_args(argv)
-    r = build(a.out, a.stats_code, a.stats_endpoint, a.version, a.base_path)
-    print("Built %s (counting: %s, version: %s)" % (r["out"], r["stats"] or "off", r["version"] or "none"))
+    r = build(a.out, a.stats_code, a.stats_endpoint, a.version, a.base_path, a.code_version, a.code_date)
+    print("Built %s (counting: %s, version: %s, code version: %s)" % (r["out"], r["stats"] or "off", r["version"] or "none", r["code_version"] or "none"))
     return 0
 
 

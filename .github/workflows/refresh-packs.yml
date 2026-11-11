@@ -9,6 +9,9 @@
 # published packs at most a day behind the source. A run is a few MB of downloads, and it updates the one open pull request (the
 # branch below is rebuilt from the default branch each time) instead of opening more.
 #
+# The published code version (version.json) does not change with this refresh: tools/code_version.py leaves public/packs out, and a test keeps that
+# list equal to what this workflow adds.
+#
 # What it runs is `python3 tools/build_packs.py --refresh`, which rebuilds every source listed in SOURCES in that file. A new source is
 # added there, and this workflow picks it up without a change. A source that cannot be downloaded or fails its checks keeps its old
 # files and fails the run (so GitHub tells you), while the other sources are still refreshed. The new files go through the unit and
