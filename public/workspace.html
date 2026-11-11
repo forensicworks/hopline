@@ -7,6 +7,7 @@
 <title>Hopline Workspace</title>
 <link rel="icon" type="image/png" href="logo-96.png">
 <link rel="stylesheet" href="css/workspace.css">
+<script src="js/hopline-noautofill.js"></script>
 <script>
 // If something goes wrong while the page starts, say so on the page instead of leaving it blank. The usual cause is a browser that kept an old copy of one script.
 window.addEventListener('error', function (e) {
@@ -116,7 +117,7 @@ window.addEventListener('error', function (e) {
         <input id="customBase" type="url" placeholder="https://my-node.example/api" hidden>
         <div id="customAuthRow" hidden>
           <label for="srcKey">Key or token (optional)</label>
-          <input type="password" id="srcKey" autocomplete="off" spellcheck="false" placeholder="sent with every request to this server">
+          <input type="password" id="srcKey" data-autofill="allow" autocomplete="off" spellcheck="false" placeholder="sent with every request to this server">
           <label for="srcKeyHeader">Sent in the header</label>
           <input type="text" id="srcKeyHeader" autocomplete="off" spellcheck="false" placeholder="Authorization">
           <label class="check" title="Keep the key in this browser. Off: it is forgotten when the page is closed."><input type="checkbox" id="srcKeyRemember"> Remember on this computer</label>
@@ -268,7 +269,7 @@ window.addEventListener('error', function (e) {
           <label class="check"><input type="checkbox" id="claudeOn"> Switch on the Claude option (until this page is closed)</label>
           <div id="claudeBody" hidden>
             <label for="claudeKey">Anthropic API key</label>
-            <input type="password" id="claudeKey" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+            <input type="password" id="claudeKey" data-autofill="allow" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
             <label class="check" title="Keep the key in this browser. Off: it is forgotten when the page is closed."><input type="checkbox" id="claudeRemember"> Remember on this computer</label>
             <p class="hint">The key is sent only to api.anthropic.com, as a header. It is never put in the saved session, an export or a report.</p>
             <label for="claudeModel">Model</label>
@@ -364,7 +365,7 @@ window.addEventListener('error', function (e) {
         <label for="arkUrl">Lookup proxy</label>
         <input id="arkUrl" type="url" value="http://127.0.0.1:8787" spellcheck="false">
         <label for="arkToken">Proxy token</label>
-        <input id="arkToken" type="password" autocomplete="off" spellcheck="false" placeholder="printed when the proxy starts">
+        <input id="arkToken" type="password" data-autofill="allow" autocomplete="off" spellcheck="false" placeholder="printed when the proxy starts">
         <label class="check"><input type="checkbox" id="arkRemember"> Remember the token on this device</label>
         <div class="row"><button type="button" id="arkTest">Test</button><span id="arkResult" role="status"></span></div>
         <p class="hint">Arkham's API cannot be called from a web page (it sends no CORS headers), so a small program on your machine, <code>tools/arkham_proxy.py</code>, makes the call. It keeps your API key in an environment variable: the key never enters this page. Each look-up sends the wallet's address to Arkham. Switched off while the data source is Tor. Without a key, <i>Check in Arkham</i> in the right-click menu and the details opens Arkham's own page in a new tab instead (your own Arkham account, if you are signed in there).</p>
