@@ -190,7 +190,7 @@ def test_two_fingers_pinch_to_zoom_one_slides_the_period_and_pinching_in_shows_e
     under = g["from"] + 0.4 * span                                                       # the time under the left finger
     finger(wpage, "pointerdown", 1, at(0.4)); finger(wpage, "pointerdown", 2, at(0.6))
     finger(wpage, "pointermove", 1, at(0.2)); finger(wpage, "pointermove", 2, at(0.8))
-    wpage.wait_for_function("() => window.__wallet.chart.key === 'custom'", timeout=5000)
+    wpage.wait_for_function("(s) => { const c = window.__wallet.chart; return c.key === 'custom' && Math.abs((c.to - c.from) - s / 3) < 600; }", arg=span, timeout=5000)      # both fingers have moved, not just the first
     z = geometry(wpage)
     assert abs((z["to"] - z["from"]) - span / 3) < 600, "the fingers went three times further apart: a third of the time is shown"
     assert abs(z["from"] + 0.2 * (z["to"] - z["from"]) - under) < 600, "the time that was under the finger is still under it"

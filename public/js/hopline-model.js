@@ -199,7 +199,7 @@
         if (!g.edges.has(fundId)) {
           g.upsertEdge({ id: fundId, source: stubId, target: source, kind: 'out', txid: v.txid, vout: v.vout, amount: v.prevout.value || 0, time: null });
         }
-        g.edges.get(fundId).spent = true;
+        g.edges.get(fundId).spent = true; delete g.edges.get(fundId).spentInferred;
         g.edges.get(fundId).spentBy = { txid: txid, vin: i, time: time };
       }
       g.upsertEdge({ id: ID.edgeIn(txid, i), source: source, target: txId, kind: 'in', txid: txid, vin: i,
@@ -242,6 +242,18 @@
   function historyRead(n) { return !!n && n.type === 'addr' && n.txCount != null && !n.balanceOnly; }
 
   /**
+   * Does the graph hold everything this wallet ever spent? True when its whole history was read (no further page, nothing cut off), or when its totals say that what it spent is what the graph
+   * holds of it (a wallet that never spent: both are 0). Then a coin that came to it and that no loaded transaction spends is unspent, whether or not the outspends of the transaction that paid it
+   * were ever read. False when it is not known (no history, no totals) or when more of its spending exists than the graph holds.
+   */
+  function spendingComplete(n) {
+    if (!n || n.type !== 'addr' || n.histNext) return false;
+    if (historyRead(n) && n.histDone === true) return true;
+    if (n.fundedSum == null || n.spentSum == null) return false;
+    return (n.sent || 0) >= n.spentSum + (n.mempoolSpentSum || 0);
+  }
+
+  /**
    * Could more of this wallet's transactions exist than the graph holds, going `dir` ('next': what it spent, 'prev': what it received, none: either)?
    * Yes while a further page of its history is waiting, or its history was never asked for. Then its totals decide when they were read: what the
    * graph holds of what it received (spent) adding up to what the server counts means nothing is left that way, and a wallet that never spent
@@ -263,6 +275,7 @@
     outspends.forEach(function (o, n) {
       var edge = g.edges.get(ID.edgeOut(txid, n));
       if (!edge) return;
+      delete edge.spentInferred;
       if (!o || !o.spent) { edge.spent = false; return; }
       var confirmed = !!(o.status && o.status.confirmed);
       var time = confirmed && o.status.block_time != null ? o.status.block_time : null;
@@ -336,6 +349,7 @@
   Graph.prototype.refreshDerived = function () {
     this.nodes.forEach(function (n) { n.firstSeen = null; n.lastSeen = null; n.received = 0; n.sent = 0; n.degree = 0; });
     var g = this;
+    this.edges.forEach(function (e) { if (e.spentInferred) { delete e.spent; delete e.spentInferred; } });       // what was worked out is worked out again below, from what the graph holds now
     function touch(n, t) {
       if (t == null) return;
       if (n.firstSeen == null || t < n.firstSeen) n.firstSeen = t;
@@ -349,6 +363,11 @@
       touch(s, e.time); touch(t, e.time);
     });
     this.nodes.forEach(function (n) { if (n.type === 'tx' && n.time != null) { n.firstSeen = n.time; n.lastSeen = n.time; } });
+    this.edges.forEach(function (e) {                                       // a coin into a wallet whose spending the graph holds in full, and that nothing in the graph spends: unspent
+      if (e.kind !== 'out' || e.spent != null) return;
+      var t = g.nodes.get(e.target);
+      if (t && spendingComplete(t)) { e.spent = false; e.spentInferred = true; }
+    });
   };
 
   /**
@@ -406,5 +425,5 @@
     return g;
   };
 
-  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf, historyRead: historyRead, historyOpen: historyOpen };
+  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf, historyRead: historyRead, historyOpen: historyOpen, spendingComplete: spendingComplete };
 }));
