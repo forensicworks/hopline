@@ -17,15 +17,20 @@
 
   /**
    * What an arrow's colour says when the arrows are coloured by direction: an input arrow is a coin that is spent (a wallet into a transaction), an output arrow a coin that is created (a
-   * transaction to a wallet). Red for the coin that leaves and green for the coin that arrives is the wallet page's own convention; red and green are hard to tell apart with red-green colour
-   * blindness, so a second pair is offered (blue and lime: at least 45 apart for all three kinds of colour blindness, test/arrow-direction.test.js checks it). Both read on the dark canvas.
+   * transaction to a wallet). The first pair is the one colour pair of the whole site: the wallet page uses it for what came in (green) and what went out (pink), the workspace's side panel too
+   * (public/css/*.css hold the same two colours as variables; test/arrow-direction.test.js checks that all agree). Pink and green, not red and green: red is the sanctions colour on the canvas,
+   * orange is the address vertex, the possible change and the SWAP ring, and red-green or orange-green is the pair most colour blind people cannot tell apart. Pink and green stay at least 45 apart
+   * for all three kinds of colour blindness (the PiYG pairing of ColorBrewer). A second pair, blue and lime, has a wider gap. All read on the dark canvas.
    */
   var DIRECTION_PALETTES = {
-    rg: { name: 'Red and green', 'in': '#ff6b6b', out: '#4ade80' },
+    pg: { name: 'Pink and green', 'in': '#f06bd0', out: '#6be675' },
     bl: { name: 'Blue and lime', 'in': '#3b8bff', out: '#d8f547' }
   };
+  var DEFAULT_DIRECTION = 'pg';
   /** The palette of a key, or null for anything that is not one (a key such as "constructor" is not). */
   function directionPalette(key) { return typeof key === 'string' && Object.prototype.hasOwnProperty.call(DIRECTION_PALETTES, key) ? DIRECTION_PALETTES[key] : null; }
+  /** The two colours of a pair by what they mean for a wallet: the coins that arrive and the coins that leave (the default pair for a key that is not one). */
+  function directionColors(key) { var p = directionPalette(key) || DIRECTION_PALETTES[DEFAULT_DIRECTION]; return { arrives: p.out, leaves: p['in'] }; }
   // old -> new: violet -> blue -> teal -> green -> yellow. Every stop is bright enough to read on the dark canvas.
   var AGE_STOPS = [[0.00, [150, 110, 255]], [0.25, [70, 150, 255]], [0.50, [40, 205, 185]], [0.75, [150, 225, 100]], [1.00, [255, 225, 80]]];
 
@@ -173,6 +178,6 @@
   }
   function shortId(s, n) { n = n || 6; return s && s.length > 2 * n + 1 ? s.slice(0, n) + '…' + s.slice(-n) : (s || ''); }
 
-  return { SCRIPT_COLORS: SCRIPT_COLORS, TYPE_COLORS: TYPE_COLORS, DIRECTION_PALETTES: DIRECTION_PALETTES, directionPalette: directionPalette, ageColor: ageColor, logScale: logScale, linScale: linScale,
+  return { SCRIPT_COLORS: SCRIPT_COLORS, TYPE_COLORS: TYPE_COLORS, DIRECTION_PALETTES: DIRECTION_PALETTES, DEFAULT_DIRECTION: DEFAULT_DIRECTION, directionPalette: directionPalette, directionColors: directionColors, ageColor: ageColor, logScale: logScale, linScale: linScale,
            makeStyle: makeStyle, legend: legend, fmtBtc: fmtBtc, fmtBtcShort: fmtBtcShort, fmtTime: fmtTime, fmtTimeFull: fmtTimeFull, shortId: shortId };
 }));

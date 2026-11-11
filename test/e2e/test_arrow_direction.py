@@ -89,12 +89,13 @@ def test_by_default_every_arrow_is_neutral_apart_from_the_amber_change(fpage, mo
     assert not fpage.is_checked("#arrowDir") and fpage.is_disabled("#dirPalette")
 
 
-def test_red_for_the_coin_that_is_spent_and_green_for_the_one_that_is_created_and_the_change_stays_amber(fpage, mock):
+def test_pink_for_the_coin_that_is_spent_and_green_for_the_one_that_is_created_and_the_change_stays_amber(fpage, mock):
     p = opened(fpage, mock)
     turn_on(fpage)
     into, shop, back = colour(fpage, p["into"]), colour(fpage, p["shop"]), colour(fpage, p["back"])
-    assert into[0] > into[1] + 60 and abs(into[1] - into[2]) < 40, "input: red (#ff6b6b): %s" % into
-    assert shop[1] > shop[0] + 40 and shop[1] > shop[2] + 25, "output: green (#4ade80): %s" % shop
+    assert into[0] > into[1] + 60 and into[2] > into[1] + 50, "input: pink (#f06bd0): %s" % into
+    assert shop[1] > shop[0] + 50 and shop[1] > shop[2] + 50, "output: green (#6be675): %s" % shop
+    assert not amber(into) and not amber(shop), "neither is mistaken for the amber of the change: %s %s" % (into, shop)
     assert amber(back), "the arrow of the possible change keeps its colour, and is still read as an output by its arrowhead: %s" % back
     assert fpage.is_enabled("#dirPalette")
 
@@ -147,17 +148,18 @@ def test_the_legend_names_the_two_arrows_with_their_colours_and_follows_the_pale
     text = fpage.inner_text("#legend")
     assert "input arrow: a coin that is spent" in text and "output arrow: a coin that is created" in text, text
     sw = fpage.eval_on_selector_all("#legend .item .sw", "els => els.map((e) => getComputedStyle(e).backgroundColor)")
-    assert "rgb(255, 107, 107)" in sw and "rgb(74, 222, 128)" in sw, sw
+    assert "rgb(240, 107, 208)" in sw and "rgb(107, 230, 117)" in sw, sw
     fpage.select_option("#dirPalette", "bl"); settle(fpage)
     sw = fpage.eval_on_selector_all("#legend .item .sw", "els => els.map((e) => getComputedStyle(e).backgroundColor)")
-    assert "rgb(59, 139, 255)" in sw and "rgb(216, 245, 71)" in sw and "rgb(255, 107, 107)" not in sw, sw
+    assert "rgb(59, 139, 255)" in sw and "rgb(216, 245, 71)" in sw and "rgb(240, 107, 208)" not in sw, sw
     assert "amber edge" in fpage.inner_text("#legend"), "the amber entry for the change guess is still there"
 
 
 def test_the_checkbox_says_what_it_does_and_the_palette_box_says_why_there_are_two(fpage):
     assert "amber" in fpage.get_attribute("label:has(#arrowDir)", "title") and "Colour by Age" in fpage.get_attribute("label:has(#arrowDir)", "title")
-    assert "red-green colour blindness" in fpage.get_attribute("#dirPalette", "title")
-    assert [fpage.inner_text("#dirPalette option[value=rg]"), fpage.inner_text("#dirPalette option[value=bl]")] == ["Input red, output green", "Input blue, output lime"]
+    assert "all three kinds of colour blindness" in fpage.get_attribute("#dirPalette", "title") and "wallet page" in fpage.get_attribute("#dirPalette", "title")
+    assert [fpage.inner_text("#dirPalette option[value=pg]"), fpage.inner_text("#dirPalette option[value=bl]")] == ["Input pink, output green", "Input blue, output lime"]
+    assert fpage.locator("#dirPalette option").count() == 2 and fpage.input_value("#dirPalette") == "pg", "pink and green is the one that is chosen to begin with"
 
 
 # ---- saved with the workspace, and sent in a link ----------------------------------------------------------------------------------------------------
@@ -183,7 +185,7 @@ def test_a_file_with_nonsense_in_the_setting_is_read_with_the_defaults(fpage, ct
     other.goto(PAGE_URL); other.wait_for_function("window.__hopline && window.__hopline.renderer")
     other.set_input_files("#fileImport", files=[{"name": "w.json", "mimeType": "application/json", "buffer": json.dumps(d).encode()}])
     other.wait_for_function("() => window.__hopline.state.graph.nodes.size > 0", timeout=20000); settle(other)
-    assert not other.is_checked("#arrowDir") and other.input_value("#dirPalette") == "rg"
+    assert not other.is_checked("#arrowDir") and other.input_value("#dirPalette") == "pg"
 
 
 def test_a_link_to_the_canvas_and_a_link_of_ids_carry_it(page, ctx, mock):
