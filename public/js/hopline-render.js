@@ -58,6 +58,11 @@
    * the shift is half the line's width plus 2 (at least 4, at most 20 pixels), so two lines always leave a gap of 4 pixels between them. laneShift(a, b, width) is the shift of the edge that runs from screen point a to
    * screen point b and is `width` pixels thick.
    */
+  /**
+   * The dash and the gap, in pixels, of an arrow for an output that is not spent yet, for a line `width` px wide. 6 and 4 on a thin line; both grow with the width so a thick arrow (a large amount)
+   * shows its dashes too: a fixed 4 px gap is gone as soon as the line is wider than that.
+   */
+  function dashFor(width) { return [Math.max(6, width * 1.6), Math.max(4, width * 0.9)]; }
   function laneShift(a, b, width) {
     var dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1, lane = Math.min(20, Math.max(4, width / 2 + 2));
     return { x: -dy / len * lane, y: dx / len * lane };
@@ -592,7 +597,9 @@
       if (mark && inFocus && ctx.globalAlpha < 0.9) ctx.globalAlpha = 0.9;
       ctx.strokeStyle = parts ? (hotHere ? th.select : colour) : (id === hotEdge ? th.select : colour);
       ctx.lineWidth = onPath ? w + 1.5 : w;
-      ctx.setLineDash(e.kind === 'out' && allUnspent ? [6, 4] : []);
+      var dashed = e.kind === 'out' && allUnspent;
+      ctx.setLineDash(dashed ? dashFor(ctx.lineWidth) : []);
+      if (dashed) ctx.lineCap = 'butt';                                     // a round cap grows every dash by the width of the line at both ends, and closes the gaps of a thick arrow
       var ra = st.nodeRadius(g.nodes.get(e.source)) * s, rb = st.nodeRadius(g.nodes.get(e.target)) * s + 2;
       var dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
       var lane = ends.has(e.target + '|' + e.source) ? laneShift(A, B, w) : { x: 0, y: 0 };                 // a partner goes the other way: keep to our own side of the line
@@ -602,7 +609,7 @@
         ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.restore();
       }
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.setLineDash([]); ctx.lineCap = 'round';
       var rec = fpe ? { id: id, a: e.source, b: e.target, w: w, label: null } : null;
       if (rec) fpe.push(rec);
       if (len > ra + rb + 14) {                                             // arrowhead
@@ -942,5 +949,5 @@
   /** PNG data URL of the current view (for "save image"). */
   Renderer.prototype.toDataUrl = function () { this.draw(); return this.canvas.toDataURL('image/png'); };
 
-  return { Renderer: Renderer, niceTicks: niceTicks, distToSegment: distToSegment, laneShift: laneShift, kindOf: kindOf, shape: shape };
+  return { Renderer: Renderer, niceTicks: niceTicks, distToSegment: distToSegment, laneShift: laneShift, dashFor: dashFor, kindOf: kindOf, shape: shape };
 }));
