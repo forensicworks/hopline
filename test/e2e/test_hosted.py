@@ -149,9 +149,23 @@ def test_the_wallet_page_and_the_landing_page_are_counted_and_say_so(ctx, wpage,
 
 def test_the_landing_page_no_longer_claims_that_nothing_is_stored_on_a_server(ctx, errors):
     home = new_page(ctx, errors, INDEX_URL)
-    text = home.inner_text(".lead")
+    text = home.inner_text(".proof")
     assert "none of your work is stored on a server" in text and "nothing is stored on a server" not in text
     assert home.is_hidden(".counterbar"), "and with no counter there is no note about one"
+
+
+def test_the_samples_of_the_start_page_are_counted_by_the_names_the_pages_use(ctx, errors, mock, hits):
+    settings(ctx); serve_sample(mock)
+    home = new_page(ctx, errors, INDEX_URL); home.wait_for_timeout(500)
+    n0 = len(hits)
+    home.click("#sampleWallet"); home.wait_for_url("**/wallet.html?q=" + SAMPLE); home.wait_for_timeout(300)
+    assert "sample-wallet" in names(hits[n0:]), names(hits[n0:])
+    home.goto(INDEX_URL); home.wait_for_timeout(300)
+    n1 = len(hits)
+    home.click("#sampleTx"); home.wait_for_url("**/workspace.html?q=" + NORMAL["txid"]); home.wait_for_timeout(300)
+    assert "sample" in names(hits[n1:]), names(hits[n1:])
+    sent = " ".join(h["url"] for h in hits)
+    assert ADDRESS not in sent and NORMAL["txid"] not in sent and SAMPLE not in sent, "only the name of the feature is sent"
 
 
 def test_a_browser_that_says_do_not_track_is_not_counted_and_no_note_appears(ctx, errors, hits):

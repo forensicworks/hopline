@@ -9,54 +9,188 @@
 <link rel="stylesheet" href="public/css/wallet.css">
 <style>
   body { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; }
-  main { width: 100%; max-width: 760px; }
-  h1 { font-size: 34px; margin: 0 0 4px; display: block; }
+  main { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 28px; }
+  h1 { font-size: 34px; line-height: 1.15; margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
   h1 span { color: var(--accent); font-weight: 400; }
-  h1 .logo { vertical-align: middle; margin: -6px 12px 0 0; border-radius: 9px; }
-  .lead { color: var(--dim); margin: 0 0 22px; font-size: 16px; }
-  #go { display: flex; gap: 8px; }
-  #go input { flex: 1; min-width: 0; padding: 10px 12px; font-size: 15px; }
-  #go button { padding: 10px 18px; }
-  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 26px; }
-  @media (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
-  .card { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--text); text-decoration: none; }
-  .card:hover, .card:focus-visible { border-color: var(--accent); }
-  .card h2 { margin: 0 0 6px; font-size: 18px; color: var(--accent); }
-  .card p { margin: 0; color: var(--dim); font-size: 13.5px; line-height: 1.45; }
+  h1 .logo { border-radius: 9px; flex: none; }
+  h2 { margin: 0; }
+  .lead { color: var(--dim); margin: 10px 0 0; font-size: 16px; line-height: 1.5; max-width: 66ch; }
+
+  /* the box and where it can be opened */
+  .field { display: block; margin: 0 0 6px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dim); }
+  #go input { display: block; width: 100%; padding: 11px 12px; font-size: 15px; font-family: Consolas, "Courier New", monospace; }
+  #go input::placeholder { font-family: Calibri, "Segoe UI", Arial, sans-serif; color: var(--dim); }
+  .detect { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 10px 0 0; font-size: 13.5px; color: var(--dim); }
+  .detect:empty { display: none; }
+  .found { display: inline-block; padding: 2px 9px; border: 1px solid var(--accent); border-radius: 99px; color: var(--accent); font-size: 12.5px; font-weight: 700; }
+  .found.warn { border-color: var(--danger); color: var(--danger); }
+  .found.idle { border-color: var(--line); color: var(--dim); font-weight: 400; }
+  .goes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  @media (max-width: 560px) { .goes { grid-template-columns: minmax(0, 1fr); } }
+  .go { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding: 10px 14px; text-align: left; }
+  .go b { font-size: 15px; }
+  .go span { font-size: 12.5px; opacity: 0.85; font-weight: 400; }
+  .go[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+  .go[aria-disabled="true"]:hover { border-color: var(--line); }
+  .why { margin: 8px 0 0; font-size: 12.5px; color: var(--dim); }
+  .why:empty { display: none; }
   #err { color: var(--danger); min-height: 20px; margin: 8px 0 0; }
+  #err:empty { display: none; }
+
+  .samples { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0; font-size: 13.5px; color: var(--dim); }
+  .samples a { padding: 4px 10px; border: 1px solid var(--line); border-radius: 5px; font-size: 13px; text-decoration: none; }
+  .samples a:hover, .samples a:focus-visible { border-color: var(--accent); }
+
+  /* what Hopline is */
+  .proof { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .proof h2, .steps h2 { font-size: 14.5px; color: var(--accent); margin-bottom: 3px; }
+  .proof p, .steps p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--dim); }
+  .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+  .steps li { counter-increment: step; border-top: 2px solid var(--line); padding-top: 10px; }
+  .steps li::before { content: counter(step); display: block; margin-bottom: 4px; font-size: 12px; font-weight: 700; color: var(--dim); }
+  .steps li:nth-child(1) { border-top-color: var(--accent); }
+  .steps li:nth-child(2) { border-top-color: var(--leave); }
+  .steps li:nth-child(3) { border-top-color: var(--arrive); }
+  @media (max-width: 640px) { .proof, .steps { grid-template-columns: minmax(0, 1fr); } }
+
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
+  .card { display: flex; flex-direction: column; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; color: var(--text); text-decoration: none; }
+  .card:hover, .card:focus-visible { border-color: var(--accent); }
+  .card img { display: block; width: 100%; height: auto; aspect-ratio: 14 / 5; object-fit: cover; background: #170f18; border-bottom: 1px solid var(--line); }
+  .card .txt { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px 14px; }
+  .card h2 { font-size: 18px; color: var(--accent); }
+  .card p { margin: 0; color: var(--dim); font-size: 13.5px; line-height: 1.45; }
+  .card .best { color: var(--text); font-size: 12.5px; }
+  .card .best b { color: var(--accent); }
+
+  .leaves { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; }
+  .leaves h2 { font-size: 14.5px; margin-bottom: 4px; }
+  .leaves p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--dim); }
+  main > .hint { margin: 0; }
 </style>
 <script src="public/js/hopline-noautofill.js"></script>
 </head>
 <body>
 <main>
-  <h1><img class="logo" src="public/logo-96.png" alt="" width="44" height="44">Hopline <span>— Bitcoin investigation tools</span></h1>
-  <p class="lead">Follow money through the chain in your browser. Nothing is installed and none of your work is stored on a server: the pages ask a public block explorer API (or your own) and keep your work on your machine.</p>
-  <form id="go" autocomplete="off">
-    <label class="sr" for="q">Bitcoin address or transaction ID</label>
-    <input id="q" type="text" placeholder="Bitcoin address or transaction ID" spellcheck="false" autofocus>
-    <button type="submit" class="primary">Open</button>
-  </form>
-  <p id="err" role="alert"></p>
-  <div class="cards">
-    <a class="card" href="public/workspace.html"><h2>Workspace</h2><p>A graph of transactions and wallets: trace the money step by step, group and filter, find patterns, label wallets, and write a report you can hand over.</p></a>
-    <a class="card" href="public/wallet.html"><h2>Wallet overview</h2><p>One address as a ledger: balance, totals, every transaction with its inputs and outputs, the labelled wallets it dealt with, and an Export menu (CSV, a workspace file, a verifiable report).</p></a>
+  <div>
+    <h1><img class="logo" src="public/logo-96.png" alt="" width="44" height="44">Hopline <span>follow Bitcoin through the chain</span></h1>
+    <p class="lead">Paste a Bitcoin address or a transaction ID. See where the money went, which wallets it touched and what looks unusual, then write a report you can hand over.</p>
   </div>
-  <p class="hint">A transaction ID opens in the workspace, an address as a wallet overview.</p>
+
+  <div>
+    <form id="go" autocomplete="off">
+      <label class="field" for="q">Bitcoin address or transaction ID (up to 10, separated by spaces)</label>
+      <input id="q" type="text" spellcheck="false" autofocus placeholder="Paste here" aria-describedby="detect why">
+      <div id="detect" class="detect" aria-live="polite"></div>
+      <div id="goes" class="goes" hidden></div>
+      <p id="why" class="why"></p>
+    </form>
+    <p id="err" role="alert"></p>
+  </div>
+
+  <p class="samples">No address at hand?
+    <a id="sampleWallet" href="public/wallet.html?q=bc1qq2euq8pw950klpjcawuy4uj39ym43hs6cfsegq" data-stat="sample-wallet" title="A real wallet with a short history: it received the DarkSide affiliate's share of the Colonial Pipeline ransom in 2021">Try the Colonial Pipeline ransom wallet</a>
+    <a id="sampleTx" href="public/workspace.html?q=0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d" data-stat="sample">Try a sample transaction</a>
+    <a id="openSaved" href="public/workspace.html" title="The workspace opens with &quot;Open a workspace file&quot; ready">Open a saved workspace</a>
+  </p>
+
+  <div class="proof">
+    <div><h2>In your browser</h2><p>No account, nothing to install, and none of your work is stored on a server: it stays on your computer.</p></div>
+    <div><h2>Names built in</h2><p>Exchanges, sanctions lists, ransomware and mining-pool addresses, each with its source and date.</p></div>
+    <div><h2>Findings with reasons</h2><p>Every finding says why. They are leads, not proof, and they are measured on cases where the answer is known.</p></div>
+  </div>
+
+  <ol class="steps">
+    <li><h2>Paste</h2><p>A transaction or a wallet. Up to ten at once.</p></li>
+    <li><h2>Trace</h2><p>Click ▶ to follow where each coin went. Names and findings appear along the way.</p></li>
+    <li><h2>Report</h2><p>One HTML file with the evidence, when and where it was fetched, and hashes that can be checked afterwards.</p></li>
+  </ol>
+
+  <div class="cards">
+    <a class="card" href="public/workspace.html">
+      <img src="public/front-workspace.jpg" width="700" height="250" alt="The workspace: a transaction, a wallet named Robinhood Hot Wallet and the coins that followed, drawn as a graph">
+      <div class="txt"><h2>Workspace</h2><p>A graph of transactions and wallets. Trace the money step by step, group and filter, find patterns and label wallets.</p><p class="best"><b>Best for</b> following a payment, or several wallets at once.</p></div>
+    </a>
+    <a class="card" href="public/wallet.html">
+      <img src="public/front-wallet.jpg" width="700" height="250" alt="The wallet overview: the balance and totals of one address above its list of transactions">
+      <div class="txt"><h2>Wallet overview</h2><p>One address as a ledger: balance, totals, every transaction with its inputs and outputs, and the labelled wallets it dealt with.</p><p class="best"><b>Best for</b> getting the whole picture of one address.</p></div>
+    </a>
+  </div>
+
+  <div class="leaves">
+    <h2>What leaves your browser</h2>
+    <p>The address or transaction ID you look up goes to the data source you choose: by default mempool.space with Blockstream.info as a backup, or your own server. It can see your IP address and what you look up. Prices come from mempool.space. Nothing else is sent unless you switch on an option that says so, the Claude assistant for example. The code is open under Apache-2.0 and can run from a folder on your computer.</p>
+  </div>
+
   <div class="counterbar" role="note" data-counter hidden><b>Visit counter.</b> This site counts visits with <a href="https://www.goatcounter.com" target="_blank" rel="noopener noreferrer">GoatCounter</a>: page and feature names only, never addresses, IDs, labels or notes. No cookies, and Do Not Track is respected. <a href="https://github.com/forensicworks/hopline/wiki/Publishing-a-copy" target="_blank" rel="noopener noreferrer">How it works</a></div>
-  <p class="hint"><a href="https://github.com/forensicworks/hopline" target="_blank" rel="noopener noreferrer">Source code on GitHub</a> · <a href="https://github.com/forensicworks/hopline/wiki" target="_blank" rel="noopener noreferrer">Documentation</a> · <a href="https://github.com/forensicworks/hopline/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">Apache-2.0 licence</a></p>
+  <p class="hint"><a href="https://github.com/forensicworks/hopline/wiki/Getting-started" target="_blank" rel="noopener noreferrer">Getting started</a> · <a href="https://github.com/forensicworks/hopline/wiki/Following-a-payment-to-a-threat-actor" target="_blank" rel="noopener noreferrer">Following a payment to a threat actor</a> · <a href="https://github.com/forensicworks/hopline" target="_blank" rel="noopener noreferrer">Source code on GitHub</a> · <a href="https://github.com/forensicworks/hopline/wiki" target="_blank" rel="noopener noreferrer">Documentation</a> · <a href="https://github.com/forensicworks/hopline/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">Apache-2.0 licence</a></p>
 </main>
 <script src="public/config.js"></script>
 <script src="public/js/hopline-stats.js"></script>
+<script src="public/js/hopline-address.js"></script>
+<script src="public/js/hopline-front.js"></script>
 <script>
 (function () {
-  var form = document.getElementById('go'), q = document.getElementById('q'), err = document.getElementById('err');
+  var F = window.HoplineFront, form = document.getElementById('go'), q = document.getElementById('q'), err = document.getElementById('err');
+  var detect = document.getElementById('detect'), goes = document.getElementById('goes'), why = document.getElementById('why'), timer = 0, shown = null;
+
+  function open(url) { window.location.href = url; }
+  /** Count a feature by its name (nothing else is sent) and then go: a page that is left at once may cancel the count that was just sent. */
+  function openCounted(name, url) {
+    var s = window.HoplineStats;
+    if (name && s && s.enabled) { s.hit(name); setTimeout(function () { open(url); }, 150); } else open(url);
+  }
+  function node(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
+
+  /** Draw what the box holds: the line that says what was recognised, and one button for each page that can take it. Leaving the box (a click on a button) fires "change", and
+      drawing the buttons again then would replace the one being clicked: what is already drawn is left alone unless `again` says so. */
+  function render(again) {
+    clearTimeout(timer);
+    if (again !== true && q.value === shown) return;
+    shown = q.value;
+    var c = F.classify(q.value);
+    err.textContent = ''; detect.textContent = ''; goes.textContent = ''; goes.hidden = true; why.textContent = '';
+    if (c.kind === 'empty') return;
+    detect.appendChild(node('span', 'found' + (c.kind === 'invalid' || c.kind === 'toomany' ? ' warn' : c.kind === 'typing' ? ' idle' : ''), c.chip));
+    detect.appendChild(node('span', '', c.message));
+    if (!c.offers.length) return;
+    goes.hidden = false;
+    c.offers.forEach(function (o, i) {
+      var b = node('button', 'go' + (i === 0 ? ' primary' : '')); b.type = 'button'; b.id = o.page === 'wallet' ? 'toWallet' : 'toWorkspace';
+      b.appendChild(node('b', '', o.title)); b.appendChild(node('span', '', o.note));
+      if (o.url) b.addEventListener('click', function () { open(o.url); });
+      else { b.setAttribute('aria-disabled', 'true'); b.setAttribute('aria-describedby', 'why'); why.textContent = o.why; }
+      goes.appendChild(b);
+    });
+  }
+
   form.addEventListener('submit', function (e) {
     e.preventDefault();
-    var v = q.value.trim().replace(/^bitcoin:/i, '').split(/[?#]/)[0].trim(), m = /\/(?:address|tx)\/([A-Za-z0-9]+)\/?$/.exec(v);
-    if (m) v = m[1];
-    if (!v) { err.textContent = 'Enter a Bitcoin address or a transaction ID.'; return; }
-    err.textContent = '';
-    window.location.href = /^[0-9a-fA-F]{64}$/.test(v) ? 'public/workspace.html?q=' + encodeURIComponent(v.toLowerCase()) : 'public/wallet.html?q=' + encodeURIComponent(v);
+    var c = F.classify(q.value);
+    if (c.offers.length && c.offers[0].url) { open(c.offers[0].url); return; }
+    render(true);
+    if (c.kind === 'empty') err.textContent = 'Enter a Bitcoin address or a transaction ID.';
+    q.focus();
+  });
+  q.addEventListener('input', function () {
+    clearTimeout(timer);
+    if (F.classify(q.value).kind === 'invalid') timer = setTimeout(function () { render(); }, 500);          // a long address that is still being typed is not shown as wrong until the typing stops
+    else render();
+  });
+  q.addEventListener('change', function () { render(); });
+  q.addEventListener('paste', function (e) {                                          // a list pasted one entry to a line: a text box would drop the line breaks and join the entries
+    var d = e.clipboardData && e.clipboardData.getData('text');
+    if (!d || !/[\r\n]/.test(d)) return;
+    e.preventDefault();
+    q.setRangeText(d.replace(/\s*[\r\n]+\s*/g, ' ').trim(), q.selectionStart, q.selectionEnd, 'end');
+    render(true);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('a[data-stat]'), function (a) {
+    a.addEventListener('click', function (e) {
+      if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || !(window.HoplineStats && window.HoplineStats.enabled)) return;
+      e.preventDefault(); openCounted(a.getAttribute('data-stat'), a.href);
+    });
   });
 }());
 </script>

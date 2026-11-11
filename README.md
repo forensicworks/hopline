@@ -5,7 +5,7 @@ Bitcoin investigation tools that run in your browser: nothing to install and no 
 
 ![the workspace](screenshot.png)
 
-**Try it:** <https://forensicworks.github.io/hopline/>. Paste an address or a transaction ID, or press *Try a sample wallet*.
+**Try it:** <https://forensicworks.github.io/hopline/>. Paste an address or a transaction ID (the page says what it recognised and where it can be opened), or press *Try the Colonial Pipeline ransom wallet*.
 
 ## What you get
 
