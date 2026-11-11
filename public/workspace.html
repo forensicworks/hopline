@@ -169,9 +169,9 @@ window.addEventListener('error', function (e) {
           <button type="button" role="radio" data-color="script" aria-checked="false" title="p2pkh, p2sh, segwit, taproot…">Script</button>
         </div>
         <label class="check" title="Input arrows (a coin that is spent: a wallet into a transaction) and output arrows (a coin that is created: a transaction to a wallet) each get a colour. A selected arrow, an arrow on a highlighted route or chain and the amber arrow of a possible change keep theirs, and Colour by Age no longer colours the arrows while this is on (the vertices keep it). The arrowheads show the direction either way"><input type="checkbox" id="arrowDir"> Colour arrows by direction</label>
-        <select id="dirPalette" aria-label="Arrow colours" title="Pink and green is the pair of the wallet page and stays clear for all three kinds of colour blindness; Blue and lime has a wider gap" disabled>
-          <option value="pg">Input pink, output green</option>
-          <option value="bl">Input blue, output lime</option>
+        <select id="dirPalette" aria-label="Arrow colours" title="Pink and green is the pair of the wallet page and stays clear for all three kinds of colour blindness; Blue and lime has a wider gap. In both, the arrow of a possible change keeps its amber (a guess, so it is not turned into an output colour)" disabled>
+          <option value="pg">Input pink, output green, change amber</option>
+          <option value="bl">Input blue, output lime, change amber</option>
         </select>
         <span class="lbl">Shape size</span>
         <div class="seg" id="sizeSeg" role="radiogroup" aria-label="Shape size">
