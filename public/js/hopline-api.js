@@ -270,6 +270,10 @@
   Client.prototype.addressTxs = function (a, afterTxid) {
     return this.get('/address/' + encodeURIComponent(a) + '/txs' + (afterTxid ? '/chain/' + encodeURIComponent(afterTxid) : ''));
   };
+  /** The same as get(), but always asks the server: the answer kept from an earlier request is dropped first. For watching a wallet, where an old answer would hide what changed. */
+  Client.prototype.fresh = function (path) { this.cache.delete('J ' + path); return this.get(path); };
+  Client.prototype.addressFresh = function (a) { return this.fresh('/address/' + encodeURIComponent(a)); };
+  Client.prototype.addressTxsFresh = function (a) { return this.fresh('/address/' + encodeURIComponent(a) + '/txs'); };
   /** Today's prices in every supported currency (mempool.space API). */
   Client.prototype.prices = function () { return this.get('/v1/prices'); };
   /** The whole price history for a currency: one request, ~25,000 points (see hopline-price.js). */

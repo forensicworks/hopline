@@ -6,6 +6,7 @@
   'use strict';
 
   var A = HoplineApi, AD = HoplineAddress, S = HoplineStyle, W = HoplineWallet, LB = HoplineLabels, PK = HoplinePacks, PR = HoplinePrice, XT = HoplineExternal, IO = HoplineIO, RP = HoplineReport, AN = HoplineAnalysis;
+  var WT = HoplineWatch;
   var PREF_KEY = 'hopline.prefs.v1', PACKS_KEY = 'hopline.packs.v1', SESSION_KEY = 'hopline.workspace.v1', PAGE = 25, NL = String.fromCharCode(10);
 
   function $(id) { return document.getElementById(id); }
@@ -223,6 +224,7 @@
       el('a', { href: 'workspace.html?q=' + encodeURIComponent(r.txid), text: 'Open in workspace ↗' }),
       el('a', { href: explorerOrigin() + '/tx/' + r.txid, target: '_blank', rel: 'noopener noreferrer', text: 'Explorer ↗' })]);
     head.appendChild(pickLabel(r));
+    if (watch.seen.has(r.txid)) head.insertBefore(el('span', { 'class': 'newchip', title: 'Found by Watch this wallet at ' + clock(watch.seen.get(r.txid) * 1000), text: 'NEW' }), head.children[1] || null);
     return el('article', { 'class': 'tx ' + r.dir, 'data-txid': r.txid }, [head, el('div', { 'class': 'cols' }, [side(r.inputs, 'in', r.time), side(r.outputs, 'out', r.time)]), foot]);
   }
 
@@ -1061,6 +1063,142 @@
     window.location.href = walletHref(c.value);
   }
 
+  // ---- watching: the wallet is read again every few minutes while this page is open, and a change is said --------------------------------------------
+  // The page keeps showing what it showed: a change waits behind a "Show" button (a list that reshuffles while someone reads it, filters it or exports it would be worse than a click). States are
+  // compared, not events, so a tab that slept for an hour misses nothing. The first check, right after the box is ticked, never raises an alert: the person is looking at the page.
+  var WATCH_KEY = 'hopline.walletwatch.v1', watchPrefs = { every: WT.DEFAULT_MINUTES, amounts: true };
+  try { var wp = JSON.parse(window.localStorage.getItem(WATCH_KEY) || '{}') || {}; watchPrefs.every = WT.cleanMinutes(wp.every); watchPrefs.amounts = wp.amounts !== false; } catch (e) { /* no storage: the defaults */ }
+  function saveWatchPrefs() { try { window.localStorage.setItem(WATCH_KEY, JSON.stringify(watchPrefs)); } catch (e) { /* no storage: the choice lasts while the page is open */ } }
+  var watch = { on: false, timer: null, ticker: null, fails: 0, lastAt: 0, nextAt: 0, startedAt: 0, checking: false, firstCheck: false, pending: null, note: '', error: '',
+                notified: new Set(), confirmedSeen: new Set(), toldFp: null, seen: new Map() };
+  function watchEveryMs() { return window.HOPLINE_WATCH_MS || WT.intervalMs(watchPrefs.every); }
+  function clock(ms) { return new Date(ms).toISOString().slice(11, 19) + ' UTC'; }
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+  /** The line beside the box: what the watch is doing now. */
+  function watchRender() {
+    var s = $('watchStatus');
+    if (!watch.on) { s.textContent = watch.note || ''; s.className = 'hint'; return; }
+    var left = Math.max(0, Math.round((watch.nextAt - Date.now()) / 1000)), txt = watch.error ? 'Last check failed (' + watch.error + ')' : 'Watching';
+    txt += watch.lastAt ? ' · last checked ' + clock(watch.lastAt) : ' · checking…';
+    if (!watch.checking && watch.nextAt) txt += ' · next in ' + Math.floor(left / 60) + ':' + pad2(left % 60);
+    if (watch.note) txt += ' · ' + watch.note;
+    s.textContent = txt; s.className = 'hint' + (watch.error ? ' bad' : '');
+  }
+  function alertsText() {
+    if (typeof Notification === 'undefined') return 'This browser cannot show alerts here: a change appears on this page.';
+    if (Notification.permission === 'denied') return 'Alerts are blocked for this site: a change appears on this page (allow notifications in the site settings of the browser to get alerts).';
+    if (Notification.permission !== 'granted') return 'Alerts were not allowed: a change appears on this page.';
+    return '';
+  }
+  /** What watching tells the data source, said where the box is. */
+  function watchNote() {
+    var n = $('watchNote'); n.hidden = !watch.on;
+    if (!watch.on) return;
+    n.textContent = 'Each check asks ' + A.hostOf(state.client.base) + ' about this wallet again, so that server sees your address from this tab for as long as you watch. Your own server (chosen in the workspace) or Tor (add &source=tor to the address of this page) keeps that out of a public server\'s logs. Watching stops when you untick the box, leave the page, or after 24 hours.'
+      + (alertsText() ? ' ' + alertsText() : '');
+  }
+  /** A system alert, when the browser allows it. false when it did not show one (blocked, not asked, or a browser that only allows them from a service worker). */
+  function notifyBrowser(title, body) {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
+    try {
+      var n = new Notification(title, { body: body, tag: 'hopline-watch-' + state.addr, renotify: true, icon: 'logo-96.png' });
+      n.onclick = function () { try { window.focus(); n.close(); } catch (e) { /* already gone */ } };
+      return true;
+    } catch (e) { return false; }
+  }
+  function alertOptions() { var k = known(state.addr); return { label: k ? k.label : '', amounts: watchPrefs.amounts, known: known, fmtBtc: S.fmtBtc, shortId: S.shortId }; }
+
+  /** The banner that waits for a click, and the count in the title of the tab. */
+  function watchBanner() {
+    var p = watch.pending, txt = p ? WT.bannerText(p.diff.added, p.diff.confirmed, p.diff.gap, p.totalsOnly) : '', n = p ? p.diff.added.length + p.diff.confirmed.length || 1 : 0;
+    $('watchBanner').hidden = !txt; $('watchBannerText').textContent = txt;
+    if (state.addr) document.title = (txt ? '(' + n + ') ' : '') + 'Hopline Wallet · ' + S.shortId(state.addr, 8);
+  }
+
+  /** The totals differ from what the page shows: remember what is new, show the banner, and say it unless this was the first check. */
+  function watchChanged(stats, list, silent) {
+    var d = WT.diff(state.txs, list), fp = WT.fingerprint(stats), totalsOnly = !d.added.length && !d.confirmed.length && !d.gap;
+    watch.pending = { stats: stats, list: list, at: Math.floor(Date.now() / 1000), source: state.client.sourceOf(stats), fp: fp, diff: d, totalsOnly: totalsOnly };
+    var news = d.added.filter(function (t) { return !watch.notified.has(t.txid); }), confs = d.confirmed.filter(function (c) { return !watch.confirmedSeen.has(c.tx.txid); });
+    news.forEach(function (t) { watch.notified.add(t.txid); }); confs.forEach(function (c) { watch.confirmedSeen.add(c.tx.txid); });
+    watchBanner();
+    var words = null;
+    if (news.length || confs.length) words = WT.describe(state.addr, news, confs.map(function (c) { return c.tx; }), alertOptions());
+    else if (totalsOnly && watch.toldFp !== fp) words = { title: WT.describe(state.addr, [], [], alertOptions()).title, body: 'The totals changed (a transaction may have been replaced or dropped)' };
+    if (totalsOnly) watch.toldFp = fp;
+    if (words && !silent) notifyBrowser(words.title, words.body);
+  }
+
+  /** One check: the totals (one request); only when they changed, the newest page of transactions. */
+  function watchCheck() {
+    if (!watch.on || watch.checking) return;
+    var now = Date.now();
+    if (now - watch.startedAt > WT.MAX_WATCH_MS) { watchStop('Stopped after 24 hours. Tick the box to watch again.'); return; }
+    watch.note = watch.lastAt && watch.nextAt && now - watch.nextAt > Math.max(2 * watchEveryMs(), 120000) ? 'the tab was asleep from ' + clock(watch.lastAt) + ' to ' + clock(now) + ': this check covers that time' : '';
+    if (state.busy || allLoad.running || !state.stats) { watchSchedule(); watchRender(); return; }          // the page is reading something itself: ask again next time
+    var silent = watch.firstCheck, base = watch.pending ? watch.pending.fp : WT.fingerprint(state.stats);
+    watch.firstCheck = false; watch.checking = true; watchRender();
+    state.client.addressFresh(state.addr).then(function (stats) {
+      if (!watch.on || !WT.changed(base, stats)) return { stats: stats, same: true };
+      return state.client.addressTxsFresh(state.addr).then(function (list) { return { stats: stats, list: list }; });
+    }).then(function (r) {
+      watch.checking = false;
+      if (!watch.on) return;
+      watch.fails = 0; watch.error = ''; watch.lastAt = Date.now();
+      if (!r.same) watchChanged(r.stats, r.list, silent);
+      watchSchedule(); watchRender();
+    }, function (e) {
+      watch.checking = false;
+      if (!watch.on) return;
+      watch.fails++; watch.error = e && e.message ? e.message : 'no answer'; watchSchedule(); watchRender();
+    });
+  }
+  function watchSchedule() {
+    clearTimeout(watch.timer);
+    if (!watch.on) return;
+    var d = WT.nextDelay(watchEveryMs(), watch.fails, Math.random);
+    watch.nextAt = Date.now() + d; watch.timer = setTimeout(watchCheck, d);
+  }
+  function watchStart() {
+    if (!state.addr || !state.stats) { $('watchOn').checked = false; return; }
+    watch.on = true; watch.fails = 0; watch.error = ''; watch.note = ''; watch.startedAt = Date.now(); watch.lastAt = 0; watch.nextAt = 0; watch.firstCheck = true;
+    clearInterval(watch.ticker); watch.ticker = setInterval(watchRender, 1000);
+    watchNote(); watchRender();
+    watchCheck();                                                                    // at once: the page may have been open for a while
+  }
+  function watchStop(why) {
+    watch.on = false; clearTimeout(watch.timer); clearInterval(watch.ticker); watch.timer = null; watch.ticker = null; watch.checking = false;
+    watch.note = why || ''; $('watchOn').checked = false; watchRender(); watchNote();
+  }
+  function onWatchToggle() {
+    if (!$('watchOn').checked) { watchStop(); return; }
+    var ask = null;
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') { try { ask = Notification.requestPermission(); } catch (e) { ask = null; } }     // inside the click: browsers only ask then
+    var go = function () { if ($('watchOn').checked && !watch.on) watchStart(); };
+    if (ask && typeof ask.then === 'function') ask.then(go, go); else go();
+  }
+  /** The banner's button: join what was found into the page. More than a page of news cannot be joined to what is loaded: then the wallet is read again. */
+  function watchShow() {
+    var p = watch.pending;
+    if (!p) return;
+    var m = WT.merge(state.txs, p.list);
+    watch.pending = null;
+    if (m.gap) { watchBanner(); load(); return; }
+    state.txs = m.txs; state.stats = p.stats; state.statsAt = p.at; state.statsSource = p.source;
+    m.added.forEach(function (t) { state.fetched.set(t.txid, { at: p.at, source: p.source }); watch.seen.set(t.txid, p.at); });
+    m.confirmed.forEach(function (c) { watch.seen.set(c.tx.txid, p.at); });
+    drawHead(); redraw(); watchBanner();
+  }
+  function wireWatch() {
+    $('watchEvery').value = String(watchPrefs.every); $('watchAmounts').checked = watchPrefs.amounts;
+    $('watchOn').addEventListener('change', onWatchToggle);
+    $('watchEvery').addEventListener('change', function () { watchPrefs.every = WT.cleanMinutes($('watchEvery').value); saveWatchPrefs(); if (watch.on && !watch.checking) watchSchedule(); });
+    $('watchAmounts').addEventListener('change', function () { watchPrefs.amounts = $('watchAmounts').checked; saveWatchPrefs(); });
+    $('watchShow').addEventListener('click', watchShow);
+    document.addEventListener('visibilitychange', function () { if (watch.on && !document.hidden && !watch.checking && watch.nextAt && Date.now() >= watch.nextAt) watchCheck(); });   // a tab that slept asks as soon as it wakes
+  }
+
   // ---- export: the transactions as CSV, as a workspace file, or as a report ------------------------------------------------------------
   function download(name, text, mime) {
     var blob = new Blob([text], { type: mime }), a = el('a', { href: URL.createObjectURL(blob), download: name });
@@ -1149,7 +1287,7 @@
     $('more').addEventListener('click', more);
     $('loadAll').addEventListener('click', function () { loadAll(); });
     $('allCancel').addEventListener('click', function () { allLoad.cancel = true; $('allText').textContent = 'Stopping after this page…'; });
-    wireFilters(); wireChart(); wireCluster();
+    wireFilters(); wireChart(); wireCluster(); wireWatch();
     $('cpMore').addEventListener('click', function () { state.cpShown += CP_STEP; drawCounterparties(); });
     $('pickShown').addEventListener('click', pickShown);
     $('pickClear').addEventListener('click', function () { state.picked = []; updatePickBar(); });
@@ -1174,7 +1312,7 @@
   }
 
   window.addEventListener('unhandledrejection', function (ev) { showFailure('Something went wrong', ev.reason, null); });
-  window.__wallet = { state: state, known: known, chart: chart, cluster: cl };                                  // read by the end-to-end tests
+  window.__wallet = { state: state, known: known, chart: chart, cluster: cl, watch: watch };                                  // read by the end-to-end tests
   function boot() { init(); window.__booted = true; }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 }());
