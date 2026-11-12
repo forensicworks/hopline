@@ -108,6 +108,8 @@
     this.dirty = true;
     this.dpr = 1;
     this.drag = null;
+    this.touches = new Map();                 // the fingers on the canvas: pointer id -> {x, y} in canvas pixels
+    this.pinch = null;                        // two fingers zooming and panning together: { ids: [first, second], last: {x, y, d} } (their midpoint and the distance between them)
     this.theme = { bg: '#1c141d', text: '#f2f2f2', dim: '#8d7f8d', grid: 'rgba(242,242,242,0.07)', edge: 'rgba(174,231,248,0.42)', accent: '#AEE7F8', select: '#ffffff', known: '#f2c94c' };
 
     canvas.style.touchAction = 'none';
@@ -326,6 +328,12 @@
   };
 
   Renderer.prototype._down = function (e) {
+    if (e.pointerType === 'touch') {                                                   // fingers: the second one starts a pinch, a third does nothing
+      if (e.isPrimary) { this.touches.clear(); this.pinch = null; }                    // the first finger of a new touch: whatever was left from before is over
+      this.touches.set(e.pointerId, this._local(e));
+      if (this.touches.size === 2) { this._startPinch(); return; }
+      if (this.touches.size > 2) return;
+    }
     if (e.button !== 0) return;
     var pt = this._local(e), hnd = this._pickHandle(pt);
     try { this.canvas.setPointerCapture(e.pointerId); } catch (x) { /* synthetic events */ }
@@ -339,7 +347,40 @@
     this.drag = { id: h.node, x0: here ? here.x : null, y0: here ? here.y : null, group: group, edge: h.edge, start: pt, last: pt, moved: false, view0: { x: this.view.x, y: this.view.y }, shift: e.shiftKey || e.ctrlKey || e.metaKey, box: !h.node && (e.shiftKey || this.boxMode) };
   };
 
+  /**
+   * A second finger came down. What the first one had begun is closed: a vertex it was carrying stays where it is, a tap or a box is dropped (so lifting the fingers
+   * selects nothing). From now on the two fingers zoom and pan together: the point of the graph between them stays between them.
+   */
+  Renderer.prototype._startPinch = function () {
+    var d = this.drag; this.drag = null; this.box = null;
+    if (d && d.moved && d.id && !d.box && this.cb.onMove) {
+      var self = this, ids = [d.id].concat((d.group || []).map(function (g) { return g.id; }));
+      ids.forEach(function (id) { var p = self.cur.get(id); if (p) self.cb.onMove(id, { x: p.x, y: p.y }); });
+    }
+    var two = Array.from(this.touches.keys()).slice(0, 2);
+    this.pinch = { ids: two, last: this._fingers(two) };
+    this._setHover(null, null, null); this.autoFit = false; this.dirty = true;
+  };
+  /** The midpoint of two fingers and the distance between them (never less than 1 px, so a ratio can be taken). */
+  Renderer.prototype._fingers = function (ids) {
+    var a = this.touches.get(ids[0]), b = this.touches.get(ids[1]);
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)) };
+  };
+  /** The fingers moved: zoom by the change of distance about where their midpoint was, then move the view by the change of the midpoint. */
+  Renderer.prototype._pinchMove = function () {
+    var p = this.pinch;
+    if (!this.touches.has(p.ids[0]) || !this.touches.has(p.ids[1])) return;
+    var s = this._fingers(p.ids), l = p.last;
+    this.zoomBy(s.d / l.d, l.x, l.y);
+    this.view.x += s.x - l.x; this.view.y += s.y - l.y;
+    p.last = s; this.dirty = true;
+  };
+
   Renderer.prototype._move = function (e) {
+    if (e.pointerType === 'touch') {
+      if (this.touches.has(e.pointerId)) this.touches.set(e.pointerId, this._local(e));
+      if (this.pinch) { this._pinchMove(); return; }
+    }
     var pt = this._local(e), d = this.drag;
     if (!d) {
       var onAxis = !!(this.data && this.data.axis && pt.y <= AXIS_H + 2);                // the time axis: it answers "what time is this?"
@@ -378,6 +419,13 @@
   };
 
   Renderer.prototype._up = function (e, cancelled) {
+    if (e.pointerType === 'touch') {
+      this.touches.delete(e.pointerId);
+      if (this.pinch) {                                                                  // a finger of the pair left: the one that stays neither pans nor selects until it is lifted too
+        if (this.pinch.ids.indexOf(e.pointerId) >= 0) this.pinch = null;
+        return;
+      }
+    }
     var d = this.drag; this.drag = null;
     if (!d) return;
     try { this.canvas.releasePointerCapture(e.pointerId); } catch (x) { /* ignore */ }
