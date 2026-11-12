@@ -9,7 +9,9 @@
  *
  *   summary(graph, analysis, opts)        the evidence summary: { format: 'hopline-evidence-summary', version: 1, ... }
  *   focus(graph, analysis, ref, opts)     the facts about one transaction, wallet, peel chain or cluster
- *   prompt(summary, task, opts)           { system, user, text, tokens, shown } for 'triage' | 'narrative' | 'explain' | 'challenge'
+ *   questionRefs(question)                what a question names that the workspace may hold: transaction ids, addresses, peel chains (P-65a1), clusters (C3)
+ *   focusMany(graph, analysis, refs, o)   the facts about each of those that is in the workspace (at most FOCUS_MAX), for the 'ask' task
+ *   prompt(summary, task, opts)           { system, user, text, tokens, shown } for 'triage' | 'narrative' | 'explain' | 'challenge' | 'ask' (opts.question)
  *   idSets(summary, graph)                every transaction id and address the evidence (and the workspace) contains
  *   checkCitations(answer, sets)          which ids an answer cites, which of them are not in the evidence, which paragraphs cite nothing
  *   localEndpoint(url)                    accepts only an address on this machine; returns { ok, base } or { ok: false, error }
@@ -28,8 +30,9 @@
 
   var FORMAT = 'hopline-evidence-summary', VERSION = 1;
   var MAX_TEXT = 200;
+  var MAX_QUESTION = 1000, FOCUS_MAX = 6;                                  // a question's length, and how many items are described in full for it
   var CAPS = { detections: 400, chains: 100, clusters: 60, clusterAddrs: 25, clusterTxs: 25, change: 200, wallets: 200, handoffs: 40, endRows: 20 };
-  var TASKS = { triage: 1, narrative: 1, explain: 1, challenge: 1 };
+  var TASKS = { triage: 1, narrative: 1, explain: 1, challenge: 1, ask: 1 };
 
   var LEGEND = {
     peel: 'A run of transactions that each pay a smaller amount out of a single coin and pass the rest on. Ordinary wallets paying out of one coin look the same.',
@@ -203,6 +206,39 @@
     return null;
   }
 
+  // ---- a question put to the model ----------------------------------------------------------------------
+  /** The investigator's own words, made safe to put in a prompt: one line, no control characters or delimiters, cut to MAX_QUESTION characters. */
+  function cleanQuestion(q) { return plainText(q, MAX_QUESTION); }
+
+  /**
+   * What a question names that the workspace may hold: transaction ids (lower case), addresses, peel chains ("P-65a1") and clusters ("C3"), once each, in the order they are
+   * written. Whether the workspace holds them is for focus() to say.
+   */
+  function questionRefs(question) {
+    var s = String(question == null ? '' : question), found = [], seen = {};
+    [[/(?:^|[^0-9a-fA-F])([0-9a-fA-F]{64})(?![0-9a-fA-F])/g, function (x) { return x.toLowerCase(); }],
+     [/(?:^|[^0-9A-Za-z])((?:bc1|BC1)[0-9a-zA-Z]{11,87}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})(?![0-9A-Za-z])/g, null],
+     [/(?:^|[^0-9A-Za-z-])(P-[0-9a-f]{3,16})(?![0-9A-Za-z-])/g, null],
+     [/(?:^|[^0-9A-Za-z])(C[0-9]{1,4})(?![0-9A-Za-z])/g, null]].forEach(function (pair) {
+      var re = pair[0], m;
+      while ((m = re.exec(s))) found.push({ at: m.index + m[0].indexOf(m[1]), ref: pair[1] ? pair[1](m[1]) : m[1] });
+    });
+    found.sort(function (a, b) { return a.at - b.at; });
+    return found.map(function (f) { return f.ref; }).filter(function (r) { if (seen[r]) return false; seen[r] = 1; return true; });
+  }
+
+  /** The facts (focus()) about each of `refs` that is in the workspace, once each, the first FOCUS_MAX of them. Empty when none is. */
+  function focusMany(graph, an, refs, opts) {
+    var out = [], seen = {};
+    (refs || []).forEach(function (ref) {
+      if (out.length >= FOCUS_MAX) return;
+      var f = focus(graph, an, ref, opts), key = f && f.type + ':' + f.id;
+      if (!f || seen[key]) return;
+      seen[key] = 1; out.push(f);
+    });
+    return out;
+  }
+
   // ---- ids ------------------------------------------------------------------------------------------
   function addAll(set, list) { list.forEach(function (x) { if (x) set.add(x); }); }
   /**
@@ -304,7 +340,11 @@
     triage: 'TASK: Triage. Put the findings in the order an investigator should look at them: "look first", "look next" and "probably ordinary". For each item give one or two sentences of why, citing the transaction ids. Say what you would check first and what in the evidence is thin.',
     narrative: 'TASK: Draft the "Key findings" section of an investigation report. Short paragraphs in plain language, each fact followed by the id it comes from. Use cautious wording ("is consistent with", "may"). Finish with a short list of what the evidence does not show.',
     explain: 'TASK: Explain the FOCUS item below in plain language for someone who is not an analyst: what it is, what the evidence shows about it, what it does not show, and what to check next. Cite ids. For a transaction, begin with a list of every input and every output (address and amount), in the order the evidence gives them.',
-    challenge: 'TASK: Challenge the findings. For each main finding say what in the evidence argues against it or weakens it (a shape ordinary wallets also produce, a change guess with low confidence, a CoinJoin-like link, an unloaded transaction ...) and what extra data would settle it. Cite ids.'
+    challenge: 'TASK: Challenge the findings. For each main finding say what in the evidence argues against it or weakens it (a shape ordinary wallets also produce, a change guess with low confidence, a CoinJoin-like link, an unloaded transaction ...) and what extra data would settle it. Cite ids.',
+    ask: 'TASK: Answer the investigator\'s QUESTION below, using only the EVIDENCE. Put the answer first, then the facts behind it, each followed by the full id it comes from. '
+      + 'FOCUS lists the transactions, wallets, peel chains or clusters the question is about, in full; the rest of the evidence is an overview that is cut down for size. '
+      + 'If the evidence cannot answer the question, say what is missing and which transactions or wallets would have to be loaded to answer it. '
+      + 'Stay with the question: do not add findings it did not ask about.'
   };
 
   /** The trail cut down for a prompt: the first hand-offs and the first few open ends of each side. */
@@ -346,19 +386,23 @@
   }
 
   /**
-   * summary: from summary(). task: 'triage' | 'narrative' | 'explain' | 'challenge'. opts: { maxRows (pattern rows, default 60), focus (from focus()) }.
+   * summary: from summary(). task: 'triage' | 'narrative' | 'explain' | 'challenge' | 'ask'. opts: { maxRows (pattern rows, default 60), focus (from focus(); for 'ask' a list from
+   * focusMany()), question (the investigator's words, required for 'ask') }.
    * Returns { system, user, text, tokens, shown: { patterns, peelChains, ... } } where `text` is system and user together (what you paste into an assistant) and `tokens` a rough size.
    */
   function prompt(sum, task, opts) {
     opts = opts || {};
-    if (!TASKS[task]) throw new Error('Unknown task "' + task + '" (use triage, narrative, explain or challenge).');
+    if (!TASKS[task]) throw new Error('Unknown task "' + task + '" (use triage, narrative, explain, challenge or ask).');
     if (task === 'explain' && !opts.focus) throw new Error('"explain" needs a focus: a transaction, wallet, peel chain or cluster.');
+    var question = '';
+    if (task === 'ask') { question = cleanQuestion(opts.question); if (!question) throw new Error('"ask" needs a question.'); }
     var ev = compact(sum, opts);
-    if (opts.focus) ev.focus = opts.focus;
-    var user = TASK_TEXT[task] + '\n\n<<EVIDENCE (JSON)\n' + JSON.stringify(ev) + '\nEVIDENCE>>';
+    if (opts.focus && !(Array.isArray(opts.focus) && !opts.focus.length)) ev.focus = opts.focus;
+    var user = TASK_TEXT[task] + (question ? '\n\n<<QUESTION\n' + question + '\nQUESTION>>' : '') + '\n\n<<EVIDENCE (JSON)\n' + JSON.stringify(ev) + '\nEVIDENCE>>';
     var text = SYSTEM + '\n\n' + user;
-    return { system: SYSTEM, user: user, text: text, task: task, tokens: Math.ceil(text.length / 3.2),
-             shown: { patterns: ev.patterns.length, peelChains: ev.peelChains.length, clusters: ev.clusters.length, likelyChange: ev.likelyChange.length, wallets: ev.wallets.length } };
+    var shown = { patterns: ev.patterns.length, peelChains: ev.peelChains.length, clusters: ev.clusters.length, likelyChange: ev.likelyChange.length, wallets: ev.wallets.length };
+    if (task === 'ask') shown.focus = !ev.focus ? 0 : Array.isArray(ev.focus) ? ev.focus.length : 1;
+    return { system: SYSTEM, user: user, text: text, task: task, question: question, tokens: Math.ceil(text.length / 3.2), shown: shown };
   }
 
   // ---- a model on this machine ----------------------------------------------------------------------------------
@@ -504,6 +548,7 @@
   }
 
   return { FORMAT: FORMAT, VERSION: VERSION, TASKS: Object.keys(TASKS), summary: summary, focus: focus, prompt: prompt, idSets: idSets, checkCitations: checkCitations,
+           cleanQuestion: cleanQuestion, questionRefs: questionRefs, focusMany: focusMany, MAX_QUESTION: MAX_QUESTION, FOCUS_MAX: FOCUS_MAX,
            localEndpoint: localEndpoint, chatRequest: chatRequest, parseChat: parseChat, chatFinish: chatFinish, CUT_OFF: CUT_OFF, plainText: plainText,
            CLAUDE: CLAUDE, cleanClaudeKey: cleanClaudeKey, cleanClaudeModel: cleanClaudeModel, claudeRequest: claudeRequest, claudeModelsRequest: claudeModelsRequest,
            parseClaude: parseClaude, claudeFinish: claudeFinish, parseClaudeModels: parseClaudeModels, claudeError: claudeError };

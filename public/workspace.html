@@ -248,7 +248,14 @@ window.addEventListener('error', function (e) {
           <option value="narrative">A draft of the findings text</option>
           <option value="explain">An explanation of the selected vertex</option>
           <option value="challenge">A challenge: what weakens the findings</option>
+          <option value="ask">Your own question</option>
         </select>
+        <div id="aiAskBox" hidden>
+          <label for="aiQuestion">Your question <output id="aiQuestionCount"></output></label>
+          <textarea id="aiQuestion" rows="3" maxlength="1000" spellcheck="true" placeholder="For example: where did the money in the selected transaction go next?"></textarea>
+          <div id="aiSuggest" class="suggest" role="group" aria-label="Suggested questions"></div>
+          <p class="hint">The first three selected transactions or wallets, and any transaction id, address, peel chain (P-…) or cluster (C…) named in the question, are given to the model in full. The rest is the usual cut-down evidence, so it can only answer from what is loaded. Ctrl+Enter asks the local model. The question is not saved with the workspace.</p>
+        </div>
         <label for="aiRows">Pattern rows to include <output id="aiRowsOut"></output></label>
         <input type="number" id="aiRows" min="5" max="400" step="5" value="60">
         <div class="row wrap">
@@ -295,6 +302,10 @@ window.addEventListener('error', function (e) {
         <textarea id="aiText" rows="8" spellcheck="false" placeholder="The model's answer appears here. Or paste the answer of any assistant and press Check ids."></textarea>
         <div class="row wrap"><button type="button" id="aiCheck" title="Compare every transaction id and address in the answer with the evidence">Check ids</button><button type="button" id="aiCopyAnswer">Copy answer</button></div>
         <div id="aiResult" class="findings" aria-live="polite"></div>
+        <div id="aiHistory" hidden>
+          <span class="lbl">Earlier questions (kept only until this page is closed)</span>
+          <div id="aiHistoryList" class="linkrows"></div>
+        </div>
       </div>
     </details>
 

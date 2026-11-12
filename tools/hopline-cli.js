@@ -9,7 +9,7 @@
  *   node tools/hopline-cli.js trace      workspace.json [--ref R]          how far the trail from the reference got: hand-offs and open ends
  *   node tools/hopline-cli.js handoffs   workspace.json [--ref R] [--csv]  where the trails meet a service wallet, as JSON or CSV (from every starting point, or from R)
  *   node tools/hopline-cli.js route      workspace.json --from A --to B    the route the money took from one wallet or transaction to another (exit code 1 if none)
- *   node tools/hopline-cli.js prompt     workspace.json --task triage|narrative|explain|challenge [--focus <ref>] [--max-rows 60] [--json]
+ *   node tools/hopline-cli.js prompt     workspace.json --task triage|narrative|explain|challenge|ask [--focus <ref>] [--question "..."] [--max-rows 60] [--json]
  *   node tools/hopline-cli.js check      workspace.json answer.txt         which ids an answer cites that are not in the evidence (exit code 1 if any)
  *
  * workspace.json is a file made by Export > JSON in the workspace (use - to read it from standard input; for check, answer.txt can be - too).
@@ -35,8 +35,8 @@ function usage() {
     '  detections <workspace.json> [--kind K] [--chain L]  every pattern found, oldest first (K: peel, consolidation, batch, coinjoin, round, swap)',
     '  chains     <workspace.json>                       every possible peel chain with its steps and payments',
     '  focus      <workspace.json> <ref>                 one transaction id, address, peel chain name (P-65a1) or cluster name (C3)',
-    '  prompt     <workspace.json> --task T [--focus ref] [--max-rows N] [--json]',
-    '                                                     the text to give an assistant (T: triage, narrative, explain, challenge)',
+    '  prompt     <workspace.json> --task T [--focus ref] [--question Q] [--max-rows N] [--json]',
+    '                                                     the text to give an assistant (T: triage, narrative, explain, challenge, ask; ask needs --question)',
     '  check      <workspace.json> <answer.txt>          the ids an answer cites, and which are not in the evidence (exit code 1 if any)',
     '  trace      <workspace.json> [--ref R]             how far the trail from the reference got: service hand-offs and where it is still open',
     '  handoffs   <workspace.json> [--ref R] [--csv]     where the trail meets a service wallet or a wallet a sanctions or ransomware list names, as JSON or CSV',
@@ -49,7 +49,7 @@ function usage() {
 }
 
 function parseArgs(argv) {
-  var out = { _: [], flags: {} }, valued = { '--kind': 1, '--chain': 1, '--task': 1, '--focus': 1, '--max-rows': 1, '--known': 1, '--packs': 1, '--with': 1, '--generated': 1, '--ref': 1, '--from': 1, '--to': 1 };
+  var out = { _: [], flags: {} }, valued = { '--kind': 1, '--chain': 1, '--task': 1, '--focus': 1, '--question': 1, '--max-rows': 1, '--known': 1, '--packs': 1, '--with': 1, '--generated': 1, '--ref': 1, '--from': 1, '--to': 1 };
   for (var i = 0; i < argv.length; i++) {
     var a = argv[i];
     if (a === '-' || a.slice(0, 2) !== '--') { out._.push(a); continue; }
@@ -175,13 +175,18 @@ function main(argv) {
   }
   if (cmd === 'prompt') {
     ctx = load(args);
-    var task = args.flags.task; if (!task) fail('Say what the assistant should do: --task triage, narrative, explain or challenge.');
+    var task = args.flags.task; if (!task) fail('Say what the assistant should do: --task triage, narrative, explain, challenge or ask.');
     var focus = null;
     if (args.flags.focus) { focus = AS.focus(ctx.graph, ctx.an, args.flags.focus, { known: ctx.known }); if (!focus) fail('"' + args.flags.focus + '" is not in the workspace.'); }
+    if (task === 'ask') {                                                          // the --focus item first, then whatever the question names that the workspace holds
+      var asked = typeof args.flags.question === 'string' ? args.flags.question : '';
+      if (!asked.trim()) fail('The ask task needs a question: --question "where did the money go?".');
+      focus = AS.focusMany(ctx.graph, ctx.an, (args.flags.focus ? [args.flags.focus] : []).concat(AS.questionRefs(asked)), { known: ctx.known });
+    }
     var rowsMax = args.flags['max-rows'] == null ? 60 : parseInt(args.flags['max-rows'], 10);
     if (!(rowsMax >= 1 && rowsMax <= 1000)) fail('--max-rows is a number from 1 to 1000.');
     var p;
-    try { p = AS.prompt(summaryOf(args, ctx), task, { maxRows: rowsMax, focus: focus }); } catch (e) { fail(e.message); }
+    try { p = AS.prompt(summaryOf(args, ctx), task, { maxRows: rowsMax, focus: focus, question: args.flags.question }); } catch (e) { fail(e.message); }
     if (args.flags.json) print(args, { task: p.task, system: p.system, user: p.user, tokens: p.tokens, shown: p.shown });
     else process.stdout.write(p.text + '\n');
     return 0;
