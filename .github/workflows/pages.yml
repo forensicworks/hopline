@@ -35,9 +35,10 @@ jobs:
       - name: Build the site folder (on this host it lives under /<repository name>/)
         env:
           REPO_NAME: ${{ github.event.repository.name }}
+          OWNER: ${{ github.repository_owner }}
         run: |
           CODE_VERSION="$(python3 tools/code_version.py)"
-          python3 tools/build_site.py --out site --base-path "/${REPO_NAME}/" --version "${GITHUB_SHA::7}" --code-version "${CODE_VERSION%% *}" --code-date "${CODE_VERSION##* }"
+          python3 tools/build_site.py --out site --base-path "/${REPO_NAME}/" --version "${GITHUB_SHA::7}" --code-version "${CODE_VERSION%% *}" --code-date "${CODE_VERSION##* }" --site-url "https://${OWNER,,}.github.io/${REPO_NAME}"
 
       - name: Package it for Pages
         uses: actions/upload-pages-artifact@v5

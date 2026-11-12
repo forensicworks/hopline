@@ -123,6 +123,36 @@ def test_the_version_file_is_never_cached_where_the_host_reads_headers(tmp_path)
     assert lines[i + 1] == "  Cache-Control: no-store", lines
 
 
+def test_the_share_image_gets_an_absolute_address_only_when_the_address_of_the_site_is_given(tmp_path):
+    plain = tmp_path / "plain"
+    build_site.build(str(plain))
+    assert 'content="public/share.png"' in text(plain / "index.html"), "the open edition keeps it relative"
+    source = text(ROOT / "index.html")
+    for given, root in (("https://hopline.pages.dev", "https://hopline.pages.dev/"), ("https://hopline.pages.dev/", "https://hopline.pages.dev/"),
+                        ("https://owner.github.io/hopline", "https://owner.github.io/hopline/"), ("https://owner.github.io/hopline/", "https://owner.github.io/hopline/")):
+        out = tmp_path / ("s" + str(abs(hash(given))))
+        build_site.build(str(out), site_url=given)
+        html = text(out / "index.html")
+        assert '<meta property="og:image" content="%spublic/share.png"' % root in html, given
+        assert html == source.replace('content="public/share.png"', 'content="%spublic/share.png"' % root), "nothing else in the page changes"
+        for rel in ("public/wallet.html", "public/workspace.html"):
+            assert (out / rel).read_bytes() == (ROOT / rel).read_bytes(), rel
+
+
+@pytest.mark.parametrize("bad", ["http://hopline.pages.dev", "hopline.pages.dev", "https://x.example/?a=1", "https://x.example/#a", "https://user@x.example", "https://x.example/a b",
+                                 "https://x.example/../y", "https://x.example/./y", "https://x.example/\"q", "ftp://x.example", "https://"])
+def test_a_site_address_that_is_not_a_plain_https_address_is_refused(tmp_path, bad):
+    with pytest.raises(SystemExit, match="--site-url"):
+        build_site.build(str(tmp_path / "site"), site_url=bad)
+
+
+def test_both_deploys_tell_the_build_where_the_site_lives():
+    deploy = text(ROOT / ".github" / "workflows" / "deploy.yml")
+    pages = text(ROOT / ".github" / "workflows" / "pages.yml")
+    assert '--site-url "https://${PAGES_PROJECT}.pages.dev"' in deploy and "PAGES_PROJECT: hopline" in deploy
+    assert '--site-url "https://${OWNER,,}.github.io/${REPO_NAME}"' in pages and "OWNER: ${{ github.repository_owner }}" in pages
+
+
 def test_the_headers_file_asks_for_no_referrer_no_sniffing_and_no_framing(tmp_path):
     out = tmp_path / "site"
     build_site.build(str(out))
