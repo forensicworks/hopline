@@ -9,7 +9,6 @@
 # Needs (Settings > Secrets and variables > Actions):
 #   secret   CLOUDFLARE_API_TOKEN   a Custom Token with Account > Cloudflare Pages > Edit, limited to your account
 #   secret   CLOUDFLARE_ACCOUNT_ID  the account id shown in the Cloudflare dashboard
-#   variable GOATCOUNTER_CODE       optional: your GoatCounter site code; left empty, visits are not counted
 #   variable PAGES_BRANCH           optional: the Pages project's production branch, if it is not master
 name: Deploy site
 
@@ -46,11 +45,9 @@ jobs:
         run: python3 -m pip install --quiet pytest && python3 -m pytest test/tools -q
 
       - name: Build the site folder
-        env:
-          GOATCOUNTER_CODE: ${{ vars.GOATCOUNTER_CODE }}
         run: |
           CODE_VERSION="$(python3 tools/code_version.py)"
-          python3 tools/build_site.py --out site --stats-code "$GOATCOUNTER_CODE" --version "${GITHUB_SHA::7}" --code-version "${CODE_VERSION%% *}" --code-date "${CODE_VERSION##* }" --site-url "https://${PAGES_PROJECT}.pages.dev"
+          python3 tools/build_site.py --out site --version "${GITHUB_SHA::7}" --code-version "${CODE_VERSION%% *}" --code-date "${CODE_VERSION##* }" --site-url "https://${PAGES_PROJECT}.pages.dev"
 
       - name: Upload to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4

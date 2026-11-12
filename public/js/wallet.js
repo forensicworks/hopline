@@ -1265,7 +1265,6 @@
     function run() {
       var only = $('exportShown').checked, rows = only ? visibleRows() : state.led.rows;
       if (!rows.length) { message('No loaded transaction is shown, so there is nothing to export. Clear the search and limits, or untick "Only the transactions shown".', true); return; }
-      if (window.HoplineStats) window.HoplineStats.hit('wallet-' + kind);
       if (kind === 'csv') exportCsv(rows); else if (kind === 'json') exportJson(rows); else exportReport(rows, only);
     }
     if ($('exportAll').checked && !state.done) loadAll(run); else run();
@@ -1297,11 +1296,7 @@
     var addr = $('addr');
     addr.addEventListener('mouseenter', showQR); addr.addEventListener('mouseleave', hideQR); addr.addEventListener('focus', showQR); addr.addEventListener('blur', hideQR);
     var q = qs.get('q');
-    $('sample').addEventListener('click', function () {
-      var stats = window.HoplineStats, go = function () { window.location.href = walletHref(SAMPLE); };
-      if (stats && stats.enabled) { stats.hit('sample-wallet'); setTimeout(go, 150); }                 // a page that is left at once may cancel the count that was just sent
-      else go();
-    });
+    $('sample').addEventListener('click', function () { window.location.href = walletHref(SAMPLE); });
     if (!q) { $('empty').hidden = false; return; }
     $('q').value = q;
     var c = A.checkQuery(q);

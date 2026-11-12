@@ -434,7 +434,6 @@ window.addEventListener('error', function (e) {
       <div class="sec">
         <label class="check"><input type="checkbox" id="persist" checked> Keep this session in this browser</label>
         <p class="hint">Saves the graph with your labels and notes in the browser's local storage, unencrypted, so a reload does not lose work. Untick it on a shared machine; unticking deletes what was saved. Export is always explicit.</p>
-        <p class="hint" data-counter hidden>This site counts visits: which page is opened and which features are used, by name only. Addresses, transaction IDs, labels and notes are never part of it, no cookies are set, and a browser that sends Do Not Track is not counted.</p>
       </div>
     </details>
 
@@ -583,7 +582,6 @@ window.addEventListener('error', function (e) {
 
 <details id="log"><summary>Activity log <span id="logCount"></span></summary><ul id="logList"></ul></details>
 <span class="ver ver-fixed" data-version hidden></span>
-<footer class="counterbar" role="note" data-counter hidden><b>Visit counter.</b> This site counts visits with <a href="https://www.goatcounter.com" target="_blank" rel="noopener noreferrer">GoatCounter</a>: page and feature names only, never addresses, IDs, labels or notes. No cookies, and Do Not Track is respected. <a href="https://github.com/forensicworks/hopline/wiki/Publishing-a-copy" target="_blank" rel="noopener noreferrer">How it works</a></footer>
 
 <script src="config.js"></script>
 <script src="js/hopline-address.js"></script>
@@ -613,7 +611,6 @@ window.addEventListener('error', function (e) {
 <script src="js/hopline-nav.js"></script>
 <script src="js/hopline-share.js"></script>
 <script src="data/known-addresses.js"></script>
-<script src="js/hopline-stats.js"></script>
 <script src="js/hopline-version.js"></script>
 <script src="js/workspace.js"></script>
 </body>

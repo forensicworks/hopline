@@ -14,7 +14,6 @@
   var SAVE_KEY = 'hopline.workspace.v1', PREF_KEY = 'hopline.prefs.v1', TOKEN_KEY = 'hopline.ext.token', PACKS_KEY = 'hopline.packs.v1', KEYS_KEY = 'hopline.keys.v1', CLAUDE_KEY = 'hopline.claude.key';
   var ARRANGE = { columns: 1, flow: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 }, DEFAULT_ARRANGE = 'columns';
   var HOSTED = !!(window.HOPLINE_CONFIG && window.HOPLINE_CONFIG.hosted);                 // a published copy: see public/config.js
-  function stat(name) { if (window.HoplineStats) window.HoplineStats.hit(name); }          // counts that a feature was used, by name only (public/js/hopline-stats.js)
   var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SIZES = { auto: 1, area: 1, log: 1 }, SCALES = { compact: 1, proportional: 1 };
 
   function $(id) { return document.getElementById(id); }
@@ -523,7 +522,6 @@
   /** Begin again from one vertex: only it is shown. */
   function traceStart(id) {
     var T = state.trace;
-    stat('trace-start');
     T.seed = id; T.seeds = [id]; T.shown = new Set([id]); T.pos = new Map([[id, { x: 0, y: 0 }]]); T.prov = new Map(); T.undo = []; T.redo = []; T.groups = new Map(); T.seq = 0;
     state.keep.add(id);
   }
@@ -2753,7 +2751,7 @@
   /** The button: tag every wallet here that a list names a kind of service for and that has no tag yet (the ones that were here before, or from a list switched on since). */
   function tagKnownNow() {
     var r = tagFromLists(Array.from(state.graph.nodes.values()));
-    if (r.count) { stat('tag-known'); showInspector(); refresh(); scheduleSave(); }
+    if (r.count) { showInspector(); refresh(); scheduleSave(); }
     toast(r.count ? 'Tagged ' + tagsText(r) + '. Change or remove a tag like any other.' : 'No wallet here without a tag is on a list that names a kind of service.');
   }
 
@@ -3617,7 +3615,7 @@
     var replaced = state.packs.filter(function (p) { return p.name === r.name; }).length;
     state.packs = state.packs.filter(function (p) { return p.name !== r.name; }).slice(0, 19);
     var pack = { id: 'p' + Date.now().toString(36), name: r.name, source: r.source, enabled: true, sanctions: r.sanctions === true, licence: r.licence, attribution: r.attribution, asOf: r.asOf, sourceUrl: r.sourceUrl, entries: r.entries, stored: true, index: new Set(r.entries.map(function (e) { return e.address; })) };
-    state.packs.push(pack); stat('labels-imported');
+    state.packs.push(pack);
     rebuildKnown(); savePacks(); renderPacks(); refresh(); showInspector(true);
     var s = r.skipped, left = [];
     if (s.invalid) left.push(s.invalid + ' failed the address checksum');
@@ -3956,7 +3954,6 @@
       toast('No route from ' + routeName(fromId) + ' to ' + routeName(toId) + ' in what is loaded. Open ends (Findings) show where the trail could go on.', true);
       return false;
     }
-    stat('route-show');
     state.chainFocus = null; state.routeFocus = { route: r, alts: null, at: ++routeSeq };
     var added = traceOn() ? traceRevealRoutes([r]) : 0;
     applyChain(); findingsFor = null; updateFindings(); openFindings('route');
@@ -4066,7 +4063,6 @@
     var rf = routeLit(), d = routeData();
     if (!rf || !d.idx) return;
     var many = RT.findMany(d.idx, rf.route.from, rf.route.to, { hub: routeHub, count: 5 });
-    stat('route-more');
     rf.alts = { routes: many.routes, more: many.more, sig: state.anSig }; rf.at = ++routeSeq;
     findingsFor = null; updateFindings(); openFindings('routes');
     toast(many.routes.length > 1 ? plural(many.routes.length, 'route') + ' between ' + routeName(rf.route.from) + ' and ' + routeName(rf.route.to) + (many.more ? ', and more exist' : '') + '. Click one in the Findings to light it.'
@@ -4077,7 +4073,6 @@
   function lightRoute(r) {
     var rf = routeLit();
     if (!rf) return;
-    stat('route-switch');
     state.routeFocus = { route: r, alts: rf.alts, at: ++routeSeq };
     var added = traceOn() ? traceRevealRoutes([r]) : 0;
     applyChain(); findingsFor = null; updateFindings(); openFindings('routes');
@@ -4143,7 +4138,7 @@
     if (rows.length > 12) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (rows.length - 12) + ' more in the copy and the CSV' }));
     box.appendChild(el('div', { 'class': 'insp-actions' }, [
       el('button', { type: 'button', text: 'Copy table', onclick: function () { copy(handoffText(rows), 'the hand-off table'); } }),
-      el('button', { type: 'button', text: 'Download CSV', onclick: function () { stat('handoffs-csv'); download('hopline-handoffs-' + new Date().toISOString().slice(0, 10) + '.csv', '﻿' + IO.handoffsCsv(rows, { sources: exportSources() }), 'text/csv;charset=utf-8'); } })]));
+      el('button', { type: 'button', text: 'Download CSV', onclick: function () { download('hopline-handoffs-' + new Date().toISOString().slice(0, 10) + '.csv', '﻿' + IO.handoffsCsv(rows, { sources: exportSources() }), 'text/csv;charset=utf-8'); } })]));
     box.appendChild(el('p', { 'class': 'hint', text: 'The wallet just before a deposit (or just after a withdrawal) is a candidate for the customer\'s or the service\'s deposit address. A request to the service names the transaction, the time and the amount. The name is a list\'s claim, and only the loaded transactions are followed.' }));
   }
 
@@ -4190,7 +4185,6 @@
   function applySuggestion(s) {
     var g = state.graph, todo = suggestTodo(s), via = s.from[0] ? g.nodes.get(s.from[0]) : null, tx = s.txids[0] || '', label = LB.cleanText(s.name.slice(0, 120 - CO_SPEND.length) + CO_SPEND, 120), before = [];
     if (!todo.length) { toast('Nothing to name: they all have a label already.'); return; }
-    stat('name-suggest');
     todo.forEach(function (id) {
       var n = g.nodes.get(id);
       before.push([id, n.label || '', n.note || '']);
@@ -4231,7 +4225,6 @@
   /** Load from both ends until a route from one vertex to another appears or a limit is reached; the limits of Auto-expand apply. */
   function searchRoute(fromId, toId) {
     var o = Object.assign({}, state.auto), info = null;
-    stat('route-search');
     return run('Search for a route', function () {
       return RT.connect(state.explorer, state.graph, fromId, toId, { hub: routeHub, stop: stopName, sopts: successorOpts(o), rounds: 8, width: 8, maxTx: o.maxTx,
         progress: function (n) { showProgress('Search for a route: round ' + n); } }).then(function (r) {
@@ -4387,7 +4380,6 @@
     od.ends.forEach(function (e) { if (e.next && !seen[e.next]) { seen[e.next] = true; starts.push(e.next); } });
     if (!starts.length || !d.ref) { toast('Nothing to continue from.'); return Promise.resolve(false); }
     var stepsFor = RT.endsSuccessors(g, od.ends, dir, sopts);
-    stat('open-ends');
     var walk = null, routes = [];
     if (traceOn()) {
       od.ends.forEach(function (e) {
@@ -5101,7 +5093,6 @@
     if (!n || (n.type !== 'tx' && n.type !== 'addr')) { toast('Select a transaction or a wallet to expand from.'); return Promise.resolve(false); }
     if (traceOn() && !state.trace.shown.has(id)) { toast('That vertex is not on screen: show it first.'); return Promise.resolve(false); }
     var dir = o.dir === 'prev' ? 'prev' : 'next', sopts = successorOpts(o), walk = null;
-    stat('auto-follow');
     var title = 'Auto-expand ' + (dir === 'next' ? 'forward' : 'backward') + ' from ' + S.shortId(n.type === 'tx' ? n.txid : n.address, 6);
     return run(title, function () {
       var ex = state.explorer, total = { added: 0, addedEdges: 0, requests: 0, truncated: false, errors: [] };
@@ -5673,7 +5664,7 @@
                   known: function (a) { return KNOWN[a] || null; }, packs: reportPacks(), fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {
-      download('hopline-report-' + stamp() + '.html', r.html, 'text/html;charset=utf-8'); stat('report');
+      download('hopline-report-' + stamp() + '.html', r.html, 'text/html;charset=utf-8');
       toast('Report written: ' + plural(loadedTx, 'transaction') + ', ' + plural(base.edges.length, 'movement') + '. SHA-256 of its evidence: ' + r.hash.slice(0, 16) + '…', false);
       log('Report SHA-256 ' + r.hash);
       return true;
@@ -5702,7 +5693,7 @@
     if (kind === 'report') { $('exportMenu').open = false; doReport(); return; }
     if (kind === 'idlink') { doShareIds(); return; }
     if (kind === 'link') { doShare(); return; }                              // the menu stays open: the link and any warning are shown in it
-    g.refreshDerived(); stat('export-' + kind);
+    g.refreshDerived();
     var only = $('exportVisible').checked ? computeView(state.filter, state.keep, focusOpt(), traceOnly(), hiddenOpt()) : null;
     if (only && kind === 'json' && traceOn()) only = withGroupMembers(only);
     var name = 'hopline-' + stamp();
@@ -5765,7 +5756,6 @@
       if (r.trimmed) warn.push((r.bySize ? 'The link would be too long for chat and mail, so it holds only the ' : 'Over the limit of ' + state.shareMax + ': the link holds only the ') + r.kept + ' vertices nearest START, not all ' + r.total + '. The rest is not in it. '
                                + (r.bySize ? 'Share fewer vertices, or export the workspace (.json) to share everything.' : 'Raise the limit to share more, or export the workspace (.json) to share everything.'));
       warn = warn.concat(shareExtraWarnings(sc.groups));
-      stat('share-link');
       shareFinish(link, warn, r.trimmed ? 'Link copied, but not everything is in it. ' : 'Link copied: ' + plural(r.kept, 'vertex', 'vertices') + ', ' + r.chars.toLocaleString('en-US') + ' characters (labels and tags are in it' + (notes ? ', and your notes' : ', your notes are not') + '). ',
                   'Link made: ' + r.kept + ' of ' + r.total + ' vertices, ' + r.chars + ' characters' + (notes ? ', notes included' : ''));
     }, function (e) { shareSay(e.message, true); toast(e.message, true, null, 12000); });
@@ -5783,14 +5773,13 @@
       if (withLabels && !r.labels) warn.push('None of the vertices in the link has a label or a tag' + (notes ? ' or a note' : '') + ', so none is in it.');
       if (r.trimmed) warn.push('The link would be too long for chat and mail, so it lists only the ' + r.kept + ' transactions nearest START, not all ' + r.total + '. The rest is not in it. Share fewer transactions, or export the workspace (.json) to share everything.');
       warn = warn.concat(shareExtraWarnings(sc.groups));
-      stat('share-ids');
       shareFinish(link, warn, r.trimmed ? 'Link copied, but not every transaction is in it. ' : 'Link copied: ' + plural(r.kept, 'transaction') + ', ' + r.chars.toLocaleString('en-US') + ' characters. Whoever opens it loads them from their own data source (about ' + (2 * r.kept) + ' requests); ' + (r.labels ? plural(r.labels, 'label or tag') + (notes ? ' (and notes)' : '') + ' of yours ' + (r.labels === 1 ? 'is' : 'are') + ' in it' : 'your labels, tags and notes are not in it') + ', ' + (r.trace ? 'and so is the trace with the places of its vertices' : 'and neither is the layout') + '. ',
                   'IDs link made: ' + r.kept + ' of ' + r.total + ' transactions, ' + r.chars + ' characters' + (r.labels ? ', ' + r.labels + ' labels or tags' + (notes ? ' and notes' : '') : '') + (r.trace ? ', with the trace' : ''));
     }, function (e) { shareSay(e.message, true); toast(e.message, true, null, 12000); });
   }
   /** Open the canvas in a share link. It is imported like a workspace file (same checks, merged if something is open, undo offered); the address is cleaned so a reload does not open it again. */
   function openShared(hash) {
-    return SH.decode(hash).then(function (r) { cleanShareAddress(); stat('open-share'); doImport(r.text, { share: r }); }, function (e) { cleanShareAddress(); toast('This link could not be opened: ' + e.message, true, null, 12000); });
+    return SH.decode(hash).then(function (r) { cleanShareAddress(); doImport(r.text, { share: r }); }, function (e) { cleanShareAddress(); toast('This link could not be opened: ' + e.message, true, null, 12000); });
   }
   function cleanShareAddress() { try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the link stays in the address, harmless */ } }
 
@@ -5807,7 +5796,6 @@
       if (todo.length > ASK_OVER && !window.confirm('This link lists ' + todo.length + ' transactions. Opening it asks ' + hostOf(state.client.base) + ' for each of them (about ' + 2 * todo.length + ' requests), so that server learns which transactions you look at.\n\nContinue?')) {
         toast('The link was not opened.'); return null;
       }
-      stat('open-ids-link');
       var wasEmpty = g.nodes.size === 0;
       var cut = r.of && r.of > r.ids.length ? 'The sender cut the list down to the ' + r.ids.length + ' transactions nearest START (they had ' + r.of + '), so this is not the whole picture.' : '';
       var applied = null;
@@ -6121,7 +6109,7 @@
     $('traceReset').addEventListener('click', traceReset);
     wireFullScreen();
     $('cancel').addEventListener('click', function () { state.client.abort(); });
-    $('sample').addEventListener('click', function () { stat('sample'); $('q').value = SAMPLE; openQuery(SAMPLE); });
+    $('sample').addEventListener('click', function () { $('q').value = SAMPLE; openQuery(SAMPLE); });
     $('emptyImport').addEventListener('click', function () { $('fileImport').click(); });
     $('btnImport').addEventListener('click', function () { $('fileImport').click(); });
     $('fileImport').addEventListener('change', function () {

@@ -1,9 +1,7 @@
 # Publishes a second copy of the site on GitHub Pages (https://<owner>.github.io/<repository>/) on every push to master, after the tests pass.
 # It is independent of the Cloudflare deploy in deploy.yml: either can fail without stopping the other.
 #
-# Needs only Settings > Pages > Build and deployment > Source: GitHub Actions. There are no secrets. The visit counter reads the same optional
-# variable as deploy.yml (GOATCOUNTER_CODE, a GoatCounter site code; left empty, visits are not counted), so both copies count into one
-# counter and their numbers add up: GoatCounter keeps no record of the domain a visit came from. GitHub Pages cannot send custom headers, so
+# Needs only Settings > Pages > Build and deployment > Source: GitHub Actions. There are no secrets. GitHub Pages cannot send custom headers, so
 # the _headers file has no effect here; the pages ask for no referrer with a meta tag instead.
 name: Deploy GitHub Pages copy
 
@@ -37,10 +35,9 @@ jobs:
         env:
           REPO_NAME: ${{ github.event.repository.name }}
           OWNER: ${{ github.repository_owner }}
-          GOATCOUNTER_CODE: ${{ vars.GOATCOUNTER_CODE }}
         run: |
           CODE_VERSION="$(python3 tools/code_version.py)"
-          python3 tools/build_site.py --out site --stats-code "$GOATCOUNTER_CODE" --base-path "/${REPO_NAME}/" --version "${GITHUB_SHA::7}" --code-version "${CODE_VERSION%% *}" --code-date "${CODE_VERSION##* }" --site-url "https://${OWNER,,}.github.io/${REPO_NAME}"
+          python3 tools/build_site.py --out site --base-path "/${REPO_NAME}/" --version "${GITHUB_SHA::7}" --code-version "${CODE_VERSION%% *}" --code-date "${CODE_VERSION##* }" --site-url "https://${OWNER,,}.github.io/${REPO_NAME}"
 
       - name: Package it for Pages
         uses: actions/upload-pages-artifact@v5
