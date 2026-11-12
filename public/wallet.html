@@ -7,6 +7,7 @@
 <title>Hopline Wallet</title>
 <link rel="icon" type="image/png" href="logo-96.png">
 <link rel="stylesheet" href="css/wallet.css">
+<link rel="stylesheet" href="css/version.css">
 <script src="js/hopline-noautofill.js"></script>
 <script>
 // If something goes wrong while the page starts, say so on the page instead of leaving it blank. The usual cause is a browser that kept an old copy of one script.
@@ -32,6 +33,8 @@ window.addEventListener('error', function (e) {
   <span class="spacer"></span>
   <a id="toWorkspace" class="btn" href="workspace.html" hidden>Open in workspace &#8599;</a>
 </header>
+
+<div id="newVersion" class="versionbar" data-root="../" role="status" hidden></div>
 
 <main id="page">
   <p class="banner bad" id="packWarn" role="alert" hidden></p>
@@ -188,7 +191,7 @@ window.addEventListener('error', function (e) {
   </section>
 </main>
 
-<footer id="foot"><span id="source"></span> <span class="srclink"><a href="https://github.com/forensicworks/hopline" target="_blank" rel="noopener noreferrer">Source code</a> · <a href="https://github.com/forensicworks/hopline/wiki" target="_blank" rel="noopener noreferrer">Documentation</a> · <a href="https://github.com/forensicworks/hopline/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">Apache-2.0</a></span></footer>
+<footer id="foot"><span id="source"></span> <span class="srclink"><a href="https://github.com/forensicworks/hopline" target="_blank" rel="noopener noreferrer">Source code</a> · <a href="https://github.com/forensicworks/hopline/wiki" target="_blank" rel="noopener noreferrer">Documentation</a> · <a href="https://github.com/forensicworks/hopline/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">Apache-2.0</a> · <span class="ver" data-version hidden></span></span></footer>
 <div class="counterbar" role="note" data-counter hidden><b>Visit counter.</b> This site counts visits with <a href="https://www.goatcounter.com" target="_blank" rel="noopener noreferrer">GoatCounter</a>: page and feature names only, never addresses, IDs, labels or notes. No cookies, and Do Not Track is respected. <a href="https://github.com/forensicworks/hopline/wiki/Publishing-a-copy" target="_blank" rel="noopener noreferrer">How it works</a></div>
 
 <script src="config.js"></script>
@@ -210,6 +213,7 @@ window.addEventListener('error', function (e) {
 <script src="data/known-addresses.js"></script>
 <script src="lib/qrcode.js"></script>
 <script src="js/hopline-stats.js"></script>
+<script src="js/hopline-version.js"></script>
 <script src="js/wallet.js"></script>
 </body>
 </html>

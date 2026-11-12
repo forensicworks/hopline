@@ -1,0 +1,10 @@
+/* The version shown in a page's footer, and the bar that says the site has a newer one (public/js/hopline-version.js). Shared by the three pages, which all define the theme variables used here. */
+.ver { color: var(--dim); font-size: 12px; }
+.ver[hidden] { display: none; }
+.ver-fixed { position: fixed; right: 14px; bottom: 5px; z-index: 5; }
+body.canvas-full .ver-fixed { display: none; }
+
+.versionbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 8px 12px; padding: 8px 14px; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; color: var(--text); font-size: 13px; }
+.versionbar[hidden] { display: none; }
+.versionbar .msg { flex: 1 1 280px; min-width: 0; line-height: 1.4; }
+main > .versionbar { margin: 0; }
