@@ -7,6 +7,7 @@
 <title>Hopline Workspace</title>
 <link rel="icon" type="image/png" href="logo-96.png">
 <link rel="stylesheet" href="css/workspace.css">
+<link rel="stylesheet" href="css/version.css">
 <script src="js/hopline-noautofill.js"></script>
 <script>
 // If something goes wrong while the page starts, say so on the page instead of leaving it blank. The usual cause is a browser that kept an old copy of one script.
@@ -98,6 +99,8 @@ window.addEventListener('error', function (e) {
   <button type="button" id="restoreYes" class="primary">Restore</button>
   <button type="button" id="restoreNo">Discard</button>
 </div>
+
+<div id="newVersion" class="versionbar" data-root="../" data-work="1" role="status" hidden></div>
 
 <nav id="trail" aria-label="Trail of places you have been" hidden></nav>
 
@@ -579,6 +582,7 @@ window.addEventListener('error', function (e) {
 </main>
 
 <details id="log"><summary>Activity log <span id="logCount"></span></summary><ul id="logList"></ul></details>
+<span class="ver ver-fixed" data-version hidden></span>
 <footer class="counterbar" role="note" data-counter hidden><b>Visit counter.</b> This site counts visits with <a href="https://www.goatcounter.com" target="_blank" rel="noopener noreferrer">GoatCounter</a>: page and feature names only, never addresses, IDs, labels or notes. No cookies, and Do Not Track is respected. <a href="https://github.com/forensicworks/hopline/wiki/Publishing-a-copy" target="_blank" rel="noopener noreferrer">How it works</a></footer>
 
 <script src="config.js"></script>
@@ -610,6 +614,7 @@ window.addEventListener('error', function (e) {
 <script src="js/hopline-share.js"></script>
 <script src="data/known-addresses.js"></script>
 <script src="js/hopline-stats.js"></script>
+<script src="js/hopline-version.js"></script>
 <script src="js/workspace.js"></script>
 </body>
 </html>

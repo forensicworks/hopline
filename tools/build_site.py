@@ -10,7 +10,9 @@ What the published copy differs in (everything else is the source, byte for byte
   * with --version, every script and style address in the three pages gets ?v=<version>, so after a deploy a browser cannot run new pages
     with old scripts (static hosts let browsers keep files for minutes);
   * with --code-version (the last change to the code: tools/code_version.py works it out) a version.json at the root of the site and the same id in
-    public/config.js (HOPLINE_CONFIG.version), so a published copy can be told from an older one; --code-date is when that change was committed.
+    public/config.js (HOPLINE_CONFIG.version), so a published copy can be told from an older one; --code-date is when that change was committed
+    (HOPLINE_CONFIG.committed too). The pages show the version in their footer, and an open page that finds a later one in version.json offers a reload
+    (public/js/hopline-version.js);
     It is not the ?v= of --version: that one is the deploy's own commit and moves with every deploy, the code version does not move with a pack refresh;
   * a _headers file (read by Cloudflare and Netlify, ignored elsewhere): no referrer is sent from the pages, content types are not guessed, and
     the pages cannot be shown inside another site's frame;
@@ -54,12 +56,14 @@ BASE_PATH = re.compile(r"^/((?!\.+/)[A-Za-z0-9._-]+/)*$")
 LOCAL_URL = re.compile(r'((?:src|href)=")((?:public/)?(?:config\.js|(?:js|css|data|lib|packs)/[^"?#]+\.(?:js|css)))(")')
 
 
-def config_js(stats_endpoint, code_version=None):
+def config_js(stats_endpoint, code_version=None, code_date=None):
     cfg = {"hosted": True}
     if stats_endpoint:
         cfg["stats"] = {"endpoint": stats_endpoint}
     if code_version:
         cfg["version"] = code_version
+        if code_date:
+            cfg["committed"] = code_date
     return ("/* Written by tools/build_site.py for the published copy: see the comment in the source file of the same name. */\n"
             "window.HOPLINE_CONFIG = Object.assign(window.HOPLINE_CONFIG || {}, %s);\n" % json.dumps(cfg))
 
@@ -103,7 +107,7 @@ def build(out, stats_code=None, stats_endpoint=None, version=None, base_path="/"
         shutil.copy2(os.path.join(ROOT, name), os.path.join(out, name))
     shutil.copytree(os.path.join(ROOT, "public"), os.path.join(out, "public"), ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     with open(os.path.join(out, "public", "config.js"), "w", encoding="utf-8", newline="\n") as f:
-        f.write(config_js(endpoint, code_version))
+        f.write(config_js(endpoint, code_version, code_date))
     if code_version:
         info = {"version": code_version}
         if code_date:

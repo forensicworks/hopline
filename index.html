@@ -7,6 +7,7 @@
 <title>Hopline</title>
 <link rel="icon" type="image/png" href="public/logo-96.png">
 <link rel="stylesheet" href="public/css/wallet.css">
+<link rel="stylesheet" href="public/css/version.css">
 <style>
   body { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; }
   main { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 28px; }
@@ -73,6 +74,8 @@
 </head>
 <body>
 <main>
+  <div id="newVersion" class="versionbar" data-root="" role="status" hidden></div>
+
   <div>
     <h1><img class="logo" src="public/logo-96.png" alt="" width="44" height="44">Hopline <span>follow Bitcoin through the chain</span></h1>
     <p class="lead">Paste a Bitcoin address or a transaction ID. See where the money went, which wallets it touched and what looks unusual, then write a report you can hand over.</p>
@@ -124,12 +127,13 @@
   </div>
 
   <div class="counterbar" role="note" data-counter hidden><b>Visit counter.</b> This site counts visits with <a href="https://www.goatcounter.com" target="_blank" rel="noopener noreferrer">GoatCounter</a>: page and feature names only, never addresses, IDs, labels or notes. No cookies, and Do Not Track is respected. <a href="https://github.com/forensicworks/hopline/wiki/Publishing-a-copy" target="_blank" rel="noopener noreferrer">How it works</a></div>
-  <p class="hint"><a href="https://github.com/forensicworks/hopline/wiki/Getting-started" target="_blank" rel="noopener noreferrer">Getting started</a> · <a href="https://github.com/forensicworks/hopline/wiki/Following-a-payment-to-a-threat-actor" target="_blank" rel="noopener noreferrer">Following a payment to a threat actor</a> · <a href="https://github.com/forensicworks/hopline" target="_blank" rel="noopener noreferrer">Source code on GitHub</a> · <a href="https://github.com/forensicworks/hopline/wiki" target="_blank" rel="noopener noreferrer">Documentation</a> · <a href="https://github.com/forensicworks/hopline/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">Apache-2.0 licence</a></p>
+  <p class="hint"><a href="https://github.com/forensicworks/hopline/wiki/Getting-started" target="_blank" rel="noopener noreferrer">Getting started</a> · <a href="https://github.com/forensicworks/hopline/wiki/Following-a-payment-to-a-threat-actor" target="_blank" rel="noopener noreferrer">Following a payment to a threat actor</a> · <a href="https://github.com/forensicworks/hopline" target="_blank" rel="noopener noreferrer">Source code on GitHub</a> · <a href="https://github.com/forensicworks/hopline/wiki" target="_blank" rel="noopener noreferrer">Documentation</a> · <a href="https://github.com/forensicworks/hopline/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">Apache-2.0 licence</a> · <span class="ver" data-version hidden></span></p>
 </main>
 <script src="public/config.js"></script>
 <script src="public/js/hopline-stats.js"></script>
 <script src="public/js/hopline-address.js"></script>
 <script src="public/js/hopline-front.js"></script>
+<script src="public/js/hopline-version.js"></script>
 <script>
 (function () {
   var F = window.HoplineFront, form = document.getElementById('go'), q = document.getElementById('q'), err = document.getElementById('err');

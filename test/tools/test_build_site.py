@@ -99,6 +99,7 @@ def test_a_code_version_is_written_to_version_json_and_to_the_hosted_settings(tm
     info = json.loads(text(out / "version.json"))
     assert info == {"version": "0e2f471", "committed": "2026-11-11T16:58:57Z", "about": build_site.ABOUT}, "the code version, not the deploy's own commit used for the script addresses"
     assert '"version": "0e2f471"' in text(out / "public" / "config.js") and "deploy1" not in text(out / "public" / "config.js")
+    assert '"committed": "2026-11-11T16:58:57Z"' in text(out / "public" / "config.js"), "the page knows when its own version was committed: that is how it tells a later one from a different one"
     assert 'src="js/workspace.js?v=deploy1"' in text(out / "public" / "workspace.html"), "the address stamp is still the deploy's"
     assert (out / "version.json").read_bytes().endswith(b"}\n") and b"\r" not in (out / "version.json").read_bytes()
 
@@ -113,6 +114,7 @@ def test_a_code_version_without_a_date_is_written_without_one(tmp_path):
     out = tmp_path / "site"
     build_site.build(str(out), code_version="0e2f471")
     assert json.loads(text(out / "version.json")) == {"version": "0e2f471", "about": build_site.ABOUT}
+    assert "committed" not in text(out / "public" / "config.js")
 
 
 def test_the_version_file_is_never_cached_where_the_host_reads_headers(tmp_path):
