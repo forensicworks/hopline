@@ -22,7 +22,7 @@ Bitcoin investigation tools that run in your browser: nothing to install and no 
 
 * Everything runs in your browser. The only network requests go to the data source you choose (and mempool.space for prices), which can see your IP address and what you look up. Selecting a single wallet reads its balance (one request with that address; switch it off under *Expansion limits*). A copy you run yourself loads no fonts, analytics or CDNs.
 * Nothing is stored on a server. Your session stays in this browser; on the live site it starts switched off, so tick *Keep this session in this browser* if you want it kept.
-* The copy at <https://hopline.pages.dev> counts visits by page and feature name only, as an image request: no addresses, transaction IDs, labels or notes, no cookies, and nothing for browsers that send Do Not Track. The GitHub Pages copy and copies you run yourself send nothing. More in [Publishing a copy](https://github.com/forensicworks/hopline/wiki/Publishing-a-copy).
+* Nothing is counted. The live copies (<https://hopline.pages.dev> and the GitHub Pages copy) have no visit counter or analytics, and neither has a copy you run yourself. An open page asks its own site for one small file, `version.json`, now and then, to tell whether a newer version is out. More in [Publishing a copy](https://github.com/forensicworks/hopline/wiki/Publishing-a-copy).
 * On the live site your own Esplora server must use `https` and allow cross-origin requests, and Tor is not offered. A copy you run yourself has both. See [Data sources and limits](https://github.com/forensicworks/hopline/wiki/Data-sources-and-limits).
 
 ## Run it yourself

@@ -31,13 +31,13 @@ Please give a reasonable time to fix a problem before you publish it. 90 days is
 - **A crafted file that hangs the page or uses far too much memory:** a workspace file, a label pack, or an OFAC list (XML or zip, see `public/js/hopline-ofac.js`, which refuses oversized files).
 - **A report that still verifies after its evidence was changed** (see `tools/verify_report.py`).
 - **The helper programs:** `tools/arkham_proxy.py` (loopback only, needs its token), `tools/serve.py` and `tools/hopline-cli.js` (which never opens a connection).
-- **A page sending something it should not.** An address, transaction id, label or note must only go to the data source the visitor chose. On the live site, the visit counter may send page and feature names and nothing else (see `public/js/hopline-stats.js`).
+- **A page sending something it should not.** An address, transaction id, label or note must only go to the data source the visitor chose. There is no visit counter or analytics, and none should be added: a page must not send anything anywhere else.
 - **The live site's configuration:** its headers and its hosted mode (`public/config.js`).
 
 ## What is not
 
 - **Wrong or missing wallet names, and the analysis itself.** A name is somebody's claim, and clusters, change guesses and patterns are heuristics. Report those as ordinary bugs in a pull request, not as vulnerabilities.
-- **Problems in services Hopline calls:** mempool.space, Blockstream.info, Cloudflare, GoatCounter, Arkham. Please report those to them.
+- **Problems in services Hopline calls:** mempool.space, Blockstream.info, Cloudflare, Arkham. Please report those to them.
 - **Findings that need a malicious browser extension or an already compromised computer.**
 - **Load or denial-of-service testing,** automated scans of the live site, and spam.
 - **Missing security headers or "best practices" with no demonstrated effect.**

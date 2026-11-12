@@ -1,4 +1,4 @@
-"""The script that builds the published copy: only the pages, the hosted settings, the optional counter and version, and no damage to what it must not touch."""
+"""The script that builds the published copy: only the pages, the hosted settings and the version, and no damage to what it must not touch."""
 import importlib.util
 import json
 import pathlib
@@ -22,7 +22,7 @@ def test_only_the_pages_are_published_and_the_copy_is_marked_hosted(tmp_path):
     assert names == {"index.html", "LICENSE", "NOTICE", "public", ".nojekyll", "_headers", "404.html"}, names
     assert (out / "public" / "js" / "workspace.js").is_file() and (out / "public" / "workspace.html").is_file() and (out / "public" / "data" / "known-addresses.js").is_file()
     cfg = text(out / "public" / "config.js")
-    assert '"hosted": true' in cfg and "stats" not in cfg, "no counting unless asked"
+    assert '"hosted": true' in cfg and "stats" not in cfg, "nothing is counted"
     assert "hosted" not in text(ROOT / "public" / "config.js").split("*/")[1], "the source file stays empty"
 
 
@@ -33,18 +33,7 @@ def test_the_source_pages_are_otherwise_copied_unchanged(tmp_path):
         assert (out / rel).read_bytes() == (ROOT / rel).read_bytes(), rel
 
 
-def test_a_goatcounter_code_becomes_the_counting_address(tmp_path):
-    out = tmp_path / "site"
-    r = build_site.build(str(out), stats_code="my-site")
-    assert r["stats"] == "https://my-site.goatcounter.com/count"
-    assert '"endpoint": "https://my-site.goatcounter.com/count"' in text(out / "public" / "config.js")
-    build_site.build(str(out), stats_endpoint="https://stats.example.org/count")
-    assert "https://stats.example.org/count" in text(out / "public" / "config.js")
-
-
-@pytest.mark.parametrize("kw", [{"stats_code": "Bad Code"}, {"stats_code": "a"}, {"stats_code": "x/../y"}, {"stats_endpoint": "http://stats.example/count"},
-                                {"stats_endpoint": "https://stats.example/count?site=1"}, {"stats_endpoint": "https://user@stats.example/count"},
-                                {"stats_code": "ok", "stats_endpoint": "https://stats.example/count"}, {"version": "a b"}, {"version": "x" * 41},
+@pytest.mark.parametrize("kw", [{"version": "a b"}, {"version": "x" * 41},
                                 {"code_version": "a b"}, {"code_version": "x" * 41}, {"code_date": "2026-01-03T11:00:00Z"}, {"code_version": "abc1234", "code_date": "yesterday"},
                                 {"code_version": "abc1234", "code_date": "2026-01-03 11:00:00"}])
 def test_odd_input_is_refused_before_anything_is_written(tmp_path, kw):
@@ -153,25 +142,6 @@ def test_both_deploys_tell_the_build_where_the_site_lives():
     pages = text(ROOT / ".github" / "workflows" / "pages.yml")
     assert '--site-url "https://${PAGES_PROJECT}.pages.dev"' in deploy and "PAGES_PROJECT: hopline" in deploy
     assert '--site-url "https://${OWNER,,}.github.io/${REPO_NAME}"' in pages and "OWNER: ${{ github.repository_owner }}" in pages
-
-
-def test_both_deploys_count_visits_into_one_counter_from_the_same_variable():
-    for name in ("deploy.yml", "pages.yml"):
-        wf = text(ROOT / ".github" / "workflows" / name)
-        assert wf.count("GOATCOUNTER_CODE: ${{ vars.GOATCOUNTER_CODE }}") == 1, name
-        assert wf.count('--stats-code "$GOATCOUNTER_CODE"') == 1, name
-        assert "secrets.GOATCOUNTER" not in wf, "the code is a name in a public address, not a secret: " + name
-    assert "left off in this copy" not in text(ROOT / ".github" / "workflows" / "pages.yml")
-
-
-def test_the_github_pages_copy_counts_under_its_own_path_and_says_so(tmp_path):
-    out = tmp_path / "site"
-    r = build_site.build(str(out), stats_code="my-site", base_path="/hopline/", site_url="https://owner.github.io/hopline")
-    assert r["stats"] == "https://my-site.goatcounter.com/count"
-    assert '"endpoint": "https://my-site.goatcounter.com/count"' in text(out / "public" / "config.js")
-    for rel in ("index.html", "public/wallet.html", "public/workspace.html"):
-        page = text(out / rel)
-        assert "data-counter" in page and "hopline-stats.js" in page and '<meta name="referrer" content="no-referrer">' in page, rel
 
 
 def test_the_headers_file_asks_for_no_referrer_no_sniffing_and_no_framing(tmp_path):

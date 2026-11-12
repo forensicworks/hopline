@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Builds the folder that is published on a web site (GitHub Pages or any static host): only the pages, never the tests or the tools.
 
-    python tools/build_site.py --out site --stats-code MYCODE --version "$(git rev-parse --short HEAD)"
+    python tools/build_site.py --out site --version "$(git rev-parse --short HEAD)"
 
 What the published copy differs in (everything else is the source, byte for byte):
   * public/config.js says "hosted": the Tor choice is not offered, and the session is kept in the browser only when the visitor ticks it;
-  * with --stats-code (a GoatCounter site code) or --stats-endpoint (your own GoatCounter, https) visits are counted by page and feature
-    name, as described in public/js/hopline-stats.js; without either, nothing is counted;
+  * nothing is counted: there is no visit counter or analytics in any copy (test/tools/test_no_counter.py keeps it so);
   * with --version, every script and style address in the three pages gets ?v=<version>, so after a deploy a browser cannot run new pages
     with old scripts (static hosts let browsers keep files for minutes);
   * with --code-version (the last change to the code: tools/code_version.py works it out) a version.json at the root of the site and the same id in
@@ -35,8 +34,6 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILES = ["index.html", "LICENSE", "NOTICE"]
 PAGES = ["index.html", os.path.join("public", "wallet.html"), os.path.join("public", "workspace.html")]
-CODE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}$")
-ENDPOINT = re.compile(r"^https://[A-Za-z0-9.-]+(:\d{1,5})?/[A-Za-z0-9._/-]*$")
 VERSION = re.compile(r"^[0-9A-Za-z._-]{1,40}$")
 CODE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SITE_URL = re.compile(r"^https://[A-Za-z0-9.-]+(:\d{1,5})?(/(?!\.+(?:/|$))[A-Za-z0-9._-]+)*/?$")
@@ -60,10 +57,8 @@ BASE_PATH = re.compile(r"^/((?!\.+/)[A-Za-z0-9._-]+/)*$")
 LOCAL_URL = re.compile(r'((?:src|href)=")((?:public/)?(?:config\.js|(?:js|css|data|lib|packs)/[^"?#]+\.(?:js|css)))(")')
 
 
-def config_js(stats_endpoint, code_version=None, code_date=None):
+def config_js(code_version=None, code_date=None):
     cfg = {"hosted": True}
-    if stats_endpoint:
-        cfg["stats"] = {"endpoint": stats_endpoint}
     if code_version:
         cfg["version"] = code_version
         if code_date:
@@ -88,17 +83,11 @@ def clear(out):
             os.remove(path)
 
 
-def build(out, stats_code=None, stats_endpoint=None, version=None, base_path="/", code_version=None, code_date=None, site_url=None):
+def build(out, version=None, base_path="/", code_version=None, code_date=None, site_url=None):
     given = base_path
     base_path = base_path if base_path.endswith("/") else base_path + "/"
     if not given or not BASE_PATH.match(base_path):
         raise SystemExit("--base-path must be a path such as / or /hopline/ (letters, digits, dots, hyphens and underscores).")
-    if stats_code and stats_endpoint:
-        raise SystemExit("Give --stats-code or --stats-endpoint, not both.")
-    if stats_code and not CODE.match(stats_code):
-        raise SystemExit("--stats-code must be a GoatCounter site code: lower-case letters, digits and hyphens.")
-    if stats_endpoint and not ENDPOINT.match(stats_endpoint):
-        raise SystemExit("--stats-endpoint must be an https address without a query or fragment, e.g. https://stats.example.org/count")
     if version and not VERSION.match(version):
         raise SystemExit("--version may only hold letters, digits, dots, hyphens and underscores (40 at most).")
     if code_version and not VERSION.match(code_version):
@@ -107,13 +96,12 @@ def build(out, stats_code=None, stats_endpoint=None, version=None, base_path="/"
         raise SystemExit("--code-date goes with --code-version and looks like 2026-11-11T16:58:57Z (UTC).")
     if site_url and not SITE_URL.match(site_url):
         raise SystemExit("--site-url must be an https address such as https://hopline.pages.dev or https://owner.github.io/hopline (no query or fragment).")
-    endpoint = stats_endpoint or ("https://%s.goatcounter.com/count" % stats_code if stats_code else None)
     clear(out)
     for name in FILES:
         shutil.copy2(os.path.join(ROOT, name), os.path.join(out, name))
     shutil.copytree(os.path.join(ROOT, "public"), os.path.join(out, "public"), ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     with open(os.path.join(out, "public", "config.js"), "w", encoding="utf-8", newline="\n") as f:
-        f.write(config_js(endpoint, code_version, code_date))
+        f.write(config_js(code_version, code_date))
     if code_version:
         info = {"version": code_version}
         if code_date:
@@ -142,22 +130,20 @@ def build(out, stats_code=None, stats_endpoint=None, version=None, base_path="/"
     with open(os.path.join(out, "404.html"), "w", encoding="utf-8", newline="\n") as f:
         f.write(NOT_FOUND.replace("@BASE@", base_path))
     open(os.path.join(out, ".nojekyll"), "w").close()
-    return {"out": os.path.realpath(out), "stats": endpoint, "version": version, "code_version": code_version}
+    return {"out": os.path.realpath(out), "version": version, "code_version": code_version}
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Build the published copy of Hopline.")
     ap.add_argument("--out", default="site", help="folder to write (default: site)")
-    ap.add_argument("--stats-code", help="GoatCounter site code: count visits at https://CODE.goatcounter.com/count")
-    ap.add_argument("--stats-endpoint", help="count visits at this https address instead (your own GoatCounter)")
     ap.add_argument("--version", help="added to script and style addresses as ?v=VERSION (for example the short commit id)")
     ap.add_argument("--code-version", help="the id of the last change to the code (tools/code_version.py): written to version.json at the root and to config.js")
     ap.add_argument("--code-date", help="when that change was committed, UTC, like 2026-11-11T16:58:57Z (goes with --code-version)")
     ap.add_argument("--site-url", help="where the site lives, https, e.g. https://hopline.pages.dev or https://owner.github.io/hopline: the share image of the start page gets this absolute address")
     ap.add_argument("--base-path", default="/", help="where the site lives on its host, for the one link that cannot be relative: / (the default) or, for a GitHub project site, /hopline/")
     a = ap.parse_args(argv)
-    r = build(a.out, a.stats_code, a.stats_endpoint, a.version, a.base_path, a.code_version, a.code_date, a.site_url)
-    print("Built %s (counting: %s, version: %s, code version: %s)" % (r["out"], r["stats"] or "off", r["version"] or "none", r["code_version"] or "none"))
+    r = build(a.out, a.version, a.base_path, a.code_version, a.code_date, a.site_url)
+    print("Built %s (version: %s, code version: %s)" % (r["out"], r["version"] or "none", r["code_version"] or "none"))
     return 0
 
 

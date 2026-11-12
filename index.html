@@ -108,8 +108,8 @@
   </div>
 
   <p class="samples">No address at hand?
-    <a id="sampleWallet" href="public/wallet.html?q=bc1qq2euq8pw950klpjcawuy4uj39ym43hs6cfsegq" data-stat="sample-wallet" title="A real wallet with a short history: it received the DarkSide affiliate's share of the Colonial Pipeline ransom in 2021">Try the Colonial Pipeline ransom wallet</a>
-    <a id="sampleTx" href="public/workspace.html?q=0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d" data-stat="sample">Try a sample transaction</a>
+    <a id="sampleWallet" href="public/wallet.html?q=bc1qq2euq8pw950klpjcawuy4uj39ym43hs6cfsegq" title="A real wallet with a short history: it received the DarkSide affiliate's share of the Colonial Pipeline ransom in 2021">Try the Colonial Pipeline ransom wallet</a>
+    <a id="sampleTx" href="public/workspace.html?q=0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d">Try a sample transaction</a>
     <a id="openSaved" href="public/workspace.html" title="The workspace opens with &quot;Open a workspace file&quot; ready">Open a saved workspace</a>
   </p>
 
@@ -149,11 +149,9 @@
     <p>The address or transaction ID you look up goes to the data source you choose: by default mempool.space with Blockstream.info as a backup, or your own server. It can see your IP address and what you look up. Prices come from mempool.space. Nothing else is sent unless you switch on an option that says so, the Claude assistant for example. The code is open under Apache-2.0 and can run from a folder on your computer.</p>
   </div>
 
-  <div class="counterbar" role="note" data-counter hidden><b>Visit counter.</b> This site counts visits with <a href="https://www.goatcounter.com" target="_blank" rel="noopener noreferrer">GoatCounter</a>: page and feature names only, never addresses, IDs, labels or notes. No cookies, and Do Not Track is respected. <a href="https://github.com/forensicworks/hopline/wiki/Publishing-a-copy" target="_blank" rel="noopener noreferrer">How it works</a></div>
   <p class="hint"><a href="https://github.com/forensicworks/hopline/wiki/Getting-started" target="_blank" rel="noopener noreferrer">Getting started</a> · <a href="https://github.com/forensicworks/hopline/wiki/Following-a-payment-to-a-threat-actor" target="_blank" rel="noopener noreferrer">Following a payment to a threat actor</a> · <a href="https://github.com/forensicworks/hopline" target="_blank" rel="noopener noreferrer">Source code on GitHub</a> · <a href="https://github.com/forensicworks/hopline/wiki" target="_blank" rel="noopener noreferrer">Documentation</a> · <a href="https://github.com/forensicworks/hopline/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">Apache-2.0 licence</a> · <span class="ver" data-version hidden></span></p>
 </main>
 <script src="public/config.js"></script>
-<script src="public/js/hopline-stats.js"></script>
 <script src="public/js/hopline-address.js"></script>
 <script src="public/js/hopline-front.js"></script>
 <script src="public/js/hopline-version.js"></script>
@@ -163,11 +161,6 @@
   var detect = document.getElementById('detect'), goes = document.getElementById('goes'), why = document.getElementById('why'), timer = 0, shown = null;
 
   function open(url) { window.location.href = url; }
-  /** Count a feature by its name (nothing else is sent) and then go: a page that is left at once may cancel the count that was just sent. */
-  function openCounted(name, url) {
-    var s = window.HoplineStats;
-    if (name && s && s.enabled) { s.hit(name); setTimeout(function () { open(url); }, 150); } else open(url);
-  }
   function node(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
 
   /** Draw what the box holds: the line that says what was recognised, and one button for each page that can take it. Leaving the box (a click on a button) fires "change", and
@@ -212,12 +205,6 @@
     e.preventDefault();
     q.setRangeText(d.replace(/\s*[\r\n]+\s*/g, ' ').trim(), q.selectionStart, q.selectionEnd, 'end');
     render(true);
-  });
-  Array.prototype.forEach.call(document.querySelectorAll('a[data-stat]'), function (a) {
-    a.addEventListener('click', function (e) {
-      if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || !(window.HoplineStats && window.HoplineStats.enabled)) return;
-      e.preventDefault(); openCounted(a.getAttribute('data-stat'), a.href);
-    });
   });
 }());
 </script>
