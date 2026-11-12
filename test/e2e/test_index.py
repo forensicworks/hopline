@@ -233,3 +233,20 @@ def test_the_box_is_on_the_first_screen_of_a_small_laptop_and_nothing_is_wider_t
         p.fill("#q", ADDRESS)
         assert p.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth"), "%dx%d: nor with the buttons" % (w, h)
         p.close()
+
+
+# every finding the page names is one the analysis really makes: the words that tell it in the code
+LOOKS = {"Sanctioned wallets": "sanction", "Consolidations": "CONSOL", "Batch payments": "BATCH", "CoinJoin-like transactions": "COINJOIN", "Peel chains": "PEEL",
+         "Round amounts": "ROUND", "Swap and bridge memos": "SWAP", "Routes between two wallets": "route"}
+
+
+def test_the_page_names_what_the_analysis_looks_for_and_links_to_how_often_it_is_right(ipage):
+    names = ipage.eval_on_selector_all(".looklist li", "els => els.map(e => e.textContent)")
+    assert names == list(LOOKS), names
+    code = " ".join(p.read_text(encoding="utf-8") for p in (ROOT / "public" / "js").glob("hopline-*.js")).lower()
+    for name, word in LOOKS.items():
+        assert word.lower() in code, "%s: nothing in the code is called %s" % (name, word)
+    assert ipage.get_attribute(".looklist li.sanctions", "class") == "sanctions" and ipage.locator(".looklist li.sanctions").inner_text() == "Sanctioned wallets"
+    link = ipage.locator(".looks a")
+    assert link.get_attribute("href") == "https://github.com/forensicworks/hopline/wiki/Accuracy" and link.get_attribute("target") == "_blank" and link.get_attribute("rel") == "noopener noreferrer"
+    assert "none of them proves who owns what" in ipage.inner_text(".looks")

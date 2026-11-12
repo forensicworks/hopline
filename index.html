@@ -4,7 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Hopline</title>
+<title>Hopline - follow Bitcoin through the chain</title>
+<meta name="description" content="Follow Bitcoin through the chain in your browser: paste an address or a transaction ID, trace the money, label wallets and write a report you can hand over.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Hopline">
+<meta property="og:title" content="Hopline - follow Bitcoin through the chain">
+<meta property="og:description" content="Paste an address or a transaction ID. See where the money went, which wallets it touched and what looks unusual, then write a report you can hand over. Open source, in your browser.">
+<meta property="og:image" content="public/share.png" data-absolute>
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Hopline name above a graph of a transaction, the wallet it paid and the coins that followed.">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="public/logo-96.png">
 <link rel="stylesheet" href="public/css/wallet.css">
 <style>
@@ -64,6 +74,11 @@
   .card .best { color: var(--text); font-size: 12.5px; }
   .card .best b { color: var(--accent); }
 
+  .looks h2 { font-size: 14.5px; margin-bottom: 8px; }
+  .looklist { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .looklist li { padding: 3px 10px; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); font-size: 13px; }
+  .looklist li.sanctions { border-color: #ff4d4f; }
+  .looks p { margin: 8px 0 0; max-width: 68ch; color: var(--dim); font-size: 13px; line-height: 1.5; }
   .leaves { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; }
   .leaves h2 { font-size: 14.5px; margin-bottom: 4px; }
   .leaves p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--dim); }
@@ -116,6 +131,14 @@
       <img src="public/front-wallet.jpg" width="700" height="250" alt="The wallet overview: the balance and totals of one address above its list of transactions">
       <div class="txt"><h2>Wallet overview</h2><p>One address as a ledger: balance, totals, every transaction with its inputs and outputs, and the labelled wallets it dealt with.</p><p class="best"><b>Best for</b> getting the whole picture of one address.</p></div>
     </a>
+  </div>
+
+  <div class="looks">
+    <h2>What it looks for</h2>
+    <ul class="looklist">
+      <li class="sanctions">Sanctioned wallets</li><li>Consolidations</li><li>Batch payments</li><li>CoinJoin-like transactions</li><li>Peel chains</li><li>Round amounts</li><li>Swap and bridge memos</li><li>Routes between two wallets</li>
+    </ul>
+    <p>Each one comes with its reason, and none of them proves who owns what. See <a href="https://github.com/forensicworks/hopline/wiki/Accuracy" target="_blank" rel="noopener noreferrer">how often the guesses are right</a> on test data where the answer is known.</p>
   </div>
 
   <div class="leaves">

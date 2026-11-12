@@ -50,7 +50,7 @@ jobs:
           GOATCOUNTER_CODE: ${{ vars.GOATCOUNTER_CODE }}
         run: |
           CODE_VERSION="$(python3 tools/code_version.py)"
-          python3 tools/build_site.py --out site --stats-code "$GOATCOUNTER_CODE" --version "${GITHUB_SHA::7}" --code-version "${CODE_VERSION%% *}" --code-date "${CODE_VERSION##* }"
+          python3 tools/build_site.py --out site --stats-code "$GOATCOUNTER_CODE" --version "${GITHUB_SHA::7}" --code-version "${CODE_VERSION%% *}" --code-date "${CODE_VERSION##* }" --site-url "https://${PAGES_PROJECT}.pages.dev"
 
       - name: Upload to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
