@@ -77,7 +77,7 @@ A shortened id (`1f0849…c46ad`) is accepted only when it can be only one trans
 
 ## A model on this computer
 
-The workspace can ask a model for you. The address must be on this computer (`localhost`, `127.0.0.1` or `::1`); anything else is refused, so the evidence never leaves the machine, and no key is ever sent. It speaks the OpenAI chat format (`POST /v1/chat/completions`), which Ollama, LM Studio and the llama.cpp server all offer. If the browser blocks the request, allow the page's address in the server (for Ollama, the `OLLAMA_ORIGINS` setting).
+The workspace can ask a model for you. The address must be on this computer (`localhost`, `127.0.0.1` or `::1`); anything else is refused, so the evidence never leaves the machine, and no key is ever sent. It speaks the OpenAI chat format (`POST /v1/chat/completions`), which Ollama, LM Studio and the llama.cpp server all offer. **Test connection** asks the server which models it has (`GET /v1/models`; no evidence is sent) and offers them in a drop-down under the Model box, which stays a text box. If the browser blocks the request, allow the page's address in the server (for Ollama, the `OLLAMA_ORIGINS` setting).
 
 The reply is shown in an editable box labelled as a model's draft, and its ids are checked at once. A reply is never added to the graph or to a report by itself.
 

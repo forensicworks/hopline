@@ -4420,7 +4420,7 @@
     return { endpoint: typeof a.endpoint === 'string' && a.endpoint ? a.endpoint.slice(0, 300) : DEFAULT_ENDPOINT,
              model: typeof a.model === 'string' ? a.model.replace(/[^\w.:\/@+\-]/g, '').slice(0, 100) : '', rows: num(a.rows, 5, 400, 60) };
   }
-  var ai = { busy: null, focus: null, log: [] };                                         // busy: the controller of a question in flight; log: the questions asked since the page opened (memory only)
+  var ai = { busy: null, focus: null, log: [], models: [] };                                         // busy: the controller of a question in flight; log: the questions asked since the page opened (memory only)
   function assistKnown(a) {
     var k = KNOWN[a]; if (!k) return null;
     var c = LB.claimsOf(k)[0] || {}, m = packMeta()[k.pack] || {};                          // the first claim, and what its list says about itself
@@ -4458,7 +4458,7 @@
   function aiNoteSet(text, bad) { var n = $('aiNote'); n.textContent = text; n.className = 'hint' + (bad ? ' bad' : ''); }
   function syncAssistUi() {
     var ep = AS.localEndpoint(state.assist.endpoint);
-    $('aiAskBox').hidden = $('aiTask').value !== 'ask'; syncQuestion();
+    $('aiAskBox').hidden = $('aiTask').value !== 'ask'; syncQuestion(); syncModelPick();
     if (document.activeElement !== $('aiEndpoint')) $('aiEndpoint').value = state.assist.endpoint;
     if (document.activeElement !== $('aiModel')) $('aiModel').value = state.assist.model;
     if (document.activeElement !== $('aiRows')) $('aiRows').value = state.assist.rows;
@@ -4519,12 +4519,31 @@
         if (!r.ok) throw new Error('The server answered ' + r.status + '.');
         var d; try { d = JSON.parse(body); } catch (e) { throw new Error('The server did not send a list of models.'); }
         var names = (Array.isArray(d.data) ? d.data : Array.isArray(d.models) ? d.models : []).map(function (m) { return m && (m.id || m.name); }).filter(function (x) { return typeof x === 'string'; }).map(function (x) { return AS.plainText(x, 80); });
+        aiModelOffer(names);
         if (!names.length) return aiNoteSet('Connected to ' + ep.base + ', but it lists no models.', true);
+        var filled = !state.assist.model && ai.models.length === 1;                      // an empty box and one model to choose: no need to ask
+        if (filled) { state.assist.model = ai.models[0]; savePrefs(); syncAssistUi(); }
         var has = state.assist.model && names.indexOf(state.assist.model) >= 0;
-        aiNoteSet('Connected. Models: ' + names.slice(0, 12).join(', ') + (names.length > 12 ? ' and ' + (names.length - 12) + ' more' : '') + '.' + (state.assist.model && !has ? ' "' + state.assist.model + '" is not among them.' : ''), !!state.assist.model && !has);
+        aiNoteSet('Connected. Models: ' + names.slice(0, 12).join(', ') + (names.length > 12 ? ' and ' + (names.length - 12) + ' more' : '') + '.' + (filled ? ' It is the only one, so it was filled in.' : '') + (state.assist.model && !has ? ' "' + state.assist.model + '" is not among them.' : ''), !!state.assist.model && !has);
       });
-    }).catch(function (e) { aiNoteSet(aiErrorText(e, ep.base), true); });
+    }).catch(function (e) { aiModelOffer([]); aiNoteSet(aiErrorText(e, ep.base), true); });
   }
+
+  /**
+   * The models a server listed, as a drop-down under the Model box (which stays a text box: the server may be down, and a name may be one the list does not show). Offered only after a
+   * successful Test connection, and taken away when a test fails or the address changes, since the list belongs to one server. A name Hopline could not send as it is is not offered.
+   */
+  function aiModelOffer(names) {
+    ai.models = (names || []).filter(function (n) { return n && cleanAssist({ model: n }).model === n; });
+    var sel = $('aiModelPick'); sel.textContent = '';
+    $('aiModelPickBox').hidden = !ai.models.length;
+    if (!ai.models.length) return;
+    sel.appendChild(el('option', { value: '', text: ai.models.length === 1 ? 'Pick the model…' : 'Pick one of the ' + ai.models.length + ' models…' }));
+    ai.models.forEach(function (n) { sel.appendChild(el('option', { value: n, text: n })); });
+    syncModelPick();
+  }
+  /** The drop-down shows the model in the box when the server has it, and nothing chosen when the box holds something else. */
+  function syncModelPick() { var sel = $('aiModelPick'); if (sel && ai.models.length) sel.value = ai.models.indexOf(state.assist.model) >= 0 ? state.assist.model : ''; }
 
   /** Compare every id in the answer box with the evidence and say which ones are not there. The text is shown as text only. */
   function aiCheckNow() {
@@ -4700,7 +4719,8 @@
     $('aiTest').addEventListener('click', aiTest);
     $('aiCheck').addEventListener('click', aiCheckNow);
     $('aiCopyAnswer').addEventListener('click', function () { var t = $('aiText').value; if (t.trim()) copy(t, 'the answer'); else toast('There is no answer to copy.', true); });
-    $('aiEndpoint').addEventListener('input', function () { state.assist.endpoint = this.value.slice(0, 300); savePrefs(); syncAssistUi(); });
+    $('aiEndpoint').addEventListener('input', function () { state.assist.endpoint = this.value.slice(0, 300); savePrefs(); aiModelOffer([]); syncAssistUi(); });
+    $('aiModelPick').addEventListener('change', function () { if (!this.value) return; state.assist.model = cleanAssist({ model: this.value }).model; savePrefs(); syncAssistUi(); });
     $('aiModel').addEventListener('input', function () { state.assist.model = cleanAssist({ model: this.value }).model; savePrefs(); syncAssistUi(); });
     $('aiRows').addEventListener('change', function () { state.assist.rows = num(this.value, 5, 400, 60); this.value = state.assist.rows; savePrefs(); claudeDiscard(); syncAssistUi(); });
     $('aiRows').addEventListener('input', function () { $('aiRowsOut').textContent = this.value; });

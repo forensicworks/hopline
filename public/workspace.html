@@ -271,6 +271,10 @@ window.addEventListener('error', function (e) {
           <label for="aiModel">Model</label>
           <input type="text" id="aiModel" spellcheck="false" autocomplete="off" placeholder="for example llama3.1">
           <div class="row wrap"><button type="button" id="aiTest" title="Ask the server which models it has (sends no evidence)">Test connection</button></div>
+          <div id="aiModelPickBox" hidden>
+            <label for="aiModelPick">Models on this server</label>
+            <select id="aiModelPick"></select>
+          </div>
           <p class="hint">Most local models read only about 4,000 tokens unless you raise their context window (in Ollama, num_ctx). If the answer ignores the end of the evidence, lower the pattern rows above or raise the context. If the browser blocks the request, allow this page's address in the server (for Ollama, the OLLAMA_ORIGINS setting).</p>
         </details>
         <details id="aiClaude" class="outbound">
