@@ -1,10 +1,10 @@
 /*
- * Hopline: keep password managers out of the fields. Nothing here is a login, but a page that holds a password-type field (the keys for a server, for Claude and for Arkham) is taken for one,
+ * Hopline: keep password managers out of the fields. Nothing here is a login, but a page that holds a password-type field (the keys for a server and for Arkham) is taken for one,
  * and a manager then offers to fill and save in every box. Each manager has its own way of being told to leave a field alone, and "autocomplete=off" is largely ignored by them, so a field
  * gets all of them: autocomplete="off", and the ignore attribute of 1Password, LastPass, Bitwarden, Dashlane and Proton Pass (a vendor attribute that is not known to a manager does nothing).
  *
  * Every input (except a button, a hidden field and the like), every textarea and every select gets them as it appears on the page, including the ones the page makes later. A field with
- * data-autofill="allow" is left exactly as it is: the three key fields, which a person may want a manager to keep. A value a field already has is not replaced.
+ * data-autofill="allow" is left exactly as it is: the two key fields, which a person may want a manager to keep. A value a field already has is not replaced.
  *
  * The attributes are what the managers document or commonly honour; they can change, and no page can force a manager. A manager's own "never fill on this site" is the sure way.
  */

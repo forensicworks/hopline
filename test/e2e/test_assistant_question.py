@@ -1,4 +1,4 @@
-"""Assistant, your own question: a text box for questions about the workspace, answered by the model on this computer (mocked here) or by Claude (also mocked).
+"""Assistant, your own question: a text box for questions about the workspace, answered by the model on this computer (mocked here).
 What the model is given, what is remembered, and that the question is neither saved nor sent anywhere else."""
 import json
 
@@ -8,7 +8,6 @@ from chains import tid
 from conftest import shot
 from helpers import settle
 from test_assistant import FAKE, capture, chat, copied, evidence, model_server, open_ai, set_model
-from test_assistant_claude import claude_server, message, open_claude, review
 from test_pattern_flags import scene
 
 PEEL10 = "bc1q" + "peel10".ljust(20, "x")
@@ -244,36 +243,6 @@ def test_clearing_the_workspace_forgets_the_earlier_questions(fpage, mock):
     assert fpage.is_visible("#aiHistory")
     fpage.click("#btnClear"); fpage.click("#btnClear"); settle(fpage)
     assert fpage.is_hidden("#aiHistory") and fpage.eval_on_selector_all("#aiHistoryList button", "els => els.length") == 0
-
-
-# ---- Claude -------------------------------------------------------------------------------------------------------------------------------
-
-def test_the_review_for_claude_shows_the_question_and_editing_it_withdraws_the_review(fpage, mock):
-    scene(fpage, mock)
-    server = claude_server(fpage, message("see " + tid(10)))
-    open_claude(fpage); fpage.select_option("#aiTask", "ask")
-    fpage.click("#claudeAsk"); settle(fpage)
-    assert server == [] and "Type your question first" in fpage.inner_text("#toast"), "no question, no review"
-    fpage.fill("#aiQuestion", QUESTION)
-    shown = review(fpage)
-    assert "<<QUESTION\n" + QUESTION + "\nQUESTION>>" in shown
-    fpage.fill("#aiQuestion", QUESTION + " And after that?")
-    assert fpage.is_hidden("#claudeReview"); settle(fpage)
-    assert server == []
-
-
-def test_an_answer_from_claude_to_a_question_is_remembered_too(fpage, mock):
-    scene(fpage, mock)
-    server = claude_server(fpage, message("The third step is " + tid(12)))
-    select(fpage, ["tx:" + tid(12)])
-    open_claude(fpage); fpage.select_option("#aiTask", "ask"); fpage.fill("#aiQuestion", QUESTION)
-    shown = review(fpage)
-    fpage.click("#claudeSend"); fpage.wait_for_function("() => document.getElementById('aiText').value !== ''")
-    body = json.loads(server[0]["body"])
-    assert body["system"] + "\n\n" + body["messages"][0]["content"] == shown, "what was sent is what was shown, question included"
-    assert evidence(shown)["focus"][0]["id"] == tid(12)
-    fpage.wait_for_function("() => document.querySelectorAll('#aiHistoryList button').length === 1")
-    assert fpage.inner_text("#aiHistoryList button").startswith(QUESTION[:30]) and "claude-" in fpage.inner_text("#aiHistoryList button")
 
 
 def test_screenshot_of_the_question_box(fpage, mock):

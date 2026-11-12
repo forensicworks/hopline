@@ -12,7 +12,7 @@ Thank you for looking. Hopline is a small tool for following Bitcoin through the
 
 ## What decides whether something is merged
 
-1. **Local first.** The pages run in the browser, and nothing about a wallet leaves the machine except the requests to the data source the user chose and, only when the user has switched on the optional Claude option (off whenever the page opens) and confirmed that send, the assistant's evidence to `api.anthropic.com` (the address is fixed in `public/js/hopline-assist.js`; no setting changes it). Nothing is counted or tracked on any copy: there is no visit counter or analytics, and `test/tools/test_no_counter.py` fails if one is added.
+1. **Local first.** The pages run in the browser, and nothing about a wallet leaves the machine except the requests to the data source the user chose. The assistant asks only a model on this computer, and `test/tools/test_local_only_assistant.py` fails if a hosted service is added. Nothing is counted or tracked on any copy: there is no visit counter or analytics, and `test/tools/test_no_counter.py` fails if one is added.
 2. **Nothing to install and nothing to build for the app.** Plain JavaScript files loaded by script tags, no framework, no CDN, no run-time dependencies, and it works when `index.html` is opened from disk.
 3. **Anything optional that talks to a third party is off by default** and says plainly what it sends.
 4. **A name is a claim, a pattern is a guess.** Results of the analysis say what they are and why, and never present a heuristic as a finding.

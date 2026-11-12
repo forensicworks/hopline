@@ -1,5 +1,5 @@
 """Password managers are told to keep out of the fields: every box on the landing page, the workspace and the wallet page (and the ones the pages make later) carries autocomplete="off" and the ignore
-attribute of each manager, except the three key fields, which are left exactly as they were so that a person can have a manager keep a key."""
+attribute of each manager, except the two key fields, which are left exactly as they were so that a person can have a manager keep a key."""
 import pytest
 
 from conftest import NORMAL, ROOT
@@ -7,7 +7,7 @@ from helpers import open_query, settle
 from test_wallet_page import goto, wpage  # noqa: F401  (the fixture is used by name)
 
 NEEDED = ["autocomplete", "data-1p-ignore", "data-lpignore", "data-bwignore", "data-form-type", "data-protonpass-ignore"]
-KEYS = ["srcKey", "claudeKey", "arkToken"]
+KEYS = ["srcKey", "arkToken"]
 UNCOVERED = """(needed) => [...document.querySelectorAll('input, textarea, select')]
     .filter((e) => !(e.tagName === 'INPUT' && /^(hidden|submit|button|reset|image)$/i.test(e.getAttribute('type') || 'text')) && e.getAttribute('data-autofill') !== 'allow')
     .filter((e) => needed.some((a) => !e.hasAttribute(a)))
@@ -31,7 +31,7 @@ def test_the_values_are_the_ones_each_manager_looks_for(page):
     assert got == {"autocomplete": "off", "data-1p-ignore": "true", "data-lpignore": "true", "data-bwignore": "true", "data-form-type": "other", "data-protonpass-ignore": "true"}, got
 
 
-def test_the_three_key_fields_are_left_as_they_were(page):
+def test_the_two_key_fields_are_left_as_they_were(page):
     for id_ in KEYS:
         got = page.evaluate("""(id) => { const e = document.getElementById(id); return { type: e.getAttribute('type'), allow: e.getAttribute('data-autofill'), autocomplete: e.getAttribute('autocomplete'),
                               ignores: ['data-1p-ignore', 'data-lpignore', 'data-bwignore', 'data-form-type', 'data-protonpass-ignore'].filter((a) => e.hasAttribute(a)) }; }""", id_)
