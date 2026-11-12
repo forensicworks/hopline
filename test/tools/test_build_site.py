@@ -155,6 +155,25 @@ def test_both_deploys_tell_the_build_where_the_site_lives():
     assert '--site-url "https://${OWNER,,}.github.io/${REPO_NAME}"' in pages and "OWNER: ${{ github.repository_owner }}" in pages
 
 
+def test_both_deploys_count_visits_into_one_counter_from_the_same_variable():
+    for name in ("deploy.yml", "pages.yml"):
+        wf = text(ROOT / ".github" / "workflows" / name)
+        assert wf.count("GOATCOUNTER_CODE: ${{ vars.GOATCOUNTER_CODE }}") == 1, name
+        assert wf.count('--stats-code "$GOATCOUNTER_CODE"') == 1, name
+        assert "secrets.GOATCOUNTER" not in wf, "the code is a name in a public address, not a secret: " + name
+    assert "left off in this copy" not in text(ROOT / ".github" / "workflows" / "pages.yml")
+
+
+def test_the_github_pages_copy_counts_under_its_own_path_and_says_so(tmp_path):
+    out = tmp_path / "site"
+    r = build_site.build(str(out), stats_code="my-site", base_path="/hopline/", site_url="https://owner.github.io/hopline")
+    assert r["stats"] == "https://my-site.goatcounter.com/count"
+    assert '"endpoint": "https://my-site.goatcounter.com/count"' in text(out / "public" / "config.js")
+    for rel in ("index.html", "public/wallet.html", "public/workspace.html"):
+        page = text(out / rel)
+        assert "data-counter" in page and "hopline-stats.js" in page and '<meta name="referrer" content="no-referrer">' in page, rel
+
+
 def test_the_headers_file_asks_for_no_referrer_no_sniffing_and_no_framing(tmp_path):
     out = tmp_path / "site"
     build_site.build(str(out))
