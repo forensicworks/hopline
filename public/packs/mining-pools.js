@@ -24,7 +24,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-(window.HOPLINE_PACKS = window.HOPLINE_PACKS || {})["mining-pools"] = {"format":"hopline-labels","version":1,"name":"Mining pools (mempool.space)","source":"mempool/mining-pools, pools-v2.json at commit 7ac4265 (2026-11-02)","licence":"MIT","attribution":"mempool/mining-pools (used by mempool.space), MIT License, Copyright (c) 2019 btc.com and contributors","sourceUrl":"https://github.com/mempool/mining-pools","asOf":"2026-11-02","labels":[
+(window.HOPLINE_PACKS = window.HOPLINE_PACKS || {})["mining-pools"] = {"format":"hopline-labels","version":1,"name":"Mining pools (mempool.space)","source":"mempool/mining-pools, pools-v2.json at commit d2ddbfa (2026-11-12)","licence":"MIT","attribution":"mempool/mining-pools (used by mempool.space), MIT License, Copyright (c) 2019 btc.com and contributors","sourceUrl":"https://github.com/mempool/mining-pools","asOf":"2026-11-12","labels":[
 {"address":"11wC5KcbgrWRBb43cwADdVrxgyF8mndVC","label":"Mining pool: MiningCity","category":"MINING","url":"https://www.miningcity.com"},
 {"address":"122pN8zvqTxJaA8fRY1PDBu4QYodqE5m2X","label":"Mining pool: Binance Pool","category":"MINING","url":"https://pool.binance.com"},
 {"address":"125m2H43pwKpSZjLhMQHneuTwTJN5qRyYu","label":"Mining pool: SpiderPool","category":"MINING","url":"https://www.spiderpool.com"},
@@ -191,6 +191,7 @@
 {"address":"1wizSAYSbuyXbt9d8JV8ytm5acqq2TorC","label":"Mining pool: wiz","category":"MINING","url":"https://wiz.biz/"},
 {"address":"32BfKjhByDSxx3BM5vUkQ3NQq9csZR6nt6","label":"Mining pool: Luxor","category":"MINING","url":"https://mining.luxor.tech"},
 {"address":"32P5KVSbZYAkVmSHxDd2oBXaSk372rbV7L","label":"Mining pool: Terra Pool","category":"MINING","url":"https://terrapool.io"},
+{"address":"32i1m6gNcSHwiPX9nfTNXVjme9j5DU8y5g","label":"Mining pool: MARA Pool","category":"MINING","url":"https://marapool.com"},
 {"address":"33SAB6pzbhEGPbfY6NVgRDV7jVfspZ3A3Z","label":"Mining pool: Carbon Negative","category":"MINING","url":"https://github.com/bitcoin-data/mining-pools/issues/48"},
 {"address":"34Jpa4Eu3ApoPVUKNTN2WeuXVVq1jzxgPi","label":"Mining pool: Lubian.com","category":"MINING","url":"https://www.lubian.com"},
 {"address":"34qGNFx6uQv6SzjYPbYVWtjvuy5DSGugt8","label":"Mining pool: Est3lar","category":"MINING","url":"https://est3lar.io"},
