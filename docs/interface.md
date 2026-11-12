@@ -61,6 +61,7 @@ The rules ask the model to use only the evidence, to cite every fact with the fu
 - `narrative`: draft the "Key findings" section of a report, every sentence citing an id.
 - `explain`: explain the `--focus` item (a transaction, wallet, peel chain or cluster) to someone who is not an analyst.
 - `challenge`: say what weakens each finding and what extra data would settle it.
+- `ask`: answer your own question (`--question`, up to 1,000 characters) from the evidence. The question sits between `<<QUESTION` and `QUESTION>>`, as one line, and cannot close the evidence block. The `--focus` item and every transaction id, address, peel chain (`P-65a1`) or cluster (`C3`) named in the question are described in full (at most six), under `focus`; the rest is the usual cut-down evidence. The model is told to say what is missing when the evidence cannot answer.
 
 Peel steps are listed once, inside their chain; the other patterns are rows, cut at `--max-rows` (the cut is stated in `limits`). A typical workspace comes to a few thousand tokens. Many local models read only about 4,000 tokens unless their context window is raised (in Ollama, `num_ctx`), and silently ignore the rest; the workspace warns when a prompt is larger than that.
 

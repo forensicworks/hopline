@@ -4420,7 +4420,7 @@
     return { endpoint: typeof a.endpoint === 'string' && a.endpoint ? a.endpoint.slice(0, 300) : DEFAULT_ENDPOINT,
              model: typeof a.model === 'string' ? a.model.replace(/[^\w.:\/@+\-]/g, '').slice(0, 100) : '', rows: num(a.rows, 5, 400, 60) };
   }
-  var ai = { busy: null, focus: null };                                                  // busy: the controller of a question in flight
+  var ai = { busy: null, focus: null, log: [] };                                         // busy: the controller of a question in flight; log: the questions asked since the page opened (memory only)
   function assistKnown(a) {
     var k = KNOWN[a]; if (!k) return null;
     var c = LB.claimsOf(k)[0] || {}, m = packMeta()[k.pack] || {};                          // the first claim, and what its list says about itself
@@ -4432,7 +4432,14 @@
   /** The prompt for the chosen task, or null (with a message) when it cannot be made. */
   function assistPrompt() {
     if (!state.graph.nodes.size) { toast('Nothing is loaded yet.', true); return null; }
-    var task = $('aiTask').value, focus = null;
+    var task = $('aiTask').value, focus = null, question = '', more = '';
+    if (task === 'ask') {
+      question = AS.cleanQuestion($('aiQuestion').value);
+      if (!question) { toast('Type your question first.', true); $('aiQuestion').focus(); return null; }
+      var chosen = Array.from(state.selected).map(plainId);                                  // the first few selected, then whatever the question names that is loaded
+      focus = AS.focusMany(state.graph, analysis(), chosen.slice(0, ASK_SELECTED).concat(AS.questionRefs(question)), { known: assistKnown });
+      if (chosen.length > ASK_SELECTED) more = ' Only the first ' + ASK_SELECTED + ' of the ' + chosen.length + ' selected are described in full.';
+    }
     if (task === 'explain') {
       var sel = Array.from(state.selected)[0];
       if (!sel) { toast('Select a transaction or a wallet first: that is what the assistant is asked to explain.', true); return null; }
@@ -4440,9 +4447,10 @@
       if (!focus) { toast('Select a transaction or a wallet: that is what the assistant can be asked to explain.', true); return null; }
     }
     var p;
-    try { p = AS.prompt(assistSummary(), task, { maxRows: state.assist.rows, focus: focus }); } catch (e) { toast(e.message, true); return null; }
+    try { p = AS.prompt(assistSummary(), task, { maxRows: state.assist.rows, focus: focus, question: question }); } catch (e) { toast(e.message, true); return null; }
     ai.focus = focus;
-    $('aiSize').textContent = 'About ' + p.tokens.toLocaleString() + ' tokens: ' + plural(p.shown.patterns, 'pattern row') + ', ' + plural(p.shown.peelChains, 'peel chain') + ', ' + plural(p.shown.clusters, 'cluster') + ', ' + plural(p.shown.wallets, 'noted wallet') + '.'
+    $('aiSize').textContent = 'About ' + p.tokens.toLocaleString() + ' tokens: ' + plural(p.shown.patterns, 'pattern row') + ', ' + plural(p.shown.peelChains, 'peel chain') + ', ' + plural(p.shown.clusters, 'cluster') + ', ' + plural(p.shown.wallets, 'noted wallet')
+      + (p.shown.focus != null ? ', ' + plural(p.shown.focus, 'item') + ' described in full' : '') + '.' + more
       + (p.tokens > 3500 ? ' That is more than many local models read by default: lower the pattern rows, or raise the context window of the model.' : '');
     return p;
   }
@@ -4450,6 +4458,7 @@
   function aiNoteSet(text, bad) { var n = $('aiNote'); n.textContent = text; n.className = 'hint' + (bad ? ' bad' : ''); }
   function syncAssistUi() {
     var ep = AS.localEndpoint(state.assist.endpoint);
+    $('aiAskBox').hidden = $('aiTask').value !== 'ask'; syncQuestion();
     if (document.activeElement !== $('aiEndpoint')) $('aiEndpoint').value = state.assist.endpoint;
     if (document.activeElement !== $('aiModel')) $('aiModel').value = state.assist.model;
     if (document.activeElement !== $('aiRows')) $('aiRows').value = state.assist.rows;
@@ -4481,6 +4490,7 @@
     if (!ep.ok) { toast(ep.error, true); return; }
     if (!state.assist.model) { toast('Name the model to ask (for example llama3.1).', true); return; }
     var p = assistPrompt(); if (!p) return;
+    var refs = focusRefs(ai.focus);
     var req; try { req = AS.chatRequest({ base: state.assist.endpoint, model: state.assist.model, system: p.system, user: p.user }); } catch (e) { toast(e.message, true); return; }
     var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 10 * 60 * 1000), model = state.assist.model;
     req.init.signal = ctl.signal; ai.busy = ctl; syncAssistUi();
@@ -4494,7 +4504,7 @@
     }).then(function (a) {
       $('aiText').value = a.cut ? a.text + '\n\n[Cut off: the model stopped before it finished.]' : a.text;                  // the marker travels with the text if it is copied
       aiNoteSet('Written by ' + model + ' at ' + new Date().toISOString().slice(11, 16) + ' UTC. It is a draft by a model, not evidence.' + (a.cut ? ' ' + AS.CUT_OFF : ''), a.cut);
-      aiCheckNow();
+      aiCheckNow(); aiRemember(p, model, $('aiText').value, refs);
     }, function (e) {
       aiNoteSet(aiErrorText(e, ep.base), !(e && e.name === 'AbortError'));
     }).then(function () { clearTimeout(timer); ai.busy = null; syncAssistUi(); });
@@ -4540,6 +4550,47 @@
     box.appendChild(el('p', { 'class': 'hint', text: 'A model\'s text is not evidence. Check each claim against the transactions before it goes into a report.' }));
   }
 
+  // ---- your own question: suggestions, a short memory of what was asked, and the way back to an earlier answer ----------------------------------------
+  var ASK_SELECTED = 3, AI_LOG_MAX = 10;                                                  // selected vertices described in full, and questions remembered
+  var ASK_SUGGEST = ['Which findings should I look at first, and why?', 'Which wallets in the evidence are named as a service or on a sanctions list?',
+                     'What would make the strongest finding wrong?', 'Where do the open ends of the trace lead, and what is still missing?'];
+  var suggestKey = '';
+  function syncQuestion() { $('aiQuestionCount').textContent = $('aiQuestion').value.length + ' / ' + AS.MAX_QUESTION; }
+  /** Questions to start from; the first ones are about what is selected. Drawn again only when the list changed, so a button being clicked is not replaced under the pointer. */
+  function drawSuggestions() {
+    var first = Array.from(state.selected)[0] || '', list = [];
+    if (/^tx:/.test(first)) list.push('Where did the money in the selected transaction go next?', 'Explain the selected transaction, input by input and output by output.');
+    else if (/^addr:/.test(first)) list.push('What does the selected wallet do, according to the evidence?', 'Which transactions connect the selected wallet to the rest of the evidence?');
+    list = list.concat(ASK_SUGGEST).slice(0, 6);
+    if (list.join('|') === suggestKey) return;
+    suggestKey = list.join('|');
+    var box = $('aiSuggest'); box.textContent = '';
+    list.forEach(function (q) { box.appendChild(el('button', { type: 'button', text: q, onclick: function () { $('aiQuestion').value = q; syncQuestion(); claudeDiscard(); $('aiQuestion').focus(); } })); });
+  }
+  function focusRefs(f) { return (Array.isArray(f) ? f : f ? [f] : []).map(function (x) { return x.id; }); }
+  /** A question and its answer are kept in memory only (not in the saved session, an export or a report), so that an earlier answer can be brought back and checked again. */
+  function aiRemember(p, who, text, refs) {
+    if (p.task !== 'ask' || !p.question) return;
+    ai.log.unshift({ q: p.question, a: text, who: who, at: new Date().toISOString().slice(11, 16), refs: refs || [] });
+    if (ai.log.length > AI_LOG_MAX) ai.log.length = AI_LOG_MAX;
+    aiDrawLog();
+  }
+  function aiDrawLog() {
+    var box = $('aiHistoryList'); box.textContent = ''; $('aiHistory').hidden = !ai.log.length;
+    ai.log.forEach(function (e, i) {
+      box.appendChild(el('button', { type: 'button', 'class': 'linkrow', title: 'Bring this question and its answer back, and check its ids again', onclick: function () { aiRestore(i); } },
+                         [el('span', { 'class': 'who', text: e.q.length > 80 ? e.q.slice(0, 79) + '…' : e.q }), el('span', { 'class': 'when', text: e.who + ' ' + e.at + ' UTC' })]));
+    });
+  }
+  function aiRestore(i) {
+    var e = ai.log[i]; if (!e) return;
+    $('aiTask').value = 'ask'; $('aiQuestion').value = e.q; $('aiText').value = e.a;
+    ai.focus = AS.focusMany(state.graph, analysis(), e.refs, { known: assistKnown });
+    claudeDiscard(); syncAssistUi(); drawSuggestions();
+    aiNoteSet('Brought back: written by ' + e.who + ' at ' + e.at + ' UTC. It is a draft by a model, not evidence.');
+    aiCheckNow();
+  }
+
   // ---- Claude: off whenever the page opens, and the one way the evidence leaves this computer. Asking shows the exact text first and sends only after a click. ----
   function cleanClaude(c) {
     c = c && typeof c === 'object' ? c : {};
@@ -4583,7 +4634,7 @@
     if (ai.busy) { toast('The model on this computer is answering: wait for it, or cancel it, first.', true); return; }
     var p = assistPrompt(); if (!p) return;
     var req; try { req = AS.claudeRequest({ key: cl.key, model: state.claude.model, system: p.system, user: p.user }); } catch (e) { toast(e.message, true); return; }
-    cl.pending = { p: p, model: state.claude.model };
+    cl.pending = { p: p, model: state.claude.model, refs: focusRefs(ai.focus) };
     $('claudeReviewMeta').textContent = 'This leaves your computer. It goes to ' + req.host + ' (Anthropic) with your API key, to the model ' + state.claude.model + ': about ' + p.tokens.toLocaleString() + ' tokens ('
       + plural(p.shown.patterns, 'pattern row') + ', ' + plural(p.shown.peelChains, 'peel chain') + ', ' + plural(p.shown.clusters, 'cluster') + ', ' + plural(p.shown.wallets, 'noted wallet') + '). What Anthropic does with it is set by your agreement with Anthropic, not by Hopline. Read it, then send or cancel.';
     $('claudeReviewText').textContent = p.text;                                            // a block of text, not a field: it cannot be edited, so what is read is what is sent
@@ -4592,7 +4643,7 @@
   /** Send what the review showed (the text kept from then, not rebuilt) and put the answer in the answer box, checked like any other. */
   function claudeSend() {
     var pend = cl.pending; if (!pend || cl.busy || !cl.on) return;
-    var p = pend.p, model = pend.model, req;
+    var p = pend.p, model = pend.model, refs = pend.refs || [], req;
     try { req = AS.claudeRequest({ key: cl.key, model: model, system: p.system, user: p.user }); } catch (e) { toast(e.message, true); return; }
     var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 10 * 60 * 1000);
     req.init.signal = ctl.signal; cl.busy = ctl; cl.pending = null; syncClaudeUi();
@@ -4609,7 +4660,7 @@
       aiNoteSet('Written by ' + who + ' (Claude, through Anthropic) at ' + new Date().toISOString().slice(11, 16) + ' UTC'
         + (a.fin.input != null && a.fin.output != null ? ', ' + a.fin.input.toLocaleString() + ' tokens in and ' + a.fin.output.toLocaleString() + ' out' : '') + '. It is a draft by a model, not evidence.'
         + (a.fin.fellBack ? ' The first model declined the request, so a second Anthropic model answered.' : '') + (cut ? ' ' + CLAUDE_CUT : ''), cut);
-      aiCheckNow();
+      aiCheckNow(); aiRemember(p, who, $('aiText').value, refs);
     }, function (e) {
       aiNoteSet(claudeErrorText(e), !(e && e.name === 'AbortError'));
     }).then(function () { clearTimeout(timer); cl.busy = null; syncClaudeUi(); });
@@ -4639,7 +4690,11 @@
     $('claudeSend').addEventListener('click', claudeSend);
     $('claudeCancel').addEventListener('click', claudeDiscard);
     $('claudeTest').addEventListener('click', claudeTest);
-    $('aiTask').addEventListener('change', claudeDiscard);
+    $('aiTask').addEventListener('change', function () { claudeDiscard(); syncAssistUi(); if ($('aiTask').value === 'ask') drawSuggestions(); });
+    $('aiQuestion').addEventListener('input', function () { syncQuestion(); claudeDiscard(); });                     // the review shows one exact text: changing the question withdraws it
+    $('aiQuestion').addEventListener('focus', drawSuggestions);
+    $('aiQuestion').addEventListener('keydown', function (e) { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); if (!$('aiAsk').disabled) aiAsk(); } });
+    $('aiSection').addEventListener('toggle', function () { if ($('aiSection').open && $('aiTask').value === 'ask') drawSuggestions(); });
     $('aiCopy').addEventListener('click', aiCopyPrompt);
     $('aiAsk').addEventListener('click', aiAsk);
     $('aiTest').addEventListener('click', aiTest);
@@ -5900,7 +5955,7 @@
     stopPlay(); state.client.abort(); state.client.resume();
     setGraph(new M.Graph()); state.keep = new Set(); state.pinned = new Map(); state.selected = new Set(); state.selectedEdge = null;
     state.filter.timeFrom = null; state.filter.timeTo = null; state.expandRange = null; syncExpandChip();
-    state.focus = null; state.nav.reset();
+    state.focus = null; state.nav.reset(); ai.log = []; aiDrawLog();
     state.trace = emptyTrace(); state.vgroups = new Map(); state.hidden = new Set(); state.hideUndo = []; state.hideRedo = []; state.arrange = DEFAULT_ARRANGE;
     try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the old hash stays, harmless */ }
     renderer.cur = new Map(); renderer.target = new Map(); renderer.anim = null;

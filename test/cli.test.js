@@ -157,6 +157,20 @@ test('prompt: the text for an assistant, and as JSON', () => {
   assert.equal(run(['prompt', FILE, '--task', 'triage', '--focus', tid(99)]).code, 2);
 });
 
+test('prompt --task ask: the question goes in its own block, and what it names is described in full', () => {
+  const q = 'Where did the money in ' + tid(12) + ' go, and what is ' + BINANCE + '? Also ' + tid(99) + ' and nothing else.';
+  const r = run(['prompt', FILE, '--task', 'ask', '--question', q]);
+  assert.equal(r.code, 0, r.err); assert.match(r.out, /TASK: Answer the investigator's QUESTION/); assert.ok(r.out.includes('<<QUESTION\n' + q + '\nQUESTION>>'));
+  const ev = JSON.parse(r.out.match(/<<EVIDENCE \(JSON\)\n(.*)\nEVIDENCE>>/s)[1]);
+  assert.deepEqual(ev.focus.map((f) => f.id), [tid(12), BINANCE], 'the two that are in the workspace, in the order written; the unknown id is skipped');
+  const j = run(['prompt', FILE, '--task', 'ask', '--question', 'what is first?', '--focus', tid(10), '--json']).json();
+  assert.equal(j.task, 'ask'); assert.equal(j.shown.focus, 1); assert.deepEqual(Object.keys(j).sort(), ['shown', 'system', 'task', 'tokens', 'user']);
+  assert.equal(run(['prompt', FILE, '--task', 'ask']).code, 2, 'a question is required');
+  assert.equal(run(['prompt', FILE, '--task', 'ask', '--question', '   ']).code, 2);
+  assert.equal(run(['prompt', FILE, '--task', 'ask', '--question', 'x', '--focus', tid(99)]).code, 2, 'a --focus that is not in the workspace is still an error');
+  assert.equal(run(['prompt', FILE, '--task', 'triage', '--question', 'ignored here']).out.includes('ignored here'), false, 'only ask uses a question');
+});
+
 test('check: exit 0 when every id is in the evidence, 1 when one is not, with the ids named', () => {
   const good = path.join(dir, 'good.txt'), bad = path.join(dir, 'bad.txt'), fake = 'ab'.repeat(32);
   fs.writeFileSync(good, 'The chain starts at ' + tid(10) + ' and pays ' + BINANCE + '.');
