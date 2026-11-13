@@ -115,6 +115,8 @@
     if (rows.some(function (r) { return r.type === 'coinbase'; })) return 'Coinbase: newly created coins, nothing before this';
     if (rows.some(function (r) { return r.type === 'unspent'; })) return 'Unspent so far: the coins have not moved';
     if (n.type === 'tx' && n.loaded === false) return 'Not loaded yet: move to this transaction first';
+    var pt = n.type === 'tx' ? Model.txPartial(graph, n, dir) : null;
+    if (pt) return 'Only ' + (dir === 'prev' ? pt.inHave + ' of its ' + pt.nIn + ' inputs' + (pt.inHave === 1 ? ' is' : ' are') : pt.outHave + ' of its ' + pt.nOut + ' outputs' + (pt.outHave === 1 ? ' is' : ' are')) + ' on this canvas (a link keeps only what was on screen): add its id in the box at the top to load the rest';
     if (n.type === 'tx' && dir === 'next' && !n.outspendsLoaded) return 'Spending information not loaded yet';
     if (n.type === 'addr' && dir === 'next' && n.spentSum === 0 && !n.mempoolSpentSum) return 'Never spent: the server counts no coins spent from this wallet';
     if (n.type === 'addr' && Model.historyOpen(n, dir)) return 'History of this wallet is not loaded: use Load history';

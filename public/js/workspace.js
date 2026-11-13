@@ -634,12 +634,13 @@
       if (!label && h.outside) label = '0';                                          // something is there, but outside the time bar's range
       if (!label) return null;
       var came = state.trace.prov.get(id);                                       // a bare "?" on the side the trace came from is noise: it stays one key press or menu item away
-      if (label === '?' && came && ((came.dir === 'next' && dir === 'prev') || (came.dir === 'prev' && dir === 'next'))) return null;
+      if (label === '?' && !h.partial && came && ((came.dir === 'next' && dir === 'prev') || (came.dir === 'prev' && dir === 'next'))) return null;
       var what = TRACE_WHAT[n.type][dir], N = state.stepSize;
       var click = !h.known || h.known <= N || state.stepMode === 'all' ? ' Shift-click to choose which.'
                 : state.stepMode === 'ask' ? ' Click to choose which: the top ' + N + ' come ticked.' : ' Click shows the largest ' + N + '; click again for the next.';
-      var tip = h.known ? 'Show ' + h.known + ' ' + what + (h.unknown ? ' (more may exist: ' + (n.type === 'addr' ? 'the wallet\'s history is not fully loaded' : 'this transaction is not loaded') + ')' : '') + '.' + click
-                        : h.outside && !h.unknown ? 'Nothing inside ' + rangeWhat() + '.' : 'Look for ' + what + ' (loads data)';
+      var part = h.partial ? 'only ' + h.partial.have + ' of its ' + h.partial.of + (dir === 'prev' ? ' inputs' : ' outputs') + (h.partial.have === 1 ? ' is' : ' are') + ' on this canvas' : '';
+      var tip = h.known ? 'Show ' + h.known + ' ' + what + (h.unknown ? ' (more may exist: ' + (n.type === 'addr' ? 'the wallet\'s history is not fully loaded' : part || 'this transaction is not loaded') + ')' : '') + '.' + click
+                        : h.outside && !h.unknown ? 'Nothing inside ' + rangeWhat() + '.' : 'Look for ' + what + ' (loads data' + (part ? ': ' + part : '') + ')';
       if (h.outside) tip += ' ' + h.outside + ' more fall outside ' + rangeWhat() + '.';
       return { label: label, known: h.known, tip: tip };
     }
@@ -783,7 +784,7 @@
     var title = (dir === 'next' ? 'Show forward from ' : 'Show backward from ') + S.shortId(n.type === 'tx' ? n.txid : n.address, 6);
     return run(title, function () {
       var ex = state.explorer, chain = Promise.resolve();
-      if (n.type === 'tx' && (n.loaded === false || (dir === 'next' && !n.outspendsLoaded))) chain = chain.then(function () { return ex.loadTx(n.txid).then(add); });
+      if (n.type === 'tx' && (n.loaded === false || M.txPartial(g, n, dir) || (dir === 'next' && !n.outspendsLoaded))) chain = chain.then(function () { return ex.loadTx(n.txid).then(add); });
       chain = chain.then(function () {
         var h = TR.hidden(g, trShown(id, dir), id, dir), nd = g.nodes.get(id);                  // not narrowed by the time window: this asks whether anything is known at all
         if (nd.type === 'addr' && h.known === 0 && h.unknown) {                    // nothing known yet: ask for the wallet's history
@@ -3249,6 +3250,9 @@
       kv(dl, 'Block', n.height);
       if (n.loaded) {
         kv(dl, 'Inputs', n.nIn); kv(dl, 'Outputs', n.nOut);
+        var part = M.txPartial(state.graph, n);
+        if (part) kv(dl, 'On this canvas', part.inHave + ' of ' + part.nIn + ' inputs and ' + part.outHave + ' of ' + part.nOut + ' outputs, so no pattern is checked for it. '
+                                         + (traceOn() ? 'Show backward or Show forward loads the rest.' : 'Add its id in the box at the top to load the rest.'));
         kvf(dl, 'Value out', S.fmtBtc(n.valueOut) + ' BTC', fiatOf(n.valueOut, n.time));
         if (!n.coinbase) kvf(dl, 'Value in', S.fmtBtc(n.valueIn) + ' BTC', fiatOf(n.valueIn, n.time));
         if (n.fee != null) kvf(dl, 'Fee', fmtInt(n.fee) + ' sat' + (n.vsize ? ' (' + (n.fee / n.vsize).toFixed(1) + ' sat/vB)' : ''), fiatOf(n.fee, n.time));
@@ -5879,8 +5883,10 @@
       var T = state.trace, off = fresh.filter(function (id) { return !T.shown.has(id); }).length;
       if (off) where = ' ' + plural(off, 'new vertex', 'new vertices') + (off === 1 ? ' is' : ' are') + ' loaded but not on the trace.';
     }
+    var partialTx = 0; r.graph.nodes.forEach(function (n) { if (n.type === 'tx' && M.txPartial(g, g.nodes.get(n.id))) partialTx++; });
+    var partialNote = partialTx ? ' ' + plural(partialTx, 'transaction', 'transactions') + (partialTx === 1 ? ' is' : ' are') + ' only partly on the canvas (' + (shared ? 'a link keeps only what was on screen' : 'the file holds only some of its inputs and outputs') + '), so no pattern is shown for ' + (partialTx === 1 ? 'it' : 'them') + ': select ' + (partialTx === 1 ? 'it' : 'one') + ' and use Show backward or Show forward to load the rest.' : '';
     var cut = shared && shared.of && shared.of > r.graph.nodes.size ? ' The sender cut it down to the ' + shared.kept + ' vertices nearest START (they had ' + shared.of + '), so this is not the whole picture.' : '';
-    toast((shared ? 'Opened a shared canvas: ' : 'Imported ') + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + cut + where + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length, snap && !snap.tooBig ? { text: 'Undo import', fn: undoLoad } : null, 8000);
+    toast((shared ? 'Opened a shared canvas: ' : 'Imported ') + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + cut + partialNote + where + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length, snap && !snap.tooBig ? { text: 'Undo import', fn: undoLoad } : null, 8000);
   }
 
   function clearAll() {

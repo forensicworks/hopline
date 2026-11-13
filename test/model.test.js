@@ -465,3 +465,24 @@ test('refreshDerived: only outputs are told apart, and only wallets: a coin to a
   assert.equal(g.edges.get(ID.edgeOut(hex2(51), 1)).spent, false);
   assert.equal(g.edges.get(ID.edgeIn(hex2(51), 0)).spent, undefined, 'an input is not a coin that is held');
 });
+
+test('txPartial: a loaded transaction with fewer inputs or outputs in the graph than it has is partial, in that direction; a complete one or an unloaded one is not', () => {
+  const { Graph, ID, txPartial } = require('../public/js/hopline-model.js');
+  const g = new Graph();
+  g.addTx({ txid: 't1', fee: 10, weight: 400, status: { confirmed: true, block_height: 1, block_time: 1000 },
+            vin: [['A', 5], ['B', 6]].map(([a, v]) => ({ txid: 't0', vout: 0, prevout: { scriptpubkey_address: a, scriptpubkey_type: 'p2pkh', value: v * 100 } })),
+            vout: [['C', 300], ['D', 200], ['E', 100]].map(([a, v]) => ({ scriptpubkey_address: a, scriptpubkey_type: 'p2pkh', value: v })) });
+  const n = () => g.nodes.get(ID.tx('t1'));
+  assert.equal(txPartial(g, n()), null, 'all of it is there');
+  assert.equal(txPartial(g, n(), 'prev'), null); assert.equal(txPartial(g, n(), 'next'), null);
+  g.removeEdge(ID.edgeOut('t1', 1)); g.removeEdge(ID.edgeOut('t1', 2));
+  assert.deepEqual(txPartial(g, n(), 'next'), { inHave: 2, nIn: 2, outHave: 1, nOut: 3 }, 'two of its three outputs are missing');
+  assert.equal(txPartial(g, n(), 'prev'), null, 'the inputs are all there: going back is not affected');
+  assert.ok(txPartial(g, n()), 'either side counts when no direction is given');
+  g.removeEdge(ID.edgeIn('t1', 0));
+  assert.deepEqual(txPartial(g, n(), 'prev'), { inHave: 1, nIn: 2, outHave: 1, nOut: 3 });
+  assert.equal(txPartial(g, g.nodes.get(ID.addr('C'))), null, 'a wallet is never partial in this sense');
+  g.upsertNode({ id: ID.tx('x'), type: 'tx', txid: 'x', loaded: false });
+  assert.equal(txPartial(g, g.nodes.get(ID.tx('x')), 'prev'), null, 'a transaction that is not loaded has its own mark (loaded: false)');
+  assert.equal(txPartial(g, null), null);
+});

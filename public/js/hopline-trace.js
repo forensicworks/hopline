@@ -65,16 +65,18 @@
    * What is still hidden in a direction: { ids, known, unknown, outside }.
    *   known    how many hidden neighbours the graph already knows about (inside `range` when one is given)
    *   outside  how many more fall outside the time window `range` { from, to } and are therefore left out
-   *   unknown  true when more may exist that have not been loaded (an unloaded transaction; a wallet whose history is
-   *            not, or not completely, loaded)
+   *   unknown  true when more may exist that have not been loaded (an unloaded transaction; a loaded one with only part of its inputs or outputs in the graph,
+   *            as a canvas link leaves it; a wallet whose history is not, or not completely, loaded)
+   *   partial  for that second kind of transaction: { have, of } how many of its inputs (going back) or outputs (going forward) the graph holds, else null
    */
   function hidden(graph, shown, id, dir, range) {
     var n = graph.nodes.get(id);
-    if (!n || (n.type !== 'tx' && n.type !== 'addr')) return { ids: [], known: 0, unknown: false, outside: 0 };
+    if (!n || (n.type !== 'tx' && n.type !== 'addr')) return { ids: [], known: 0, unknown: false, outside: 0, partial: null };
     var ids = [], outside = 0;
     neighbours(graph, id, dir).forEach(function (r) { if (shown.has(r.id)) return; if (inRange(r, range)) ids.push(r.id); else outside++; });
-    var unknown = n.type === 'tx' ? n.loaded === false : Model.historyOpen(n, dir);
-    return { ids: ids, known: ids.length, unknown: unknown, outside: outside };
+    var pt = n.type === 'tx' ? Model.txPartial(graph, n, dir) : null;
+    var unknown = n.type === 'tx' ? n.loaded === false || !!pt : Model.historyOpen(n, dir);
+    return { ids: ids, known: ids.length, unknown: unknown, outside: outside, partial: pt ? (dir === 'prev' ? { have: pt.inHave, of: pt.nIn } : { have: pt.outHave, of: pt.nOut }) : null };
   }
 
   /** The label on a handle: "3", "3+" (more may exist), "?" (nothing known yet) or '' (nothing to show). */

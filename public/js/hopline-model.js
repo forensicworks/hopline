@@ -268,6 +268,21 @@
     return dir === 'next' ? spends : dir === 'prev' ? funds : spends || funds;
   }
 
+  /**
+   * Does the graph hold fewer of this loaded transaction's inputs (dir 'prev'), outputs (dir 'next') or either (no dir) than the transaction has? A canvas link leaves it so:
+   * the transaction is there with its totals (nIn, nOut) but only the edges between the vertices that were kept. Nothing can be concluded from such a transaction (the analysis
+   * skips it), and loading it again fills it in. null when nothing is missing, or when the transaction is not loaded at all (that has its own mark: loaded === false).
+   * Otherwise { inHave, nIn, outHave, nOut }, both sides counted.
+   */
+  function txPartial(graph, n, dir) {
+    if (!n || n.type !== 'tx' || n.loaded !== true || typeof n.nIn !== 'number' || typeof n.nOut !== 'number') return null;
+    var inHave = 0, outHave = 0;
+    graph.edgesOf(n.id).forEach(function (e) { if (e.kind === 'in' && e.target === n.id) inHave++; else if (e.kind === 'out' && e.source === n.id) outHave++; });
+    var lackIn = inHave < n.nIn, lackOut = outHave < n.nOut;
+    if (dir === 'prev' ? !lackIn : dir === 'next' ? !lackOut : !(lackIn || lackOut)) return null;
+    return { inHave: inHave, nIn: n.nIn, outHave: outHave, nOut: n.nOut };
+  }
+
   /** Ingest GET /tx/<id>/outspends: marks which outputs are spent, and by whom (with the spender's time). */
   Graph.prototype.addOutspends = function (txid, outspends) {
     var g = this;
@@ -425,5 +440,5 @@
     return g;
   };
 
-  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf, historyRead: historyRead, historyOpen: historyOpen, spendingComplete: spendingComplete };
+  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf, historyRead: historyRead, historyOpen: historyOpen, txPartial: txPartial, spendingComplete: spendingComplete };
 }));
