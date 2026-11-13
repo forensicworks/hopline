@@ -190,3 +190,60 @@ def test_the_range_travels_with_the_saved_workspace(tpage, mock, tmp_path):
     tpage.set_input_files("#fileImport", str(p))
     tpage.wait_for_function("() => window.__hopline.state.expandRange !== null")
     assert rng(tpage) == r and tpage.is_visible("#expandChip")
+
+
+def test_the_chip_offers_to_show_only_the_range_and_says_what_that_does(tpage, mock):
+    opened(tpage, mock)
+    assert not tpage.is_visible("#expandChipFilter"), "no range, no button"
+    drag(tpage, 0.25, 0.60)
+    b = tpage.locator("#expandChipFilter")
+    assert b.is_visible() and b.inner_text() == "Show only this range"
+    assert "Reset" in b.get_attribute("title") and "window" in b.get_attribute("title")
+
+
+def test_show_only_this_range_makes_it_the_time_bars_window_and_hides_the_rest(tpage, mock):
+    opened(tpage, mock)
+    before = shown(tpage)
+    ends = {"tx:" + tid(200), "tx:" + tid(176)}
+    assert ends <= before
+    drag(tpage, 0.25, 0.60)
+    r = rng(tpage)
+    tpage.click("#expandChipFilter"); settle(tpage)
+    f = tpage.evaluate("() => window.__hopline.state.filter")
+    assert f["timeFrom"] == r["from"] and f["timeTo"] == r["to"], "the time bar's window is the range that was drawn"
+    assert int(tpage.input_value("#tFrom")) > 0 and int(tpage.input_value("#tTo")) < 1000, "the sliders moved to it"
+    assert rng(tpage) is None and not tpage.is_visible("#expandChip"), "the amber range is gone: it is the window now"
+    assert not (ends & shown(tpage)), "the two payments outside the range are hidden now"
+    assert "Showing only" in tpage.inner_text("#toast")
+
+
+def test_reset_on_the_time_bar_brings_everything_back_after_show_only(tpage, mock):
+    opened(tpage, mock)
+    before = shown(tpage)
+    drag(tpage, 0.25, 0.60)
+    tpage.click("#expandChipFilter"); settle(tpage)
+    assert shown(tpage) != before
+    tpage.click("#tbReset"); settle(tpage)
+    f = tpage.evaluate("() => window.__hopline.state.filter")
+    assert f["timeFrom"] is None and f["timeTo"] is None and shown(tpage) == before
+    assert tpage.input_value("#tFrom") == "0" and tpage.input_value("#tTo") == "1000"
+
+
+def test_a_range_drawn_from_the_very_start_leaves_that_end_of_the_window_open(tpage, mock):
+    opened(tpage, mock)
+    drag(tpage, 0.0, 0.5)
+    r = rng(tpage)
+    tpage.click("#expandChipFilter"); settle(tpage)
+    f = tpage.evaluate("() => window.__hopline.state.filter")
+    assert f["timeFrom"] is None and f["timeTo"] == r["to"]
+    assert tpage.input_value("#tFrom") == "0" and int(tpage.input_value("#tTo")) < 1000
+
+
+def test_after_show_only_the_arrows_still_reach_the_same_stretch_of_time(tpage, mock):
+    opened(tpage, mock)
+    drag(tpage, 0.25, 0.60)
+    r = rng(tpage)
+    inside = [t for t in times() if r["from"] <= t <= r["to"]]
+    assert 0 < len(inside) < 23 and known_on_left(tpage) == len(inside)
+    tpage.click("#expandChipFilter"); settle(tpage)
+    assert known_on_left(tpage) == len(inside), "tied to the time bar (the default), the arrows reach what the drawn range reached"

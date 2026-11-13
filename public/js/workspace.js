@@ -5304,7 +5304,8 @@
   }
   // ---- a range for the arrows alone --------------------------------------------------------------
   // In the Trace layout, dragging across the time line chooses the stretch of time the arrows (and their lists) reach. It hides nothing:
-  // the time bar's own window is the one that filters. A click without a drag still selects the transactions under it.
+  // the time bar's own window is the one that filters (the chip's "Show only this range" copies the drawn range into that window).
+  // A click without a drag still selects the transactions under it.
   var tbDrag = null;                                                                       // { x0, x1, moved } while the pointer is down on the time line
   function timeFromX(x, w) { var b = state.tb; return Math.round(b.min + Math.max(0, Math.min(1, (x - TB_PAD) / (w - 2 * TB_PAD))) * (b.max - b.min)); }
   function cleanRange(r) {
@@ -5325,6 +5326,20 @@
   function clearExpandRange() {
     if (!state.expandRange) return;
     state.expandRange = null; syncExpandChip(); drawHistogram(); refresh(); showInspector(true); scheduleSave();
+  }
+  /** Makes the drawn range the time bar's window: the sliders move to it and what lies outside is hidden, exactly as if the sliders had been dragged there.
+   *  The range for the arrows is cleared; with the arrows tied to the time bar (the default) they reach the same stretch of time as before. */
+  function filterToExpandRange() {
+    var r = state.expandRange, b = state.tb, f = state.filter;
+    if (!r || !timebarEnabled()) return;
+    stopPlay();
+    f.timeFrom = r.from <= b.min ? null : r.from;                                          // a range that starts at the very beginning (or ends at the very end) leaves that end open
+    f.timeTo = r.to >= b.max ? null : r.to;
+    state.expandRange = null; syncExpandChip();
+    $('tFrom').value = f.timeFrom == null ? 0 : sliderOfTime(f.timeFrom);
+    $('tTo').value = f.timeTo == null ? 1000 : sliderOfTime(f.timeTo);
+    syncTimeLabels(); drawHistogram(); refresh(); showInspector(true); scheduleSave();
+    toast('Showing only ' + S.fmtTime(r.from, false) + ' → ' + S.fmtTime(r.to, false) + '. Reset on the time bar brings everything back.');
   }
   /** The words for the window the arrows are held to: the time bar's, or the stretch you dragged. */
   function rangeWhat() { return state.expandRange ? 'the range you drew on the time line' : 'the time bar\'s range'; }
@@ -6183,6 +6198,7 @@
     $('hist').addEventListener('pointermove', onTimeHover);
     $('hist').addEventListener('pointerdown', onTimeDown); $('hist').addEventListener('pointerup', onTimeUp); $('hist').addEventListener('pointercancel', onTimeUp);
     $('expandChipClear').addEventListener('click', clearExpandRange);
+    $('expandChipFilter').addEventListener('click', filterToExpandRange);
     $('hist').addEventListener('pointerleave', onTimeLeave);
     $('hist').addEventListener('click', onTimeClick);
     $('tbPlay').addEventListener('click', togglePlay);
