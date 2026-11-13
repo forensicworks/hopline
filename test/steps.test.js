@@ -130,3 +130,12 @@ test('a transaction that is not loaded yet is timed by when its output was spent
             vout: [{ scriptpubkey_address: 'V', scriptpubkey_type: 'p2pkh', value: 4 }] });
   assert.equal(Steps.neighbours(g, ID.tx('u1'), 'next')[0].time, null, 'unconfirmed: no time');
 });
+
+test('emptyReason: a transaction with only part of its inputs on the canvas says so instead of "nothing before this"', () => {
+  const g = chain();
+  assert.match(Steps.emptyReason(g, ID.tx('t2'), 'next'), /Never|Unspent|Nothing after/, 'a complete transaction keeps the ordinary reasons');
+  g.removeEdge(ID.edgeIn('t1', 0));
+  const why = Steps.emptyReason(g, ID.tx('t1'), 'prev');
+  assert.match(why, /^Only 0 of its 1 inputs are on this canvas/); assert.match(why, /add its id in the box at the top/);
+  assert.doesNotMatch(why, /Nothing before this/);
+});

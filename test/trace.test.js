@@ -259,3 +259,20 @@ test('a time window leaves out what falls outside it, keeps what has no time, an
   assert.deepEqual(p.primary.map((x) => x.id).sort(), [ID.tx('b'), ID.tx('c')].sort());
   assert.equal(TR.inRange({ time: 5 }, null), true); assert.equal(TR.inRange({ time: null }, { from: 1, to: 2 }), true);
 });
+
+test('hidden: a loaded transaction with only part of its outputs in the graph says more may exist, and how many are there', () => {
+  const g = chain();
+  const shown = new Set([ID.tx('t1'), ID.addr('A')]);
+  assert.equal(TR.hidden(g, shown, ID.tx('t1'), 'next').unknown, false, 'complete: nothing more can exist');
+  assert.equal(TR.hidden(g, shown, ID.tx('t1'), 'next').partial, null);
+  g.removeEdge(ID.edgeOut('t1', 1)); g.removeEdge(ID.edgeOut('t1', 2));            // what a link leaves: the transaction, one of its three outputs
+  g.refreshDerived();
+  const fwd = TR.hidden(g, shown, ID.tx('t1'), 'next');
+  assert.equal(fwd.unknown, true); assert.deepEqual(fwd.partial, { have: 1, of: 3 });
+  assert.equal(fwd.known, 1, 'the one output that is there');
+  assert.equal(TR.handleLabel(fwd), '1+');
+  const back = TR.hidden(g, new Set([ID.tx('t1'), ID.addr('A')]), ID.tx('t1'), 'prev');
+  assert.equal(back.unknown, false, 'its inputs are all there'); assert.equal(back.partial, null);
+  const none = TR.hidden(g, new Set([ID.tx('t1'), ID.addr('A'), ID.addr('B')]), ID.tx('t1'), 'next');
+  assert.equal(TR.handleLabel(none), '?', 'nothing more is known, but more may exist');
+});
