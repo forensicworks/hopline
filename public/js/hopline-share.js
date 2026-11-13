@@ -18,6 +18,10 @@
  * `l`, the labels and tags (and notes) of the vertices, as [reference, label, tag, note] with the reference the position of a transaction in `t` or the address of a wallet,
  * and `trace`, the trace as the workspace file saves it (starting points, the vertices it shows, their places and where each came from, without groups).
  *
+ * A transaction the link cuts (it keeps fewer of its inputs or outputs than it has) cannot be analysed by the reader, so it carries the short names of the patterns the sender's analysis
+ * showed on it (o.carry: Map of vertex id -> names; node.carried). They are the sender's claim, shown apart and unchecked (see HoplineAnalysis.carriedFlags); a mark the sender itself was
+ * only carried (it opened a link) is not passed on.
+ *
  * A link has a limit: at most `limit` vertices (default 50, about 4,000 characters on real data), and in any case no more than
  * MAX_CHARS characters. Over the limit it keeps the vertices nearest START (hop by hop, along the edges in either direction) and says
  * how many it left out; build() reports that, and the page warns. Pure functions apart from the compression, which uses the
@@ -40,7 +44,7 @@
   var MAX_FRAGMENT = 200000;                                    // the longest link opened
   var MAX_JSON = 4000000;                                       // the largest text a link may unpack to
   var MAX_NODES_IN = 5000;                                      // the most vertices a link may claim
-  var DROP = ['ext', 'fetchedAt', 'spendsCheckedAt', 'statsAt', 'statsSource', 'source'];                       // what other services said, and where and when a vertex was fetched from
+  var DROP = ['ext', 'fetchedAt', 'spendsCheckedAt', 'statsAt', 'statsSource', 'source', 'carried'];                       // what other services said, and where and when a vertex was fetched from
   var VIEW_KEYS = ['layout', 'arrange', 'colorBy', 'arrowDir', 'dirPalette', 'sizeBy', 'timeScale', 'focus', 'focusOn', 'hops'];          // the parts of the view that make the same picture; the rest is the reader's own
   var TOO_BIG = 'unpacked size over the limit';
 
@@ -110,13 +114,23 @@
   }
 
   /**
-   * The workspace file text for the vertices nearest START. o: { nodes, edges, starts, limit, notes (bool), view, now }.
+   * The workspace file text for the vertices nearest START. o: { nodes, edges, starts, limit, notes (bool), view, now, carry (Map of vertex id -> pattern names) }.
    * Returns { text, kept, total }.
    */
   function pack(graph, o) {
-    var near = nearest(graph, o), nodes = [], edges = [];
-    near.order.forEach(function (id) { nodes.push(slim(graph.nodes.get(id), !!o.notes)); });
-    graph.edges.forEach(function (e) { if (near.kept.has(e.source) && near.kept.has(e.target) && (!o.edges || o.edges.has(e.id))) edges.push(e); });
+    var near = nearest(graph, o), nodes = [], edges = [], have = new Map();
+    graph.edges.forEach(function (e) {
+      if (!(near.kept.has(e.source) && near.kept.has(e.target) && (!o.edges || o.edges.has(e.id)))) return;
+      edges.push(e);
+      var t = e.kind === 'in' ? e.target : e.kind === 'out' ? e.source : null; if (!t) return;
+      var h = have.get(t); if (!h) { h = { i: 0, o: 0 }; have.set(t, h); }
+      if (e.kind === 'in') h.i++; else h.o++;
+    });
+    near.order.forEach(function (id) {
+      var c = slim(graph.nodes.get(id), !!o.notes), marks = o.carry && o.carry.get ? o.carry.get(id) : null, h = have.get(id) || { i: 0, o: 0 };
+      if (marks && marks.length && c.type === 'tx' && c.loaded === true && typeof c.nIn === 'number' && typeof c.nOut === 'number' && (h.i < c.nIn || h.o < c.nOut)) c.carried = marks.slice(0, 6);
+      nodes.push(c);
+    });
     var text = JSON.stringify({ format: FORMAT, version: VERSION, exported: new Date(o.now != null ? o.now : Date.now()).toISOString(), share: { kept: near.kept.size, of: near.total },
                                 view: pruneView(o.view, near.kept), nodes: nodes, edges: edges });
     return { text: text, kept: near.kept.size, total: near.total };

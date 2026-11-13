@@ -205,6 +205,7 @@
       g.upsertEdge({ id: ID.edgeIn(txid, i), source: source, target: txId, kind: 'in', txid: txid, vin: i,
                      amount: v.is_coinbase || !v.prevout ? valueOut : (v.prevout.value || 0), time: time, confirmed: confirmed, prev: prev });
     });
+    delete g.nodes.get(txId).carried;                                                   // the marks a link carried (hopline-analysis.js) were for a transaction that was only partly there
     return txId;
   };
 
