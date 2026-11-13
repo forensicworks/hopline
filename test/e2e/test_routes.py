@@ -123,16 +123,18 @@ def test_adding_the_known_wallet_offers_the_route_instead_of_leaving_it_a_separa
     assert c and c["ids"][0] == "addr:" + EX and set(c["ids"]) <= shown(tpage)
 
 
-def test_the_details_of_a_wallet_with_a_route_show_it_and_a_wallet_without_one_shows_nothing(tpage, mock):
+def test_the_details_of_a_wallet_with_a_route_show_it_and_a_wallet_without_one_says_there_is_none(tpage, mock):
     trace_case(tpage, mock)
     tpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + EX); settle(tpage)
     assert "route to" in tpage.inner_text("#inspBody").lower() and tpage.locator("#inspBody .relbtn[data-rel=up]").count() == 1
     tpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + K2); settle(tpage)
     inner = tpage.inner_text("#inspBody").lower()
-    assert "route to" in inner and "no route to or from" in inner, "a named wallet shows that it has no route, so it can be searched for"
+    assert "route to" in inner and "no route in what is loaded" in inner, "a named wallet shows that it has no route, so it can be searched for"
     assert tpage.locator("#inspBody .relbtn[data-rel=up]").count() == 0 and tpage.locator("#inspBody .relbtn[data-search]").count() == 2, "k2 shares an address with the flow, not a coin"
     tpage.evaluate("(id) => window.__hopline.setSel([id])", "addr:" + addr("z")); settle(tpage)
-    assert "route to" not in tpage.inner_text("#inspBody").lower(), "a wallet nobody named and with no route shows nothing"
+    inner = tpage.inner_text("#inspBody").lower()
+    assert "route to" in inner and "no route in what is loaded" in inner, "a wallet nobody named and with no route says so too: the section is always there"
+    assert tpage.locator("#inspBody .relbtn[data-search]").count() == 2
     tpage.evaluate("(id) => window.__hopline.setSel([id])", "tx:" + tid(2)); settle(tpage)
     assert tpage.locator("#inspBody .relbtn[data-rel=up]").count() == 1, "a transaction on the way shows its route too"
 

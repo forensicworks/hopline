@@ -3981,8 +3981,8 @@
              action: { text: 'Show route', fn: function () { if (up) showRoute(id, ref); else showRoute(ref, id); } } };
   }
 
-  /** One wallet's relation to the reference, as buttons that light the route (or a line saying there is none). */
-  function relLine(id, rel, ref) {
+  /** One wallet's relation to the reference, as buttons that light the route (or a line saying there is none). `short`: the reference is named just above (the details), so the line need not name it. */
+  function relLine(id, rel, ref, short) {
     if (!rel) return null;
     if (rel.same) return el('p', { 'class': 'rel hint', text: 'This is the reference.' });
     var kids = [];
@@ -3995,7 +3995,7 @@
         text: (up ? '◀ upstream' : '▶ downstream') + ' · ' + h.hops + ' tx' + (h.viaHub ? ' · via a service wallet' : '') + ' · show route' }));
     });
     if (!kids.length) {
-      return el('div', { 'class': 'rel', 'data-rel': 'none' }, [el('span', { 'class': 'hint', text: 'No route to or from ' + routeName(ref) + ' in what is loaded.' }),
+      return el('div', { 'class': 'rel', 'data-rel': 'none' }, [el('span', { 'class': 'hint', text: short ? 'No route in what is loaded.' : 'No route to or from ' + routeName(ref) + ' in what is loaded.' }),
         searchBtn('up', 'Look for a route from this wallet to ' + routeName(ref), function () { searchRoute(id, ref); }),
         searchBtn('down', 'Look for a route from ' + routeName(ref) + ' to this wallet', function () { searchRoute(ref, id); })]);
     }
@@ -4010,14 +4010,29 @@
     sel.addEventListener('change', function () { state.routeRef = sel.value; findingsFor = null; updateFindings(); updateFindStrip(); showInspector(true); scheduleSave(); });
     return el('div', { 'class': 'refpick' }, [el('span', { 'class': 'lbl', text: 'Relative to' }), sel]);
   }
-  /** In the details of a wallet or transaction: its route to or from the reference, when there is one. */
+  /** The button that makes a vertex the reference the routes are measured from: the choice under Relative to, in one click. */
+  function useRefBtn(id) {
+    return el('button', { type: 'button', 'class': 'relbtn', 'data-use-ref': '1', text: 'Use as reference',
+                          title: 'Measure routes from this vertex: every other wallet and transaction then shows its route to or from it (the same choice as Relative to).',
+                          onclick: function () { state.routeRef = id; findingsFor = null; updateFindings(); updateFindStrip(); showInspector(true); scheduleSave(); } });
+  }
+  /**
+   * In the details of a wallet or transaction, as long as there is a reference: its route to or from it, or a line saying there is none in what is loaded with the two
+   * buttons that look for one, and a button that makes it the reference. The reference itself says so; with no start, no pick and no THREAT wallet it is the reference only while it is
+   * the one selected, and the button keeps it.
+   */
   function routeDetails(n) {
     var d = routeData();
-    if (!d.ref || !d.idx) return null;
-    if (n.id === d.ref) { var pick = refPicker(d.ref, n.id); return pick ? el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Route' }), el('p', { 'class': 'rel hint', text: 'This is the reference.' }), pick]) : null; }
-    var rel = RT.relations(d.idx, d.ref, [n.id], { hub: routeHub }).get(n.id);
-    if (!rel || (!rel.up && !rel.down && !(n.type === 'addr' && markOf(n.address)))) return null;          // a wallet with a name is shown even without a route: it can be searched for
-    return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Route to ' + routeName(d.ref) }), relLine(n.id, rel, d.ref), refPicker(d.ref, n.id)]);
+    if (!d.idx) return null;
+    if (!d.ref) return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Route' }), el('div', { 'class': 'rel' }, [el('span', { 'class': 'hint', text: 'Nothing to measure routes from yet.' }), useRefBtn(n.id)])]);
+    if (n.id === d.ref) {
+      var fixed = RT.referenceOf(state.graph, { routeRef: state.routeRef, trace: { seeds: state.trace.seeds } }, []) === d.ref, pick = refPicker(d.ref, n.id);
+      return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Route' }),
+        el('p', { 'class': 'rel hint', text: fixed ? 'This is the reference.' : 'This is the reference, while it is the vertex selected.' }), fixed ? null : el('div', { 'class': 'rel' }, [useRefBtn(n.id)]), pick]);
+    }
+    var rel = RT.relations(d.idx, d.ref, [n.id], { hub: routeHub }).get(n.id) || { same: false, up: null, down: null }, line = relLine(n.id, rel, d.ref, true);
+    line.appendChild(useRefBtn(n.id));
+    return el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Route to ' + routeName(d.ref) }), line, refPicker(d.ref, n.id)]);
   }
 
   /** The route that is lit, as steps in the Findings: the transactions in order, what to be careful of, copy and clear. */
