@@ -3469,6 +3469,8 @@
         if (n.loaded) { line('Value', mixText(S.fmtBtc(n.valueOut) + ' BTC', fiatOf(n.valueOut, n.time)) + ' · ' + n.nIn + ' in / ' + n.nOut + ' out'); } else line('', 'Not loaded: double-click to load');
         var ar = n.loaded ? analysis().tx.get(n.id) : null;
         if (ar && ar.flags.length) line('Pattern', ar.flags.map(function (f) { return f.short; }).join(', '));
+        var cfl = n.loaded && analysis().carried ? analysis().carried.get(n.id) : null;
+        if (cfl && cfl.length) line('Pattern (sender)', cfl.map(function (f) { return f.short; }).join(', '));
         if (ar && ar.change && AN.rank(ar.change.confidence) >= 2) line(AN.changeTitle(ar.change.confidence), 'output ' + ar.change.vout + ' (' + ar.change.confidence + ' confidence)');
       } else if (n.type === 'addr') {
         line('Address', S.shortId(n.address, 12)); if (KNOWN[n.address]) line('Known', KNOWN[n.address].label);
@@ -3674,11 +3676,22 @@
   }
   // the three hooks the canvas calls for every vertex it draws: they only read what refresh() computed
   function nodeFlags(n) {
-    var r = n.type === 'tx' && state.an ? state.an.tx.get(n.id) : null;
-    if (!r || !r.flags.length) return null;
+    var r = n.type === 'tx' && state.an ? state.an.tx.get(n.id) : null, cr = n.type === 'tx' && state.an && state.an.carried ? state.an.carried.get(n.id) : null;
+    if ((!r || !r.flags.length) && !cr) return null;
     var out = [];
-    r.flags.forEach(function (f) { if (state.analysis.kinds[f.kind] !== false) out.push({ text: f.short, color: f.color, kind: f.kind, chain: f.kind === 'peel' && r.chain ? r.chain.label : '' }); });
+    (r ? r.flags : []).forEach(function (f) { if (state.analysis.kinds[f.kind] !== false) out.push({ text: f.short, color: f.color, kind: f.kind, chain: f.kind === 'peel' && r.chain ? r.chain.label : '' }); });
+    (cr || []).forEach(function (f) { if (state.analysis.kinds[f.kind] !== false) out.push({ text: f.short + ' (sender)', color: f.color, kind: f.kind, chain: '', carried: true }); });         // the sender's marks: dashed, and not checked here
     return out.length ? out : null;
+  }
+  /** The patterns this analysis shows on transactions (the kinds that are switched on, as on screen), as Map(vertex id -> short names), for a link to carry for the transactions it cuts. */
+  function carryMarks() {
+    var out = new Map(), an = state.analysis.flags ? analysis() : null;
+    if (!an) return out;
+    an.tx.forEach(function (r, id) {
+      var names = r.flags.filter(function (f) { return state.analysis.kinds[f.kind] !== false; }).map(function (f) { return f.short; });
+      if (names.length) out.set(id, names);
+    });
+    return out;
   }
   function clusterColorOf(cl) { return CLUSTER_COLORS[(parseInt(cl.label.slice(1), 10) - 1) % CLUSTER_COLORS.length]; }
   function clusterColor(id) { var cl = state.an ? state.an.clusters.byAddr.get(id) : null; return cl ? clusterColorOf(cl) : null; }
@@ -4924,6 +4937,12 @@
       if (r.chain) s.appendChild(chainActions(n.id, r.chain));
       parts.push(s);
     }
+    var carried = analysis().carried ? analysis().carried.get(n.id) : null;
+    if (carried && carried.length) {                                                          // what the sender's Hopline marked on a transaction that arrived only partly: said apart, unchecked
+      var cs = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Patterns the sender saw' })]);
+      carried.forEach(function (f) { var t = el('span', { 'class': 'flagtag', text: f.short }); t.style.color = f.color; cs.appendChild(el('p', { 'class': 'hint' }, [t, f.title])); });
+      parts.push(cs);
+    }
     if (ch) {
       var s2 = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: AN.changeTitle(ch.confidence) })]);
       s2.appendChild(el('p', { 'class': 'hint' }, [el('b', { text: 'Output ' + ch.vout + (ch.address ? ' → ' + S.shortId(ch.address, 8) : '') }), ' · ' + amountText(ch.amount, n.time) + ' · ' + ch.confidence + ' confidence']));
@@ -5766,7 +5785,7 @@
     var vis = sc.vis, g = state.graph;
     state.shareMax = SH.limitOf($('shareMax').value); $('shareMax').value = state.shareMax; savePrefs();
     var notes = $('shareNotes').checked;
-    SH.build(g, { nodes: vis.nodes, edges: vis.edges, starts: shareStarts(), limit: state.shareMax, notes: notes, view: viewState() }).then(function (r) {
+    SH.build(g, { nodes: vis.nodes, edges: vis.edges, starts: shareStarts(), limit: state.shareMax, notes: notes, view: viewState(), carry: carryMarks() }).then(function (r) {
       var link = shareBase() + r.fragment, warn = [];
       if (r.trimmed) warn.push((r.bySize ? 'The link would be too long for chat and mail, so it holds only the ' : 'Over the limit of ' + state.shareMax + ': the link holds only the ') + r.kept + ' vertices nearest START, not all ' + r.total + '. The rest is not in it. '
                                + (r.bySize ? 'Share fewer vertices, or export the workspace (.json) to share everything.' : 'Raise the limit to share more, or export the workspace (.json) to share everything.'));
@@ -5905,8 +5924,11 @@
       var T = state.trace, off = fresh.filter(function (id) { return !T.shown.has(id); }).length;
       if (off) where = ' ' + plural(off, 'new vertex', 'new vertices') + (off === 1 ? ' is' : ' are') + ' loaded but not on the trace.';
     }
-    var partialTx = 0; r.graph.nodes.forEach(function (n) { if (n.type === 'tx' && M.txPartial(g, g.nodes.get(n.id))) partialTx++; });
-    var partialNote = partialTx ? ' ' + plural(partialTx, 'transaction', 'transactions') + (partialTx === 1 ? ' is' : ' are') + ' only partly on the canvas (' + (shared ? 'a link keeps only what was on screen' : 'the file holds only some of its inputs and outputs') + '), so no pattern is shown for ' + (partialTx === 1 ? 'it' : 'them') + ': select ' + (partialTx === 1 ? 'it' : 'one') + ' and use Show backward or Show forward to load the rest.' : '';
+    var partialTx = 0, markedTx = 0;
+    r.graph.nodes.forEach(function (n) { if (n.type === 'tx' && M.txPartial(g, g.nodes.get(n.id))) { partialTx++; if (AN.carriedFlags(g.nodes.get(n.id).carried).length) markedTx++; } });
+    var partialNote = partialTx ? ' ' + plural(partialTx, 'transaction', 'transactions') + (partialTx === 1 ? ' is' : ' are') + ' only partly on the canvas (' + (shared ? 'a link keeps only what was on screen' : 'the file holds only some of its inputs and outputs') + '), so no pattern is checked for ' + (partialTx === 1 ? 'it' : 'them')
+                                    + (markedTx ? '; ' + (markedTx === partialTx ? (partialTx === 1 ? 'it carries' : 'they carry') : markedTx + ' carry') + ' the patterns the sender saw, drawn dashed with (sender)' : '')
+                                    + '. Select ' + (partialTx === 1 ? 'it' : 'one') + ' and use Show backward or Show forward to load the rest and check.' : '';
     var cut = shared && shared.of && shared.of > r.graph.nodes.size ? ' The sender cut it down to the ' + shared.kept + ' vertices nearest START (they had ' + shared.of + '), so this is not the whole picture.' : '';
     toast((shared ? 'Opened a shared canvas: ' : 'Imported ') + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + cut + partialNote + where + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length, snap && !snap.tooBig ? { text: 'Undo import', fn: undoLoad } : null, 8000);
   }

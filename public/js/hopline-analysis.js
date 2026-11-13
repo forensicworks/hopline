@@ -525,20 +525,55 @@
     return { suggestions: suggestions, conflicts: conflicts };
   }
 
+  // ---- marks a link carries --------------------------------------------------------------------------
+  // A canvas link keeps only the lines between the vertices that were on screen, so a big transaction arrives without most of its inputs and outputs and nothing can be concluded from
+  // it. The sender's Hopline adds, for such a transaction, the short names of the patterns its own analysis showed on it (node.carried: ['COINJOIN?']). That is the sender's claim, not a
+  // finding: it is drawn apart (dashed, "(sender)"), stays out of the counts, the Findings, the report and the evidence given to an assistant, and loading the transaction in full
+  // replaces it. Whatever arrives is cut to the few names this analysis writes, so a link cannot put text of its own on a canvas.
+  var CARRY = [
+    ['coinjoin', /^COINJOIN\?$/],
+    ['consolidation', /^CONSOL \d{1,5}→\d{1,5}$/],
+    ['batch', /^BATCH \d{1,5}→\d{1,5}$/],
+    ['round', /^ROUND \d[\d.]{0,14} BTC$/],
+    ['swap', /^(?:SWAP OUT|SWAP REFUND|PEG-IN RSK|SWAP ID|SWAP → [A-Z0-9]{1,12})$/],
+    ['peel', /^PEEL \d{1,4}\/\d{1,4}$/]
+  ];
+  var CARRY_MAX = 6;
+  var CARRY_SAYS = { coinjoin: 'a CoinJoin', consolidation: 'a consolidation (many inputs gathered into one or two outputs)', batch: 'a batch payment (a few inputs paying many outputs)',
+                     round: 'a round amount', swap: 'a swap memo', peel: 'a step of a peel chain' };
+  /** The marks in `list` that this analysis could have written, as flags { kind, short, color, title, carried: true }; anything else is dropped. */
+  function carriedFlags(list) {
+    var out = [];
+    (Array.isArray(list) ? list : []).slice(0, CARRY_MAX).forEach(function (x) {
+      if (typeof x !== 'string' || x.length > 40) return;
+      for (var i = 0; i < CARRY.length; i++) {
+        if (!CARRY[i][1].test(x)) continue;
+        var kind = CARRY[i][0];
+        out.push({ kind: kind, short: x, color: COLORS[kind], carried: true,
+                   title: 'The sender\'s Hopline marked this transaction as ' + CARRY_SAYS[kind] + ' (' + x + '). Only part of the transaction is on this canvas, so this has not been checked here: '
+                          + 'load it in full (Show backward or Show forward) to see what the data says.' });
+        return;
+      }
+    });
+    return out;
+  }
+
   // ---- everything at once ----------------------------------------------------------------------------
   /**
    * Analyse the whole graph. opts: { known(address), minConfidence ('medium'), consolidation, batch, coinjoin, peel }.
-   * Returns { tx: Map(txId -> {flags, change, chain}), changeEdges: Map(edgeId -> guess), chains, clusters, counts }.
+   * Returns { tx: Map(txId -> {flags, change, chain}), changeEdges: Map(edgeId -> guess), chains, clusters, counts,
+   *            carried: Map(txId -> flags a link carried for a transaction that is only partly in the graph: the sender's marks, not findings) }.
    */
   function analyse(graph, opts) {
     opts = opts || {};
     var minRank = CONFIDENCE[opts.minConfidence || 'medium'] || 2;
-    var res = { tx: new Map(), changeEdges: new Map(), chains: [], clusters: null, counts: { flagged: 0, chains: 0, change: 0 } };
+    var res = { tx: new Map(), changeEdges: new Map(), chains: [], clusters: null, counts: { flagged: 0, chains: 0, change: 0 }, carried: new Map() };
     graph.nodes.forEach(function (n) {
       if (n.type !== 'tx' || n.loaded !== true) return;
       var v = txView(graph, n.id); if (!v) return;
       var flags = classify(v, opts), change = guessChange(v, opts);
       res.tx.set(n.id, { flags: flags, change: change, chain: null });
+      if (!v.complete && n.carried) { var cf = carriedFlags(n.carried); if (cf.length) res.carried.set(n.id, cf); }
       if (change && CONFIDENCE[change.confidence] >= minRank) { res.changeEdges.set(change.edgeId, change); res.counts.change++; }
     });
     res.chains = peelChains(graph, opts);
@@ -613,6 +648,6 @@
 
   return {
     DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, roundFlag: roundFlag, swapMemo: swapMemo, outMemo: outMemo, rootstockMemo: rootstockMemo, swapGoesIn: swapGoesIn, requestIdMemo: requestIdMemo, swapOf: swapOf, swapText: swapText, swapLabel: swapLabel, swapFlag: swapFlag, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
-    CHANGE_SIGNALS: CHANGE_SIGNALS, signalOf: signalOf, peelStep: peelStep, peelChains: peelChains, clusters: clusters, suggestNames: suggestNames, analyse: analyse, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
+    CHANGE_SIGNALS: CHANGE_SIGNALS, signalOf: signalOf, peelStep: peelStep, peelChains: peelChains, clusters: clusters, suggestNames: suggestNames, analyse: analyse, carriedFlags: carriedFlags, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
   };
 }));

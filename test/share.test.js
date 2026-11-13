@@ -357,3 +357,79 @@ test('isIdsHash: only the IDs link\'s own prefix, and the two kinds of link are 
 test('isShareHash: only the link\'s own prefix', () => {
   assert.equal(S.isShareHash('#s1/abc'), true); assert.equal(S.isShareHash('#f1/tx:abc'), false); assert.equal(S.isShareHash(''), false); assert.equal(S.isShareHash(null), false); assert.equal(S.isShareHash('#S1/abc'), false);
 });
+
+// ---- the patterns the sender saw, carried for the transactions the link cuts -----------------------------------------------------------------------
+const An = require('../public/js/hopline-analysis.js');
+const CJ_TXID = 'c'.repeat(64);
+/** A CoinJoin (5 inputs, 7 outputs, five of exactly 1,000,000 sat) and what it pays, loaded in full. */
+function coinjoinGraph() {
+  const g = new Graph();
+  g.addTx({ txid: CJ_TXID, fee: 200, weight: 800, status: { confirmed: true, block_height: 700000, block_time: 1650000000 },
+    vin: [0, 1, 2, 3, 4].map((i) => ({ txid: 'a'.repeat(63) + i, vout: 0, is_coinbase: false, prevout: { scriptpubkey_address: 'bc1qw' + i + 'x'.repeat(18), scriptpubkey_type: 'v0_p2wpkh', value: 1000000 + i * 777 } })),
+    vout: [0, 1, 2, 3, 4].map((i) => ({ scriptpubkey_address: 'bc1qe' + i + 'x'.repeat(18), scriptpubkey_type: 'v0_p2wpkh', value: 1000000 }))
+      .concat([{ scriptpubkey_address: 'bc1qchg1' + 'x'.repeat(16), scriptpubkey_type: 'v0_p2wpkh', value: 1234 }, { scriptpubkey_address: 'bc1qchg2' + 'x'.repeat(16), scriptpubkey_type: 'v0_p2wpkh', value: 4321 }]) });
+  return g;
+}
+const cjId = 'tx:' + CJ_TXID;
+const marksOf = (g) => An.analyse(g).tx.get(cjId).flags.map((f) => f.short);
+
+test('pack: a transaction the link cuts carries the pattern names the sender found; one that is kept whole does not', () => {
+  const g = coinjoinGraph();
+  assert.deepEqual(marksOf(g), ['COINJOIN?'], 'the sender sees the pattern');
+  const carry = new Map([[cjId, marksOf(g)]]);
+  const cut = JSON.parse(S.pack(g, { starts: [cjId], limit: 5, carry, now: 0 }).text), tx = cut.nodes.find((n) => n.id === cjId);
+  assert.deepEqual(tx.carried, ['COINJOIN?']);
+  const whole = JSON.parse(S.pack(g, { starts: [cjId], limit: 500, carry, now: 0 }).text);
+  assert.equal('carried' in whole.nodes.find((n) => n.id === cjId), false, 'every input and output is in the link: the reader can see it for themselves');
+  const none = JSON.parse(S.pack(g, { starts: [cjId], limit: 5, now: 0 }).text);
+  assert.equal('carried' in none.nodes.find((n) => n.id === cjId), false, 'no marks given, none carried');
+  assert.equal(cut.nodes.filter((n) => 'carried' in n).length, 1, 'only on the transaction');
+});
+
+test('pack: marks the sender was itself only carried are not passed on, and a mark on something that is not a loaded transaction is not carried', () => {
+  const g = coinjoinGraph();
+  g.nodes.get(cjId).carried = ['PEEL 9/9'];                                          // what the sender's own graph holds from a link it opened
+  const cut = JSON.parse(S.pack(g, { starts: [cjId], limit: 5, now: 0 }).text);
+  assert.equal('carried' in cut.nodes.find((n) => n.id === cjId), false, 'dropped with the other things a link leaves behind');
+  const wallet = 'addr:bc1qw0' + 'x'.repeat(18), odd = JSON.parse(S.pack(g, { starts: [cjId], limit: 5, carry: new Map([[wallet, ['COINJOIN?']]]), now: 0 }).text);
+  assert.equal(odd.nodes.some((n) => n.type === 'addr' && 'carried' in n), false);
+});
+
+test('a link made with the marks costs a few dozen characters, and the reader gets them apart from the findings', async () => {
+  const g = coinjoinGraph(), carry = new Map([[cjId, marksOf(g)]]);
+  const plain = await S.build(g, { starts: [cjId], limit: 5, now: 0 }), marked = await S.build(g, { starts: [cjId], limit: 5, carry, now: 0 });
+  assert.ok(marked.chars > plain.chars && marked.chars - plain.chars < 80, 'the cost of the mark: ' + (marked.chars - plain.chars) + ' characters');
+  const r = IO.fromJson((await S.decode(marked.fragment)).text), an = An.analyse(r.graph);
+  assert.deepEqual(an.tx.get(cjId).flags, [], 'nothing is concluded from a transaction that is only partly there');
+  assert.equal(an.counts.flagged, 0, 'and the mark is not a finding');
+  assert.deepEqual(an.carried.get(cjId).map((f) => [f.kind, f.short, f.carried]), [['coinjoin', 'COINJOIN?', true]]);
+  assert.match(an.carried.get(cjId)[0].title, /sender's Hopline marked this transaction as a CoinJoin/);
+});
+
+test('a transaction loaded in full replaces the marks: the analysis then ignores them, and loading it takes the field away', () => {
+  const g = coinjoinGraph();
+  g.nodes.get(cjId).carried = ['COINJOIN?'];
+  assert.equal(An.analyse(g).carried.size, 0, 'complete: what the data says is what counts');
+  const cut = IO.fromJson(S.pack(g, { starts: [cjId], limit: 5, carry: new Map([[cjId, ['COINJOIN?']]]), now: 0 }).text);
+  assert.equal(An.analyse(cut.graph).carried.size, 1, 'partly there: the mark shows');
+  cut.graph.addTx({ txid: CJ_TXID, fee: 200, weight: 800, status: { confirmed: true, block_height: 700000, block_time: 1650000000 },
+    vin: [0, 1, 2, 3, 4].map((i) => ({ txid: 'a'.repeat(63) + i, vout: 0, is_coinbase: false, prevout: { scriptpubkey_address: 'bc1qw' + i + 'x'.repeat(18), scriptpubkey_type: 'v0_p2wpkh', value: 1000000 + i * 777 } })),
+    vout: [0, 1, 2, 3, 4].map((i) => ({ scriptpubkey_address: 'bc1qe' + i + 'x'.repeat(18), scriptpubkey_type: 'v0_p2wpkh', value: 1000000 }))
+      .concat([{ scriptpubkey_address: 'bc1qchg1' + 'x'.repeat(16), scriptpubkey_type: 'v0_p2wpkh', value: 1234 }, { scriptpubkey_address: 'bc1qchg2' + 'x'.repeat(16), scriptpubkey_type: 'v0_p2wpkh', value: 4321 }]) });
+  assert.equal('carried' in cut.graph.nodes.get(cjId), false, 'the field is gone');
+  const an = An.analyse(cut.graph);
+  assert.equal(an.carried.size, 0); assert.deepEqual(an.tx.get(cjId).flags.map((f) => f.short), ['COINJOIN?'], 'now the analysis itself says it');
+});
+
+test('carriedFlags: only the names this analysis writes get through, at most six, and nothing a link can add reaches the canvas as text of its own', () => {
+  const ok = ['COINJOIN?', 'CONSOL 34→2', 'BATCH 1→30', 'ROUND 0.3259 BTC', 'SWAP → ETH', 'SWAP OUT', 'SWAP REFUND', 'PEG-IN RSK', 'SWAP ID', 'PEEL 3/7'];
+  ok.slice(0, 6).forEach((x) => assert.equal(An.carriedFlags([x]).length, 1, x));
+  ok.slice(6).forEach((x) => assert.equal(An.carriedFlags([x]).length, 1, x));
+  assert.equal(An.carriedFlags(ok).length, 6, 'at most six');
+  const hostile = ['<img src=x onerror=alert(1)>', 'COINJOIN', 'coinjoin?', 'COINJOIN? ', 'CONSOL 1e9→2', 'ROUND 1e999 BTC', 'ROUND ' + '9'.repeat(30) + ' BTC', 'SWAP → ' + 'A'.repeat(40), 'PEEL x/7',
+                   'https://evil.example/', 'A'.repeat(100), 7, null, { short: 'COINJOIN?' }, ['COINJOIN?']];
+  assert.deepEqual(An.carriedFlags(hostile), [], 'none of those is a name this analysis writes');
+  assert.deepEqual(An.carriedFlags('COINJOIN?'), []); assert.deepEqual(An.carriedFlags(undefined), []);
+  const f = An.carriedFlags(['CONSOL 34→2'])[0];
+  assert.equal(f.kind, 'consolidation'); assert.equal(f.color, An.COLORS.consolidation); assert.ok(f.carried);
+});

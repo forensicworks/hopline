@@ -733,7 +733,7 @@
       }
       rings.forEach(function (f, i) {                                       // one thin ring per finding, close round the shape: the first finding innermost; they show at any zoom and fade with the vertex
         var sd = sideOf(kindOf(n)), off = 2.5 + i * RING_STEP, rr = r + off / sd;               // off px outside the edge of the shape, whatever the shape
-        shape(ctx, kindOf(n), P.x, P.y, rr); ctx.lineWidth = 2; ctx.strokeStyle = f.color; ctx.setLineDash([]); ctx.stroke();
+        shape(ctx, kindOf(n), P.x, P.y, rr); ctx.lineWidth = 2; ctx.strokeStyle = f.color; ctx.setLineDash(f.carried ? [2.5, 2] : []); ctx.stroke(); ctx.setLineDash([]);      // dashed: the sender's mark, not checked here
         self.findingRings.push({ id: id, kind: f.kind, color: f.color, x: P.x, y: P.y, r: rr, off: off, edge: P.x + r * sd, side: sd, shape: kindOf(n) });
       });
       var known = n.type === 'addr' && d.known && d.known[n.address];

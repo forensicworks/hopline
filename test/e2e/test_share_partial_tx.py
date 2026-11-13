@@ -47,7 +47,7 @@ def select(page, id_=CJ):
 def test_a_link_that_cut_the_transaction_says_so_when_it_is_opened(tpage, ctx, mock):
     r = reader(tpage, ctx, mock, 5)
     text = r.inner_text("#toast")
-    assert "only partly on the canvas" in text and "no pattern is shown" in text and "a link keeps only what was on screen" in text, text
+    assert "only partly on the canvas" in text and "no pattern is checked" in text and "a link keeps only what was on screen" in text, text
     assert flags(r) == [], "with some of its inputs and outputs missing nothing can be concluded from it"
 
 
