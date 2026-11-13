@@ -4567,10 +4567,17 @@
     if (!text.trim()) { box.appendChild(el('p', { 'class': 'hint', text: 'Paste an answer, or ask the model, then check the ids it cites.' })); return; }
     var r = AS.checkCitations(text, AS.idSets(assistSummary(), state.graph, ai.focus));
     var nTx = r.cited.txids.length, nAd = r.cited.addresses.length, bad = r.unknown.txids.length + r.unknown.addresses.length;
-    if (bad) box.appendChild(el('p', { 'class': 'hint bad', text: plural(bad, 'id') + (bad === 1 ? ' is' : ' are') + ' NOT in this workspace: a model made up or garbled ' + (bad === 1 ? 'it' : 'them') + '. Do not use what is said about ' + (bad === 1 ? 'it' : 'them') + '.' }));
+    if (bad) box.appendChild(el('p', { 'class': 'hint bad', text: plural(bad, 'id') + (bad === 1 ? ' is' : ' are') + ' NOT in this workspace: a model made up or garbled ' + (bad === 1 ? 'it' : 'them') + '. Do not use what is said about ' + (bad === 1 ? 'it' : 'them') + '.'
+                                                                      + (r.near.length ? ' ' + (r.near.length === bad ? (bad === 1 ? 'It looks' : 'They look') + ' like a copy slip, not an invented id' : r.near.length + ' of them look like a copy slip') + ': the id in the workspace that each is closest to is listed under it. Check what the answer says against that id before using it.' : '') }));
     else if (r.ok && nTx + nAd + r.abbreviated.length) box.appendChild(el('p', { 'class': 'hint ok', text: 'Every id it cites is in the workspace: ' + plural(nTx, 'transaction id') + ', ' + plural(nAd, 'address', 'addresses') + '.' }));
     else if (r.ok) box.appendChild(el('p', { 'class': 'hint bad', text: 'It cites no transaction id or address, so there is nothing here to check: treat it as unsupported.' }));
-    r.unknown.txids.concat(r.unknown.addresses).slice(0, 20).forEach(function (id) { box.appendChild(idRow(id, 'the id that is not in the workspace')); });
+    r.unknown.txids.concat(r.unknown.addresses).slice(0, 20).forEach(function (id) {
+      box.appendChild(idRow(id, 'the id that is not in the workspace'));
+      var nr = r.near.filter(function (x) { return x.id === id; })[0];
+      if (!nr) return;
+      box.appendChild(el('p', { 'class': 'hint', 'data-near': '1', text: 'It is ' + nr.how + ' this id, which is ' + (nr.where === 'evidence' ? 'in the evidence' : 'loaded in the workspace') + ':' }));
+      box.appendChild(idRow(nr.suggestion, 'the id it probably meant'));
+    });
     r.abbreviated.forEach(function (x) {
       if (x.id) box.appendChild(el('p', { 'class': 'hint', text: 'Shortened id ' + x.text + ' matches one transaction.' }));
       else box.appendChild(el('p', { 'class': 'hint bad', text: 'Shortened id ' + x.text + ' matches no single transaction.' }));

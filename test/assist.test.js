@@ -476,3 +476,80 @@ test('summary: the name of a wallet from a list says which list, under which lic
   const plain = As.summary(s.g, An.analyse(s.g), { known: (ad) => (ad === a('pay60') ? { name: 'Some Exchange', category: 'EXCH', source: 'built-in list' } : null) });
   assert.deepEqual(plain.wallets.find((x) => x.address === a('pay60')).known, { name: 'Some Exchange', category: 'EXCH', source: 'built-in list' }, 'a list that says nothing about itself adds nothing');
 });
+
+// ---- tuning from the first real local-model answer ---------------------------------------------------------------
+test('focus: a wallet lists the transactions it spent in with where each went, largest output first, the likely change marked, in time order', () => {
+  const g = new Graph();
+  add(g, 70, [IN(1, 0, a('w'), 1000000)], [OUT(a('pay'), 600000), OUT(a('w'), 390000)]);                  // pays 600,000 and sends the change back to the wallet
+  add(g, 71, [IN(70, 1, a('w'), 390000)], [OUT(a('pay2'), 200000), OUT(a('w'), 180000)]);
+  add(g, 72, [IN(9, 0, a('other'), 5000)], [OUT(a('w'), 4000)]);                                           // the wallet only received here
+  const f = As.focus(g, An.analyse(g), a('w'));
+  assert.equal(f.spentInCount, 2); assert.deepEqual(f.spentIn.map((t) => t.txid), [tid(70), tid(71)]);
+  const first = f.spentIn[0];
+  assert.equal(first.fromThisWalletSats, 1000000); assert.ok(first.timeText);
+  assert.deepEqual(first.outputs.map((o) => [o.address, o.sats]), [[a('pay'), 600000], [a('w'), 390000]], 'largest first, with the destination of each');
+  assert.deepEqual(first.outputs.map((o) => !!o.likelyChange), [false, true], 'the output that goes back to the wallet is marked as the likely change');
+  assert.equal('loaded' in first, false); assert.equal('complete' in first, false, 'said only when it is not the usual case');
+  assert.ok(f.transactions.length >= 5, 'the list of every movement is still there');
+});
+
+test('focus: the transactions a wallet spent in are capped, the outputs of each are capped, and what is left out is counted', () => {
+  const g = new Graph();
+  for (let i = 0; i < 15; i++) add(g, 100 + i, [IN(1, i, a('big'), 5000)], [OUT(a('d' + i), 4000), OUT(a('c' + i), 900)]);
+  add(g, 130, [IN(1, 20, a('big'), 5000)], Array.from({ length: 14 }, (_, i) => OUT(a('e' + i), 300 + i)));
+  const f = As.focus(g, An.analyse(g), a('big'));
+  assert.equal(f.spentInCount, 16); assert.equal(f.spentIn.length, 12, 'the first twelve, oldest first');
+  const g2 = new Graph();
+  add(g2, 130, [IN(1, 20, a('big'), 5000)], Array.from({ length: 14 }, (_, i) => OUT(a('e' + i), 300 + i)));
+  const t = As.focus(g2, An.analyse(g2), a('big')).spentIn[0];
+  assert.equal(t.outputs.length, 10); assert.equal(t.outputsNotListed, 4); assert.equal(t.outputs[0].sats, 313, 'the largest ones are kept');
+});
+
+test('focus: a transaction of the wallet that is not loaded is said not to be, and one with missing lines is said not to be complete', () => {
+  const g = new Graph();
+  add(g, 70, [IN(1, 0, a('w'), 1000000)], [OUT(a('pay'), 600000), OUT(a('w'), 390000)]);
+  g.upsertNode({ id: ID.tx('x'), type: 'tx', txid: 'x', loaded: false });
+  g.upsertEdge({ id: ID.edgeIn('x', 0), source: ID.addr(a('w')), target: ID.tx('x'), kind: 'in', txid: 'x', vin: 0, amount: 500 });
+  g.removeEdge(ID.edgeOut(tid(70), 0));
+  const f = As.focus(g, An.analyse(g), a('w')), byId = (id) => f.spentIn.find((t) => t.txid === id);
+  assert.equal(byId('x').loaded, false); assert.equal('outputs' in byId('x'), false);
+  assert.equal(byId(tid(70)).complete, false);
+});
+
+test('prompt: a rule says to check what the question states as fact and to list every transaction asked for', () => {
+  const p = As.prompt(sum(scene()), 'triage');
+  assert.match(p.system, /\n8\. When a QUESTION states something as fact/); assert.match(p.system, /say so first/); assert.match(p.system, /list every one the evidence holds and say how many there are/);
+  assert.equal(p.system.split('\n').length, 9, 'one line of introduction and eight rules');
+});
+
+function setsOf(ev, ws) {
+  const e = ev || {}, w = ws || {};
+  return { evidence: { txids: new Set(e.txids || []), addresses: new Set(e.addresses || []) },
+           workspace: { txids: new Set([...(e.txids || []), ...(w.txids || [])]), addresses: new Set([...(e.addresses || []), ...(w.addresses || [])]) } };
+}
+
+test('checkCitations: an id that is a clipped or near copy of one in the workspace says which one it probably meant', () => {
+  const real = a('payee') + 'g', other = a('elsewhere'), sets = setsOf({ addresses: [real] }, { addresses: [other] });
+  const clip = As.checkCitations('Paid to ' + real.slice(0, -1) + '.', sets);
+  assert.equal(clip.ok, false, 'still not an id the workspace holds'); assert.deepEqual(clip.unknown.addresses, [real.slice(0, -1)]);
+  assert.deepEqual(clip.near, [{ id: real.slice(0, -1), kind: 'address', suggestion: real, how: 'one character short of', where: 'evidence' }]);
+  const long = As.checkCitations('Paid to ' + real + 'q.', sets);
+  assert.equal(long.near[0].how, 'one character longer than'); assert.equal(long.near[0].suggestion, real);
+  const swapped = As.checkCitations('Paid to ' + real.slice(0, 8) + 'Z' + real.slice(9) + '.', sets);
+  assert.equal(swapped.near[0].how, 'one character different from'); assert.equal(swapped.near[0].suggestion, real);
+  const two = As.checkCitations('Paid to ' + real.slice(0, 8) + 'ZY' + real.slice(10) + '.', sets);
+  assert.equal(two.near[0].how, 'two characters different from');
+  const ws = As.checkCitations('Paid to ' + other.slice(0, -2) + '.', sets);
+  assert.equal(ws.near[0].how, 'two characters short of'); assert.equal(ws.near[0].where, 'workspace', 'loaded, but not among the evidence');
+  const t = tid(50), tsets = setsOf({ txids: [t] }), bad = t.slice(0, 20) + (t[20] === 'a' ? 'b' : 'a') + t.slice(21);
+  const tx = As.checkCitations('See ' + bad + '.', tsets);
+  assert.equal(tx.near[0].kind, 'txid'); assert.equal(tx.near[0].suggestion, t); assert.equal(tx.near[0].how, 'one character different from');
+});
+
+test('checkCitations: an id that is not close to anything, or equally close to two, gets no suggestion', () => {
+  const sets = setsOf({ addresses: [a('payee') + 'g', a('payee') + 'h'] });
+  assert.deepEqual(As.checkCitations('To ' + a('nobody') + 'zzzz.', sets).near, [], 'nothing is near');
+  assert.deepEqual(As.checkCitations('To ' + a('payee') + '.', sets).near, [], 'both are one character longer: no guess');
+  assert.deepEqual(As.checkCitations('To ' + a('payee') + 'g.', sets).near, [], 'a known id needs none');
+  assert.deepEqual(As.checkCitations('Nothing cited.', sets).near, []);
+});
