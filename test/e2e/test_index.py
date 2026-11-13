@@ -180,17 +180,16 @@ def test_typing_after_a_message_takes_it_away_and_an_empty_box_after_it_asks(ipa
     assert ipage.inner_text("#err") == "", "the request for something goes away once there is something"
 
 
-def test_the_samples_open_what_the_pages_call_their_samples(ipage):
+def test_the_examples_open_what_the_pages_call_their_samples(ipage):
     def js(name):
         return (ROOT / "public" / "js" / name).read_text(encoding="utf-8")
     wallet_sample = re.search(r"var SAMPLE = '([0-9a-z]+)'", js("wallet.js")).group(1)
     workspace_sample = re.search(r"var SAMPLE = '([0-9a-f]{64})'", js("workspace.js")).group(1)
-    hrefs = ipage.eval_on_selector_all(".samples a", "els => els.map(e => [e.id, e.getAttribute('href')])")
-    assert hrefs == [["sampleWallet", "public/wallet.html?q=" + wallet_sample], ["sampleTx", "public/workspace.html?q=" + workspace_sample], ["openSaved", "public/workspace.html"]]
-    assert wallet_sample == SAMPLE_WALLET and workspace_sample == NORMAL["txid"], "the fixture of the sample transaction is the one the page calls its sample"
-    ipage.click("#sampleTx")
-    ipage.wait_for_url("**/public/workspace.html?q=" + NORMAL["txid"])
-    ipage.wait_for_function("() => window.__hopline && window.__hopline.state.graph.nodes.size > 0")
+    hrefs = ipage.eval_on_selector_all(".learn a[id]", "els => els.map(e => [e.id, e.getAttribute('href')])")
+    assert [h[0] for h in hrefs] == ["openSaved", "samplePlain", "sampleWallet"], hrefs
+    by = dict(hrefs)
+    assert by["sampleWallet"] == "public/wallet.html?q=" + wallet_sample and by["openSaved"] == "public/workspace.html" and by["samplePlain"].startswith("public/workspace.html#s1/")
+    assert wallet_sample == SAMPLE_WALLET and workspace_sample == NORMAL["txid"], "the fixture of the sample transaction is the one the workspace calls its sample (its own button when it is empty)"
 
 
 def test_the_sample_wallet_link_opens_the_sample_wallet(ipage, mock):

@@ -48,9 +48,23 @@
   #err { color: var(--danger); min-height: 20px; margin: 8px 0 0; }
   #err:empty { display: none; }
 
-  .samples { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0; font-size: 13.5px; color: var(--dim); }
-  .samples a { padding: 4px 10px; border: 1px solid var(--line); border-radius: 5px; font-size: 13px; text-decoration: none; }
-  .samples a:hover, .samples a:focus-visible { border-color: var(--accent); }
+  /* examples to start from (no address at hand): one card each, and a way to open a saved workspace */
+  .learnhead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; margin: 0 0 8px; }
+  .learn h2 { font-size: 14.5px; color: var(--accent); margin: 0; }
+  .learnhead a { font-size: 13px; }
+  .lcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .lcard { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; color: var(--text); text-decoration: none; font-size: 13px; line-height: 1.45; }
+  .lcard:hover, .lcard:focus-visible { border-color: var(--accent); }
+  .lcard .name { font-size: 15px; font-weight: 700; }
+  .lcard .look, .lcard .not, .lcard .meta { color: var(--dim); font-size: 12.5px; }
+  .lcard .look b, .lcard .not b { color: var(--text); font-weight: 700; }
+  .lcard .meta { margin-top: auto; padding-top: 4px; font-size: 12px; }
+  .learn details.more { margin-top: 12px; }
+  .learn details.more > summary { cursor: pointer; width: fit-content; padding: 4px 0; font-size: 13px; color: var(--accent); }
+  .learn details.more > summary:hover, .learn details.more > summary:focus-visible { text-decoration: underline; }
+  .learn details.more[open] > summary { margin-bottom: 8px; }
+  .learn .lgroup { grid-column: 1 / -1; margin: 6px 0 0; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dim); }
+  .learn .lgroup:first-child { margin-top: 0; }
 
   /* what Hopline is */
   .proof { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -107,11 +121,30 @@
     <p id="err" role="alert"></p>
   </div>
 
-  <p class="samples">No address at hand?
-    <a id="sampleWallet" href="public/wallet.html?q=bc1qq2euq8pw950klpjcawuy4uj39ym43hs6cfsegq" title="A real wallet with a short history: it received the DarkSide affiliate's share of the Colonial Pipeline ransom in 2021">Try the Colonial Pipeline ransom wallet</a>
-    <a id="sampleTx" href="public/workspace.html?q=0f58c9a7aee48bd72ffd929fd3ac80bf95db5be13a6493b2f954de9ae659710d">Try a sample transaction</a>
-    <a id="openSaved" href="public/workspace.html" title="The workspace opens with &quot;Open a workspace file&quot; ready">Open a saved workspace</a>
-  </p>
+  <div class="learn">
+    <div class="learnhead">
+      <h2>No address at hand? Start from an example</h2>
+      <a id="openSaved" href="public/workspace.html" title="The workspace opens with &quot;Open a workspace file&quot; ready">Open a saved workspace &rarr;</a>
+    </div>
+    <!-- To add an example: one more <a class="lcard" id="..."> below, in the order it should appear (optionally data-group="Learn the patterns"). The first two stay in view; when two or more
+         more follow, the page folds them under "More examples (N)" (see collapseExamples). -->
+    <div class="lcards">
+      <a class="lcard" id="samplePlain" href="public/workspace.html#s1/tZbfj9w0EMf_FWteAJGeHOd3EA9QIVqpqBI9eDhaISceJ2Gzds52ktur9n9HTnK311LRa7vdp_XY_nrmMzN23oLUZs8dlNDqoe8UPpm12dmB1wgBTGhspxWUYQB4M2jjUEAJjLLkSUif0OKS5mUSlYxeUEqvIADbcoNQvoUdDg7KOAAtoYyPAUwdzn6i5wc9-gNlr2cIQOp6tFCCuymjhOcY51hLFlLBqkTkqZR5XlPGE5HKOKRRXlEUBco0KkSRVQLDtI5ZGgomBRwDUFqghfKvt9CJM6kG4A4DLmL-_80ifAbVXnPheTozYgC1VrIz-5PBdXuEMkzjIszSLEkDaLFrWgdlFtEkSwOQiFDGEaM0gMl2t355HAegnq8pUy89aBbAxPsRvZEljIXLcm9Zp-MsL7yp1p2quEUoJe8tPsg-877Wu9Wh5fAkAIvXnnPMirhIM1bEbwKQnbHuFaJ61--ef8hqsMZu8vFSr6bc8kdgY3xYkd9WYQ8l_ESGnneKDPyw98t8kp3Px0uFpFPD6ALiZk306IbR2Qty2SKxqASabyyZed-jI3ZAJSzRCokPlGhJ6AXdeJCfL59e-DEtqP_5MWk0WuL0smUT4Ur4VWGyIFtWOU240q5F8wNxLS4idMnJMt2jdERPaEhnl3mJGJC57eqWqDuXyYbCkm-XcCz58S4Y8r3f8d0ak9GjEoTv9agc6bXeWdJ3O1x0NzjB4qM3bNJaLqN7HHpWhAth0Friy_p9nbrlqvGM9p1qSMXrXUmerVcD2XOzs6RbOTSLw52zxCC3Wlky-iPIa3jR7bA_bEqvwfvOnY-fk2b050qj96tXLR_wzkVnuLK8dp1WF-S5I8LzV9oR2-qZzK32vlvC1WHbYe_yYi_gGGwN72Mrw8zF7PbpL0__aH59Ed_-3lzdyNusuXr225871TI7qVNT-w0QwMYESnjUZlubbnCXq8TAhl0Ln13-a819oAfCUw9sTB9k-r2Qqzq85raPuDXFYTJi3k-9y3u2d5Ea0nTP6oOK-mTaRf8T-ieJvINgon8PbP4iDFtXPZrDWl8fwHA7FWpsZ5schoHPhoms-EcV03zdO8cku5ma20lcfwTDo0XOjeH-il4x3A_vYLATjFcDKrd2U4sG4fgmABTNw_dPj-6LH8CS-jD1aGo834vKTYPuk_p116ktorO-wtPyNUIDWO_VUzv-9_1974m-r7yzQA6_NuRPau6vCjs8wb5v-sfT7tSZK_ozLo47sOfJ0wa7U-dl3al36vr-Jvko6gAGg5P_WN-8kUnEZU4jJmWW0jSv47qq6jwRFcqci5pWGeYsEpImVSVZRTkmaZhgKmLB6iw7Zf54fHP8Fw">
+        <span class="name">A plain transaction</span>
+        <span class="what">One input, two outputs and a fee: what was spent, what was paid, and which output Hopline takes to be the change, with its reasons.</span>
+        <span class="look"><b>Look for</b> the amber line to the output that looks like the change; select the transaction and read <i>Likely change</i>.</span>
+        <span class="not"><b>Does not show</b> who owns any of the wallets: the change is a guess from the shape of the transaction.</span>
+        <span class="meta">A real payment from April 2022. Opens a prepared example: nothing is looked up.</span>
+      </a>
+      <a class="lcard" id="sampleWallet" href="public/wallet.html?q=bc1qq2euq8pw950klpjcawuy4uj39ym43hs6cfsegq">
+        <span class="name">A real case: the Colonial Pipeline ransom wallet</span>
+        <span class="what">A wallet with a short history that received the DarkSide affiliate's share of the Colonial Pipeline ransom in 2021.</span>
+        <span class="look"><b>Look for</b> how the coins arrived and where they went, transaction by transaction, in the wallet's ledger.</span>
+        <span class="not"><b>Does not show</b> who is behind the wallet: that comes from public reporting, not from the chain.</span>
+        <span class="meta">A real wallet from 2021. Opens the wallet overview and looks the wallet up live.</span>
+      </a>
+    </div>
+  </div>
 
   <div class="proof">
     <div><h2>In your browser</h2><p>No account, nothing to install, and none of your work is stored on a server: it stays on your computer.</p></div>
@@ -161,6 +194,29 @@
   var detect = document.getElementById('detect'), goes = document.getElementById('goes'), why = document.getElementById('why'), timer = 0, shown = null;
 
   function open(url) { window.location.href = url; }
+
+  /** Examples beyond the first two sit behind "More examples (N)": a native <details>, closed whenever the page opens (the start page remembers nothing). Nothing is folded unless at least
+      two would be, since "More examples (1)" saves nothing. A card may carry data-group="..."; the folded ones are then listed under that heading. A link ending #examples opens the list.
+      Safe to call again: the folded cards are put back in order first. */
+  function collapseExamples() {
+    var grid = document.querySelector('.learn > .lcards'), SHOWN = 2, old = document.querySelector('.learn > details.more');
+    if (!grid) return;
+    if (old) { Array.prototype.slice.call(old.querySelectorAll('.lcard')).forEach(function (c) { grid.appendChild(c); }); old.parentNode.removeChild(old); }
+    var cards = Array.prototype.slice.call(grid.children).filter(function (c) { return c.classList.contains('lcard'); });
+    if (cards.length < SHOWN + 2) return;
+    var det = node('details', 'more'), sum = node('summary', '', 'More examples (' + (cards.length - SHOWN) + ')'), inner = node('div', 'lcards'), group = null;
+    det.id = 'examples'; det.appendChild(sum);
+    cards.slice(SHOWN).forEach(function (c) {
+      var g = c.getAttribute('data-group');
+      if (g && g !== group) inner.appendChild(node('h3', 'lgroup', g));
+      if (g) group = g;
+      inner.appendChild(c);
+    });
+    det.appendChild(inner);
+    grid.parentNode.insertBefore(det, grid.nextSibling);
+    if (window.location.hash === '#examples') det.open = true;
+  }
+  window.__examples = { collapse: collapseExamples };                                  // read by the end-to-end tests
   function node(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
 
   /** Draw what the box holds: the line that says what was recognised, and one button for each page that can take it. Leaving the box (a click on a button) fires "change", and
@@ -199,6 +255,7 @@
     else render();
   });
   q.addEventListener('change', function () { render(); });
+  collapseExamples();
   q.addEventListener('paste', function (e) {                                          // a list pasted one entry to a line: a text box would drop the line breaks and join the entries
     var d = e.clipboardData && e.clipboardData.getData('text');
     if (!d || !/[\r\n]/.test(d)) return;
