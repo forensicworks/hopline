@@ -45,7 +45,7 @@ textarea { resize: vertical; min-height: 64px; }
 .brand span { color: var(--accent); font-weight: 400; }
 .brand { display: inline-flex; align-items: center; gap: 8px; }
 .brand .logo { border-radius: 6px; flex: none; }
-#searchForm { display: flex; gap: 6px; flex: 1 1 230px; max-width: 640px; }                /* room for the logo, Redo and the Find field on one row at 1366 px; it grows into what is left */
+#searchForm { display: flex; gap: 6px; flex: 4 1 230px; max-width: 640px; }                /* room for the logo, Redo, Update and the Find field on one row at 1366 px, with the placeholder whole; it takes four parts of the free space to the spacer's one */
 #searchForm input { flex: 1; font-family: Consolas, "Courier New", monospace; font-size: 13px; }
 
 .navgroup { display: flex; gap: 3px; }

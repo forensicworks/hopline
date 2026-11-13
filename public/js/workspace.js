@@ -1749,7 +1749,7 @@
   function updateBtnTitle() {
     var b = $('btnUpdate'); if (!b || b.disabled || !state.explorer) return;
     var p = state.explorer.refreshPlan();
-    b.title = (p.requests ? 'Ask the server again about ' + planText(p) + ': at least ' + plural(p.requests, 'request') + (p.requests > state.capReq ? ' (more than the request limit of ' + state.capReq + ': the rest is not asked)' : '') + '. ' : 'Nothing here can have changed that a request would find: no wallet with its totals read, no unconfirmed transaction, no output recorded as unspent. ')
+    b.title = 'Update from the chain: ' + (p.requests ? 'ask the server again about ' + planText(p) + ': at least ' + plural(p.requests, 'request') + (p.requests > state.capReq ? ' (more than the request limit of ' + state.capReq + ': the rest is not asked)' : '') + '. ' : 'nothing here can have changed that a request would find: no wallet with its totals read, no unconfirmed transaction, no output recorded as unspent. ')
       + 'Nothing you wrote is touched, and Undo load takes it back';
   }
   function hideStale() { state.stale = null; var b = $('staleBar'); if (b && !b.hidden) { b.hidden = true; if (renderer) renderer.resize(); } }

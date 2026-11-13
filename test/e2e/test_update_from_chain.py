@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from chains import IN, OUT, addr, tid, tx
+from conftest import NORMAL
 from helpers import idle, open_query, settle
 
 W = "addr:" + addr("w")
@@ -266,3 +267,18 @@ def test_the_update_button_is_off_on_an_empty_canvas_and_the_request_limit_is_ke
     tpage.click("#staleYes"); idle(tpage); settle(tpage)
     assert len(asked(mock, before)) <= 2, asked(mock, before)
     assert "request limit" in toast(tpage)
+
+
+def test_the_update_button_is_an_icon_with_its_name_and_leaves_the_box_its_whole_placeholder_on_one_row_at_1366(tpage, mock):
+    """The top bar has no spare room: a labelled button pushed the placeholder of the Add box out at 1400 px and the bar onto a second row at 1280."""
+    assert tpage.inner_text("#btnUpdate").strip() == "↻" and tpage.get_attribute("#btnUpdate", "aria-label") == "Update from the chain"
+    assert tpage.get_attribute("#btnUpdate", "title").startswith("Update from the chain")
+    tpage.set_viewport_size({"width": 1366, "height": 800})
+    open_query(tpage, NORMAL["txid"]); settle(tpage)
+    assert tpage.get_attribute("#q", "placeholder") == "Add up to 10 IDs or addresses"
+    room = tpage.evaluate("""() => { const q = document.getElementById('q'), cs = getComputedStyle(q), cv = document.createElement('canvas').getContext('2d');
+        cv.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+        return q.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - cv.measureText(q.placeholder).width; }""")
+    assert room >= 0, "the placeholder is cut off by %d px at 1366 px" % -room
+    height = tpage.evaluate("() => document.getElementById('top').getBoundingClientRect().height")
+    assert height < 60, "the top bar is one row at 1366 px (%d px high)" % height
