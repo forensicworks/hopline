@@ -55,7 +55,7 @@
     trace: emptyTrace(), vgroups: new Map(), vseq: 0, routeRef: null, routeFocus: null, openDir: 'next',
     undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true, swap: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
-    stepMode: 'ask', stepSize: 5, shareMax: SH.DEFAULT_LIMIT, autoBalance: true, autoHistory: true, autoTag: true, tagSeen: new Set(), arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
+    stepMode: 'ask', stepSize: 5, shareMax: SH.DEFAULT_LIMIT, autoBalance: true, autoHistory: true, autoUpdate: false, autoTag: true, tagSeen: new Set(), arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
     ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: {}, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
@@ -194,7 +194,7 @@
   }
 
   function savePrefs() {
-    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, shareMax: state.shareMax, autoBalance: state.autoBalance, autoHistory: state.autoHistory, autoTag: state.autoTag, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, hoverPreview: state.hoverPreview, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
+    store.set(PREF_KEY, JSON.stringify({ stepMode: state.stepMode, stepSize: state.stepSize, shareMax: state.shareMax, autoBalance: state.autoBalance, autoHistory: state.autoHistory, autoUpdate: state.autoUpdate, autoTag: state.autoTag, arrowsInRange: state.arrowsInRange, chooseSort: state.chooseSort, groupRows: state.groupRows, groupBy: state.groupBy, dustSats: state.dustSats, source: state.source, fallback: state.fallback, customBase: state.customBase, capTx: state.capTx, capReq: state.capReq, capPages: state.capPages, showLabels: state.showLabels, persist: state.persist, focusOn: state.focusOn, hops: state.hops, fiat: state.fiat, sideCollapsed: state.sideCollapsed, inspCollapsed: state.inspCollapsed, tbCollapsed: state.tbCollapsed, edgeLabels: state.edgeLabels, viaWallets: state.viaWallets, bundleEdges: state.bundleEdges, hoverPreview: state.hoverPreview, customPrices: state.customPrices, reportBy: ($('reportBy') && $('reportBy').value) || '', analysis: state.analysis, assist: state.assist, keyRemember: state.keyRemember, pace: state.pace, auto: state.auto, extProxy: state.ext.proxy, extRemember: state.ext.remember, shippedPacks: state.shippedChoices }));
   }
   function loadPrefs() {
     store.del(REMOVED_KEY);                                                              // the Claude option is gone: forget a key an earlier version kept in this browser
@@ -204,7 +204,7 @@
       if (A.PRESETS[p.source]) state.source = p.source;
       state.fallback = p.fallback !== false;
       if (p.stepMode === 'ask' || p.stepMode === 'batch' || p.stepMode === 'all') state.stepMode = p.stepMode;
-      state.stepSize = num(p.stepSize, 1, 50, 5); state.shareMax = SH.limitOf(p.shareMax); state.autoBalance = p.autoBalance !== false; state.autoHistory = p.autoHistory !== false; state.autoTag = p.autoTag !== false; state.arrowsInRange = p.arrowsInRange !== false;
+      state.stepSize = num(p.stepSize, 1, 50, 5); state.shareMax = SH.limitOf(p.shareMax); state.autoBalance = p.autoBalance !== false; state.autoHistory = p.autoHistory !== false; state.autoTag = p.autoTag !== false; state.autoUpdate = p.autoUpdate === true; state.arrowsInRange = p.arrowsInRange !== false;
       state.groupRows = p.groupRows !== false; state.groupBy = cleanGroupBy(p.groupBy); state.dustSats = num(p.dustSats, 0, 1000000000, 10000);
       if (p.chooseSort === 'big' || p.chooseSort === 'small' || p.chooseSort === 'new' || p.chooseSort === 'old' || p.chooseSort === 'known') state.chooseSort = p.chooseSort;
       if (typeof p.customBase === 'string') state.customBase = p.customBase.slice(0, 300);
@@ -247,8 +247,9 @@
     return fn().then(function (r) {
       if (!r) return r;
       var grew = state.graph === g0 ? state.graph.nodes.size - n0 : 0;
-      if (!(o && o.noUndo) && (state.graph !== g0 || state.graph.nodes.size !== n0 || state.graph.edges.size !== e0)) {           // something was added: remember how it was before
-        pushUndoLoad(snap, '+' + plural(Math.max(0, grew), 'vertex', 'vertices'));
+      var same = state.graph === g0 && state.graph.nodes.size === n0 && state.graph.edges.size === e0, edited = same && o && o.changed ? o.changed(r) : null;          // o.changed: a change that adds nothing (a transaction confirmed) is still one to take back
+      if (!(o && o.noUndo) && (!same || edited)) {                       // something was added or changed: remember how it was before
+        pushUndoLoad(snap, same ? String(edited) : '+' + plural(Math.max(0, grew), 'vertex', 'vertices'));
         if (grew >= BIG_LOAD) big = { text: 'Undo load', fn: undoLoad };
         undo = big || (snap && !snap.tooBig ? { text: 'Undo load', fn: undoLoad } : null);       // the message offers it, for a few seconds (a big load: longer)
       }
@@ -318,6 +319,7 @@
     rb.title = !next ? 'Nothing to redo: Undo load can be taken back here, until you change something else'
       : 'Redo: ' + next.title + (next.info ? ' (' + next.info + ')' : '') + ' — ' + plural(next.nodes, 'vertex', 'vertices') + ' again';
     rb.setAttribute('aria-label', next ? 'Redo load: ' + next.title : 'Redo load');
+    syncUpdateBtn();
   }
   /** Put a kept copy back: the graph, and what depends on it (what you kept, hid, focused and traced). Used by Undo and Redo. */
   function restoreSnapshot(s) {
@@ -1724,6 +1726,107 @@
     }
   }
 
+  // ---- bringing what is loaded up to date ---------------------------------------------------------
+  // A file or a session shows the chain as it was when it was made: a wallet whose history was loaded is marked complete and is not asked again. "Update from the chain" asks the
+  // server again (never what the browser kept) about what can have changed. It runs when asked, or when "Update from the chain when I open a file" is on and a file is opened.
+  var STALE_MS = 10 * 60 * 1000, TRACE_NEW_MAX = 60;
+  function ago(ms) {
+    var m = Math.max(1, Math.round(ms / 60000));
+    if (m < 90) return plural(m, 'minute');
+    var hrs = Math.round(m / 60);
+    return hrs < 48 ? plural(hrs, 'hour') : plural(Math.round(hrs / 24), 'day');
+  }
+  function planText(p) {
+    var bits = [];
+    if (p.wallets.length) bits.push(plural(p.wallets.length, 'wallet'));
+    if (p.confirm.length) bits.push(plural(p.confirm.length, 'unconfirmed transaction'));
+    if (p.spends.length) bits.push(plural(p.spends.length, 'transaction') + ' with an output not known to be spent');
+    return bits.join(', ');
+  }
+  /** The Update button: off while there is nothing loaded or something is running. */
+  function syncUpdateBtn() { var b = $('btnUpdate'); if (b) b.disabled = !state.graph.nodes.size || state.busy; }
+  /** Its hint says what it would ask, worked out when the pointer arrives (not on every change of the canvas). */
+  function updateBtnTitle() {
+    var b = $('btnUpdate'); if (!b || b.disabled || !state.explorer) return;
+    var p = state.explorer.refreshPlan();
+    b.title = 'Update from the chain: ' + (p.requests ? 'ask the server again about ' + planText(p) + ': at least ' + plural(p.requests, 'request') + (p.requests > state.capReq ? ' (more than the request limit of ' + state.capReq + ': the rest is not asked)' : '') + '. ' : 'nothing here can have changed that a request would find: no wallet with its totals read, no unconfirmed transaction, no output recorded as unspent. ')
+      + 'Nothing you wrote is touched, and Undo load takes it back';
+  }
+  function hideStale() { state.stale = null; var b = $('staleBar'); if (b && !b.hidden) { b.hidden = true; if (renderer) renderer.resize(); } }
+  /** A bar after a file made a while ago was opened: what it costs, and the choice. Nothing is asked until the button is pressed. */
+  function offerUpdate(exportedMs, ids) {
+    var plan = state.explorer.refreshPlan({ ids: ids });
+    if (!plan.requests) { hideStale(); return false; }
+    state.stale = { ids: ids };
+    $('staleText').textContent = 'This file was made ' + S.fmtTime(exportedMs / 1000) + ' (' + ago(Date.now() - exportedMs) + ' ago), so it shows the chain as it was then: a wallet can have new payments, a transaction can have confirmed and an output can have been spent. '
+      + 'Updating asks the server about ' + planText(plan) + ' (about ' + plural(plan.requests, 'request') + (plan.requests > state.capReq ? ', more than the request limit of ' + state.capReq : '') + ') and changes nothing you wrote.';
+    $('staleBar').hidden = false; renderer.resize();
+    return true;
+  }
+  function syncUpdateChip() {
+    var u = state.updated, chip = $('updateChip');
+    chip.hidden = !u;
+    if (u) { $('updateChipText').textContent = u.text; $('updateChipSelect').hidden = !u.ids.length; }
+  }
+  /** In the Trace layout: show the new transactions beside the wallet they belong to (one that paid it on its left, one that spent from it on its right), as one step Ctrl+Z takes back. */
+  function traceRevealNew(r) {
+    var g = state.graph, T = state.trace, revealed = [], left = TRACE_NEW_MAX, fresh = new Set(r.newIds || []);
+    unfoldLog = [];
+    (r.changedWallets || []).forEach(function (w) {
+      var wid = ID.addr(w.address);
+      if (!T.shown.has(wid)) return;
+      ['prev', 'next'].forEach(function (dir) {
+        if (left <= 0) return;
+        var rows = Array.from(TR.neighbours(g, wid, dir).values()).filter(function (x) { return x.type === 'tx' && fresh.has(x.id); }).slice(0, left);
+        left -= rows.length;
+        tracePut(wid, rows.map(function (x) { return x.id; }), dir, revealed);
+      });
+    });
+    revealed.unfolded = unfoldLog; unfoldLog = null;
+    if (revealed.length) { traceRecord({ type: 'reveal', ids: revealed.slice(), unfolded: revealed.unfolded }); traceChanged(revealed, false); }
+    return revealed.length;
+  }
+  /** One sentence on what changed. `plan` is what was asked, `r` what came back. */
+  function updateNote(plan, r) {
+    if (!r) return '';
+    var bits = [];
+    if (r.newTx) bits.push(plural(r.newTx, 'new transaction') + ' in ' + plural(r.changedWallets.length, 'wallet'));
+    else if (r.totalsChanged) bits.push(plural(r.totalsChanged, 'wallet') + ' with new totals');
+    if (r.confirmed) bits.push(plural(r.confirmed, 'transaction') + ' confirmed');
+    if (r.spent) bits.push(plural(r.spent, 'output') + ' now spent');
+    var s = bits.length ? bits.join(', ') + '.' : 'Nothing has changed.';
+    if (r.more) s += ' A wallet has more new payments than were read: its Load more history goes on from there.';
+    if (r.checked < plan.wallets.length) s += ' ' + (plan.wallets.length - r.checked) + ' of ' + plural(plan.wallets.length, 'wallet') + ' could not be checked (request limit or a failed request).';
+    if (r.hidden) s += ' ' + plural(r.hidden, 'new transaction') + (r.hidden === 1 ? ' is' : ' are') + ' loaded but not on the trace: Show forward or Show backward from its wallet reveals ' + (r.hidden === 1 ? 'it' : 'them') + '.';
+    return s;
+  }
+  /** Ask the server again about what is loaded (opts.ids: only these vertices). One cancellable action under the request limit; Undo load takes it back. */
+  function updateFromChain(o) {
+    o = o || {};
+    if (!state.graph.nodes.size) { toast('Nothing is loaded yet.'); return Promise.resolve(null); }
+    var plan = state.explorer.refreshPlan({ ids: o.ids }), last = null;
+    if (!plan.requests) { toast('Nothing to ask the server about: no wallet with its totals read, no unconfirmed transaction and no output recorded as unspent.'); return Promise.resolve(null); }
+    hideStale();
+    return run(o.title || 'Update from the chain', function () {
+      return state.explorer.refresh({ ids: o.ids }).then(function (r) {
+        r.more = r.truncated; r.truncated = false;                                              // "stopped at the per-expand limit" is not what happened: the note says it
+        if (traceOn() && state.trace.seed) traceRevealNew(r);
+        r.hidden = traceOn() && state.trace.seed ? Math.max(0, (r.newIds || []).filter(function (id) { var n = state.graph.nodes.get(id); return n && n.type === 'tx' && n.loaded && !state.trace.shown.has(id); }).length) : 0;
+        last = r; return r;
+      });
+    }, { changed: function (r) { return r.confirmed || r.spent || r.totalsChanged ? 'updated from the chain' : null; }, note: function () { return updateNote(plan, last); } }).then(function (r) {
+      if (r) {
+        var g = state.graph, ids = (r.newIds || []).filter(function (id) { var n = g.nodes.get(id); return n && n.type === 'tx' && n.loaded; }), bits = [];
+        if (ids.length) bits.push(ids.length + ' new');
+        if (r.confirmed) bits.push(r.confirmed + ' confirmed');
+        if (r.spent) bits.push(r.spent + ' spent');
+        state.updated = bits.length ? { ids: ids, text: 'Updated ' + new Date().toISOString().slice(11, 16) + ' UTC: ' + bits.join(' · ') } : null;
+        syncUpdateChip();
+      }
+      return r;
+    });
+  }
+
   // ---- hiding and selecting, in every layout -----------------------------------------------------
   // Hiding never deletes: a hidden vertex stays loaded, every hide can be undone, and what you hid is saved with the session.
   // (In the Trace layout the same buttons work on what the trace shows: see traceHideIds.)
@@ -2661,6 +2764,7 @@
     }
     if (n.type === 'addr') {
       ctxItem(m, n.histNext ? 'Load more history' : 'Load history', function () { expandNode(n.id); }, { disabled: !!n.histDone });
+      if (n.txCount != null) ctxItem(m, 'Check for new transactions', function () { updateFromChain({ ids: [n.id], title: 'Check ' + S.shortId(n.address, 6) }); }, { title: 'Ask the server again about this wallet: new payments are loaded' });
       XT.list().forEach(function (s) {
         ctxItem(m, (n.ext && n.ext[s.id] ? 'Look up again in ' : 'Look up in ') + s.short + '…', function () { lookupSource(s.id, n.id); }, { right: 'external', title: sourceTip(s) });
       });
@@ -3267,7 +3371,8 @@
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
         el('button', { type: 'button', text: 'Spenders →', title: 'Load the transactions that spent its outputs', onclick: function () { expandNode(n.id, 'forward'); } }),
         el('button', { type: 'button', text: '← Funding', title: 'Load the transactions it spends from', onclick: function () { expandNode(n.id, 'backward'); } }),
-        el('button', { type: 'button', text: '↔ Both', onclick: function () { expandNode(n.id, 'both'); } })
+        el('button', { type: 'button', text: '↔ Both', onclick: function () { expandNode(n.id, 'both'); } }),
+        n.loaded && n.confirmed === false ? el('button', { type: 'button', text: 'Check for confirmation', title: 'Ask the server again whether it is in a block now', onclick: function () { updateFromChain({ ids: [n.id], title: 'Check ' + S.shortId(n.txid, 6) }); } }) : null
       ]));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
         el('button', { type: 'button', text: 'Copy txid', onclick: function () { copy(n.txid); } }), extLink('/tx/' + n.txid, 'Open in explorer ↗'), arkhamLink(n), relayLink(n)
@@ -3318,6 +3423,7 @@
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), balButton]));
       var ta2 = traceActions(n); if (ta2) box.appendChild(ta2);
       var acts = [el('button', { type: 'button', text: n.histNext ? 'Load more history' : 'Load history', disabled: n.histDone ? 'disabled' : null, onclick: function () { expandNode(n.id); } }),
+                  n.txCount != null ? el('button', { type: 'button', text: 'Check for new transactions', title: 'Ask the server again about this wallet (one request): when it has new payments they are loaded, newest first, until one already held is met', onclick: function () { updateFromChain({ ids: [n.id], title: 'Check ' + S.shortId(n.address, 6) }); } }) : null,
                   el('button', { type: 'button', text: 'Copy address', onclick: function () { copy(n.address); } }), extLink('/address/' + n.address, 'Open in explorer ↗'), arkhamLink(n),
                   el('a', { href: 'wallet.html?q=' + encodeURIComponent(n.address), target: '_blank', rel: 'noopener', title: 'This wallet as a ledger: every transaction with its inputs and outputs', text: 'Wallet overview ↗' }), hideBtn([n.id]), removeBtn([n.id]), deleteBtn([n.id])];
       box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
@@ -5227,6 +5333,7 @@
     refresh({ relayout: true, fit: !!o.fit });
     showInspector(true);
     renderStepBar();
+    syncUpdateBtn();
   }
 
   // ---- legend / filters -----------------------------------------------------------------------
@@ -5931,6 +6038,10 @@
                                     + '. Select ' + (partialTx === 1 ? 'it' : 'one') + ' and use Show backward or Show forward to load the rest and check.' : '';
     var cut = shared && shared.of && shared.of > r.graph.nodes.size ? ' The sender cut it down to the ' + shared.kept + ' vertices nearest START (they had ' + shared.of + '), so this is not the whole picture.' : '';
     toast((shared ? 'Opened a shared canvas: ' : 'Imported ') + r.graph.nodes.size + ' vertices and ' + r.graph.edges.size + ' edges' + (wasEmpty ? '' : ' (merged into the current workspace)') + '.' + cut + partialNote + where + (r.warnings.length ? ' ' + r.warnings.join('; ') + '.' : ''), !!r.warnings.length, snap && !snap.tooBig ? { text: 'Undo import', fn: undoLoad } : null, 8000);
+    if (o && o.file && r.exported != null && Date.now() - r.exported > STALE_MS) {                       // a file from a while ago: what it shows may have moved on
+      var theirs = Array.from(r.graph.nodes.keys());
+      if (state.autoUpdate) updateFromChain({ ids: theirs, title: 'Update from the chain (file from ' + S.fmtTime(r.exported / 1000, false) + ')' }); else offerUpdate(r.exported, theirs);
+    } else hideStale();
   }
 
   function clearAll() {
@@ -5943,6 +6054,7 @@
     state.trace = emptyTrace(); state.vgroups = new Map(); state.hidden = new Set(); state.hideUndo = []; state.hideRedo = []; state.arrange = DEFAULT_ARRANGE;
     try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the old hash stays, harmless */ }
     renderer.cur = new Map(); renderer.target = new Map(); renderer.anim = null;
+    hideStale(); state.updated = null; syncUpdateChip();
     afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); store.del(SAVE_KEY); log('Workspace cleared');
     if (had) toast('Cleared the workspace (' + plural(had, 'vertex', 'vertices') + ').', false, snap && !snap.tooBig ? { text: 'Undo clear', fn: undoLoad } : null, 8000);
   }
@@ -6001,7 +6113,7 @@
     if (!A.PRESETS.tor) { var torOpt = document.querySelector('#source option[value="tor"]'); if (torOpt) torOpt.remove(); }          // a published copy does not offer Tor
     loadPrefs();
     makeClient();
-    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('shareMax').value = state.shareMax; $('groupRows').checked = state.groupRows; $('autoBalance').checked = state.autoBalance; $('autoHistory').checked = state.autoHistory; $('autoTag').checked = state.autoTag; syncAutoHistN(); $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
+    $('stepMode').value = state.stepMode; $('stepSize').value = state.stepSize; $('shareMax').value = state.shareMax; $('groupRows').checked = state.groupRows; $('autoBalance').checked = state.autoBalance; $('autoHistory').checked = state.autoHistory; $('autoUpdate').checked = state.autoUpdate; $('autoTag').checked = state.autoTag; syncAutoHistN(); $('groupBy').value = state.groupBy; $('dustSats').value = state.dustSats; $('arrowsInRange').checked = state.arrowsInRange;
     $('capTx').value = state.capTx; $('capReq').value = state.capReq; $('capPages').value = state.capPages; $('showLabels').checked = state.showLabels; $('persist').checked = state.persist; $('focusOn').checked = state.focusOn; $('depth').value = String(state.hops);
     applySourceUi(); syncFiatUi(); updateReqStats();
     $('edgeLabels').checked = state.edgeLabels; $('viaWallets').checked = state.viaWallets; $('bundleEdges').checked = state.bundleEdges; $('hoverPreview').checked = state.hoverPreview;
@@ -6155,7 +6267,7 @@
       var f = this.files && this.files[0]; this.value = '';
       if (!f) return;
       if (f.size > 60 * 1024 * 1024) { toast('That file is too large (limit 60 MB).', true); return; }
-      var rd = new FileReader(); rd.onload = function () { doImport(String(rd.result)); }; rd.onerror = function () { toast('Could not read the file.', true); }; rd.readAsText(f);
+      var rd = new FileReader(); rd.onload = function () { doImport(String(rd.result), { file: true }); }; rd.onerror = function () { toast('Could not read the file.', true); }; rd.readAsText(f);
     });
     $('shareMax').addEventListener('change', function () { state.shareMax = SH.limitOf(this.value); this.value = state.shareMax; savePrefs(); });
     $('shareOut').addEventListener('focus', function () { this.select(); });
@@ -6226,6 +6338,14 @@
     $('arrowsInRange').addEventListener('change', function () { state.arrowsInRange = this.checked; savePrefs(); renderer.dirty = true; showInspector(true); });
     $('autoBalance').addEventListener('change', function () { state.autoBalance = this.checked; savePrefs(); if (this.checked) autoReadSoon(); });
     $('autoHistory').addEventListener('change', function () { state.autoHistory = this.checked; savePrefs(); if (this.checked) autoReadSoon(); });
+    $('autoUpdate').addEventListener('change', function () { state.autoUpdate = this.checked; savePrefs(); });                      // it acts when a file is opened, not now
+    $('btnUpdate').addEventListener('click', function () { updateFromChain(); });
+    $('btnUpdate').addEventListener('mouseenter', updateBtnTitle);
+    $('btnUpdate').addEventListener('focus', updateBtnTitle);
+    $('staleYes').addEventListener('click', function () { var ids = state.stale && state.stale.ids; updateFromChain({ ids: ids }); });
+    $('staleNo').addEventListener('click', hideStale);
+    $('updateChipSelect').addEventListener('click', function () { if (state.updated && state.updated.ids.length) selectIds(state.updated.ids, 'new transactions'); });
+    $('updateChipClear').addEventListener('click', function () { state.updated = null; syncUpdateChip(); });
     $('autoTag').addEventListener('change', function () { state.autoTag = this.checked; savePrefs(); });
     $('tagKnownNow').addEventListener('click', tagKnownNow);
     $('groupRows').addEventListener('change', function () { state.groupRows = this.checked; savePrefs(); showInspector(true); });

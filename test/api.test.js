@@ -523,3 +523,116 @@ test('the pace of your own server: faster by default, settable, and clamped; the
   const pub = Api.buildClient({ source: 'clearnet', pace: { concurrency: 30, delayMs: 0 } }, {});
   assert.equal(pub.concurrency, PRESETS.clearnet.concurrency); assert.equal(pub.delayMs, PRESETS.clearnet.delayMs); assert.equal(pub.keyHint, false);
 });
+
+// ---- bringing a loaded graph up to date (Explorer.refresh) -------------------------------------------------------------
+// A chain the test can change between two reads: wallet W, newest transaction first. Tx i pays W 4 sat from its own wallet; unconfirmed ones have no block.
+const hex = (i) => String(i).padStart(64, '0');
+function chainFetch(chain) {
+  const mk = (t) => ({ txid: hex(t.i), fee: 1, weight: 400, status: t.conf === false ? { confirmed: false } : { confirmed: true, block_height: 100 + t.i, block_time: 1000 + t.i },
+                       vin: [{ txid: 'cd'.repeat(32), vout: t.i, prevout: { scriptpubkey_address: 'src' + t.i, scriptpubkey_type: 'p2pkh', value: 5 } }],
+                       vout: [{ scriptpubkey_address: 'W', scriptpubkey_type: 'p2pkh', value: 4 }] });
+  const stats = () => { const c = chain.txs.filter((t) => t.conf !== false), m = chain.txs.filter((t) => t.conf === false);
+    return { address: 'W', chain_stats: { tx_count: c.length, funded_txo_sum: 4 * c.length, spent_txo_sum: 0 }, mempool_stats: { tx_count: m.length, funded_txo_sum: 4 * m.length, spent_txo_sum: 0 } }; };
+  const page = (after) => { const at = after ? chain.txs.findIndex((t) => hex(t.i) === after) + 1 : 0; return chain.txs.slice(at, at + 25).map(mk); };
+  return fakeFetch(new Proxy({}, { get: (_, p) => {
+    if (p === '/address/W') return stats();
+    if (p === '/address/W/txs') return page(null);
+    let m = /^\/address\/W\/txs\/chain\/(\w+)$/.exec(p); if (m) return page(m[1]);
+    m = /^\/tx\/(\d+)$/.exec(p); if (m) { const t = chain.txs.find((x) => hex(x.i) === m[1]); return t ? mk(t) : undefined; }
+    m = /^\/tx\/(\d+)\/outspends$/.exec(p); if (m) return [(chain.spent || {})[m[1]] || { spent: false }];
+    return undefined; } }));
+}
+async function loadedWallet(chain, o) {
+  const f = chainFetch(chain), g = new Graph(), ex = new Explorer(new Client(quick({ fetch: f })), g);
+  await ex.expandAddress('W', { pages: 10, cap: 0 });
+  g.node(ID.addr('W')).histDone = true;                                           // what the page sets once a history is complete
+  if (o && o.outspends) for (const t of chain.txs) { const os = await ex.client.outspends(hex(t.i)); ex._spends(hex(t.i), os); }
+  ex.client.cache.clear();                                                        // a later session: nothing is cached
+  return { f, g, ex };
+}
+const sinceLoad = (f) => f.log.length;
+
+test('refresh: nothing changed costs one request per wallet and a settled transaction with spent outputs costs none', async () => {
+  const chain = { txs: [3, 2, 1].map((i) => ({ i })), spent: { [hex(1)]: { spent: true, txid: 'ee'.repeat(32), vin: 0, status: { confirmed: true, block_time: 5000 } }, [hex(2)]: { spent: true, txid: 'ef'.repeat(32), vin: 0, status: { confirmed: true } }, [hex(3)]: { spent: true, txid: 'f0'.repeat(32), vin: 0, status: { confirmed: true } } } };
+  const { f, g, ex } = await loadedWallet(chain, { outspends: true });
+  const plan = ex.refreshPlan();
+  assert.deepEqual([plan.wallets, plan.confirm, plan.spends, plan.requests], [['W'], [], [], 1]);
+  const n0 = sinceLoad(f), r = await ex.refresh();
+  assert.equal(f.log.length - n0, 1, 'one request: the wallet totals');
+  assert.deepEqual([r.checked, r.totalsChanged, r.newTx, r.confirmed, r.spent, r.newIds.length, r.errors.length], [1, 0, 0, 0, 0, 0, 0]);
+  assert.equal(g.node(ID.addr('W')).histDone, true, 'still complete');
+});
+
+test('refresh: a new payment is read from the newest page until a transaction already held is met, and the old ones are not asked for again', async () => {
+  const chain = { txs: [3, 2, 1].map((i) => ({ i })) };
+  const { f, g, ex } = await loadedWallet(chain);
+  g.node(ID.addr('W')).label = 'my label'; g.node(ID.addr('W')).tag = 'EXCH';
+  chain.txs.unshift({ i: 5 }, { i: 4 });                                           // two payments after the file was made
+  const n0 = sinceLoad(f), r = await ex.refresh();
+  assert.equal(f.log.length - n0, 2, 'the wallet totals and the first page of its history');
+  assert.deepEqual([r.newTx, r.changedWallets.length, r.changedWallets[0].added], [2, 1, 2]);
+  assert.equal(g.node(ID.tx(hex(5))).loaded, true); assert.equal(g.node(ID.tx(hex(4))).loaded, true);
+  assert.ok(r.newIds.includes(ID.tx(hex(5))) && r.newIds.includes(ID.tx(hex(4))));
+  const w = g.node(ID.addr('W'));
+  assert.equal(r.totalsChanged, 1);
+  assert.equal(w.txCount, 5, 'the totals are current'); assert.equal(w.label, 'my label'); assert.equal(w.tag, 'EXCH', 'the analyst\'s marks are untouched');
+  assert.equal(w.histDone, true, 'its history is complete again');
+});
+
+test('refresh: asks the server again, never the five-minute cache', async () => {
+  const chain = { txs: [{ i: 1 }] };
+  const f = chainFetch(chain), g = new Graph(), ex = new Explorer(new Client(quick({ fetch: f })), g);
+  await ex.expandAddress('W', { pages: 2, cap: 0 }); g.node(ID.addr('W')).histDone = true;        // the cache now holds W and W/txs
+  chain.txs.unshift({ i: 2 });
+  const r = await ex.refresh();
+  assert.equal(r.newTx, 1, 'a cached answer would have hidden the new payment');
+});
+
+test('refresh: an unconfirmed transaction is read again, and an output that was unspent is found spent', async () => {
+  const chain = { txs: [{ i: 2, conf: false }, { i: 1 }] };
+  const { f, g, ex } = await loadedWallet(chain, { outspends: true });
+  assert.equal(g.node(ID.tx(hex(2))).confirmed, false);
+  const plan = ex.refreshPlan();
+  assert.deepEqual([plan.confirm, plan.spends, plan.requests], [[hex(2)], [hex(1)], 1 + 2 + 1]);
+  chain.txs[0] = { i: 2 };                                                         // mined
+  chain.spent = { [hex(1)]: { spent: true, txid: '9a'.repeat(32), vin: 0, status: { confirmed: true, block_time: 7000 } } };
+  const n0 = sinceLoad(f), r = await ex.refresh();
+  assert.equal(g.node(ID.tx(hex(2))).confirmed, true); assert.equal(g.node(ID.tx(hex(2))).height, 102);
+  assert.deepEqual([r.confirmed, r.spent], [1, 1]);
+  assert.equal(g.edges.get(ID.edgeOut(hex(1), 0)).spent, true);
+  assert.ok(f.log.length - n0 <= plan.requests + 3, 'about what the plan said: ' + (f.log.length - n0));
+  assert.ok(r.newIds.includes(ID.tx('9a'.repeat(32))), 'the spending transaction is a new (not yet loaded) vertex');
+});
+
+test('refresh: a wallet with many new payments takes the pages asked for and is marked as having more to load', async () => {
+  const chain = { txs: [{ i: 1 }] };
+  const { g, ex } = await loadedWallet(chain);
+  for (let i = 2; i <= 60; i++) chain.txs.unshift({ i });                          // 59 new, newest first
+  const r = await ex.refresh({ pages: 2 });
+  assert.equal(r.newTx, 50); assert.equal(r.truncated, true);
+  const w = g.node(ID.addr('W'));
+  assert.equal(w.histDone, false); assert.equal(w.histNext, hex(11), 'Load more history goes on from the last one read');
+});
+
+test('refresh: a wallet whose history was never read only gets its totals; a request cap and a failing server are reported, not thrown', async () => {
+  const chain = { txs: [{ i: 1 }] };
+  const f = chainFetch(chain), g = new Graph(), ex = new Explorer(new Client(quick({ fetch: f })), g);
+  await ex.loadBalances(['W'], 0);
+  assert.equal(g.node(ID.addr('W')).balanceOnly, true);
+  chain.txs.unshift({ i: 2 });
+  const r = await ex.refresh();
+  assert.equal(r.newTx, 0); assert.equal(g.node(ID.addr('W')).txCount, 2, 'the totals moved'); assert.equal(g.node(ID.tx(hex(2))), undefined, 'but no transactions were fetched');
+  const bad = new Explorer(new Client(quick({ fetch: fakeFetch({}) })), g);
+  const r2 = await bad.refresh();
+  assert.equal(r2.checked, 0); assert.ok(r2.errors.length >= 1);
+});
+
+test('refreshPlan: limited to one wallet or to some transactions, and counts what a full refresh would ask', async () => {
+  const chain = { txs: [{ i: 2, conf: false }, { i: 1 }] };
+  const { ex } = await loadedWallet(chain, { outspends: true });
+  assert.deepEqual(ex.refreshPlan({ ids: [ID.addr('W')] }), { wallets: ['W'], confirm: [], spends: [], requests: 1 });
+  assert.equal(ex.refreshPlan({ ids: [ID.addr('other')] }).requests, 0);
+  assert.deepEqual(ex.refreshPlan({ ids: [ID.addr('src1')] }).wallets, [], 'a wallet only seen as a payer has nothing to go stale');
+  const t = ex.refreshPlan({ ids: [ID.tx(hex(2))] });
+  assert.deepEqual([t.wallets, t.confirm, t.spends, t.requests], [[], [hex(2)], [], 2]);
+});

@@ -534,3 +534,13 @@ test('hand-offs CSV: the source columns come after the start column, are filled 
   assert.deepEqual(b.slice(c('source_list')), ['', '', '', '', ''], 'a name of your own: no source');
   assert.deepEqual(IO.handoffsCsv(rows).split('\r\n')[1].split(',').slice(c('source_list')), ['', '', '', '', ''], 'no sources given: the columns are there and empty');
 });
+
+test('fromJson returns when the file was made, or null when it does not say', () => {
+  const g = new Graph();
+  g.addTx({ txid: 'a'.repeat(64), fee: 1, weight: 400, status: { confirmed: true, block_height: 1, block_time: 1 }, vin: [{ is_coinbase: true }], vout: [{ scriptpubkey_address: 'A', value: 1 }] });
+  const text = IO.toJson(g, {});
+  const got = IO.fromJson(text).exported;
+  assert.ok(typeof got === 'number' && Math.abs(got - Date.now()) < 60000, 'the export time in milliseconds');
+  const d = JSON.parse(text); delete d.exported; assert.equal(IO.fromJson(JSON.stringify(d)).exported, null);
+  d.exported = 'not a date'; assert.equal(IO.fromJson(JSON.stringify(d)).exported, null);
+});
