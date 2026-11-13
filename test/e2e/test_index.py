@@ -186,7 +186,7 @@ def test_the_examples_open_what_the_pages_call_their_samples(ipage):
     wallet_sample = re.search(r"var SAMPLE = '([0-9a-z]+)'", js("wallet.js")).group(1)
     workspace_sample = re.search(r"var SAMPLE = '([0-9a-f]{64})'", js("workspace.js")).group(1)
     hrefs = ipage.eval_on_selector_all(".learn a[id]", "els => els.map(e => [e.id, e.getAttribute('href')])")
-    assert [h[0] for h in hrefs] == ["openSaved", "samplePlain", "sampleWallet", "sampleConsol", "sampleCoinjoin", "samplePeel", "samplePeelLookalike", "sampleHandoff"], hrefs
+    assert [h[0] for h in hrefs] == ["openSaved", "samplePlain", "sampleWallet", "sampleConsol", "sampleBatch", "sampleCoinjoin", "samplePeel", "samplePeelLookalike", "sampleHandoff", "sampleSwap", "sampleListedWallet"], hrefs
     by = dict(hrefs)
     assert by["sampleWallet"] == "public/wallet.html?q=" + wallet_sample and by["openSaved"] == "public/workspace.html" and by["samplePlain"].startswith("public/workspace.html#s1/")
     assert wallet_sample == SAMPLE_WALLET and workspace_sample == NORMAL["txid"], "the fixture of the sample transaction is the one the workspace calls its sample (its own button when it is empty)"

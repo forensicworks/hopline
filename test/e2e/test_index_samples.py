@@ -7,7 +7,7 @@ import pytest
 from test_index import INDEX_URL
 
 TX = "35a8e48ecf210d2b5d86ff88c02a5d6f41038b0ed9ef639d97bde16c4261d2fd"
-FOLDED = ["sampleConsol", "sampleCoinjoin", "samplePeel", "samplePeelLookalike", "sampleHandoff"]
+FOLDED = ["sampleConsol", "sampleBatch", "sampleCoinjoin", "samplePeel", "samplePeelLookalike", "sampleHandoff", "sampleSwap", "sampleListedWallet"]
 
 
 @pytest.fixture
@@ -107,21 +107,21 @@ def test_the_ransom_wallet_card_says_what_to_look_for_and_that_it_is_looked_up_l
 
 # ---- the five examples that sit folded -----------------------------------------------------------------------------------------------------
 
-def test_the_shipped_page_shows_two_examples_and_folds_five_under_a_line_that_counts_them(ipage):
+def test_the_shipped_page_shows_two_examples_and_folds_eight_under_a_line_that_counts_them(ipage):
     assert visible_cards(ipage) == ["samplePlain", "sampleWallet"]
     det = ipage.locator(".learn details.more")
     assert det.count() == 1 and det.get_attribute("open") is None, "closed whenever the page opens"
-    assert ipage.locator("details.more > summary").inner_text() == "More examples (5)"
+    assert ipage.locator("details.more > summary").inner_text() == "More examples (8)"
     assert ipage.eval_on_selector_all("details.more .lcard", "els => els.map((e) => e.id)") == FOLDED
     ipage.click("details.more > summary")
-    assert len(visible_cards(ipage)) == 7
-    assert ipage.eval_on_selector_all("details.more .lgroup", "els => els.map((e) => e.textContent)") == ["Learn the patterns", "Where a trail meets a service"]
+    assert len(visible_cards(ipage)) == 10
+    assert ipage.eval_on_selector_all("details.more .lgroup", "els => els.map((e) => e.textContent)") == ["Learn the patterns", "Where a trail meets a service", "Follow a real case"]
 
 
 def test_a_link_ending_in_examples_opens_the_list_when_the_page_loads(ipage):
     p = ipage.context.new_page()
     p.goto(INDEX_URL + "#examples")
-    assert p.locator("details.more").get_attribute("open") is not None and len(visible_cards(p)) == 7
+    assert p.locator("details.more").get_attribute("open") is not None and len(visible_cards(p)) == 10
 
 
 @pytest.mark.parametrize("cid, name, look, month", [
@@ -130,13 +130,16 @@ def test_a_link_ending_in_examples_opens_the_list_when_the_page_loads(ipage):
     ("samplePeel", "A peel chain: the same amount, again and again", "PEEL 1/12", "March 2024"),
     ("samplePeelLookalike", "A peel chain that may be a service paying out", "PEEL 1/10", "March 2020"),
     ("sampleHandoff", "Where a trail meets an exchange", "Service hand-offs", "February 2023"),
+    ("sampleBatch", "A batch payment", "BATCH 1→12", "November 2021"),
+    ("sampleSwap", "A payment that asks to be swapped", "SWAP → E", "October 2026"),
+    ("sampleListedWallet", "A wallet a security vendor lists for a ransomware group", "ROUND 38.14 BTC", "May 2022"),
 ])
 def test_each_folded_card_says_what_to_look_for_and_what_it_does_not_show(ipage, cid, name, look, month):
     open_list(ipage)
     t = ipage.locator("#" + cid).inner_text()
     assert name in t and "Look for" in t and "Does not show" in t, t
     assert look in t, "the card names what to look for: " + look
-    assert re.search(r"A real (transaction|run|deposit) from " + month + r"\.", t) and "Opens a prepared example: nothing is looked up." in t, t
+    assert re.search(r"A real (transaction|run|deposit|wallet) from " + month + r"[.\s(]", t) and "Opens a prepared example: nothing is looked up." in t, t
     href = ipage.locator("#" + cid).get_attribute("href")
     assert href.startswith("public/workspace.html#s1/") and len(href) < 6500, "a canvas link: no data source needed"
 
@@ -182,6 +185,35 @@ def test_the_hand_off_card_names_the_tag_and_what_it_does(ipage):
     open_list(ipage)
     t = ipage.locator("#sampleHandoff").inner_text()
     assert "green hexagon" in t and "EXCH" in t and "marks it as a service" in t and "Service hand-offs" in t, t
+
+
+def test_the_batch_opens_as_one_input_paying_twelve_wallets(ipage, mock):
+    assert open_card(ipage, mock, "sampleBatch") == 0
+    f = ipage.evaluate(FACTS)
+    assert f["n"] == 14 and f["flags"] == ["BATCH 1→12"] and f["clusters"] == 0 and f["chains"] == []
+
+
+def test_the_swap_opens_whole_with_its_memo_and_is_read_as_a_swap(ipage, mock):
+    assert open_card(ipage, mock, "sampleSwap") == 0
+    f = ipage.evaluate(FACTS)
+    assert f["n"] == 5 and f["flags"] == ["SWAP → E"], "the input wallet, the transaction, the two wallets and the memo (OP_RETURN) vertex"
+    assert "partly" not in ipage.inner_text("#toast"), "all of the transaction is in the link: the memo output too, or the pattern could not be read"
+    kinds = ipage.evaluate("() => [...window.__hopline.state.graph.nodes.values()].map((n) => n.type).sort()")
+    assert kinds == ["addr", "addr", "addr", "data", "tx"], kinds
+
+
+def test_the_listed_wallet_opens_with_the_vendors_name_and_tag_the_amounts_and_the_split(ipage, mock):
+    assert open_card(ipage, mock, "sampleListedWallet") == 0
+    f = ipage.evaluate(FACTS)
+    assert f["n"] == 13 and "ROUND 38.14 BTC" in f["flags"] and f["layout"] == "flow"
+    w = ipage.evaluate("() => { const n = window.__hopline.state.graph.nodes.get('addr:bc1q0wf73xmcqkvrvs7tj49hznxqqgt6tp359gk0az'); return n && { label: n.label, tag: n.tag, note: n.note || '', received: n.received }; }")
+    assert w["tag"] == "THREAT" and "WatchGuard" in w["label"], "the name and the tag are the vendor's listing, said so in the name"
+    assert "https://www.watchguard.com/wgrd-security-hub/ransomware-tracker/dark-angels" in w["note"] and "the vendor's claim" in w["note"]
+    amounts = ipage.evaluate("""() => { const g = window.__hopline.state.graph, W = 'addr:bc1q0wf73xmcqkvrvs7tj49hznxqqgt6tp359gk0az', into = [], all = [];
+      g.edges.forEach((e) => { if (e.kind === 'out') { all.push(e.amount); if (e.target === W) into.push(e.amount); } });
+      return { into: into.sort((a, b) => a - b), all }; }""")
+    assert amounts["into"] == [12345, 3814000000], "what the wallet received: the tiny first payment of 0.00012345 BTC, then exactly 38.14 BTC in one payment"
+    assert 635666600 in amounts["all"] and 3178332100 in amounts["all"], "the split twenty minutes later: 6.356666 and 31.783321 BTC"
 
 
 # ---- the folding, from a two-card baseline with cards made up for the test ---------------------------------------------------------------------
