@@ -115,7 +115,8 @@
     var view = d.view ? clean(d.view, 0) : null;
     if (view && typeof view.focus === 'string' && idMap.has(view.focus)) view.focus = idMap.get(view.focus);
     if (view && typeof view.routeRef === 'string' && idMap.has(view.routeRef)) view.routeRef = idMap.get(view.routeRef);
-    return { graph: g, view: view, positions: d.positions ? clean(d.positions, 0) : null, warnings: warnings };
+    var exported = typeof d.exported === 'string' ? Date.parse(d.exported) : NaN;                          // when the file was made (ms), or null: what an update from the chain starts from
+    return { graph: g, view: view, positions: d.positions ? clean(d.positions, 0) : null, warnings: warnings, exported: isFinite(exported) ? exported : null };
   }
 
   // ---- CSV ------------------------------------------------------------------------------------

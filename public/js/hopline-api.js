@@ -540,5 +540,106 @@
     return this.expandAddress(q.value, opts).then(function (r) { r.kind = 'addr'; r.id = ID.addr(q.value); return r; });
   };
 
+  // ---- bringing what is loaded up to date ----------------------------------------------------------
+  // A file or a session keeps what the chain said when it was made. Wallets get new payments, transactions confirm, outputs are spent; none of that reaches a loaded graph by itself,
+  // and a wallet whose history was read is marked complete and is not asked again. refresh() asks again, only about what can have changed, and always of the server (never the cache).
+
+  /** Outputs of a loaded transaction that are recorded as unspent. */
+  function unspentOutputs(g, txid) {
+    var n = 0;
+    g.edgesOf(ID.tx(txid)).forEach(function (e) { if (e.kind === 'out' && e.source === ID.tx(txid) && e.spent === false) n++; });
+    return n;
+  }
+
+  /**
+   * What a refresh would look at and the fewest requests it takes. opts: { ids: [vertex id] } limits it to those vertices; nothing: everything loaded. A wallet is asked about only when its totals or history were ever read (one only seen as a payer has nothing to go stale).
+   * Returns { wallets: [address] (one request each: its totals), confirm: [txid] (loaded, unconfirmed: two requests each), spends: [txid] (an output not known to be spent: one request each), requests }.
+   */
+  Explorer.prototype.refreshPlan = function (opts) {
+    opts = opts || {};
+    var g = this.graph, wallets = [], confirm = [], spends = [], only = opts.ids ? new Set(opts.ids) : null;
+    g.nodes.forEach(function (n) {
+      if (n.type === 'addr' && n.address && n.txCount != null && (!only || only.has(n.id))) wallets.push(n.address);
+      else if (n.type === 'tx' && n.loaded === true && (!only || only.has(n.id))) {
+        if (n.confirmed === false) confirm.push(n.txid);
+        else if (unspentOutputs(g, n.txid)) spends.push(n.txid);
+      }
+    });
+    return { wallets: wallets, confirm: confirm, spends: spends, requests: wallets.length + 2 * confirm.length + spends.length };
+  };
+
+  /**
+   * Read again, from the server, what can have changed since the graph was made: for each wallet one request for its totals and, when they differ from what the graph holds and its
+   * history was read, the history from the newest page until a transaction already held is met (opts.pages pages at most, default 4: the wallet is then marked as having more to load);
+   * each loaded unconfirmed transaction (it may have confirmed); and each loaded transaction with an output recorded as unspent (it may have been spent). Labels, tags and notes are untouched.
+   * Resolves with the usual summary plus { checked (wallets whose totals were read), totalsChanged (of them, how many differ from what the graph held), newTx, changedWallets: [{ address, added }], confirmed, spent, newIds (vertices that were not there), plan }.
+   */
+  Explorer.prototype.refresh = function (opts) {
+    opts = opts || {};
+    var ex = this, g = this.graph, plan = this.refreshPlan(opts), before = snap(this), errors = [], truncated = false, pages = Math.max(1, opts.pages || 4);
+    var out = { checked: 0, totalsChanged: 0, newTx: 0, changedWallets: [], confirmed: 0, spent: 0 }, ids0 = new Set(g.nodes.keys()), doneTx = new Set(), doneSp = new Set();           // transactions / spend states read again in this run
+    function at() { return Math.floor(Date.now() / 1000); }
+
+    function walletStep(a) {
+      var n0 = g.nodes.get(ID.addr(a));
+      if (!n0) return Promise.resolve();
+      var read = Model.historyRead(n0), was = [n0.txCount, n0.fundedSum, n0.spentSum, n0.mempoolFundedSum, n0.mempoolSpentSum];
+      return ex.client.addressFresh(a).then(function (s) {
+        g.addAddressStats(a, s, { at: at(), source: srcOf(ex, s) });
+        out.checked++;
+        var n1 = g.nodes.get(ID.addr(a)), same = was[0] === n1.txCount && was[1] === n1.fundedSum && was[2] === n1.spentSum && was[3] === n1.mempoolFundedSum && was[4] === n1.mempoolSpentSum;
+        if (!same) out.totalsChanged++;
+        if (same || !read) return null;                                                      // unchanged, or only its totals were ever read: nothing more to ask
+        var added = 0;
+        function page(i, after) {
+          return (after ? ex.client.addressTxs(a, after) : ex.client.addressTxsFresh(a)).then(function (txs) {
+            var met = false;
+            txs.forEach(function (t) {
+              var had = g.nodes.get(ID.tx(t.txid)), known = !!had && had.loaded === true, unconf = known && had.confirmed === false;
+              ex._ingest(t, txs); doneTx.add(t.txid);
+              if (!known) { added++; out.newTx++; }
+              else if (unconf) { if (g.nodes.get(ID.tx(t.txid)).confirmed) out.confirmed++; }
+              else met = true;                                                               // one held and settled: everything older is held too
+            });
+            var last = txs.length ? txs[txs.length - 1].txid : null;
+            if (txs.length >= 25 && !met) {
+              if (i + 1 < pages) return page(i + 1, last);
+              var me = g.nodes.get(ID.addr(a)); me.histNext = last; me.histDone = false; truncated = true;                       // more new ones than the pages asked for: Load more history goes on from here (over ones already held, to the end)
+            }
+          });
+        }
+        return page(0, null).then(function () { if (added) out.changedWallets.push({ address: a, added: added }); });
+      }).catch(function (e) { note(errors, e); });
+    }
+
+    function spendStep(txid) {
+      if (doneSp.has(txid)) return Promise.resolve();
+      var open0 = unspentOutputs(g, txid);
+      return ex.client.fresh('/tx/' + encodeURIComponent(txid) + '/outspends').then(function (o) { ex._spends(txid, o); doneSp.add(txid); out.spent += Math.max(0, open0 - unspentOutputs(g, txid)); });
+    }
+
+    function confirmStep(txid) {
+      var id = ID.tx(txid), first = doneTx.has(txid) ? Promise.resolve() : ex.client.fresh('/tx/' + encodeURIComponent(txid)).then(function (t) {
+        var was = g.nodes.get(id) && g.nodes.get(id).confirmed;
+        ex._ingest(t); doneTx.add(txid);
+        if (was === false && g.nodes.get(id).confirmed) out.confirmed++;
+      });
+      return first.then(function () { return spendStep(txid); }).catch(function (e) { note(errors, e); });
+    }
+
+    function spendOnly(txid) { return spendStep(txid).catch(function (e) { note(errors, e); }); }
+
+    return Promise.all(plan.wallets.map(walletStep))
+      .then(function () { return Promise.all(plan.confirm.map(confirmStep)); })
+      .then(function () { return Promise.all(plan.spends.map(spendOnly)); })
+      .catch(function (e) { note(errors, e); })
+      .then(function () {
+        var r = summarise(ex, before, errors, truncated), ids = [];
+        g.nodes.forEach(function (n, id) { if (!ids0.has(id)) ids.push(id); });
+        r.checked = out.checked; r.totalsChanged = out.totalsChanged; r.newTx = out.newTx; r.changedWallets = out.changedWallets; r.confirmed = out.confirmed; r.spent = out.spent; r.newIds = ids; r.plan = plan;
+        return r;
+      });
+  };
+
   return { Client: Client, Explorer: Explorer, PRESETS: PRESETS, ONION: ONION, buildClient: buildClient, priceBaseFor: priceBaseFor, authFor: authFor, cleanKey: cleanKey, cleanPace: cleanPace, DEFAULT_PACE: DEFAULT_PACE, sourceBase: sourceBase, backupFor: backupFor, hostOf: hostOf, isTxid: isTxid, normaliseQuery: normaliseQuery, checkQuery: checkQuery, ApiError: ApiError };
 }));

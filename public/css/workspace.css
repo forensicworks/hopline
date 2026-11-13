@@ -513,6 +513,9 @@ body.canvas-full.full-side-open #side { transform: none; visibility: visible; tr
 .expandchip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #ffb347; color: #ffb347; border-radius: 12px; padding: 0 4px 0 9px; font-size: 12px; }
 .expandchip[hidden] { display: none; }
 .expandchip button { padding: 0 6px; line-height: 1.3; }
+.updatechip { border-color: var(--accent); color: var(--accent); white-space: nowrap; flex: 0 0 auto; }
+#staleBar { flex-wrap: wrap; }
+#staleBar #staleText { flex: 1 1 360px; min-width: 0; line-height: 1.4; }
 
 #legend .groupitem .tagsw { font-size: 14px; }
 
