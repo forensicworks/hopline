@@ -14,7 +14,7 @@
   var SAVE_KEY = 'hopline.workspace.v1', PREF_KEY = 'hopline.prefs.v1', TOKEN_KEY = 'hopline.ext.token', PACKS_KEY = 'hopline.packs.v1', KEYS_KEY = 'hopline.keys.v1', REMOVED_KEY = 'hopline.claude.key';
   var ARRANGE = { columns: 1, flow: 1, timeline: 1, timeforce: 1, force: 1, timeamount: 1 }, TIME_ARR = { timeline: 1, timeforce: 1, timeamount: 1 }, DEFAULT_ARRANGE = 'columns';
   var HOSTED = !!(window.HOPLINE_CONFIG && window.HOPLINE_CONFIG.hosted);                 // a published copy: see public/config.js
-  var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1 }, SIZES = { auto: 1, area: 1, log: 1 }, SCALES = { compact: 1, proportional: 1 };
+  var LAYOUTS = { flow: 1, timeline: 1, force: 1, trace: 1 }, COLORS = { type: 1, age: 1, script: 1, balance: 1 }, SIZES = { auto: 1, area: 1, log: 1 }, SCALES = { compact: 1, proportional: 1 };
 
   function $(id) { return document.getElementById(id); }
   function el(tag, props, kids) {
@@ -1786,6 +1786,17 @@
     if (revealed.length) { traceRecord({ type: 'reveal', ids: revealed.slice(), unfolded: revealed.unfolded }); traceChanged(revealed, false); }
     return revealed.length;
   }
+  /** From a refresh: the wallets whose confirmed balance went to nothing, and the ones that went from nothing to something (a move between two amounts is not one of these). */
+  function balanceMoves(r) {
+    var out = { emptied: [], funded: [] };
+    ((r && r.balanceChanges) || []).forEach(function (c) { if (c.before > 0 && c.after === 0) out.emptied.push(c.address); else if (c.before === 0 && c.after > 0) out.funded.push(c.address); });
+    return out;
+  }
+  /** Their names for the note, when there are few: a label if you gave one, else the short address. */
+  function moveNames(addrs) {
+    if (addrs.length > 3) return '';
+    return ' (' + addrs.map(function (a) { var n = state.graph.nodes.get(ID.addr(a)); return n && n.label ? n.label : S.shortId(a, 6); }).join(', ') + ')';
+  }
   /** One sentence on what changed. `plan` is what was asked, `r` what came back. */
   function updateNote(plan, r) {
     if (!r) return '';
@@ -1794,6 +1805,9 @@
     else if (r.totalsChanged) bits.push(plural(r.totalsChanged, 'wallet') + ' with new totals');
     if (r.confirmed) bits.push(plural(r.confirmed, 'transaction') + ' confirmed');
     if (r.spent) bits.push(plural(r.spent, 'output') + ' now spent');
+    var mv = balanceMoves(r);
+    if (mv.emptied.length) bits.push(plural(mv.emptied.length, 'wallet') + ' now empty' + moveNames(mv.emptied));
+    if (mv.funded.length) bits.push(plural(mv.funded.length, 'wallet') + (mv.funded.length === 1 ? ' now holds' : ' now hold') + ' funds' + moveNames(mv.funded));
     var s = bits.length ? bits.join(', ') + '.' : 'Nothing has changed.';
     if (r.more) s += ' A wallet has more new payments than were read: its Load more history goes on from there.';
     if (r.checked < plan.wallets.length) s += ' ' + (plan.wallets.length - r.checked) + ' of ' + plural(plan.wallets.length, 'wallet') + ' could not be checked (request limit or a failed request).';
@@ -1820,6 +1834,9 @@
         if (ids.length) bits.push(ids.length + ' new');
         if (r.confirmed) bits.push(r.confirmed + ' confirmed');
         if (r.spent) bits.push(r.spent + ' spent');
+        var mv = balanceMoves(r);
+        if (mv.emptied.length) bits.push(mv.emptied.length + ' emptied');
+        if (mv.funded.length) bits.push(mv.funded.length + ' funded');
         state.updated = bits.length ? { ids: ids, text: 'Updated ' + new Date().toISOString().slice(11, 16) + ' UTC: ' + bits.join(' · ') } : null;
         syncUpdateChip();
       }
@@ -4837,6 +4854,52 @@
       if (c.set.has(id)) { var b = $('findStrip').querySelector('[data-key="' + c.key + '"]'); if (b) { b.classList.add('hl'); hlMarked.push(b); } }
     });
   }
+  // ---- what the wallets on the canvas hold: Colour by Balance, the Holding funds chip and its group in the Findings ---------------------------------------
+  /**
+   * The wallets in the graph by what they hold, from the balances that were read: { holds, small, empty, unknown } (arrays of vertices; holds largest first), `read` (how many have a
+   * balance), `oldest` (the earliest read time, unix seconds), `min` (the limit under which a balance is small) and `sig` (changes when anything shown from it does).
+   * A wallet whose balance was never read is `unknown`, never counted as empty.
+   */
+  function holdings() {
+    var h = { holds: [], small: [], empty: [], unknown: [], read: 0, oldest: null, min: state.dustSats };
+    state.graph.nodes.forEach(function (n) {
+      if (n.type !== 'addr') return;
+      var st = M.balanceState(n, h.min); h[st].push(n);
+      if (st !== 'unknown') { h.read++; if (n.statsAt != null && (h.oldest == null || n.statsAt < h.oldest)) h.oldest = n.statsAt; }
+    });
+    h.holds.sort(function (a, b) { return M.balanceOf(b).confirmed - M.balanceOf(a).confirmed; });
+    h.sig = h.holds.map(function (n) { return n.id + '=' + M.balanceOf(n).confirmed; }).join(',') + '|' + h.small.length + '|' + h.empty.length + '|' + h.unknown.length + '|' + h.oldest + '|' + h.min;
+    return h;
+  }
+  /** The Holding funds group of the Findings: the four states with their counts (a click selects them, pointing at one rings them), the wallets that hold funds, largest first, and what to do about the ones not read. */
+  function holdingBlock(box, u) {
+    var h = holdings(); if (!h.read) return;
+    var HC = S.BALANCE_COLORS, minText = h.min > 0 ? S.fmtBtc(h.min) + ' BTC' : '';
+    function idsOf(list) { return list.map(function (n) { return n.id; }); }
+    box.appendChild(u.head('Holding funds', 'holding'));
+    box.appendChild(el('p', { 'class': 'hint', text: 'What the server said each wallet holds, from the balances that were read (' + h.read + ' of ' + plural(h.read + h.unknown.length, 'wallet') + '). Not a finding: a balance changes. The oldest was read '
+                                                    + (h.oldest != null ? S.fmtTimeFull(h.oldest) : 'at an unknown time') + '; ↻ reads them again, one request for each wallet.' }));
+    function group(text, list, color, what, title) {
+      if (!list.length) return;
+      var dot = el('span', { text: '● ' }); dot.style.color = color;
+      var chosen = idsOf(list);
+      box.appendChild(u.row(el('span', { 'class': 'rowtext' }, [dot, text]), String(list.length), title, function () { holdRight++; selectIds(chosen, what); holdRight--; }, undefined, undefined, chosen, color));
+    }
+    group('Holding funds' + (minText ? ' (' + minText + ' or more)' : ''), h.holds, HC.holds, 'wallets holding funds', 'Select these ' + h.holds.length + ' wallets');
+    group('Small balance' + (minText ? ' (under ' + minText + ')' : ''), h.small, HC.small, 'wallets with a small balance', 'Select these ' + h.small.length + ' wallets: they hold something, but under the limit set as "Small means under"');
+    group('Empty (nothing confirmed)', h.empty, HC.empty, 'empty wallets', 'Select these ' + h.empty.length + ' wallets');
+    group('Balance not read', h.unknown, HC.unknown, 'wallets whose balance was not read', 'Select these ' + h.unknown.length + ' wallets. Not read is not the same as empty: nobody asked the server yet');
+    h.holds.slice(0, 30).forEach(function (n) {
+      var b = M.balanceOf(n), k = KNOWN[n.address], nm = n.label || (k && k.label) || '', left = [nm || S.shortId(n.address, 8)];
+      if (nm) left.push(el('small', { 'class': 'mono', text: S.shortId(n.address, 6) }));
+      var title = n.address + (b.pending ? ' · ' + (b.pending > 0 ? '+' : '') + S.fmtBtc(b.pending) + ' BTC unconfirmed (not in the balance)' : '') + ' · select it and bring it into view';
+      box.appendChild(u.row(el('span', { 'class': 'rowtext' }, left), S.fmtBtc(b.confirmed) + ' BTC', title, function () { findKeep(n.id); }, n.address, 'address', [n.id], HC.holds));
+    });
+    if (h.holds.length > 30) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (h.holds.length - 30) + ' more' }));
+    if (h.unknown.length) box.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', text: 'Load ' + plural(h.unknown.length, 'balance'), title: 'Ask the server what these wallets hold now: one request each, no history',
+                                                                                                  onclick: function () { loadBalances(idsOf(h.unknown)); } })]));
+    box.appendChild(el('p', { 'class': 'hint', text: 'Unconfirmed amounts are not counted. A balance is for one address: the same owner may hold funds in others.' + (minText ? ' Small means under ' + minText + ' (set under Expansion limits in the Controls).' : '') }));
+  }
   /**
    * The findings as chips, most important first: [{ key, text, count, ids, color, bad, what, title }]. They count what is loaded and found (the switches under Analysis only
    * decide what is drawn on the graph), and a click selects the vertices they count. Wallets on a sanctions list come first; known wallets are listed last and are not a finding.
@@ -4873,6 +4936,10 @@
       add('change', 'Change guesses', chg, AN.COLORS.change, 'outputs guessed to be change', plural(chg.length, 'output') + ' guessed to be change. These are guesses, not findings: follow both outputs. Click to select them.');
     }
     add('known', 'Known wallets', known, '#f2c94c', 'known wallets', plural(known.length, 'wallet') + ' on the built-in list or a label list (a name is a claim, not proof). Click to select them.');
+    var hd = holdings();                                                                    // not a finding and not counted in them: what the server said each wallet holds, when it was read
+    if (hd.read) out.push({ key: 'holding', text: 'Holding funds', count: hd.holds.length, ids: hd.holds.map(function (n) { return n.id; }), color: S.BALANCE_COLORS.holds, bad: false, what: 'wallets holding funds', sig: hd.read + '/' + hd.unknown.length,
+                            title: 'Holding funds: ' + hd.holds.length + ' of the ' + plural(hd.read, 'wallet') + ' whose balance was read' + (hd.min > 0 ? ' (' + S.fmtBtc(hd.min) + ' BTC or more)' : '') + (hd.unknown.length ? '; ' + hd.unknown.length + ' not read yet, which is not the same as empty' : '')
+                                   + '. Not a finding: a balance is what the server said when it was read. Click to select them.' });
     var ho = routeHandoffs();
     if (ho.length) out.push({ key: 'handoff', text: ho.some(handoffNamed) ? 'Hand-offs' : 'Service hand-offs', count: ho.length, ids: [], color: '#f2c94c', bad: false, what: 'hand-offs',
                               title: plural(ho.length, 'place') + ' where the trail from ' + startsText(routeData()) + ' meets ' + (ho.some(handoffNamed) ? 'a service wallet (an exchange, for example) or a wallet a sanctions or ransomware list names' : 'a service wallet (an exchange, for example)') + '. Click to list them.' });
@@ -4888,8 +4955,8 @@
   function updateFindStrip() {
     var box = $('findStrip'), chips = state.graph.nodes.size ? findingChips() : [];
     lastChips = chips;
-    var sig = chips.map(function (c) { return c.key + ':' + c.count; }).join('|') + '#' + routeData().key;                // a chip's title names the starting points: another start, the same count, is a new title
-    var total = 0; chips.forEach(function (c) { if (c.key !== 'known' && c.key !== 'open' && c.key !== 'handoff' && c.key !== 'offscreen') total += c.count; });
+    var sig = chips.map(function (c) { return c.key + ':' + c.count + (c.sig ? ':' + c.sig : ''); }).join('|') + '#' + routeData().key;                // a chip's title names the starting points: another start, the same count, is a new title
+    var total = 0; chips.forEach(function (c) { if (c.key !== 'known' && c.key !== 'open' && c.key !== 'handoff' && c.key !== 'offscreen' && c.key !== 'holding') total += c.count; });
     $('anCount').textContent = total ? '(' + total + ')' : ''; $('findCount').textContent = total ? '(' + total + ')' : '';
     var was = state.findTotal, forced = state.findForce; state.findTotal = total; if (!chips.length) state.findForce = false;
     if (was !== total || forced !== state.findForce) showInspector(true);                // the panel appears when there is something to show in it, and goes when there is not
@@ -4949,7 +5016,7 @@
     updateFindStrip();
     var box = $('anFindings');
     if (!state.graph.nodes.size) { box.textContent = ''; findingsFor = null; detRefresh(); return; }
-    var an = analysis(), byKind = {}, kinds, loaded = 0, stamp = routeStamp();
+    var an = analysis(), byKind = {}, kinds, loaded = 0, stamp = routeStamp() + '|' + holdings().sig;
     if (findingsFor === an && findingsStamp === stamp && box.firstChild) return;      // nothing it shows has changed: leave the buttons alone (a replay refreshes many times a second)
     findingsFor = an; findingsStamp = stamp; previewOff(); box.textContent = ''; detRefresh();
     state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded) loaded++; });
@@ -5025,6 +5092,7 @@
       known.slice(0, 30).forEach(function (n) { box.appendChild(walletRow(n)); }); more(known, 30);
       box.appendChild(el('p', { 'class': 'hint', text: 'On the built-in list or a label list you loaded. A name is somebody\'s claim, not proof.' + (ref ? ' A route follows the coins that were spent, in order; it is a lead, not proof of who owns what.' : '') }));
     }
+    holdingBlock(box, { row: row, head: head });
     handoffBlock(box, { row: row, head: head });
     suggestBlock(box, { row: row, head: head });
     endsBlock(box, { row: row, head: head });
@@ -5279,7 +5347,7 @@
     analysis();                                                              // the canvas hooks below read the cached result
     applyChain(); redoStillValid();
     var structural = scope();
-    var style = S.makeStyle(g, structural, { colorBy: state.colorBy, sizeBy: effectiveSizeBy(), direction: state.arrowDir ? state.dirPalette : null });
+    var style = S.makeStyle(g, structural, { colorBy: state.colorBy, sizeBy: effectiveSizeBy(), direction: state.arrowDir ? state.dirPalette : null, balanceState: function (n) { return M.balanceState(n, state.dustSats); } });
     function radiusOf(id) { var nd = g.nodes.get(id); return nd ? style.nodeRadius(nd) : 0; }       // how big a shape is drawn: the force layout leaves room for it
     if (traceOn() && state.arrange !== 'columns') {                          // a trace spread over time, by force, or by time and amount: the same layouts as the other views, over what is shown
       if (o.relayout || o.traceChanged || !state.layoutRes || state.layoutRes.arr !== state.arrange) {
@@ -5340,14 +5408,14 @@
   function updateLegend() {
     var box = $('legend'); box.textContent = '';
     var types = Object.keys(F.scriptTypeCounts(state.graph));
-    var lg = S.legend(state.colorBy, types);
+    var lg = S.legend(state.colorBy, types, { minSats: state.dustSats });
     if (lg.gradient) {
       var grad = el('div', { 'class': 'grad' });
       grad.style.background = 'linear-gradient(to right,' + lg.gradient.map(function (s) { return s[1] + ' ' + Math.round(s[0] * 100) + '%'; }).join(',') + ')';
       box.appendChild(grad);
       box.appendChild(el('div', { 'class': 'grad-labels' }, [el('span', { text: 'older' }), el('span', { text: 'newer' })]));
       box.appendChild(legendItem(lg.unknown, 'time unknown'));
-    } else lg.items.forEach(function (i) { box.appendChild(legendItem(i.color, i.label)); });
+    } else lg.items.forEach(function (i) { box.appendChild(legendItem(i.color, i.label, i.hollow)); });
     box.appendChild(el('div', { 'class': 'item', text: 'Edge width = amount · dashed = unspent output' }));
     var dirPal = state.arrowDir ? S.directionPalette(state.dirPalette) : null;
     if (dirPal) { box.appendChild(legendItem(dirPal['in'], 'input arrow: a coin that is spent (wallet into transaction)')); box.appendChild(legendItem(dirPal.out, 'output arrow: a coin that is created (transaction to wallet)')); }
@@ -5377,8 +5445,9 @@
     state.selected = new Set(ids); state.selectedEdge = null; syncSelection();
     toast(ids.length + ' vertices tagged ' + tag + ' selected.');
   }
-  function legendItem(color, text) {
+  function legendItem(color, text, hollow) {
     var sw = el('span', { 'class': 'sw' }); sw.style.background = color;
+    if (hollow) { sw.style.background = 'transparent'; sw.style.border = '2px dashed ' + color; sw.style.boxSizing = 'border-box'; }                // a wallet whose balance was not read is drawn this way
     return el('div', { 'class': 'item' }, [sw, el('span', { text: text })]);
   }
 
@@ -5802,7 +5871,7 @@
     var image = null; try { image = renderer.toDataUrl(); } catch (e) { /* a tainted or empty canvas: the report simply has no picture */ }
     var model = { title: title, preparedBy: by, generated: Date.now(), evidence: base, nodes: base.nodes, edges: base.edges,
                   analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups, trace: trace, leftOut: leftOut, lookups: reportLookups(base.nodes),
-                  known: function (a) { return KNOWN[a] || null; }, packs: reportPacks(), fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
+                  dustSats: state.dustSats, known: function (a) { return KNOWN[a] || null; }, packs: reportPacks(), fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {
       download('hopline-report-' + stamp() + '.html', r.html, 'text/html;charset=utf-8');
@@ -6350,7 +6419,7 @@
     $('tagKnownNow').addEventListener('click', tagKnownNow);
     $('groupRows').addEventListener('change', function () { state.groupRows = this.checked; savePrefs(); showInspector(true); });
     $('groupBy').addEventListener('change', function () { state.groupBy = cleanGroupBy(this.value); savePrefs(); showInspector(true); });
-    $('dustSats').addEventListener('change', function () { state.dustSats = num(this.value, 0, 1000000000, 10000); this.value = state.dustSats; savePrefs(); showInspector(true); });
+    $('dustSats').addEventListener('change', function () { state.dustSats = num(this.value, 0, 1000000000, 10000); this.value = state.dustSats; savePrefs(); showInspector(true); updateFindStrip(); updateFindings(); if (state.colorBy === 'balance') refresh(); });
     $('stepMode').addEventListener('change', function () { state.stepMode = this.value; savePrefs(); renderer.dirty = true; });
     $('stepSize').addEventListener('change', function () { state.stepSize = num(this.value, 1, 50, 5); this.value = state.stepSize; savePrefs(); renderer.dirty = true; });
     ['capTx', 'capReq', 'capPages'].forEach(function (id) {

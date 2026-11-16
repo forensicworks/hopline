@@ -264,3 +264,18 @@ test('report: it says how much of what was loaded it leaves out, with counts, an
     assert.ok(!html.includes('Not everything that was loaded'), JSON.stringify(lo));
   }
 });
+
+test('the wallets table ends with what the balances say: how many were read, the oldest read, who held what, and that a wallet not read is not counted as empty', async () => {
+  const g = sample();
+  const stat = (a, f, s) => g.addAddressStats(a, { chain_stats: { funded_txo_sum: f, spent_txo_sum: s, tx_count: 2 }, mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 0, tx_count: 0 } }, { at: 1700000000 });
+  stat('me', 139000, 100000); stat('shop', 60000, 55000); stat('sink', 49000, 49000);                  // holds 39,000, holds 5,000 (small), empty
+  const wallets = Array.from(g.nodes.values()).filter((n) => n.type === 'addr').length;
+  const r = await RP.build(modelOf(g, { dustSats: 10000 }));
+  const m = new RegExp('Balances were read for 3 of ' + wallets + ' wallets \\(the oldest read 2023-11-14 22:13:20 UTC\\): 1 held funds \\(0\\.00010000 BTC or more\\), 1 a smaller amount, 1 held nothing\\. The ' + (wallets - 3) + ' not read are not counted as empty\\.');
+  assert.match(r.html, m);
+  const plain = await RP.build(modelOf(g));
+  assert.match(plain.html, /: 2 held funds, 1 held nothing\./, 'with no limit there is no small band');
+  assert.doesNotMatch(plain.html, /a smaller amount/);
+  const none = await RP.build(modelOf(sample()));
+  assert.doesNotMatch(none.html, /Balances were read for/, 'nothing to say when no balance was read');
+});

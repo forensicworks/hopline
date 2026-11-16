@@ -572,23 +572,24 @@
    * Read again, from the server, what can have changed since the graph was made: for each wallet one request for its totals and, when they differ from what the graph holds and its
    * history was read, the history from the newest page until a transaction already held is met (opts.pages pages at most, default 4: the wallet is then marked as having more to load);
    * each loaded unconfirmed transaction (it may have confirmed); and each loaded transaction with an output recorded as unspent (it may have been spent). Labels, tags and notes are untouched.
-   * Resolves with the usual summary plus { checked (wallets whose totals were read), totalsChanged (of them, how many differ from what the graph held), newTx, changedWallets: [{ address, added }], confirmed, spent, newIds (vertices that were not there), plan }.
+   * Resolves with the usual summary plus { checked (wallets whose totals were read), totalsChanged (of them, how many differ from what the graph held), balanceChanges ([{address, before, after}]: the confirmed balance in satoshis before and after, for the wallets it moved), newTx, changedWallets: [{ address, added }], confirmed, spent, newIds (vertices that were not there), plan }.
    */
   Explorer.prototype.refresh = function (opts) {
     opts = opts || {};
     var ex = this, g = this.graph, plan = this.refreshPlan(opts), before = snap(this), errors = [], truncated = false, pages = Math.max(1, opts.pages || 4);
-    var out = { checked: 0, totalsChanged: 0, newTx: 0, changedWallets: [], confirmed: 0, spent: 0 }, ids0 = new Set(g.nodes.keys()), doneTx = new Set(), doneSp = new Set();           // transactions / spend states read again in this run
+    var out = { checked: 0, totalsChanged: 0, newTx: 0, changedWallets: [], balanceChanges: [], confirmed: 0, spent: 0 }, ids0 = new Set(g.nodes.keys()), doneTx = new Set(), doneSp = new Set();           // transactions / spend states read again in this run
     function at() { return Math.floor(Date.now() / 1000); }
 
     function walletStep(a) {
       var n0 = g.nodes.get(ID.addr(a));
       if (!n0) return Promise.resolve();
-      var read = Model.historyRead(n0), was = [n0.txCount, n0.fundedSum, n0.spentSum, n0.mempoolFundedSum, n0.mempoolSpentSum];
+      var read = Model.historyRead(n0), bal0 = Model.balanceOf(n0), was = [n0.txCount, n0.fundedSum, n0.spentSum, n0.mempoolFundedSum, n0.mempoolSpentSum];
       return ex.client.addressFresh(a).then(function (s) {
         g.addAddressStats(a, s, { at: at(), source: srcOf(ex, s) });
         out.checked++;
         var n1 = g.nodes.get(ID.addr(a)), same = was[0] === n1.txCount && was[1] === n1.fundedSum && was[2] === n1.spentSum && was[3] === n1.mempoolFundedSum && was[4] === n1.mempoolSpentSum;
         if (!same) out.totalsChanged++;
+        var bal1 = Model.balanceOf(n1); if (bal0 && bal1 && bal0.confirmed !== bal1.confirmed) out.balanceChanges.push({ address: a, before: bal0.confirmed, after: bal1.confirmed });
         if (same || !read) return null;                                                      // unchanged, or only its totals were ever read: nothing more to ask
         var added = 0;
         function page(i, after) {
@@ -636,7 +637,7 @@
       .then(function () {
         var r = summarise(ex, before, errors, truncated), ids = [];
         g.nodes.forEach(function (n, id) { if (!ids0.has(id)) ids.push(id); });
-        r.checked = out.checked; r.totalsChanged = out.totalsChanged; r.newTx = out.newTx; r.changedWallets = out.changedWallets; r.confirmed = out.confirmed; r.spent = out.spent; r.newIds = ids; r.plan = plan;
+        r.checked = out.checked; r.totalsChanged = out.totalsChanged; r.newTx = out.newTx; r.changedWallets = out.changedWallets; r.balanceChanges = out.balanceChanges; r.confirmed = out.confirmed; r.spent = out.spent; r.newIds = ids; r.plan = plan;
         return r;
       });
   };

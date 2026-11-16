@@ -721,7 +721,7 @@
       var rings = fl0 || [], rx = rings.length * RING_STEP, rp = rx / sideOf(kindOf(n));       // every other ring (selected, labelled, chain step ...) sits outside these: rx px, rp as extra radius
       grow(id, P.x, P.y, P.x - r - rx, P.y - r - rx, P.x + r + rx, P.y + r + rx);
       var dimmed = near && !near.has(id), colour = st.nodeColor(n);
-      var hollow = n.type === 'tx' && n.loaded === false;
+      var hollow = (n.type === 'tx' && n.loaded === false) || (st.hollow ? st.hollow(n) : false);
       ctx.globalAlpha = dimmed ? (preview ? 0.3 : 0.15) : 1;
       shape(ctx, kindOf(n), P.x, P.y, r);
       if (hollow) { ctx.fillStyle = 'rgba(28,20,29,0.9)'; ctx.fill(); ctx.strokeStyle = colour; ctx.lineWidth = 2; ctx.setLineDash([3, 2]); ctx.stroke(); ctx.setLineDash([]); }
@@ -764,7 +764,7 @@
       if (n.note) notes.push({ x: P.x + r * 0.7 + 3.5, y: P.y + r * 0.7 + 3.5, alpha: dimmed ? 0.15 : 1 });
       ctx.globalAlpha = 1;
       var isSeed = d.seedIds ? d.seedIds.has(id) : d.seedId === id;
-      if (n.tag && !dimmed) badges.push({ text: n.tag, x: P.x, y: P.y - r - rx - 6 - (isSeed ? ROW : 0), color: colour, id: id, px: P.x, py: P.y });
+      if (n.tag && !dimmed) badges.push({ text: n.tag, x: P.x, y: P.y - r - rx - 6 - (isSeed ? ROW : 0), color: st.badgeColor ? st.badgeColor(n) : colour, id: id, px: P.x, py: P.y });
       if (isSeed) badges.push({ text: 'START', x: P.x, y: P.y - r - rx - 6, color: '#ffd23f', id: id, px: P.x, py: P.y });
       if (known && known.sanctions && !dimmed) badges.push({ text: 'SANCTIONS', x: P.x, y: P.y - r - 6 - (isSeed ? ROW : 0) - (n.tag ? ROW : 0), color: '#ff6b6b', id: id, px: P.x, py: P.y });
       if (fl0 && !dimmed) {                                                // the names of the findings: decided below, where there is room (the rings show them whatever the zoom)
