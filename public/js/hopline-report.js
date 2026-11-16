@@ -121,6 +121,21 @@
     return amountCell(model, n.fundedSum - n.spentSum, n.statsAt) + '<div class="hint">as of ' + esc(n.statsAt != null ? t(n.statsAt) : 'an unknown time') + (pending ? '; ' + (pending > 0 ? '+' : '') + esc(Style.fmtBtc(pending)) + ' BTC unconfirmed' : '') + '</div>';
   }
 
+  /** One sentence on the balances in the table: how many wallets had theirs read and what they held then. A wallet not read is not counted as empty. */
+  function balanceSummary(model, wallets) {
+    var min = model.dustSats > 0 ? model.dustSats : 0, holds = 0, small = 0, empty = 0, unread = 0, oldest = null;
+    wallets.forEach(function (n) {
+      if (n.fundedSum == null || n.spentSum == null) { unread++; return; }
+      var c = n.fundedSum - n.spentSum;
+      if (c <= 0) empty++; else if (min && c < min) small++; else holds++;
+      if (n.statsAt != null && (oldest == null || n.statsAt < oldest)) oldest = n.statsAt;
+    });
+    var read = holds + small + empty;
+    if (!read) return '';
+    return '<p class="hint">Balances were read for ' + read + ' of ' + plural(wallets.length, 'wallet') + (oldest != null ? ' (the oldest read ' + esc(t(oldest)) + ')' : '') + ': ' + holds + ' held funds' + (min ? ' (' + esc(Style.fmtBtc(min)) + ' BTC or more), ' + small + ' a smaller amount' : '')
+      + ', ' + empty + ' held nothing.' + (unread ? ' The ' + unread + ' not read are not counted as empty.' : '') + ' A balance is what the server said when it was read, for that address only.</p>';
+  }
+
   function vertexText(model, nodes, id) {
     var n = nodes.get(id);
     if (!n) return esc(id);
@@ -314,7 +329,7 @@
     wallets.slice().sort(function (a, b) { return (b.received || 0) - (a.received || 0); }).slice(0, MAX_WALLETS).forEach(function (n) {
       h.push('<tr><td><code>' + esc(n.address) + '</code></td><td>' + esc(walletName(model, n)) + '</td><td>' + esc(n.firstSeen != null ? t(n.firstSeen) : '') + '</td><td>' + esc(n.lastSeen != null ? t(n.lastSeen) : '') + '</td><td class="num">' + amountCell(model, n.received || 0, n.firstSeen) + '</td><td class="num">' + amountCell(model, n.sent || 0, n.lastSeen) + '</td><td class="num">' + balanceCell(model, n) + '</td><td>' + esc(clusterOf[n.id] || '') + '</td></tr>');
     });
-    h.push('</table>' + (wallets.length > MAX_WALLETS ? '<p class="hint">Showing the ' + MAX_WALLETS + ' wallets that received most; the embedded data has all ' + wallets.length + '.</p>' : ''));
+    h.push('</table>' + balanceSummary(model, wallets) + (wallets.length > MAX_WALLETS ? '<p class="hint">Showing the ' + MAX_WALLETS + ' wallets that received most; the embedded data has all ' + wallets.length + '.</p>' : ''));
 
     var lk = lookupInfo(model);
     if (lk) {

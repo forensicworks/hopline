@@ -486,3 +486,20 @@ test('txPartial: a loaded transaction with fewer inputs or outputs in the graph 
   assert.equal(txPartial(g, g.nodes.get(ID.tx('x')), 'prev'), null, 'a transaction that is not loaded has its own mark (loaded: false)');
   assert.equal(txPartial(g, null), null);
 });
+
+test('balanceState: a wallet never read is unknown (not empty), small is under the limit, and 0 or no limit switches small off', () => {
+  const { balanceState } = require('../public/js/hopline-model.js');
+  const g = new Graph();
+  const stat = (a, f, s, pf, ps) => g.addAddressStats(a, { chain_stats: { funded_txo_sum: f, spent_txo_sum: s, tx_count: 1 }, mempool_stats: { funded_txo_sum: pf || 0, spent_txo_sum: ps || 0, tx_count: 0 } }, { at: 1 });
+  g.upsertNode({ id: ID.addr('U'), type: 'addr', address: 'U' });
+  stat('H', 50000, 0); stat('S', 5000, 0); stat('E', 40000, 40000); stat('P', 40000, 40000, 7000, 0);
+  assert.equal(balanceState(g.node(ID.addr('U')), 10000), 'unknown', 'totals never read: not the same as empty');
+  assert.equal(balanceState(g.node(ID.addr('H')), 10000), 'holds');
+  assert.equal(balanceState(g.node(ID.addr('H')), 50000), 'holds', 'the limit itself is enough');
+  assert.equal(balanceState(g.node(ID.addr('S')), 10000), 'small');
+  assert.equal(balanceState(g.node(ID.addr('S')), 0), 'holds', '0 switches the small band off');
+  assert.equal(balanceState(g.node(ID.addr('S'))), 'holds', 'so does no limit');
+  assert.equal(balanceState(g.node(ID.addr('E')), 10000), 'empty');
+  assert.equal(balanceState(g.node(ID.addr('P')), 10000), 'empty', 'an unconfirmed payment is not in the balance');
+  assert.equal(balanceState(null, 10000), 'unknown'); assert.equal(balanceState({ type: 'tx' }, 10000), 'unknown');
+});

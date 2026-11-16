@@ -308,3 +308,39 @@ test('Compact size: Proportional is unchanged, valueSpan can be switched off, an
   assert.ok(Math.abs(old[0] - 5) < 0.01 && Math.abs(old[2] - 16) < 0.01, 'valueSpan 0 is the earlier stretch: ' + old);
   assert.equal(S.logScale(5, 5, 1)(5), 0.5);
 });
+
+test('Colour by Balance: a wallet takes the colour of what it holds, a transaction keeps its kind colour, a wallet not read is hollow, and a tag only gives way in its fill', () => {
+  const M = require('../public/js/hopline-model.js');
+  const g = new Graph();
+  g.addTx({ txid: 'a'.repeat(64), fee: 1, weight: 400, status: { confirmed: true, block_height: 1, block_time: 1 }, vin: [{ is_coinbase: true }],
+            vout: ['H', 'S', 'E', 'U'].map((a) => ({ scriptpubkey_address: a, scriptpubkey_type: 'v0_p2wpkh', value: 50000 })) });
+  const stat = (a, f, s) => g.addAddressStats(a, { chain_stats: { funded_txo_sum: f, spent_txo_sum: s, tx_count: 1 }, mempool_stats: {} }, { at: 1 });
+  stat('H', 50000, 0); stat('S', 5000, 0); stat('E', 40000, 40000);                                  // U: never read
+  const v = F.computeVisible(g, {}), W = (a) => g.node(ID.addr(a));
+  const st = S.makeStyle(g, v, { colorBy: 'balance', balanceState: (n) => M.balanceState(n, 10000) });
+  assert.equal(st.nodeColor(W('H')), S.BALANCE_COLORS.holds); assert.equal(st.nodeColor(W('S')), S.BALANCE_COLORS.small);
+  assert.equal(st.nodeColor(W('E')), S.BALANCE_COLORS.empty); assert.equal(st.nodeColor(W('U')), S.BALANCE_COLORS.unknown);
+  assert.deepEqual(['H', 'S', 'E', 'U'].map((a) => st.hollow(W(a))), [false, false, false, true], 'only a wallet whose balance was not read is hollow');
+  assert.equal(new Set(Object.values(S.BALANCE_COLORS)).size, 4, 'four different colours');
+  const txn = g.node(ID.tx('a'.repeat(64)));
+  assert.equal(st.nodeColor(txn), S.TYPE_COLORS.tx, 'a transaction keeps its kind colour'); assert.equal(st.hollow(txn), false);
+  W('H').color = '#ff4d4d';                                                                           // a tag colour
+  assert.equal(st.nodeColor(W('H')), S.BALANCE_COLORS.holds, 'in this mode the fill says what it holds');
+  assert.equal(st.badgeColor(W('H')), '#ff4d4d', 'and the tag name keeps its own colour');
+  for (const mode of ['type', 'age', 'script']) {
+    const o = S.makeStyle(g, v, { colorBy: mode, balanceState: (n) => M.balanceState(n, 10000) });
+    assert.equal(o.nodeColor(W('H')), '#ff4d4d', mode + ': the tag colour wins'); assert.equal(o.hollow(W('U')), false, mode + ': nothing is hollow');
+    assert.equal(o.nodeColor(W('E')) === S.BALANCE_COLORS.empty, false, mode + ': not the balance colours');
+  }
+  const bare = S.makeStyle(g, v, { colorBy: 'balance' });
+  assert.equal(bare.nodeColor(W('E')), S.TYPE_COLORS.addr, 'without a way to tell what a wallet holds it falls back to the kind colours'); assert.equal(bare.hollow(W('U')), false);
+});
+
+test('the Balance legend says what each colour means, names the limit, leaves the small band out when there is none, and marks the hollow one', () => {
+  const lg = S.legend('balance', [], { minSats: 10000 }).items;
+  assert.deepEqual(lg.map((i) => i.label), ['holds funds (0.00010000 BTC or more)', 'small balance (under 0.00010000 BTC)', 'empty (nothing confirmed)', 'balance not read (not the same as empty)', 'transaction']);
+  assert.deepEqual(lg.map((i) => !!i.hollow), [false, false, false, true, false]);
+  const none = S.legend('balance', [], { minSats: 0 }).items;
+  assert.deepEqual(none.map((i) => i.label), ['holds funds', 'empty (nothing confirmed)', 'balance not read (not the same as empty)', 'transaction']);
+  assert.ok(S.legend('type', []).items.every((i) => !i.hollow), 'the other modes are as they were');
+});

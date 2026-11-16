@@ -237,6 +237,17 @@
   }
 
   /**
+   * What a wallet's confirmed balance says, as one word: 'unknown' (its totals were never read: NOT the same as empty), 'empty' (nothing confirmed), 'small' (something, but under
+   * minSats: leftover dust; 0 or none switches this off) or 'holds' (minSats or more).
+   */
+  function balanceState(n, minSats) {
+    var b = balanceOf(n);
+    if (!b) return 'unknown';
+    if (!(b.confirmed > 0)) return 'empty';
+    return minSats > 0 && b.confirmed < minSats ? 'small' : 'holds';
+  }
+
+  /**
    * Has the transaction history of this wallet been asked for? Its transaction count alone does not say so: the totals the server
    * keeps (what a balance read brings) include it, and then the transactions themselves are still to load.
    */
@@ -441,5 +452,5 @@
     return g;
   };
 
-  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf, historyRead: historyRead, historyOpen: historyOpen, txPartial: txPartial, spendingComplete: spendingComplete };
+  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf, balanceState: balanceState, historyRead: historyRead, historyOpen: historyOpen, txPartial: txPartial, spendingComplete: spendingComplete };
 }));

@@ -14,6 +14,8 @@
   };
   var TYPE_COLORS = { tx: '#5b8def', addr: '#e0a458', coinbase: '#f2c94c', data: '#9aa3ad', nonstd: '#7c8794', group: '#b48ee0' };
   var UNKNOWN = '#6b7280';
+  /** Colour by Balance: what a wallet holds. Lightness carries it as well as hue (bright, pale, dark), and a wallet whose balance was not read is drawn hollow, not as empty. */
+  var BALANCE_COLORS = { holds: '#3ddc97', small: '#a8c9b6', empty: '#5f6b7a', unknown: '#9aa3ad' };
 
   /**
    * What an arrow's colour says when the arrows are coloured by direction: an input arrow is a coin that is spent (a wallet into a transaction), an output arrow a coin that is created (a
@@ -73,7 +75,7 @@
 
   /**
    * Builds the style functions for the currently visible part of the graph.
-   * opts: { colorBy: 'type'|'age'|'script', sizeBy: 'log'|'area', direction: a key of DIRECTION_PALETTES or null (colour the arrows by direction: it wins over the age colour of an arrow), minWidth, maxWidth, minRadius, maxRadius }
+   * opts: { colorBy: 'type'|'age'|'script'|'balance' (balanceState(n) -> 'holds'|'small'|'empty'|'unknown' says what each wallet holds), sizeBy: 'log'|'area', direction: a key of DIRECTION_PALETTES or null (colour the arrows by direction: it wins over the age colour of an arrow), minWidth, maxWidth, minRadius, maxRadius }
    *   sizeBy 'log'   (default) a compact log scale between minRadius and maxRadius: sizes differ little, and values within a factor of ten (opts.valueSpan, in powers of ten) get similar sizes
    *   sizeBy 'area'  the AREA of a shape is proportional to its value (radius ~ sqrt), up to areaMaxRadius for the largest,
    *                  never below areaMinRadius so a tiny amount is still a visible dot
@@ -101,6 +103,21 @@
 
     function nodeTime(n) { return n.type === 'tx' ? n.time : n.firstSeen; }
 
+    var bstate = colorBy === 'balance' && typeof opts.balanceState === 'function' ? opts.balanceState : null;
+    function baseColor(n) {
+      if (n.color && /^#[0-9a-fA-F]{6}$/.test(n.color)) return n.color;                    // your tag colour, in every colour mode but Balance (see nodeColor)
+      if (colorBy === 'age') {
+        var t = nodeTime(n);
+        return t == null ? UNKNOWN : ageColor(timeScale(t));
+      }
+      if (colorBy === 'script') {
+        if (n.type === 'tx') return TYPE_COLORS.tx;
+        if (n.type === 'coinbase') return TYPE_COLORS.coinbase;
+        return SCRIPT_COLORS[n.scriptType] || SCRIPT_COLORS.unknown;
+      }
+      return TYPE_COLORS[n.type] || UNKNOWN;
+    }
+
     return {
       edgeWidth: function (e) { return minW + (maxW - minW) * amountScale(e.amount); },
       nodeRadius: function (n) {
@@ -111,18 +128,11 @@
         return minR + (maxR - minR) * valueScale(v);
       },
       nodeColor: function (n) {
-        if (n.color && /^#[0-9a-fA-F]{6}$/.test(n.color)) return n.color;                    // your tag colour, in every colour mode
-        if (colorBy === 'age') {
-          var t = nodeTime(n);
-          return t == null ? UNKNOWN : ageColor(timeScale(t));
-        }
-        if (colorBy === 'script') {
-          if (n.type === 'tx') return TYPE_COLORS.tx;
-          if (n.type === 'coinbase') return TYPE_COLORS.coinbase;
-          return SCRIPT_COLORS[n.scriptType] || SCRIPT_COLORS.unknown;
-        }
-        return TYPE_COLORS[n.type] || UNKNOWN;
+        if (bstate && n.type === 'addr') return BALANCE_COLORS[bstate(n)] || UNKNOWN;           // what it holds: in this mode a wallet's tag colour gives way (the tag's name keeps it: see badgeColor)
+        return baseColor(n);
       },
+      badgeColor: function (n) { return baseColor(n); },                                       // the colour of a tag's name: the tag's own, whatever the mode
+      hollow: function (n) { return !!bstate && n.type === 'addr' && bstate(n) === 'unknown'; },           // a wallet whose balance was not read: drawn hollow, never as empty
       edgeColor: function (e) {
         if (dirPal && (e.kind === 'in' || e.kind === 'out')) return dirPal[e.kind];                 // the renderer lets a selected arrow, a highlighted route and the amber change arrow keep their own colour
         if (colorBy === 'age') {
@@ -137,7 +147,15 @@
   }
 
   /** Legend entries for the current colour mode: [{label, color}] or, for age, a gradient description. */
-  function legend(colorBy, presentScriptTypes) {
+  function legend(colorBy, presentScriptTypes, extra) {
+    if (colorBy === 'balance') {
+      var min = extra && extra.minSats > 0 ? extra.minSats : 0, lim = min ? fmtBtc(min) + ' BTC' : '';
+      var items = [{ label: 'holds funds' + (min ? ' (' + lim + ' or more)' : ''), color: BALANCE_COLORS.holds }];
+      if (min) items.push({ label: 'small balance (under ' + lim + ')', color: BALANCE_COLORS.small });
+      items.push({ label: 'empty (nothing confirmed)', color: BALANCE_COLORS.empty }, { label: 'balance not read (not the same as empty)', color: BALANCE_COLORS.unknown, hollow: true },
+                 { label: 'transaction', color: TYPE_COLORS.tx });
+      return { items: items };
+    }
     if (colorBy === 'age') return { gradient: AGE_STOPS.map(function (s) { return [s[0], rgb(s[1])]; }), unknown: UNKNOWN };
     if (colorBy === 'script') {
       var types = (presentScriptTypes && presentScriptTypes.length) ? presentScriptTypes : Object.keys(SCRIPT_COLORS);
@@ -178,6 +196,6 @@
   }
   function shortId(s, n) { n = n || 6; return s && s.length > 2 * n + 1 ? s.slice(0, n) + '…' + s.slice(-n) : (s || ''); }
 
-  return { SCRIPT_COLORS: SCRIPT_COLORS, TYPE_COLORS: TYPE_COLORS, DIRECTION_PALETTES: DIRECTION_PALETTES, DEFAULT_DIRECTION: DEFAULT_DIRECTION, directionPalette: directionPalette, directionColors: directionColors, ageColor: ageColor, logScale: logScale, linScale: linScale,
+  return { SCRIPT_COLORS: SCRIPT_COLORS, TYPE_COLORS: TYPE_COLORS, BALANCE_COLORS: BALANCE_COLORS, DIRECTION_PALETTES: DIRECTION_PALETTES, DEFAULT_DIRECTION: DEFAULT_DIRECTION, directionPalette: directionPalette, directionColors: directionColors, ageColor: ageColor, logScale: logScale, linScale: linScale,
            makeStyle: makeStyle, legend: legend, fmtBtc: fmtBtc, fmtBtcShort: fmtBtcShort, fmtTime: fmtTime, fmtTimeFull: fmtTimeFull, shortId: shortId };
 }));

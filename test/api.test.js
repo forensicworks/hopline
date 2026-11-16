@@ -532,7 +532,7 @@ function chainFetch(chain) {
                        vin: [{ txid: 'cd'.repeat(32), vout: t.i, prevout: { scriptpubkey_address: 'src' + t.i, scriptpubkey_type: 'p2pkh', value: 5 } }],
                        vout: [{ scriptpubkey_address: 'W', scriptpubkey_type: 'p2pkh', value: 4 }] });
   const stats = () => { const c = chain.txs.filter((t) => t.conf !== false), m = chain.txs.filter((t) => t.conf === false);
-    return { address: 'W', chain_stats: { tx_count: c.length, funded_txo_sum: 4 * c.length, spent_txo_sum: 0 }, mempool_stats: { tx_count: m.length, funded_txo_sum: 4 * m.length, spent_txo_sum: 0 } }; };
+    return { address: 'W', chain_stats: { tx_count: c.length, funded_txo_sum: 4 * c.length, spent_txo_sum: chain.spentSum || 0 }, mempool_stats: { tx_count: m.length, funded_txo_sum: 4 * m.length, spent_txo_sum: 0 } }; };
   const page = (after) => { const at = after ? chain.txs.findIndex((t) => hex(t.i) === after) + 1 : 0; return chain.txs.slice(at, at + 25).map(mk); };
   return fakeFetch(new Proxy({}, { get: (_, p) => {
     if (p === '/address/W') return stats();
@@ -635,4 +635,18 @@ test('refreshPlan: limited to one wallet or to some transactions, and counts wha
   assert.deepEqual(ex.refreshPlan({ ids: [ID.addr('src1')] }).wallets, [], 'a wallet only seen as a payer has nothing to go stale');
   const t = ex.refreshPlan({ ids: [ID.tx(hex(2))] });
   assert.deepEqual([t.wallets, t.confirm, t.spends, t.requests], [[], [hex(2)], [], 2]);
+});
+
+test('refresh: says which wallets balance moved, with the confirmed amount before and after, and says nothing when it did not', async () => {
+  const chain = { txs: [3, 2, 1].map((i) => ({ i })) };                            // W has received 12
+  const { g, ex } = await loadedWallet(chain);
+  chain.txs.unshift({ i: 4 });                                                      // a payment of 4: 16 received
+  let r = await ex.refresh();
+  assert.deepEqual(r.balanceChanges, [{ address: 'W', before: 12, after: 16 }]);
+  chain.spentSum = 16;                                                              // everything it received has been spent
+  r = await ex.refresh();
+  assert.deepEqual(r.balanceChanges, [{ address: 'W', before: 16, after: 0 }]);
+  r = await ex.refresh();
+  assert.deepEqual(r.balanceChanges, [], 'nothing moved: nothing said');
+  assert.equal(r.totalsChanged, 0);
 });
