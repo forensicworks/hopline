@@ -262,12 +262,19 @@ def test_the_report_has_a_table_and_leaves_the_peers_out_of_it_and_of_its_data_u
     assert "<h2>When transactions were first seen</h2>" in without and "3 min 19 s" in without and '<span class="hint">no record</span>' in without
     assert "The peers that passed the transactions on were left out of this report" in without
     assert PEER not in without and "203.0.113.9" not in without, "not in the table and not in the data embedded in the file"
+    url1, url2 = ("https://api.blockcypher.com/v1/btc/main/txs/" + tid(n) + "?limit=1" for n in (1, 2))
+    for u in (url1, url2):
+        assert '<code class="url">' + u + '</code>' in without, "the address that was asked, in the table, for each transaction"
+        assert without.count(u) == 2, "in the table and in the data embedded in the file (it is only the public transaction id)"
+    assert 'href="https://api.blockcypher' not in without, "text to copy, never a link"
+    assert "may still name its peer" in without and "none was recorded" not in without, "the reply at that address can name the peer, and the report says so (a peer WAS recorded, then left out)"
     assert "BlockCypher - 2 transactions asked, 1 with a first-seen time, 1 with no record from before the block" in without
     assert "<th>First on chain</th>" in without and "all times UTC · a transaction's time is the time of its block" in without
     tpage.evaluate("() => { document.getElementById('exportMenu').open = false; }")
     with_ = report_html(tpage, tmp_path, True)
     assert "<th>Peer</th>" in with_ and PEER in with_
     assert with_.count(PEER) >= 2, "in the table and in the embedded data"
+    assert "may still name its peer" not in with_ and '<code class="url">' + url1 + '</code>' in with_, "the address is there with the peers too"
 
 
 def test_without_a_look_up_the_report_has_no_such_table_but_still_says_what_the_time_is(tpage, mock, bc, tmp_path):

@@ -545,6 +545,18 @@ test('fromJson returns when the file was made, or null when it does not say', ()
   d.exported = 'not a date'; assert.equal(IO.fromJson(JSON.stringify(d)).exported, null);
 });
 
+test('JSON keeps the address that was asked for a transaction, and drops one that is not a plain https address', () => {
+  const X = require('../public/js/hopline-external.js');
+  const { g, t } = sample(), txn = g.node(ID.tx(t.txid));
+  const want = 'https://api.blockcypher.com/v1/btc/main/txs/' + t.txid + '?limit=1';
+  txn.ext = { blockcypher: X.toBlockcypherExt({ hash: t.txid, block_height: 1, confirmed: '2026-03-04T10:24:49Z', received: '2026-03-04T10:21:32.652Z' }, 1700000000, X.blockcypherUrl(t.txid)) };
+  const text = IO.toJson(g, { now: 0 });
+  assert.equal(JSON.parse(text).nodes.find((n) => n.id === txn.id).ext.blockcypher.url, want, 'in the file');
+  assert.equal(IO.fromJson(text).graph.node(txn.id).ext.blockcypher.url, want, 'and back');
+  const d = JSON.parse(text); d.nodes.forEach((n) => { if (n.id === txn.id) n.ext.blockcypher.url = 'javascript:alert(1)'; });
+  assert.equal('url' in IO.fromJson(JSON.stringify(d)).graph.node(txn.id).ext.blockcypher, false, 'a file cannot put anything else there');
+});
+
 test('JSON keeps what an outside service said about a transaction, drops it from a wallet, and the CSV says it without the peer', () => {
   const X = require('../public/js/hopline-external.js');
   const { g, t } = sample(), txn = g.node(ID.tx(t.txid)), wal = g.node(ID.addr(t.vout[0].scriptpubkey_address));

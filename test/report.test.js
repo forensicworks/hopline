@@ -280,6 +280,28 @@ test('the wallets table ends with what the balances say: how many were read, the
   assert.doesNotMatch(none.html, /Balances were read for/, 'nothing to say when no balance was read');
 });
 
+test('report: the address that was asked is shown with each lookup as text, never as a link, and the peers left out are said to be in the reply there', () => {
+  const rows = [
+    { txid: tid(1), time: 1650000000, source: 'blockcypher', sourceName: 'BlockCypher', found: true, seen: true, received: 1649999000.5, confirmed: 1650000000, relay: '203.0.113.9:8333', height: 700001, at: 1700000000,
+      url: 'https://api.blockcypher.com/v1/btc/main/txs/' + tid(1) + '?limit=1&x=1' },
+    { txid: tid(2), time: 1650006000, source: 'blockcypher', sourceName: 'BlockCypher', found: true, seen: false, received: null, confirmed: 1650006000, relay: '', height: 700002, at: 1700000005 }];
+  const render = (over) => { const m = modelOf(sample(), over); return RP.render(m, RP.evidenceText(m.evidence), 'a'.repeat(64)); };
+  const without = render({ timeEvidence: rows, timeRelay: false });
+  assert.ok(without.includes('<code class="url">https://api.blockcypher.com/v1/btc/main/txs/' + tid(1) + '?limit=1&amp;x=1</code>'), 'in the last cell, escaped');
+  assert.equal(without.split('class="url"').length - 1, 1, 'one for the lookup that has an address, none for the one that has not');
+  assert.ok(without.includes('<th>Source, asked, and the address asked</th>'));
+  assert.ok(!/<a [^>]*href="https:\/\/api\.blockcypher/.test(without) && !without.includes('href="https://api.blockcypher'), 'text to copy, not something to click: the report makes no request');
+  assert.ok(without.includes('were left out of this report, but the reply at the address given with each transaction may still name its peer, and anyone who opens that address can read it.'));
+  const withPeers = render({ timeEvidence: rows, timeRelay: true });
+  assert.ok(withPeers.includes('class="url"') && !withPeers.includes('may still name its peer'), 'with the peers shown there is nothing to warn about');
+  const quiet = render({ timeEvidence: rows.map((r) => Object.assign({}, r, { relay: '' })), timeRelay: false });
+  assert.ok(quiet.includes('left out of this report (none was recorded).') && !quiet.includes('may still name its peer'), 'no peer was recorded: nothing to say about one');
+  const left = render({ timeEvidence: rows.map((r) => Object.assign({}, r, { relay: '' })), timeRelay: false, timePeersLeft: true });
+  assert.ok(left.includes('may still name its peer') && !left.includes('none was recorded'), 'peers that were recorded and taken out before the report was made are not "none recorded"');
+  const old = render({ timeEvidence: rows.map((r) => Object.assign({}, r, { url: '' })), timeRelay: false });
+  assert.ok(!old.includes('class="url"'), 'no address, no empty line');
+});
+
 test('report: when a service first saw transactions has its own table, the block time is said to be the miner\'s, and the peers stay out unless asked for', () => {
   const Style = require('../public/js/hopline-style.js');
   const rows = [

@@ -296,6 +296,31 @@ test('lookupBlockcypher asks for one transaction, sends no cookies and no referr
   await assert.rejects(X.lookupBlockcypher({ fetch: hang, txid: BC_TX, timeoutMs: 30 }), (e) => e.kind === 'timeout');
 });
 
+test('the address asked is built in one place: sent in the request, kept with the lookup, and given for the report', async () => {
+  const want = 'https://api.blockcypher.com/v1/btc/main/txs/' + BC_TX + '?limit=1';
+  assert.equal(X.blockcypherUrl(BC_TX.toUpperCase()), want, 'lower case, the endpoint and the one transaction');
+  assert.equal(X.blockcypherUrl(BC_TX, 'https://example.test/api/'), 'https://example.test/api/txs/' + BC_TX + '?limit=1', 'another base, with no double slash');
+  const f = fakeFetch(() => resp(200, bcReply()));
+  const r = await X.lookupBlockcypher({ fetch: f, txid: BC_TX });
+  assert.equal(r.ext.url, f.calls[0].url, 'the address kept is the address that was sent');
+  assert.equal(r.ext.url, want);
+  const viaBase = fakeFetch(() => resp(200, bcReply()));
+  const mirror = await X.lookupBlockcypher({ fetch: viaBase, txid: BC_TX, base: 'https://example.test/api/' });
+  assert.equal(viaBase.calls[0].url, 'https://example.test/api/txs/' + BC_TX + '?limit=1', 'a base that is given is the one asked');
+  assert.equal(mirror.ext.url, viaBase.calls[0].url, 'and the one kept');
+  const unknown = await X.lookupBlockcypher({ fetch: fakeFetch(() => resp(404, { error: 'not found' })), txid: BC_TX });
+  assert.equal(unknown.ext.url, want, 'an answer of "unknown" was asked for at an address too');
+  assert.equal(X.cleanExt({ blockcypher: r.ext }, 'tx').blockcypher.url, want, 'it survives a file');
+  ['http://api.blockcypher.com/x', 'javascript:alert(1)', 'https://a b', 'https://x/<script>', 'https://' + 'a'.repeat(300), 5, null, ''].forEach((u) =>
+    assert.equal('url' in X.cleanExt({ blockcypher: Object.assign({}, r.ext, { url: u }) }, 'tx').blockcypher, false, 'not kept: ' + String(u).slice(0, 30)));
+  assert.equal('url' in X.toBlockcypherExt(bcReply(), 1), false, 'a lookup that does not say where it asked has no address');
+  const node = (blockcypher) => ({ type: 'tx', txid: BC_TX, time: 1, ext: { blockcypher } });
+  assert.equal(X.timeRows([node(r.ext)])[0].url, want);
+  assert.equal(X.timeRows([node(X.toBlockcypherExt(bcReply(), 1))])[0].url, want, 'a lookup made before the address was kept: the address that was always asked');
+  const other = 'https://example.test/v9/txs/' + BC_TX;
+  assert.equal(X.timeRows([node(Object.assign({}, r.ext, { url: other }))])[0].url, other, 'what was recorded wins over what is built now');
+});
+
 test('sources are for wallets or for transactions: list, entries and the file each keep to their own kind', () => {
   assert.deepEqual(X.list().map((s) => s.id), ['arkham']); assert.deepEqual(X.list('tx').map((s) => s.id), ['blockcypher', 'chainwindow']); assert.deepEqual(X.list('all').map((s) => s.id), ['arkham', 'blockcypher', 'chainwindow']);
   assert.throws(() => X.register({ id: 'odd', name: 'x', kind: 'block', lookup() {}, clean() {}, describe() {} }), /wallets \(addr\) or for transactions \(tx\)/);
