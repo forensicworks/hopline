@@ -6198,8 +6198,9 @@
       onScreen.forEach(function (id) { if (/^addr:/.test(id) && threats.indexOf(id) < 0 && victims.indexOf(id) < 0) threats.push(id); });
       if (victims.length && threats.length) { var lr = HoplineLosses.find(sub, AN.analyse(sub, {}), { victims: victims, threats: threats }); if (lr.paid.length || lr.returned.length) losses = reportLosses(lr); }
     } catch (e) { money = zone = patterns = losses = null; }
+    var peersLeft = false;                                                                // whether a peer was recorded and then left out, so that the report can say so
     if (!relayOn) base.nodes.forEach(function (n) {                                // the peer that passed a transaction on is an IP address: out of the report and out of its embedded data, unless asked for
-      if (n.type === 'tx' && n.ext) XT.list('tx').forEach(function (src) { var e = n.ext[src.id]; if (e) { e.relay = ''; e.raw = ''; } });
+      if (n.type === 'tx' && n.ext) XT.list('tx').forEach(function (src) { var e = n.ext[src.id]; if (e) { if (e.relay) peersLeft = true; e.relay = ''; e.raw = ''; } });
     });
     if (base.view) delete base.view.hidden;                                    // what you hid is not part of what is reported
     // the report describes what is on screen: a chain or cluster is cut to the vertices that are shown, so nothing hidden leaks in through them
@@ -6221,7 +6222,7 @@
     base.evidence.coverage = leftOut;
     var image = null; try { image = renderer.toDataUrl(); } catch (e) { /* a tainted or empty canvas: the report simply has no picture */ }
     var model = { title: title, preparedBy: by, generated: Date.now(), evidence: base, nodes: base.nodes, edges: base.edges,
-                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups, trace: trace, leftOut: leftOut, lookups: reportLookups(base.nodes), timeEvidence: XT.timeRows(base.nodes), timeRelay: relayOn, windowEvidence: HoplineTimeWindow.reportRows(base.nodes), money: money, zone: zone, patterns: patterns, losses: losses,
+                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups, trace: trace, leftOut: leftOut, lookups: reportLookups(base.nodes), timeEvidence: XT.timeRows(base.nodes), timeRelay: relayOn, timePeersLeft: peersLeft, windowEvidence: HoplineTimeWindow.reportRows(base.nodes), money: money, zone: zone, patterns: patterns, losses: losses,
                   dustSats: state.dustSats, known: function (a) { return KNOWN[a] || null; }, packs: reportPacks(), fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {

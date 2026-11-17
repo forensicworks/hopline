@@ -212,23 +212,33 @@
     return { found: found, seen: seen, received: seen ? received : null, confirmed: confirmed, relay: seen ? relay : '',
              height: typeof o.block_height === 'number' && isFinite(o.block_height) && o.block_height >= 0 ? Math.floor(o.block_height) : null };
   }
-  /** What is kept on a transaction: the parsed fields, when it was asked, and (capped) the reply as it came. */
-  function toBlockcypherExt(json, at) {
+  /** What is kept on a transaction: the parsed fields, when it was asked, the address that was asked (when given) and (capped) the reply as it came. */
+  function toBlockcypherExt(json, at, url) {
     var p = parseBlockcypher(json), raw = '';
     try { raw = JSON.stringify(json); } catch (e) { raw = ''; }
     if (raw.length > RAW_LIMIT) raw = raw.slice(0, RAW_LIMIT) + '…';
     p.at = typeof at === 'number' ? at : Math.floor(Date.now() / 1000);
     p.raw = raw;
+    if (cleanUrl(url)) p.url = url;
     return p;
   }
   /** Validate the BlockCypher entry of an `ext` read from a file. */
   function cleanBlockcypher(a) {
     if (!isObj(a)) return null;
     var received = num(a.received), seen = a.seen === true && received != null;
-    return { found: a.found === true, seen: seen, received: seen ? received : null, confirmed: num(a.confirmed), relay: seen ? relayText(a.relay) : '',
-             height: typeof a.height === 'number' && isFinite(a.height) && a.height >= 0 ? Math.floor(a.height) : null,
-             at: typeof a.at === 'number' && isFinite(a.at) ? Math.floor(a.at) : 0, raw: typeof a.raw === 'string' ? a.raw.slice(0, RAW_LIMIT + 1) : '' };
+    var out = { found: a.found === true, seen: seen, received: seen ? received : null, confirmed: num(a.confirmed), relay: seen ? relayText(a.relay) : '',
+                height: typeof a.height === 'number' && isFinite(a.height) && a.height >= 0 ? Math.floor(a.height) : null,
+                at: typeof a.at === 'number' && isFinite(a.at) ? Math.floor(a.at) : 0, raw: typeof a.raw === 'string' ? a.raw.slice(0, RAW_LIMIT + 1) : '' };
+    if (cleanUrl(a.url)) out.url = a.url;
+    return out;
   }
+
+  /** The address asked for one transaction (the one the request is sent to): base + /txs/<id>?limit=1. */
+  function blockcypherUrl(txid, base) {
+    return String(base || BLOCKCYPHER_BASE).replace(/\/+$/, '') + '/txs/' + String(txid || '').toLowerCase() + '?limit=1';
+  }
+  /** An address read from a file, kept only when it is a plain https address (it is shown as text, never opened). */
+  function cleanUrl(u) { return typeof u === 'string' && /^https:\/\/[^\s<>"'\\]{1,200}$/.test(u) ? u : ''; }
 
   /**
    * Ask BlockCypher about one transaction. Resolves { found, ext } (found false when it does not know the transaction); rejects with an Error whose .kind is
@@ -238,18 +248,18 @@
   function lookupBlockcypher(opts) {
     var id = String(opts.txid || '').toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(id)) return Promise.reject(fail('bad', 'That is not a transaction id.'));
-    var base = String(opts.base || BLOCKCYPHER_BASE).replace(/\/+$/, '');
+    var url = blockcypherUrl(id, opts.base);
     var ctl = typeof AbortController === 'function' ? new AbortController() : null, timer = null, timedOut = false;
     if (ctl) timer = setTimeout(function () { timedOut = true; ctl.abort(); }, opts.timeoutMs || 25000);
-    return opts.fetch(base + '/txs/' + id + '?limit=1', { headers: { 'Accept': 'application/json' }, credentials: 'omit', referrerPolicy: 'no-referrer', signal: ctl ? ctl.signal : undefined })
+    return opts.fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'omit', referrerPolicy: 'no-referrer', signal: ctl ? ctl.signal : undefined })
       .then(function (res) {
         return res.text().then(function (body) {
           var json = null; try { json = JSON.parse(body); } catch (e) { json = null; }
-          if (res.status === 404) return { found: false, ext: toBlockcypherExt({}, undefined) };
+          if (res.status === 404) return { found: false, ext: toBlockcypherExt({}, undefined, url) };
           if (res.status === 429) throw fail('rate', 'BlockCypher\'s request limit was reached (without an account it allows only a few requests a minute and an hour). Wait a while and ask again.', 429);
           if (!res.ok) throw fail('upstream', 'BlockCypher answered HTTP ' + res.status + '.', res.status);
           if (json === null) throw fail('bad', 'BlockCypher answered with something that is not JSON.', res.status);
-          var ext = toBlockcypherExt(json);
+          var ext = toBlockcypherExt(json, undefined, url);
           return { found: ext.found, ext: ext };
         });
       }, function (e) {
@@ -258,7 +268,7 @@
       }).then(function (v) { if (timer) clearTimeout(timer); return v; }, function (e) { if (timer) clearTimeout(timer); throw e; });
   }
 
-  /** The look-ups of transaction sources kept on these vertices, one row each, for the report: { txid, time, source, sourceName, found, seen, received, confirmed, relay, height, at }. */
+  /** The look-ups of transaction sources kept on these vertices, one row each, for the report: { txid, time, source, sourceName, found, seen, received, confirmed, relay, height, url, at }. */
   function timeRows(nodes) {
     var out = [];
     (nodes || []).forEach(function (n) {
@@ -267,7 +277,8 @@
         if (d.kind !== 'tx' || d.report !== 'firstseen' || !isObj(n.ext[id])) return;
         var a = n.ext[id];
         out.push({ txid: n.txid, time: typeof n.time === 'number' ? n.time : null, source: id, sourceName: d.name, found: a.found === true, seen: a.seen === true, received: typeof a.received === 'number' ? a.received : null,
-                   confirmed: typeof a.confirmed === 'number' ? a.confirmed : null, relay: typeof a.relay === 'string' ? a.relay : '', height: typeof a.height === 'number' ? a.height : null, at: typeof a.at === 'number' ? a.at : 0 });
+                   confirmed: typeof a.confirmed === 'number' ? a.confirmed : null, relay: typeof a.relay === 'string' ? a.relay : '', height: typeof a.height === 'number' ? a.height : null,
+                   url: cleanUrl(a.url) || (typeof d.url === 'function' ? d.url(n.txid) : ''), at: typeof a.at === 'number' ? a.at : 0 });
       });
     });
     return out;
@@ -367,6 +378,7 @@
     ready: function () { return ''; },
     lookup: function (txid, ctx) { return lookupBlockcypher({ fetch: ctx.fetch, txid: txid, base: ctx.blockcypher }); },
     clean: cleanBlockcypher,
+    url: function (txid) { return blockcypherUrl(txid); },
     describe: function (a) {
       return { found: a.seen === true, label: a.seen ? 'first seen ' + utcText(a.received) : 'no first-seen record', category: 'Broadcast time', tags: [], suggest: '', at: a.at,
                note: a.seen ? '' : a.found ? 'BlockCypher learned of it from its block.' : 'BlockCypher does not know it.' };
@@ -398,6 +410,6 @@
     fields: function (a) { return TW.rows(a); }
   });
 
-  return { parseBlockcypher: parseBlockcypher, lookupBlockcypher: lookupBlockcypher, toBlockcypherExt: toBlockcypherExt, timeRows: timeRows, utcText: utcText, gapText: gapText, relayText: relayText, relayHost: relayHost, BLOCKCYPHER_BASE: BLOCKCYPHER_BASE,
+  return { parseBlockcypher: parseBlockcypher, lookupBlockcypher: lookupBlockcypher, toBlockcypherExt: toBlockcypherExt, blockcypherUrl: blockcypherUrl, timeRows: timeRows, utcText: utcText, gapText: gapText, relayText: relayText, relayHost: relayHost, BLOCKCYPHER_BASE: BLOCKCYPHER_BASE,
            relayUrl: relayUrl, SOURCES: SOURCES, register: register, unregister: unregister, source: source, list: list, describe: describe, entries: entries, lookupMany: lookupMany, parseArkham: parseArkham, tagFor: tagFor, toExt: toExt, cleanExt: cleanExt, lookupArkham: lookupArkham, proxyHealth: proxyHealth, arkhamUrl: arkhamUrl, ARKHAM_EXPLORER: ARKHAM_EXPLORER, RAW_LIMIT: RAW_LIMIT };
 }));

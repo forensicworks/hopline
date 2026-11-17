@@ -111,7 +111,7 @@
 
   /**
    * When a service first saw some of the transactions, from the look-ups asked on request (HoplineExternal.timeRows). `model.timeEvidence` is [{ txid, time, source, sourceName, found, seen,
-   * received, confirmed, relay, height, at }]; the peers are shown only when `model.timeRelay` is true. Returns { sources: [text per source], rows }, or null when there are none.
+   * received, confirmed, relay, height, url, at }]; the peers are shown only when `model.timeRelay` is true (`model.timePeersLeft` says that some were recorded and left out); `url` is the address that was asked, shown as text. Returns { sources: [text per source], rows }, or null when there are none.
    */
   function timeInfo(model) {
     var list = (model.timeEvidence || []).filter(function (r) { return r && r.txid && r.source; });
@@ -427,16 +427,16 @@
 
     var te = timeInfo(model);
     if (te) {
-      var anyPeer = te.rows.some(function (r) { return r.relay; });
+      var anyPeer = te.rows.some(function (r) { return r.relay; }) || model.timePeersLeft === true;           // the peers are taken out of the rows before the report is made: the flag says that some were there
       h.push('<h2>When transactions were first seen</h2><p class="hint">A transaction\'s time above is the time of the block that holds it. A service that watches the network as it happens can say when it first saw a transaction, which is nearer to when it was sent. '
         + 'That is the service\'s record, asked for on request and kept with the time it was asked; it is not part of the blockchain. <i>No record</i> means the service learned of the transaction from its block, which says nothing about when it was sent. '
-        + (model.timeRelay ? 'The peer is the first node that passed the transaction to the service; it is not necessarily the sender, and an address in a network range says who runs the range, not who used it.' : 'The peers that passed the transactions on were left out of this report' + (anyPeer ? '' : ' (none was recorded)') + '.') + '</p><ul>'
+        + (model.timeRelay ? 'The peer is the first node that passed the transaction to the service; it is not necessarily the sender, and an address in a network range says who runs the range, not who used it.' : 'The peers that passed the transactions on were left out of this report' + (anyPeer ? ', but the reply at the address given with each transaction may still name its peer, and anyone who opens that address can read it' : ' (none was recorded)') + '.') + '</p><ul>'
         + te.sources.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'
-        + '<table><tr><th>Transaction</th><th>Block time</th><th>First seen</th><th>Before its block</th>' + (model.timeRelay ? '<th>Peer</th>' : '') + '<th>Source, asked</th></tr>');
+        + '<table><tr><th>Transaction</th><th>Block time</th><th>First seen</th><th>Before its block</th>' + (model.timeRelay ? '<th>Peer</th>' : '') + '<th>Source, asked, and the address asked</th></tr>');
       te.rows.slice(0, MAX_WALLETS).forEach(function (r) {
         h.push('<tr><td><code>' + esc(r.txid) + '</code></td><td>' + esc(r.time != null ? t(r.time) : '') + '</td><td>' + (r.seen ? esc(t(Math.floor(r.received))) : '<span class="hint">no record</span>') + '</td><td>'
           + (r.seen && r.confirmed != null ? (r.received <= r.confirmed ? esc(gapWords(r.confirmed - r.received)) : '<span class="hint">none</span>') : '') + '</td>' + (model.timeRelay ? '<td>' + (r.relay ? '<code>' + esc(r.relay) + '</code>' : '') + '</td>' : '')
-          + '<td>' + esc(r.sourceName || r.source) + (r.at ? ', ' + esc(t(r.at)) : '') + '</td></tr>');
+          + '<td>' + esc(r.sourceName || r.source) + (r.at ? ', ' + esc(t(r.at)) : '') + (r.url ? '<br><code class="url">' + esc(r.url) + '</code>' : '') + '</td></tr>');
       });
       h.push('</table>' + (te.rows.length > MAX_WALLETS ? '<p class="hint">The first ' + MAX_WALLETS + ' of ' + te.rows.length + ' are listed; the embedded data has them all.</p>' : ''));
     }
