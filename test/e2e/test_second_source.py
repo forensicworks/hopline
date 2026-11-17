@@ -64,16 +64,20 @@ def ext_of(page, n, source):
     return page.evaluate("([id, s]) => { const x = window.__hopline.state.graph.nodes.get(id); return x && x.ext ? x.ext[s] || null : null; }", ["tx:" + tid(n), source])
 
 
-def test_each_service_has_its_own_box_and_button_and_ticking_one_enables_only_that_one(tpage, mock, bc, bi):
+def test_each_service_has_its_own_box_and_one_button_names_the_ones_that_are_ticked(tpage, mock, bc, bi):
     both(tpage, mock, bc, bi)
     select(tpage, "tx:" + tid(1))
     d = details(tpage)
     assert "send the transaction id to blockcypher (api.blockcypher.com)" in d and "send the transaction id to blockchain.com (blockchain.info)" in d
-    assert tpage.inner_text("#btnBlockchaincom") == "Ask Blockchain.com when it was first seen"
-    assert tpage.get_attribute("#btnBlockchaincom", "title").startswith("Sends this transaction id to Blockchain.com (blockchain.info)")
-    assert tpage.is_disabled("#btnBlockcypher") and tpage.is_disabled("#btnBlockchaincom"), "nothing can be sent until a box is ticked"
+    assert tpage.locator("#btnFirstSeen").count() == 1, "one button for both"
+    assert tpage.inner_text("#btnFirstSeen") == "Ask the ticked services" and tpage.is_disabled("#btnFirstSeen"), "nothing can be sent until a box is ticked"
+    assert tpage.get_attribute("#btnFirstSeen", "title").startswith("Sends this transaction id to each service whose box is ticked")
     tpage.check("#chkBlockchaincom")
-    assert tpage.is_enabled("#btnBlockchaincom") and tpage.is_disabled("#btnBlockcypher") and not tpage.is_checked("#chkBlockcypher"), "the tick is for that service only"
+    assert tpage.is_enabled("#btnFirstSeen") and tpage.inner_text("#btnFirstSeen") == "Ask Blockchain.com when it was first seen" and not tpage.is_checked("#chkBlockcypher"), "the tick is for that service only"
+    tpage.check("#chkBlockcypher")
+    assert tpage.inner_text("#btnFirstSeen") == "Ask BlockCypher and Blockchain.com when it was first seen"
+    tpage.uncheck("#chkBlockchaincom"); tpage.uncheck("#chkBlockcypher")
+    assert tpage.is_disabled("#btnFirstSeen") and tpage.inner_text("#btnFirstSeen") == "Ask the ticked services"
     assert bc.requests == [] and bi.requests == [], "ticking sent nothing"
 
 
@@ -92,42 +96,44 @@ def test_the_right_click_menu_offers_both_services_and_goes_to_the_box_of_the_on
 def test_asking_blockchaincom_sends_to_blockchaincom_only_and_shows_a_time_but_no_peer(tpage, mock, bc, bi):
     both(tpage, mock, bc, bi)
     select(tpage, "tx:" + tid(1))
-    press(tpage, "#btnBlockchaincom", ok="#chkBlockchaincom")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockchaincom")
     assert bi.requests == ["https://blockchain.info/rawtx/" + tid(1)] and bc.requests == [], "only the service that was ticked was asked, with the id and nothing else"
     e = ext_of(tpage, 1, "blockchaincom")
     assert e["seen"] is True and e["received"] == BLOCK1 - 197 and e["confirmed"] == BLOCK1 and not e.get("relay") and e["url"] == bi.requests[0], e
     assert "inputs" not in e["raw"] and '"relayed_by":"0.0.0.0"' in e["raw"], "the reply as it came, without the long lists the graph has"
     assert ext_of(tpage, 1, "blockcypher") is None
     d = details(tpage)
-    assert tpage.inner_text("#btnBlockchaincom") == "Ask Blockchain.com again"
+    assert tpage.inner_text("#btnFirstSeen") == "Ask Blockchain.com again"
     assert tpage.locator("#inspBody .extcard h4", has_text="Blockchain.com").count() == 1 and "3 min 17 s" in d and "peer that passed it on" not in d and "0.0.0.0" not in d, "a time, how long before its block, and no peer"
 
 
 def test_no_record_is_not_a_time_and_an_unknown_transaction_is_said_to_be_unknown(tpage, mock, bc, bi):
     both(tpage, mock, bc, bi)
     select(tpage, "tx:" + tid(2))
-    press(tpage, "#btnBlockchaincom", ok="#chkBlockchaincom")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockchaincom")
     e = ext_of(tpage, 2, "blockchaincom")
     assert e["found"] is True and e["seen"] is False and e["received"] is None, "its time is the time of the block: no record from before it"
     card = tpage.locator("#inspBody .extcard").inner_text().lower()
     assert "no record from before the block" in card and "utc" not in card, "the card says so and shows no time"
     del bi.replies[tid(2)]
-    press(tpage, "#btnBlockchaincom", ok="#chkBlockchaincom")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockchaincom")
     e = ext_of(tpage, 2, "blockchaincom")
     assert e["found"] is False and e["seen"] is False
     assert "does not know this transaction" in details(tpage)
     assert len(bi.requests) == 2 and bc.requests == []
 
 
-def test_a_selection_has_a_button_for_each_service_and_each_stops_at_its_own_limit(tpage, mock, bc, bi):
+def test_a_selection_has_one_button_and_a_box_for_each_service_and_each_stops_at_its_own_limit(tpage, mock, bc, bi):
     both(tpage, mock, bc, bi)
     select(tpage, "tx:" + tid(1), "tx:" + tid(2))
-    assert tpage.inner_text("#btnAskTimes") == "Ask BlockCypher about 2 transactions"
-    assert tpage.inner_text("#btnAskTimesBlockchaincom") == "Ask Blockchain.com about 2 transactions"
-    assert "send the 2 transaction ids to blockchain.com (blockchain.info)" in details(tpage)
-    assert tpage.is_disabled("#btnAskTimesBlockchaincom")
+    assert tpage.locator("#btnAskTimes").count() == 1, "one button for both"
+    assert tpage.inner_text("#btnAskTimes") == "Ask the ticked services" and tpage.is_disabled("#btnAskTimes")
+    d = details(tpage)
+    assert "send the 2 transaction ids to blockcypher (api.blockcypher.com)" in d and "send the 2 transaction ids to blockchain.com (blockchain.info)" in d
+    tpage.check("#chkAskTimesBlockchaincom")
+    assert tpage.inner_text("#btnAskTimes") == "Ask Blockchain.com about 2 transactions" and not tpage.is_checked("#chkAskTimes")
     bi.limit_after = 1
-    tpage.check("#chkAskTimesBlockchaincom"); tpage.click("#btnAskTimesBlockchaincom")
+    tpage.click("#btnAskTimes")
     tpage.wait_for_function("() => /limit/.test(document.getElementById('toast').textContent)", timeout=15000)
     tpage.wait_for_function("() => !window.__hopline.state.ext.busy", timeout=15000); idle(tpage); settle(tpage)
     assert "1 of 2 were answered" in toast_text(tpage) and re.search("Blockchain[.]com", toast_text(tpage))
@@ -135,11 +141,41 @@ def test_a_selection_has_a_button_for_each_service_and_each_stops_at_its_own_lim
     assert bc.requests == [] and ext_of(tpage, 1, "blockcypher") is None, "the other service was not asked"
 
 
+def test_one_press_asks_both_ticked_services_in_turn_each_keeps_its_own_limit_and_one_message_says_how_each_went(tpage, mock, bc, bi):
+    both(tpage, mock, bc, bi)
+    select(tpage, "tx:" + tid(1), "tx:" + tid(2))
+    tpage.check("#chkAskTimes"); tpage.check("#chkAskTimesBlockchaincom")
+    assert tpage.inner_text("#btnAskTimes") == "Ask BlockCypher about 2 transactions and Blockchain.com about 2 transactions"
+    bc.limit_after = 1                                                                      # BlockCypher stops after one answer; Blockchain.com goes on
+    tpage.click("#btnAskTimes")
+    tpage.wait_for_function(r"() => /Blockchain\.com: 2 transactions answered/.test(document.getElementById('toast').textContent)", timeout=20000)
+    idle(tpage); settle(tpage)
+    said = toast_text(tpage)
+    assert "1 of 2 were answered before that and are kept" in said and "Blockchain.com: 2 transactions answered, 1 with a first-seen time and 1 with no record" in said, said
+    assert len(bc.requests) == 2 and len(bi.requests) == 2, "BlockCypher was asked first and stopped at its limit; Blockchain.com was asked after it, about both"
+    assert ext_of(tpage, 1, "blockcypher") is not None and ext_of(tpage, 2, "blockcypher") is None
+    assert ext_of(tpage, 1, "blockchaincom")["seen"] is True and ext_of(tpage, 2, "blockchaincom")["seen"] is False
+
+
+def test_the_button_asks_exactly_the_services_it_names_and_says_again_only_when_all_of_them_were_asked(tpage, mock, bc, bi):
+    both(tpage, mock, bc, bi)
+    select(tpage, "tx:" + tid(1))
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
+    assert (len(bc.requests), len(bi.requests)) == (1, 0)
+    assert tpage.inner_text("#btnFirstSeen") == "Ask BlockCypher again"
+    tpage.check("#chkBlockchaincom")
+    assert tpage.inner_text("#btnFirstSeen") == "Ask BlockCypher and Blockchain.com when it was first seen", "one of the two was not asked yet"
+    tpage.click("#btnFirstSeen")
+    tpage.wait_for_function("() => !window.__hopline.state.ext.busy", timeout=20000); idle(tpage); settle(tpage)
+    assert (len(bc.requests), len(bi.requests)) == (2, 1), "both ticked services were asked, as the button said"
+    assert tpage.inner_text("#btnFirstSeen") == "Ask BlockCypher and Blockchain.com again"
+
+
 def test_the_report_has_a_row_for_each_service_and_the_peer_only_where_one_was_named(tpage, mock, bc, bi, tmp_path):
     both(tpage, mock, bc, bi)
     select(tpage, "tx:" + tid(1))
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
-    press(tpage, "#btnBlockchaincom", ok="#chkBlockchaincom")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockchaincom")
     without = report_html(tpage, tmp_path, False)
     assert "<td>BlockCypher, " in without and "<td>Blockchain.com, " in without, "a row for each service"
     assert "BlockCypher - 1 transaction asked, 1 with a first-seen time" in without and "Blockchain.com - 1 transaction asked, 1 with a first-seen time" in without
@@ -159,8 +195,8 @@ def test_the_time_of_day_panel_uses_the_earlier_of_the_two_services(tpage, mock,
     bc.replies[tid(2)] = {"hash": tid(2), "block_height": 700002, "confirmed": "2022-04-15T05:40:00Z", "received": bc_time, "relayed_by": "1.2.3.4:8333"}
     bi.replies[tid(2)] = reply(2, int(datetime.strptime(bi_time, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()))
     select(tpage, "tx:" + tid(2))
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
-    press(tpage, "#btnBlockchaincom", ok="#chkBlockchaincom")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockchaincom")
     show_findings(tpage); settle(tpage)
     after = findings(tpage)
     assert "Some times are when a service first saw the transaction" in after, after
@@ -176,8 +212,8 @@ def test_the_csv_of_payments_carries_the_earlier_first_seen_time_of_the_two_serv
     bc.replies[tid(1)] = {"hash": tid(1), "block_height": 700001, "confirmed": "2022-04-15T05:30:00Z", "received": bc_time, "relayed_by": "1.2.3.4:8333"}
     bi.replies[tid(1)] = reply(1, int(datetime.strptime(bi_time, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()))
     select(tpage, "tx:" + tid(1))
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
-    press(tpage, "#btnBlockchaincom", ok="#chkBlockchaincom")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockchaincom")
     show_findings(tpage); settle(tpage)
     capture(tpage)
     tpage.click("#btnLossCopy")

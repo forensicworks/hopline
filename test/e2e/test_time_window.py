@@ -159,8 +159,8 @@ def test_both_sources_sit_side_by_side_on_one_transaction_under_time_evidence(tp
     scene(tpage, mock, bc)
     select(tpage, "tx:" + tid(1))
     assert "time evidence" in details(tpage)
-    assert tpage.locator("#btnBlockcypher").count() == 1 and tpage.locator("#btnChainwindow").count() == 1
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
+    assert tpage.locator("#btnFirstSeen").count() == 1 and tpage.locator("#btnChainwindow").count() == 1
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
     press(tpage, "#btnChainwindow")
     cards = tpage.locator("#inspBody .extcard").all_inner_texts()
     assert len(cards) == 2 and "203.0.113.9:8333" in cards[0] and "Not before" in cards[1], cards
