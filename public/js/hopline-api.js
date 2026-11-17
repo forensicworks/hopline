@@ -336,6 +336,18 @@
     if (n) n.spendsCheckedAt = Math.floor(Date.now() / 1000);
   };
 
+  /**
+   * Ask the server which outputs of these loaded transactions are spent now: one request each, always asked of the server (never the cache), and kept as the spends of the transaction with the time
+   * they were read. For an output whose spend status was never read, which a refresh does not ask about. Resolves { read (transactions answered), errors: [message] }.
+   */
+  Explorer.prototype.readSpends = function (txids) {
+    var ex = this, read = 0, errors = [];
+    var list = (txids || []).filter(function (t, i, a) { return typeof t === 'string' && a.indexOf(t) === i && ex.graph.nodes.has(ID.tx(t)); });
+    return Promise.all(list.map(function (txid) {
+      return ex.client.fresh('/tx/' + encodeURIComponent(txid) + '/outspends').then(function (o) { ex._spends(txid, o); read++; }).catch(function (e) { note(errors, e); });
+    })).then(function () { return { read: read, errors: errors }; });
+  };
+
   function summarise(ex, before, errors, truncated) {
     return { added: ex.graph.nodes.size - before.n, addedEdges: ex.graph.edges.size - before.e,
              requests: ex.client.count.network - before.r, truncated: !!truncated, errors: errors };

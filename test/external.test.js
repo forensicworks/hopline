@@ -227,3 +227,112 @@ test('relayUrl builds a link to Relay\'s page for a request ID, and for nothing 
   assert.equal(X.relayUrl('0x' + 'AB'.repeat(32)), 'https://relay.link/transaction/' + id, 'lower case');
   ['', null, undefined, 42, id + 'a', id.slice(0, -1), 'ab'.repeat(33), '0x' + 'zz'.repeat(32), id + '/../x', 'javascript:alert(1)'].forEach((x) => assert.equal(X.relayUrl(x), '', String(x)));
 });
+
+// ---- BlockCypher: when a transaction was first seen. The reply shape is the documented one (received, confirmed, relayed_by); the sample is made up, not copied from a case.
+const BC_TX = 'ab'.repeat(32);
+const bcReply = (over) => Object.assign({ hash: BC_TX, block_height: 840123, confirmed: '2026-03-04T10:24:49Z', received: '2026-03-04T10:21:32.652Z', relayed_by: '203.0.113.9:8333', double_spend: false, confirmations: 894 }, over);
+const secs = (iso) => Date.parse(iso) / 1000;
+
+test('parseBlockcypher: a first-seen time needs a record from before the block, and the block time repeated is no record', () => {
+  const seen = X.parseBlockcypher(bcReply());
+  assert.deepEqual([seen.found, seen.seen, seen.confirmed, seen.relay, seen.height], [true, true, secs('2026-03-04T10:24:49Z'), '203.0.113.9:8333', 840123]);
+  assert.equal(seen.received, secs('2026-03-04T10:21:32.652Z'), 'to the millisecond');
+  const echo = X.parseBlockcypher(bcReply({ received: '2026-03-04T10:24:49Z', relayed_by: null }));
+  assert.deepEqual([echo.found, echo.seen, echo.received, echo.relay], [true, false, null, ''], 'received equal to the block time: BlockCypher learned of it from its block');
+  const pending = X.parseBlockcypher(bcReply({ confirmed: undefined, block_height: -1, relayed_by: '' }));
+  assert.deepEqual([pending.seen, pending.height, pending.confirmed], [true, null, null], 'a transaction not in a block: its received time is a first-seen time');
+  assert.equal(X.parseBlockcypher(bcReply({ confirmed: '2026-03-04T10:20:00Z', relayed_by: null })).seen, true, 'seen after the (earlier) time stamp of its block is still a real record');
+  ['', null, undefined, 5, [], {}, 'x', { hash: 'nothex' }].forEach((g) => assert.equal(X.parseBlockcypher(g).found, false, JSON.stringify(g)));
+  assert.equal(X.parseBlockcypher(bcReply({ received: 'yesterday' })).seen, false, 'not a time');
+  assert.equal(X.parseBlockcypher(bcReply({ received: '1970-01-01T00:00:05Z' })).seen, false, 'a time before 2009 is not a time');
+});
+
+test('relayText keeps an address and a port and nothing else', () => {
+  ['1.2.3.4:8333', '1.2.3.4', '[2001:db8::1]:8333', '2001:db8::1', 'abcdefghijklmnop.onion:8333'].forEach((v) => assert.equal(X.relayText(v), v, v));
+  ['', null, undefined, 5, '<script>alert(1)</script>', '1.2.3.4:99999999', '1.2.3.4; drop', 'javascript:alert(1)', 'x'.repeat(100), '1.2.3'].forEach((v) => assert.equal(X.relayText(v), '', String(v)));
+});
+
+test('utcText and gapText say a time and a length in words', () => {
+  assert.equal(X.utcText(secs('2026-03-04T10:21:32.652Z')), '2026-03-04 10:21:32 UTC');
+  assert.equal(X.utcText(null), '');
+  assert.deepEqual([45, 984, 3900, 90000].map(X.gapText), ['45 s', '16 min 24 s', '1 h 5 min', '25 h 0 min']);
+});
+
+test('toBlockcypherExt keeps the parsed fields, the time it was asked and a capped raw copy', () => {
+  const e = X.toBlockcypherExt(bcReply(), 1700000000);
+  assert.deepEqual([e.found, e.seen, e.at], [true, true, 1700000000]);
+  assert.ok(e.raw.includes('"relayed_by":"203.0.113.9:8333"') && e.raw.length <= X.RAW_LIMIT + 1);
+  assert.ok(X.toBlockcypherExt(bcReply({ junk: 'x'.repeat(9000) }), 1).raw.length <= X.RAW_LIMIT + 1);
+});
+
+test('cleanExt keeps a BlockCypher entry only on a transaction, and only what it knows', () => {
+  const ok = X.toBlockcypherExt(bcReply(), 1700000000);
+  const tx = X.cleanExt({ blockcypher: Object.assign({}, ok, { junk: 1, relay: '<b>x</b>' }) }, 'tx');
+  assert.equal(tx.blockcypher.junk, undefined); assert.equal(tx.blockcypher.relay, '', 'a peer that is not an address is dropped');
+  assert.equal(X.cleanExt({ blockcypher: ok }, 'addr'), null, 'not on a wallet');
+  assert.equal(X.cleanExt({ arkham: { found: true, name: 'x', type: 'cex', at: 1 } }, 'tx'), null, 'a wallet source is not kept on a transaction');
+  assert.equal(X.cleanExt({ blockcypher: { found: true, seen: true, received: null } }, 'tx').blockcypher.seen, false, 'seen needs a time');
+  assert.equal(X.cleanExt({ blockcypher: Object.assign({}, ok, { received: 5 }) }, 'tx').blockcypher.seen, false, 'a time outside 2009 to 2100 is not a time');
+  assert.equal(X.cleanExt({ blockcypher: Object.assign({}, ok, { seen: false }) }, 'tx').blockcypher.relay, '', 'no first-seen record, no peer');
+});
+
+test('lookupBlockcypher asks for one transaction, sends no cookies and no referrer, and every failure has a kind', async () => {
+  const f = fakeFetch(() => resp(200, bcReply()));
+  const r = await X.lookupBlockcypher({ fetch: f, txid: BC_TX.toUpperCase() });
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].url, 'https://api.blockcypher.com/v1/btc/main/txs/' + BC_TX + '?limit=1');
+  assert.equal(f.calls[0].init.credentials, 'omit'); assert.equal(f.calls[0].init.referrerPolicy, 'no-referrer');
+  assert.deepEqual([r.found, r.ext.seen, r.ext.relay], [true, true, '203.0.113.9:8333']);
+  assert.ok(r.ext.raw.includes('relayed_by'), 'the reply as it came');
+  assert.equal((await X.lookupBlockcypher({ fetch: fakeFetch(() => resp(404, { error: 'not found' })), txid: BC_TX })).found, false, 'unknown to it is an answer, not an error');
+  const kind = (handler) => X.lookupBlockcypher({ fetch: handler, txid: BC_TX }).then(() => 'ok', (e) => e.kind);
+  assert.equal(await kind(() => Promise.resolve(resp(429, { error: 'Limits reached.' }))), 'rate');
+  assert.equal(await kind(() => Promise.resolve(resp(500, 'x'))), 'upstream');
+  assert.equal(await kind(() => Promise.resolve(resp(200, 'not json'))), 'bad');
+  assert.equal(await kind(() => Promise.reject(new Error('offline'))), 'network');
+  const g = fakeFetch(() => resp(200, {}));
+  assert.equal(await X.lookupBlockcypher({ fetch: g, txid: 'abc' }).then(() => 'ok', (e) => e.kind), 'bad'); assert.equal(g.calls.length, 0, 'nothing is sent for what is not a transaction id');
+  const hang = (url, init) => new Promise((_, rej) => { init.signal.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' }))); });
+  await assert.rejects(X.lookupBlockcypher({ fetch: hang, txid: BC_TX, timeoutMs: 30 }), (e) => e.kind === 'timeout');
+});
+
+test('sources are for wallets or for transactions: list, entries and the file each keep to their own kind', () => {
+  assert.deepEqual(X.list().map((s) => s.id), ['arkham']); assert.deepEqual(X.list('tx').map((s) => s.id), ['blockcypher', 'chainwindow']); assert.deepEqual(X.list('all').map((s) => s.id), ['arkham', 'blockcypher', 'chainwindow']);
+  assert.throws(() => X.register({ id: 'odd', name: 'x', kind: 'block', lookup() {}, clean() {}, describe() {} }), /wallets \(addr\) or for transactions \(tx\)/);
+  const ext = X.cleanExt({ blockcypher: X.toBlockcypherExt(bcReply(), 1700000000) }, 'tx');
+  const txNode = { type: 'tx', txid: BC_TX, time: secs('2026-03-04T10:24:49Z'), ext };
+  assert.deepEqual(X.entries(txNode).map((e) => [e.source, e.sourceName, e.found, e.txid, e.address, e.label, e.category]), [['blockcypher', 'BlockCypher', true, BC_TX, undefined, 'first seen 2026-03-04 10:21:32 UTC', 'Broadcast time']]);
+  assert.ok(!X.entries(txNode)[0].label.includes('203.0.113'), 'the peer is not in the one-line text that goes into the CSV');
+  const echo = X.cleanExt({ blockcypher: X.toBlockcypherExt(bcReply({ received: '2026-03-04T10:24:49Z', relayed_by: null }), 1700000000) }, 'tx');
+  const none = X.entries({ type: 'tx', txid: BC_TX, ext: echo })[0];
+  assert.deepEqual([none.found, none.label, none.none], [false, 'no first-seen record', 'no first-seen record']);
+  assert.deepEqual(X.entries({ type: 'addr', address: 'bc1qx', ext }), [], 'a wallet does not show a transaction source');
+  const rows = X.timeRows([txNode, { type: 'addr', ext }, { type: 'tx', txid: 'z' }, null]);
+  assert.equal(rows.length, 1);
+  assert.deepEqual([rows[0].txid, rows[0].time, rows[0].source, rows[0].seen, rows[0].relay, rows[0].at], [BC_TX, secs('2026-03-04T10:24:49Z'), 'blockcypher', true, '203.0.113.9:8333', 1700000000]);
+});
+
+test('lookupMany with a transaction source: asks only after a yes, waits between requests, and stops at the limit keeping what it has', async () => {
+  const ids = ['1', '2', '3', '4'].map((c) => c.repeat(64));
+  let n = 0;
+  const f = fakeFetch((url) => (++n === 3 ? resp(429, { error: 'Limits reached.' }) : resp(200, bcReply({ hash: url.split('/txs/')[1].split('?')[0] }))));
+  const declined = await X.lookupMany('blockcypher', ids, { ctx: { fetch: f }, confirm: () => false });
+  assert.equal(declined.stopped, 'declined'); assert.equal(f.calls.length, 0, 'nothing was sent');
+  const waits = [], said = [];
+  const r = await X.lookupMany('blockcypher', ids, { ctx: { fetch: f }, confirm: (d, keys) => { said.push([d.id, keys.length]); return true; }, sleep: (ms) => { waits.push(ms); return Promise.resolve(); } });
+  assert.deepEqual(said, [['blockcypher', 4]], 'the caller is told what would be sent');
+  assert.equal(r.stopped, 'failed'); assert.equal(r.error.kind, 'rate');
+  assert.equal(r.results.filter((x) => !x.error).length, 2, 'the two answered before the limit are kept');
+  assert.deepEqual(waits, [700, 700], 'a pause between requests, none after the failure');
+  assert.equal(f.calls.length, 3, 'and the fourth was not asked');
+});
+
+test('relayHost gives the address of a peer without its port or brackets, to paste into another tool, and nothing for what is not a peer', () => {
+  assert.deepEqual(['203.0.113.9:8333', '203.0.113.9', '[2001:db8::1]:8333', '[2001:db8::1]', '2001:db8::1', 'abcdefghijklmnop.onion:8333', 'abcdefghijklmnop.onion'].map(X.relayHost),
+                   ['203.0.113.9', '203.0.113.9', '2001:db8::1', '2001:db8::1', '2001:db8::1', 'abcdefghijklmnop.onion', 'abcdefghijklmnop.onion']);
+  ['', null, undefined, 5, '<b>1.2.3.4</b>', '1.2.3.4; drop', 'javascript:alert(1)', '1.2.3'].forEach((v) => assert.equal(X.relayHost(v), '', String(v)));
+  const fields = X.source('blockcypher').fields(X.parseBlockcypher({ hash: 'ab'.repeat(32), received: '2026-03-04T10:21:32.652Z', confirmed: '2026-03-04T10:24:49Z', relayed_by: '203.0.113.9:8333' }));
+  const peer = fields.find((r) => r[0] === 'Peer that passed it on');
+  assert.deepEqual([peer[1], peer[2]], ['203.0.113.9:8333', '203.0.113.9'], 'the card gets the text to copy as the third value of the row');
+  assert.ok(fields.filter((r) => r[2]).length === 1, 'and no other row has one');
+});

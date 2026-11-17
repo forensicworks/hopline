@@ -544,3 +544,31 @@ test('fromJson returns when the file was made, or null when it does not say', ()
   const d = JSON.parse(text); delete d.exported; assert.equal(IO.fromJson(JSON.stringify(d)).exported, null);
   d.exported = 'not a date'; assert.equal(IO.fromJson(JSON.stringify(d)).exported, null);
 });
+
+test('JSON keeps what an outside service said about a transaction, drops it from a wallet, and the CSV says it without the peer', () => {
+  const X = require('../public/js/hopline-external.js');
+  const { g, t } = sample(), txn = g.node(ID.tx(t.txid)), wal = g.node(ID.addr(t.vout[0].scriptpubkey_address));
+  txn.ext = { blockcypher: X.toBlockcypherExt({ hash: t.txid, block_height: 1, confirmed: '2026-03-04T10:24:49Z', received: '2026-03-04T10:21:32.652Z', relayed_by: '203.0.113.9:8333' }, 1700000000) };
+  const text = IO.toJson(g, { now: 0 }), back = IO.fromJson(text);
+  assert.deepEqual(back.graph.node(ID.tx(t.txid)).ext, txn.ext, 'it comes back as it was');
+  const d = JSON.parse(text); d.nodes.forEach((n) => { if (n.id === wal.id) n.ext = { blockcypher: txn.ext.blockcypher }; });
+  assert.equal(IO.fromJson(JSON.stringify(d)).graph.node(wal.id).ext, undefined, 'a transaction source on a wallet is not kept');
+  const rows = parseCsv(IO.toCsv(g, 'nodes')), col = rows[0].indexOf('ext_lookups'), row = rows.find((r) => r[rows[0].indexOf('id')] === ID.tx(t.txid));
+  assert.match(row[col], /^BlockCypher: first seen 2026-03-04 10:21:32 UTC \(Broadcast time\) \[/);
+  assert.ok(!row[col].includes('203.0.113.9'), 'the peer is an IP address: it is in the JSON file, not in a CSV that gets passed around');
+});
+
+test('JSON keeps the facts of a time window on a transaction and never the reading of them', () => {
+  const TW = require('../public/js/hopline-timewindow.js');
+  const { g, t } = sample(), txn = g.node(ID.tx(t.txid)), wal = g.node(ID.addr(t.vout[0].scriptpubkey_address));
+  txn.ext = { chainwindow: TW.clean({ found: true, at: 1700000000, height: 1000, blockTime: 1794000000, vsize: 200, fee: 1000, locktime: 998, seqFinal: false,
+                                      prev: [{ height: 999, time: 1793999400, weight: 2000000, txCount: 1500, p25: null }], lock: { height: 998, time: 1793998750 } }) };
+  const text = IO.toJson(g, { now: 0 }), back = IO.fromJson(text);
+  assert.deepEqual(back.graph.node(ID.tx(t.txid)).ext, txn.ext, 'the facts come back as they were');
+  const d = JSON.parse(text); d.nodes.forEach((n) => { if (n.id === txn.id) { n.ext.chainwindow.notBefore = 5; n.ext.chainwindow.after = 5; } if (n.id === wal.id) n.ext = { chainwindow: txn.ext.chainwindow }; });
+  const again = IO.fromJson(JSON.stringify(d)).graph;
+  assert.equal(again.node(txn.id).ext.chainwindow.notBefore, undefined, 'a reading written into a file is not kept: it is worked out from the facts');
+  assert.equal(again.node(wal.id).ext, undefined, 'and a transaction source on a wallet is not kept');
+  const rows = parseCsv(IO.toCsv(g, 'nodes')), col = rows[0].indexOf('ext_lookups'), row = rows.find((r) => r[rows[0].indexOf('id')] === ID.tx(t.txid));
+  assert.match(row[col], /^Block data: not before about 2026-11-.. ..:..:.. UTC \(Time window\) \[/);
+});

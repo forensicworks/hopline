@@ -1823,6 +1823,7 @@
     hideStale();
     return run(o.title || 'Update from the chain', function () {
       return state.explorer.refresh({ ids: o.ids }).then(function (r) {
+        state.moneyRev = (state.moneyRev || 0) + 1;                                              // what was spent or paid since changes where the money is
         r.more = r.truncated; r.truncated = false;                                              // "stopped at the per-expand limit" is not what happened: the note says it
         if (traceOn() && state.trace.seed) traceRevealNew(r);
         r.hidden = traceOn() && state.trace.seed ? Math.max(0, (r.newIds || []).filter(function (id) { var n = state.graph.nodes.get(id); return n && n.type === 'tx' && n.loaded && !state.trace.shown.has(id); }).length) : 0;
@@ -2610,29 +2611,52 @@
   function proxyUrlOk(u) { return /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?(\/.*)?$/i.test(u) || /^https:\/\/[^\s/]+(\/.*)?$/i.test(u); }
 
   /** One block per source in the registry (HoplineExternal): a button to ask it, and what it said, each on its own card. Nothing is asked until you press a button. */
+  /**
+   * The box that confirms what is sent to a third party: ticked, its button works. The details are drawn again after every look-up, so the box is clear again and every look-up is confirmed.
+   * Returns { label, ok() }; it enables and disables `btn`.
+   */
+  function consentBox(btn, id, text) {
+    var cb = el('input', { type: 'checkbox', id: id });
+    cb.addEventListener('change', function () { btn.disabled = !cb.checked; });
+    return { label: el('label', { 'class': 'check consent' }, [cb, ' ' + text]), ok: function () { return cb.checked; } };
+  }
+
   function externalCard(n) {
-    var box = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'External sources' })]);
-    XT.list().forEach(function (s) {
-      var ext = n.ext && n.ext[s.id], cap = s.id.charAt(0).toUpperCase() + s.id.slice(1);
-      box.appendChild(el('div', { 'class': 'insp-actions' }, [
-        el('button', { type: 'button', id: 'btn' + cap, text: (ext ? 'Look up again in ' : 'Look up in ') + s.short, title: sourceTip(s), onclick: function () { lookupSource(s.id, n.id); } })]));
+    var tx = n.type === 'tx';
+    var box = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: tx ? 'Time evidence' : 'External sources' })]);
+    XT.list(tx ? 'tx' : 'addr').forEach(function (s) {
+      var ext = n.ext && n.ext[s.id], cap = s.id.charAt(0).toUpperCase() + s.id.slice(1), def = tx ? XT.source(s.id) : null, third = tx && def.third !== false, consent = null;
+      var btn = el('button', { type: 'button', id: 'btn' + cap, text: tx ? def.ask[ext ? 'again' : 'button'] : (ext ? 'Look up again in ' : 'Look up in ') + s.short, title: sourceTip(s) + (third ? ' Tick the box to confirm.' : ''), disabled: third ? 'disabled' : null,
+                          onclick: function () { if (tx) lookupTxSource(s.id, [n.id], consent ? consent.ok() : true); else lookupSource(s.id, n.id); } });
+      if (third) { consent = consentBox(btn, 'chk' + cap, 'Send the transaction id to ' + def.name + ' (' + def.host + ')'); box.appendChild(consent.label); }
+      box.appendChild(el('div', { 'class': 'insp-actions' }, [btn]));
       if (ext) box.appendChild(sourceCard(n, s.id, ext));
     });
     return box;
   }
-  function sourceTip(s) { return 'Sends this wallet\'s address to ' + s.name + (s.id === 'arkham' ? ', through your local proxy' : ''); }
+  function sourceTip(s) {
+    var d = XT.source(s.id);
+    if (d && d.kind === 'tx') return d.ask.tip;
+    return 'Sends this wallet\'s address to ' + s.name + (s.id === 'arkham' ? ', through your local proxy' : '');
+  }
 
   /** What a source said about a wallet: the rows it chooses to show, then buttons that apply it only when pressed, and the reply as it came. */
   function sourceCard(n, sid, ext) {
-    var def = XT.source(sid), c = XT.describe(sid, ext), card = el('div', { 'class': 'extcard' }), dl = el('dl', { 'class': 'kv' });
+    var def = XT.source(sid), c = XT.describe(sid, ext), card = el('div', { 'class': 'extcard' }), dl = el('dl', { 'class': 'kv' }), txKind = def.kind === 'tx';
     card.appendChild(el('h4', {}, [el('span', { text: def.name }), el('small', { text: c.at ? S.fmtTime(c.at, false) : '' })]));
-    if (!c.found) card.appendChild(el('p', { 'class': 'hint', text: def.short + ' has no entry for this wallet.' }));
+    if (txKind) {                                                                         // a transaction: always the rows, then what they mean
+      def.fields(ext).forEach(function (r) {
+        kv(dl, r[0], r[1]);
+        if (r[2] && r[1] !== null && r[1] !== undefined && r[1] !== '') dl.lastChild.appendChild(copyBtn(r[2], 'the IP address'));         // a third value: what to copy (for pasting into your own tools)
+      });
+      card.appendChild(dl); card.appendChild(el('p', { 'class': 'hint', text: def.explain(ext) }));
+    } else if (!c.found) card.appendChild(el('p', { 'class': 'hint', text: def.short + ' has no entry for this wallet.' }));
     else {
       (typeof def.fields === 'function' ? def.fields(ext) : [['Name', c.label], ['Category', c.category], ['Tags', c.tags.join(', ')], ['Note', c.note]]).forEach(function (r) { kv(dl, r[0], r[1]); });
       card.appendChild(dl);
     }
     var acts = [], text = c.label.slice(0, 120);
-    if (c.found && text) acts.push(el('button', { type: 'button', text: 'Use as label', title: 'Set your label to “' + text + '”', onclick: function () { state.graph.annotate(n.id, text, n.note); showInspector(); refresh(); scheduleSave(); } }));
+    if (c.found && text && !txKind) acts.push(el('button', { type: 'button', text: 'Use as label', title: 'Set your label to “' + text + '”', onclick: function () { state.graph.annotate(n.id, text, n.note); showInspector(); refresh(); scheduleSave(); } }));
     if (c.suggest && TG.preset(c.suggest)) acts.push(el('button', { type: 'button', text: 'Tag as ' + c.suggest, title: 'Suggested from ' + def.short + '\'s category: ' + TG.preset(c.suggest).name, onclick: function () { TG.apply(n, { tag: c.suggest }); showInspector(); refresh(); scheduleSave(); } }));
     acts.push(el('button', { type: 'button', text: 'Remove result', onclick: function () { delete n.ext[sid]; if (!Object.keys(n.ext).length) delete n.ext; showInspector(); refresh(); scheduleSave(); } }));
     card.appendChild(el('div', { 'class': 'insp-actions' }, acts));
@@ -2641,7 +2665,10 @@
   }
 
   /** What a source needs from this page to be asked: the lookup proxy and its token (Arkham), and a fetch. */
-  function sourceCtx() { return { fetch: window.fetch.bind(window), proxy: state.ext.proxy, token: state.ext.token }; }
+  function sourceCtx() {
+    return { fetch: window.fetch.bind(window), proxy: state.ext.proxy, token: state.ext.token,
+             client: state.client, host: state.client ? hostOf(state.client.base) : '', node: function (txid) { return state.graph.nodes.get('tx:' + txid) || null; } };
+  }
   /** Where to send the person when a source is not set up yet. */
   function sourceSetup(sid) { if (sid === 'arkham') { setSideCollapsed(false); $('extSection').open = true; $('arkToken').focus(); } }
 
@@ -2676,6 +2703,63 @@
     }).then(function () { x.busy = false; });
   }
   function lookupArkham(id) { return lookupSource('arkham', id); }
+
+  /**
+   * Ask a transaction source about some transactions, on request: BlockCypher (when it first saw them), or the data source in use (the blocks before them). A source that sends the ids to a
+   * third party needs `confirmed` (the box beside its button, ticked), every time. Each answer is kept on its transaction as it arrives, so a request limit in the middle loses nothing, and nothing else
+   * changes: the time of the block stays what it is.
+   */
+  function lookupTxSource(sid, ids, confirmed) {
+    var def = XT.source(sid), x = state.ext, g = state.graph;
+    if (!def || def.kind !== 'tx') { toast('Unknown source.', true); return; }
+    if (def.third !== false && state.source === 'tor') { toast('Look-ups are switched off while the data source is Tor: they would go outside Tor and tell ' + def.short + ' which transactions you are looking at.', true); return; }
+    var byTx = new Map(); (ids || []).forEach(function (id) { var n = g.nodes.get(id); if (n && n.type === 'tx' && n.txid) byTx.set(n.txid, id); });
+    if (!byTx.size) { toast('Choose a transaction.', true); return; }
+    if (x.busy) { toast('A look-up is already running.', true); return; }
+    if (def.third !== false && confirmed !== true) { toast('Tick the box first: this sends ' + (byTx.size === 1 ? 'the transaction id' : 'the transaction ids') + ' to ' + def.name + '.', true); return; }
+    x.busy = true;
+    var done = 0, good = 0, bad = 0, firstBad = '', asked = byTx.size, kinds = def.kinds || { good: 'useful', none: 'not useful' };
+    toast((def.third === false ? 'Asking the data source about ' : 'Asking ' + def.short + ' about ') + plural(asked, 'transaction') + '…');
+    XT.lookupMany(sid, Array.from(byTx.keys()), { ctx: sourceCtx(), confirm: function () { return confirmed === true; }, onResult: function (res) {
+      var node = g.nodes.get(byTx.get(res.address));
+      if (res.error) { bad++; if (!firstBad) firstBad = (res.error && res.error.message) || 'It could not be done.'; return; }
+      if (!node) return;
+      node.ext = node.ext || {}; node.ext[sid] = res.ext; done++; if (typeof def.useful === 'function' ? def.useful(res.ext) : res.ext.found) good++;
+      if (asked > 1) toast(def.short + ': ' + done + ' of ' + asked + ' answered…');
+    } }).then(function (r) {
+      if (r.stopped === 'declined') return;
+      var failed = r.stopped === 'failed';
+      if (!failed && !done && bad) { toast(firstBad, true); return; }
+      toast(failed ? ((r.error && r.error.message) || 'The look-up failed.') + (done ? ' ' + done + ' of ' + asked + ' were answered before that and are kept.' : '')
+                   : def.short + ': ' + plural(done, 'transaction') + ' answered, ' + good + ' ' + kinds.good + ' and ' + (done - good) + ' ' + kinds.none + '.' + (bad ? ' ' + plural(bad, 'transaction') + ' could not be done: ' + firstBad : ''), failed);
+      showInspector(); scheduleSave();
+    }, function (e) { toast((e && e.message) || 'The look-up failed.', true); }).then(function () { x.busy = false; });
+  }
+
+  /** In "N selected": for each transaction source, what it said about the selected transactions and a button for the ones it was not asked about (at most 30 at a time). */
+  function timeList(txIds) {
+    var g = state.graph, srcs = XT.list('tx'); if (!srcs.length || !txIds.length) return null;
+    var wrap = el('div', {});
+    srcs.forEach(function (s) {
+      var def = XT.source(s.id), kinds = def.kinds || { good: 'useful', none: 'not useful' }, asked = 0, good = 0, todo = [];
+      txIds.forEach(function (id) {
+        var n = g.nodes.get(id), e = n && n.ext && n.ext[s.id];
+        if (e) { asked++; if (typeof def.useful === 'function' ? def.useful(e) : e.found) good++; } else todo.push(id);
+      });
+      var kids = [el('span', { 'class': 'lbl', text: (def.label || def.short) + ' (' + plural(txIds.length, 'transaction') + ')' })];
+      kids.push(el('p', { 'class': 'hint', text: asked ? s.short + ' was asked about ' + asked + ': ' + good + ' ' + kinds.good + ', ' + (asked - good) + ' ' + kinds.none + '.' + (todo.length ? ' ' + todo.length + ' not asked yet.' : '') : def.intro || '' }));
+      if (todo.length) {
+        var batch = todo.slice(0, 30), count = batch.length < todo.length ? batch.length + ' of ' + todo.length : plural(batch.length, 'transaction');
+        var third = def.third !== false, consent = null;
+        var btn = el('button', { type: 'button', id: def.manyId || 'btnAsk' + s.id, text: def.ask.many.replace('%s', count), title: def.ask.manyTip + (third ? '. Tick the box to confirm' : ''), disabled: third ? 'disabled' : null,
+                                 onclick: function () { lookupTxSource(s.id, batch, consent ? consent.ok() : true); } });
+        if (third) { consent = consentBox(btn, 'chk' + (def.manyId || 'btnAsk' + s.id).replace(/^btn/, ''), 'Send ' + (batch.length === 1 ? 'the transaction id' : 'the ' + batch.length + ' transaction ids') + ' to ' + def.name + ' (' + def.host + ')'); kids.push(consent.label); }
+        kids.push(el('div', { 'class': 'insp-actions' }, [btn]));
+      }
+      wrap.appendChild(el('div', { 'class': 'insp-section' }, kids));
+    });
+    return wrap;
+  }
 
   // ---- right-click menu -----------------------------------------------------------------------
   function closeCtx() { var m = $('ctxMenu'); m.classList.remove('choosing'); if (!m.hidden) { m.hidden = true; m.textContent = ''; } }
@@ -2778,6 +2862,13 @@
     if (n.type === 'tx') {
       ctxItem(m, 'Spenders →', function () { expandNode(n.id, 'forward'); });
       ctxItem(m, '← Funding', function () { expandNode(n.id, 'backward'); });
+      XT.list('tx').forEach(function (s) {
+        ctxItem(m, XT.source(s.id).ask[n.ext && n.ext[s.id] ? 'again' : 'button'] + '…', function () {
+          if (!s.third) { lookupTxSource(s.id, [n.id], true); return; }
+          setSel([n.id]); showInspector();                                                        // the box that confirms what is sent is in the details: go there
+          setTimeout(function () { var c = $('chk' + s.id.charAt(0).toUpperCase() + s.id.slice(1)); if (c) { c.scrollIntoView({ block: 'nearest' }); c.focus(); } }, 0);
+        }, { right: s.third ? 'external' : 'blocks', title: sourceTip(s) });
+      });
     }
     if (n.type === 'addr') {
       ctxItem(m, n.histNext ? 'Load more history' : 'Load history', function () { expandNode(n.id); }, { disabled: !!n.histDone });
@@ -3349,6 +3440,7 @@
       var dl0 = el('dl', { 'class': 'kv' }); kv(dl0, 'Total value', S.fmtBtc(tot) + ' BTC'); box.appendChild(dl0);
       var kinds = { addr: 0, tx: 0 }; ids.forEach(function (id) { var t = g.nodes.get(id).type; if (t in kinds) kinds[t]++; });
       if (kinds.addr) box.appendChild(balanceList(ids.filter(function (id) { return g.nodes.get(id).type === 'addr'; })));
+      if (kinds.tx) { var tl = timeList(ids.filter(function (id) { return g.nodes.get(id).type === 'tx'; })); if (tl) box.appendChild(tl); }
       var total = traceOn() ? state.trace.shown.size : visibleIds().length;
       var cps = copyButtons(ids); if (cps.length) box.appendChild(el('div', { 'class': 'insp-actions' }, cps));
       box.appendChild(el('div', { 'class': 'insp-actions' }, [hideBtn(ids), removeBtn(ids), deleteBtn(ids),
@@ -3367,7 +3459,7 @@
     if (n.type === 'tx') {
       box.appendChild(idRow(n.txid, 'transaction id'));
       kv(dl, 'Status', n.loaded === false ? 'not loaded yet' : n.confirmed ? 'confirmed' : n.confirmed === false ? 'unconfirmed' : 'unknown');
-      kv(dl, 'Time', n.time != null ? S.fmtTimeFull(n.time) : null);
+      kv(dl, 'Block time', n.time != null ? S.fmtTimeFull(n.time) : null);
       kv(dl, 'Block', n.height);
       if (n.loaded) {
         kv(dl, 'Inputs', n.nIn); kv(dl, 'Outputs', n.nOut);
@@ -3383,6 +3475,7 @@
       }
       box.appendChild(dl);
       if (lockedToTime(n.id)) box.appendChild(el('p', { 'class': 'hint movehint', text: MOVE_HINT }));
+      box.appendChild(externalCard(n));                                                 // when it was first seen: next to the time of its block
       box.appendChild(el('div', { 'class': 'insp-actions' }, [focusBtn(n), refBtn(n)]));
       var ta = traceActions(n); if (ta) box.appendChild(ta);
       box.appendChild(el('div', { 'class': 'insp-actions' }, [
@@ -3431,8 +3524,8 @@
         kvf(dl, 'To others', S.fmtBtc(flow.toOthers) + ' BTC', ff.to);
       }
       var balButton = balanceRows(dl, n, box);
-      kv(dl, 'First seen', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
-      kv(dl, 'Last seen', n.lastSeen != null ? S.fmtTime(n.lastSeen) : null);
+      kv(dl, 'First on chain', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
+      kv(dl, 'Last on chain', n.lastSeen != null ? S.fmtTime(n.lastSeen) : null);
       if (n.txCount != null) kv(dl, 'Transactions', fmtInt(n.txCount) + ' on chain' + (M.historyRead(n) ? (n.histNext || !n.histDone ? '' : ' (all loaded)') : M.historyOpen(n) ? ', history not loaded: press Load history' : ' (all of them are in the graph)'));
       box.appendChild(dl);
       if (flow.own > 0) box.appendChild(el('p', { 'class': 'hint flowhint', text: S.fmtBtc(flow.own) + ' BTC of what this wallet received and of what it sent is its own change: it was spent in ' + plural(flow.ownTxs, 'transaction')
@@ -3599,7 +3692,7 @@
         line('Address', S.shortId(n.address, 12)); if (KNOWN[n.address]) line('Known', KNOWN[n.address].label);
         line('Type', n.scriptType); line('Received', mixText(S.fmtBtc(n.received) + ' BTC', fiatSum(n, true)));
         var fl = g.flowOf(n.id); if (fl.own > 0) line('From others', mixText(S.fmtBtc(fl.fromOthers) + ' BTC', fiatFlow(fl).from) + ' · the rest, ' + S.fmtBtc(fl.own) + ' BTC, is its own change');
-        line('First seen', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
+        line('First on chain', n.firstSeen != null ? S.fmtTime(n.firstSeen) : null);
         var cl = analysis().clusters.byAddr.get(n.id); if (cl) line('Cluster', cl.label + ' · ' + cl.size + ' addresses spent together');
       } else if (n.type === 'data') { line('OP_RETURN', n.dataText || (n.dataHex ? n.dataHex.slice(0, 48) + (n.dataHex.length > 48 ? '…' : '') : 'empty')); }
       else if (n.type === 'coinbase') line('Coinbase', 'newly created coins');
@@ -4854,6 +4947,71 @@
       if (c.set.has(id)) { var b = $('findStrip').querySelector('[data-key="' + c.key + '"]'); if (b) { b.classList.add('hl'); hlMarked.push(b); } }
     });
   }
+  // ---- where the money is now: the Findings group, and the check that settles the coins nobody asked about -------------------------------------------------
+  var moneyMemo = { an: null, key: '', w: null };
+  /** Where the money that reached the reference (the starting points of the trace, a THREAT wallet, the one chosen) is now (HoplineMoney.where), or null without a reference or without any money. Kept until the graph, the reference or the stop rule changes. */
+  function moneyNow() {
+    var an = analysis(), starts = routeStarts(), key = starts.join(',') + '|' + state.auto.stopLabel + '|' + (state.moneyRev || 0);
+    if (moneyMemo.an !== an || moneyMemo.key !== key) { moneyMemo.an = an; moneyMemo.key = key; moneyMemo.w = starts.length && state.graph.nodes.size ? HoplineMoney.where(state.graph, starts, { stop: state.auto.stopLabel ? stopName : null }) : null; }
+    var w = moneyMemo.w;
+    return w && (w.received > 0 || w.coins > 0) ? w : null;
+  }
+  /** Changes when anything the group shows does. */
+  function moneySig() {
+    var w = moneyNow(); if (!w) return '';
+    var read = 0; w.resting.rows.concat(w.unchecked.rows).forEach(function (r) { if (r.readAt != null && r.readAt > read) read = r.readAt; });         // asking again changes when it was read, and nothing else
+    return [w.received, w.resting.sats, w.resting.count, w.unchecked.sats, w.unchecked.count, w.movedOn.sats, w.named.sats, w.mixed.sats, w.gap.sats, w.fees, w.off, read].join(',');
+  }
+  /** What reading the spends changed, in words. */
+  function moneyChange(a, b) {
+    if (!a || !b) return '';
+    return 'Resting now: ' + S.fmtBtc(b.resting.sats) + ' BTC (' + S.fmtBtc(a.resting.sats) + ' BTC before); not checked: ' + S.fmtBtc(b.unchecked.sats) + ' BTC; moved on: ' + S.fmtBtc(b.movedOn.sats) + ' BTC.';
+  }
+  /** Ask the server which outputs of these transactions are spent now (one request each) and show what that settles. */
+  function readOpenEnds(txids, title) {
+    if (!txids.length) return Promise.resolve(null);
+    var before = moneyNow(), said = '';
+    return run(title, function () {
+      return state.explorer.readSpends(txids).then(function (r) { state.moneyRev = (state.moneyRev || 0) + 1; said = moneyChange(before, moneyNow()); return { added: 0, requests: r.read, errors: r.errors }; });
+    }, { noUndo: true, note: function () { return said; } }).then(function (r) { updateFindings(); showInspector(); return r; });
+  }
+  function moneyBlock(box, u) {
+    var w = moneyNow(); if (!w) return;
+    var MN = HoplineMoney, names = w.refs.map(routeName).join(', ');
+    function idsOf(rows) { var seen = {}, out = []; rows.forEach(function (r) { if (r.id && !seen[r.id]) { seen[r.id] = 1; out.push(r.id); } }); return out; }
+    function btc(sats) { return S.fmtBtc(sats) + ' BTC'; }
+    function readText(t) { return t != null ? ' · read ' + S.fmtTimeFull(t) : ''; }
+    box.appendChild(u.head('Where the money is now', 'money'));
+    box.appendChild(el('p', { 'class': 'hint', text: 'The money that reached ' + names + ' (' + btc(w.received) + ' in this graph), followed coin by coin through the loaded transactions to where each coin is now. Not a finding: it is what the server said when it was asked, and it changes.' }));
+    function group(label, bucket, color, tip, wallets) {
+      if (!bucket.count) return;
+      var by = MN.byWallet(bucket.rows), chosen = idsOf(bucket.rows), dot = el('span', { text: '● ' }); dot.style.color = color;
+      box.appendChild(u.row(el('span', { 'class': 'rowtext' }, [dot, label + ' · ' + plural(bucket.count, 'coin') + ' in ' + plural(by.length, 'wallet')]), btc(bucket.sats), tip, function () { selectIds(chosen, label.toLowerCase()); }, undefined, undefined, chosen, color));
+      if (wallets !== false) by.slice(0, 8).forEach(function (x) {
+        var n = state.graph.nodes.get(x.id), nm = (n && n.label) || (KNOWN[x.address] && KNOWN[x.address].label) || x.label || '', left = [nm || S.shortId(x.address, 8)];
+        if (nm) left.push(el('small', { 'class': 'mono', text: S.shortId(x.address, 6) }));
+        box.appendChild(u.row(el('span', { 'class': 'rowtext' }, left), btc(x.amount), x.address + readText(x.readAt) + ' · select it and bring it into view', function () { findKeep(x.id); }, x.address, 'address', [x.id], color));
+      });
+      if (by.length > 8) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (by.length - 8) + ' more wallets' }));
+    }
+    group('Resting', w.resting, '#3ddc97', 'Unspent outputs, as of the time the spends of their transaction were read. Select these wallets', true);
+    group('Not checked', w.unchecked, '#9aa3ad', 'Outputs nobody asked the server about. Not checked is not the same as still there. Select these wallets', true);
+    group('Moved on, not followed', w.movedOn, '#ffa94d', 'Spent by a transaction that is not loaded: the trail is open here. Select these wallets', true);
+    group('Named wallets', w.named, '#4da3ff', 'Paid to a wallet with a name that ends a trail (an exchange, a service). Select these wallets', true);
+    if (w.mixed.count) box.appendChild(el('p', { 'class': 'hint', text: 'Mixed with other money: ' + plural(w.mixed.count, 'transaction') + ' spent ' + btc(w.mixed.sats) + ' of these coins together with ' + btc(w.mixed.foreign) + ' from others. Nothing is guessed about what came out of it, so the trail stops there: '
+                                                                     + w.mixed.rows.slice(0, 3).map(function (m) { return S.shortId(m.txid, 6); }).join(', ') + (w.mixed.count > 3 ? ' …' : '') + '.' }));
+    if (w.gap.count) box.appendChild(el('p', { 'class': 'hint', text: 'Not in this graph: ' + btc(w.gap.sats) + ' paid out by ' + plural(w.gap.count, 'transaction') + ' that is only partly loaded.' }));
+    box.appendChild(el('p', { 'class': 'hint', text: 'Fees on the way: ' + fmtInt(w.fees) + ' sat in ' + plural(w.txs, 'transaction') + '.' }));
+    box.appendChild(el('p', { 'class': 'hint moneyclose', text: w.closes ? 'Received ' + btc(w.received) + ' = the places above + fees: everything that was received is accounted for.'
+      : w.truncated ? 'Stopped after ' + fmtInt(w.coins) + ' coins: the numbers do not add up because the trail was cut short.' : 'Does not add up: received ' + btc(w.received) + ', accounted for ' + btc(w.sum) + ' (' + fmtInt(Math.abs(w.off)) + ' sat ' + (w.off > 0 ? 'unaccounted' : 'too many') + '). The data of a transaction disagrees with itself.' }));
+    var acts = [];
+    if (w.unchecked.count) { var ut = MN.txidsOf(w.unchecked.rows); acts.push(el('button', { type: 'button', id: 'btnMoneyCheck', text: 'Check ' + plural(w.unchecked.count, 'coin') + ' (' + plural(ut.length, 'request') + ')', title: 'Ask the server which outputs of ' + plural(ut.length, 'transaction') + ' are spent now',
+                                                                                         onclick: function () { readOpenEnds(ut, 'Check ' + plural(w.unchecked.count, 'coin')); } })); }
+    if (w.resting.count) { var rt = MN.txidsOf(w.resting.rows); acts.push(el('button', { type: 'button', id: 'btnMoneyRecheck', text: 'Check the resting coins again (' + plural(rt.length, 'request') + ')', title: 'A resting coin rests as of the time it was read: ask again whether it is still unspent',
+                                                                                          onclick: function () { readOpenEnds(rt, 'Check the resting coins'); } })); }
+    if (acts.length) box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
+  }
+
   // ---- what the wallets on the canvas hold: Colour by Balance, the Holding funds chip and its group in the Findings ---------------------------------------
   /**
    * The wallets in the graph by what they hold, from the balances that were read: { holds, small, empty, unknown } (arrays of vertices; holds largest first), `read` (how many have a
@@ -5016,7 +5174,7 @@
     updateFindStrip();
     var box = $('anFindings');
     if (!state.graph.nodes.size) { box.textContent = ''; findingsFor = null; detRefresh(); return; }
-    var an = analysis(), byKind = {}, kinds, loaded = 0, stamp = routeStamp() + '|' + holdings().sig;
+    var an = analysis(), byKind = {}, kinds, loaded = 0, stamp = routeStamp() + '|' + holdings().sig + '|' + moneySig();
     if (findingsFor === an && findingsStamp === stamp && box.firstChild) return;      // nothing it shows has changed: leave the buttons alone (a replay refreshes many times a second)
     findingsFor = an; findingsStamp = stamp; previewOff(); box.textContent = ''; detRefresh();
     state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded) loaded++; });
@@ -5092,6 +5250,7 @@
       known.slice(0, 30).forEach(function (n) { box.appendChild(walletRow(n)); }); more(known, 30);
       box.appendChild(el('p', { 'class': 'hint', text: 'On the built-in list or a label list you loaded. A name is somebody\'s claim, not proof.' + (ref ? ' A route follows the coins that were spent, in order; it is a lead, not proof of who owns what.' : '') }));
     }
+    moneyBlock(box, { row: row, head: head });
     holdingBlock(box, { row: row, head: head });
     handoffBlock(box, { row: row, head: head });
     suggestBlock(box, { row: row, head: head });
@@ -5825,6 +5984,15 @@
              members: rows.slice(0, 5000).map(function (r) { return { id: r.id, amount: r.amount, time: r.time }; }) };
   }
 
+  /** Where the money is now as plain data for the report: the numbers, and the wallets of each place (at most 30 each) with their names. */
+  function reportMoney(w, refs) {
+    function wallets(bucket) { return HoplineMoney.byWallet(bucket.rows).slice(0, 30).map(function (x) { var n = state.graph.nodes.get(x.id); return { address: x.address, name: (n && n.label) || (KNOWN[x.address] && KNOWN[x.address].label) || x.label || '', amount: x.amount, count: x.count, readAt: x.readAt }; }); }
+    function place(bucket) { return { count: bucket.count, sats: bucket.sats, wallets: wallets(bucket), walletCount: HoplineMoney.byWallet(bucket.rows).length }; }
+    return { refs: refs.map(routeName), received: w.received, coins: w.coins, txs: w.txs, fees: w.fees, resting: place(w.resting), unchecked: place(w.unchecked), movedOn: place(w.movedOn), named: place(w.named),
+             mixed: { count: w.mixed.count, sats: w.mixed.sats, foreign: w.mixed.foreign, txids: w.mixed.rows.slice(0, 20).map(function (m) { return m.txid; }) }, gap: { count: w.gap.count, sats: w.gap.sats },
+             sum: w.sum, off: w.off, closes: w.closes, truncated: w.truncated };
+  }
+
   /** What third-party services said about the wallets in the report (what is on screen): HoplineExternal.entries of each wallet, in the order of the wallets. */
   function reportLookups(nodes) {
     var out = [];
@@ -5850,6 +6018,18 @@
     if (!vis.nodes.size) { toast('Nothing on screen to put in a report.', true); return Promise.resolve(false); }
     var an = analysis(), title = LB.cleanText($('reportTitle').value, 120) || 'Hopline investigation report', by = LB.cleanText($('reportBy').value, 80);
     var base = JSON.parse(IO.toJson(g, { only: vis, view: viewState(), source: sourceBase() }));
+    var relayOn = !!($('reportRelay') && $('reportRelay').checked);
+    var money = null;                                                                    // where the money is now, over what is on screen: the graph of the report is built from its own data
+    try {
+      var onScreen = routeStarts().filter(function (id) { return vis.nodes.has(id); });
+      if (onScreen.length) {
+        var mw = HoplineMoney.where(IO.fromJson(JSON.stringify(base)).graph, onScreen, { stop: state.auto.stopLabel ? stopName : null });
+        if (mw.received > 0 || mw.coins > 0) money = reportMoney(mw, onScreen);
+      }
+    } catch (e) { money = null; }
+    if (!relayOn) base.nodes.forEach(function (n) {                                // the peer that passed a transaction on is an IP address: out of the report and out of its embedded data, unless asked for
+      if (n.type === 'tx' && n.ext) XT.list('tx').forEach(function (src) { var e = n.ext[src.id]; if (e) { e.relay = ''; e.raw = ''; } });
+    });
     if (base.view) delete base.view.hidden;                                    // what you hid is not part of what is reported
     // the report describes what is on screen: a chain or cluster is cut to the vertices that are shown, so nothing hidden leaks in through them
     var found = RP.analysisFor(an, function (id) { return vis.nodes.has(id); }), atx = found.tx, chains = found.chains, clusters = found.clusters;
@@ -5870,7 +6050,7 @@
     base.evidence.coverage = leftOut;
     var image = null; try { image = renderer.toDataUrl(); } catch (e) { /* a tainted or empty canvas: the report simply has no picture */ }
     var model = { title: title, preparedBy: by, generated: Date.now(), evidence: base, nodes: base.nodes, edges: base.edges,
-                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups, trace: trace, leftOut: leftOut, lookups: reportLookups(base.nodes),
+                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups, trace: trace, leftOut: leftOut, lookups: reportLookups(base.nodes), timeEvidence: XT.timeRows(base.nodes), timeRelay: relayOn, windowEvidence: HoplineTimeWindow.reportRows(base.nodes), money: money,
                   dustSats: state.dustSats, known: function (a) { return KNOWN[a] || null; }, packs: reportPacks(), fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {

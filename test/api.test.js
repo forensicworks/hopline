@@ -650,3 +650,19 @@ test('refresh: says which wallets balance moved, with the confirmed amount befor
   assert.deepEqual(r.balanceChanges, [], 'nothing moved: nothing said');
   assert.equal(r.totalsChanged, 0);
 });
+
+test('readSpends asks which outputs of the given transactions are spent now, one request each, always of the server, and says when it was read', async () => {
+  const chain = { txs: [3, 2, 1].map((i) => ({ i })), spent: { [hex(1)]: { spent: true, txid: 'ee'.repeat(32), vin: 0, status: { confirmed: true, block_time: 5000 } } } };
+  const { f, g, ex } = await loadedWallet(chain);                                  // no spends were ever read
+  const out = (i) => g.edges.get(ID.edgeOut(hex(i), 0));
+  assert.equal(out(1).spent, undefined);
+  assert.deepEqual(ex.refreshPlan().spends, [], 'a refresh does not ask about an output whose status was never read');
+  const n0 = sinceLoad(f), r = await ex.readSpends([hex(1), hex(2), hex(1), 'not-in-the-graph', null]);
+  assert.equal(f.log.length - n0, 2, 'one request for each loaded transaction, none twice, none for what is not there');
+  assert.deepEqual([r.read, r.errors.length], [2, 0]);
+  assert.deepEqual([out(1).spent, out(1).spentBy.txid, out(2).spent, out(3).spent], [true, 'ee'.repeat(32), false, undefined], 'only the ones that were asked about');
+  assert.ok(g.node(ID.tx(hex(1))).spendsCheckedAt > 0 && g.node(ID.tx(hex(3))).spendsCheckedAt === undefined);
+  const again = sinceLoad(f); await ex.readSpends([hex(2)]);
+  assert.equal(f.log.length - again, 1, 'asked again, not answered from what it kept');
+  assert.deepEqual(await ex.readSpends([]), { read: 0, errors: [] });
+});

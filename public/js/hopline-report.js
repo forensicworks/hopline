@@ -109,6 +109,29 @@
     }), rows: list };
   }
 
+  /**
+   * When a service first saw some of the transactions, from the look-ups asked on request (HoplineExternal.timeRows). `model.timeEvidence` is [{ txid, time, source, sourceName, found, seen,
+   * received, confirmed, relay, height, at }]; the peers are shown only when `model.timeRelay` is true. Returns { sources: [text per source], rows }, or null when there are none.
+   */
+  function timeInfo(model) {
+    var list = (model.timeEvidence || []).filter(function (r) { return r && r.txid && r.source; });
+    if (!list.length) return null;
+    var by = {}, order = [];
+    list.forEach(function (r) {
+      var b = by[r.source]; if (!b) { b = by[r.source] = { name: r.sourceName || r.source, asked: 0, seen: 0, first: null, last: null }; order.push(r.source); }
+      b.asked++; if (r.seen) b.seen++;
+      if (r.at) { b.first = b.first == null ? r.at : Math.min(b.first, r.at); b.last = b.last == null ? r.at : Math.max(b.last, r.at); }
+    });
+    return { sources: order.map(function (id) {
+      var b = by[id], when = b.first == null ? '' : b.first === b.last ? ', asked ' + Style.fmtTimeFull(b.first) : ', asked between ' + Style.fmtTimeFull(b.first) + ' and ' + Style.fmtTimeFull(b.last);
+      return b.name + ' - ' + plural(b.asked, 'transaction') + ' asked, ' + b.seen + ' with a first-seen time, ' + (b.asked - b.seen) + ' with no record from before the block' + when;
+    }), rows: list.slice().sort(function (a, b) { return (a.time == null ? Infinity : a.time) - (b.time == null ? Infinity : b.time); }) };
+  }
+  function gapWords(sec) {
+    sec = Math.round(Math.abs(sec));
+    return sec < 60 ? sec + ' s' : sec < 3600 ? Math.floor(sec / 60) + ' min ' + (sec % 60) + ' s' : Math.floor(sec / 3600) + ' h ' + Math.floor(sec % 3600 / 60) + ' min';
+  }
+
   function amountCell(model, sats, time) {
     var fx = model.fiat ? model.fiat(sats, time) : '';
     return esc(Style.fmtBtc(sats)) + ' BTC' + (fx ? ' <span class="hint">· ' + esc(fx) + '</span>' : '');
@@ -220,7 +243,7 @@
     model.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded && model.fingerprint) n.fingerprintText = model.fingerprint(n) || ''; });
 
     h.push('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + esc(title) + '</title><style>' + CSS + '</style></head><body>');
-    h.push('<h1>' + esc(title) + '</h1><p class="meta">' + (model.preparedBy ? 'Prepared by ' + esc(model.preparedBy) + ' · ' : '') + 'generated ' + esc(t(Math.floor((model.generated || Date.now()) / 1000))) + ' · made with ' + esc(model.madeWith || 'Hopline workspace') + ' · all times UTC</p>');
+    h.push('<h1>' + esc(title) + '</h1><p class="meta">' + (model.preparedBy ? 'Prepared by ' + esc(model.preparedBy) + ' · ' : '') + 'generated ' + esc(t(Math.floor((model.generated || Date.now()) / 1000))) + ' · made with ' + esc(model.madeWith || 'Hopline workspace') + ' · all times UTC · a transaction\'s time is the time of its block</p>');
     h.push('<div class="notice"><b>Read this first.</b> The facts here (transactions, amounts, times, which output was spent by which transaction) come from the blockchain data source named below and were fetched at the times shown. The <i>findings</i> (patterns, likely change, address clusters) are heuristics: they are guesses with their reasons stated, not proof of who controls what.</div>');
     if (model.leftOut && model.leftOut.left > 0) {                              // the workspace holds more than was on screen: say how much this report leaves out
       var lo = model.leftOut;
@@ -320,11 +343,31 @@
 
     if (model.image) h.push('<h2>The graph</h2><p class="hint">The view as it was on screen.</p><img class="graph" alt="The transaction graph as it was on screen" src="' + esc(model.image) + '">');
 
+    var mo = model.money;
+    if (mo && (mo.received > 0 || mo.coins > 0)) {
+      var bt = function (sats) { return esc(Style.fmtBtc(sats)) + ' BTC'; };
+      var place = function (label, p, hint) {
+        if (!p || !p.count) return '';
+        return '<tr><td>' + esc(label) + (hint ? ' <span class="hint">' + esc(hint) + '</span>' : '') + '</td><td class="num">' + p.count + '</td><td class="num">' + bt(p.sats) + '</td><td>'
+          + p.wallets.slice(0, 6).map(function (x) { return '<code>' + esc(x.address) + '</code>' + (x.name ? ' ' + esc(x.name) : '') + ' <span class="hint">' + bt(x.amount) + (x.readAt != null ? ', read ' + esc(t(x.readAt)) : '') + '</span>'; }).join('<br>')
+          + (p.walletCount > 6 ? '<br><span class="hint">… and ' + (p.walletCount - 6) + ' more wallets</span>' : '') + '</td></tr>';
+      };
+      h.push('<h2>Where the money is now</h2><p class="hint">The money that reached ' + esc((mo.refs || []).join(', ')) + ' (' + bt(mo.received) + ' in this report), followed coin by coin through the transactions in this report to where each coin is now. '
+        + 'What is <i>resting</i> was unspent when the spends of its transaction were read (the time is shown); it is not a finding, because the server\'s answer changes. A coin <i>not checked</i> is one nobody asked the server about, which is not the same as still there. '
+        + 'A coin <i>moved on</i> was spent by a transaction that is not in this report, so the trail is open there. A transaction that spent these coins together with others is <i>mixed</i>: nothing is guessed about its outputs.</p>'
+        + '<table><tr><th>Where</th><th>Coins</th><th>Amount</th><th>Wallets</th></tr>'
+        + place('Resting (unspent)', mo.resting) + place('Not checked', mo.unchecked, 'not known whether spent') + place('Moved on, not followed', mo.movedOn, 'spent by a transaction that is not in this report') + place('Named wallets', mo.named, 'a name that ends a trail')
+        + (mo.mixed && mo.mixed.count ? '<tr><td>Mixed with other money <span class="hint">not followed</span></td><td class="num">' + mo.mixed.count + '</td><td class="num">' + bt(mo.mixed.sats) + '</td><td><span class="hint">together with ' + bt(mo.mixed.foreign) + ' from others, in ' + mo.mixed.txids.map(function (x) { return '<code>' + esc(x) + '</code>'; }).join(', ') + '</span></td></tr>' : '')
+        + (mo.gap && mo.gap.count ? '<tr><td>Not in this report <span class="hint">outputs of partly loaded transactions</span></td><td class="num">' + mo.gap.count + '</td><td class="num">' + bt(mo.gap.sats) + '</td><td></td></tr>' : '')
+        + '<tr><td>Fees on the way</td><td class="num">' + mo.txs + '</td><td class="num">' + esc(fmtInt(mo.fees)) + ' sat</td><td></td></tr>'
+        + '<tr><th>Received</th><th></th><th class="num">' + bt(mo.received) + '</th><th>' + (mo.closes ? 'Everything received is accounted for.' : mo.truncated ? 'The trail was cut short: the numbers do not add up.' : 'Does not add up: ' + bt(mo.sum) + ' accounted for, ' + esc(fmtInt(Math.abs(mo.off))) + ' sat ' + (mo.off > 0 ? 'unaccounted' : 'too many') + '.') + '</th></tr></table>');
+    }
+
     h.push('<h2>Transactions in time order</h2><p class="hint">Inputs are the wallets whose coins were spent, outputs the wallets that received them.' + (txs.length > MAX_TX ? ' Only the first ' + MAX_TX + ' of ' + txs.length + ' are listed here; the embedded data has them all.' : '') + '</p>');
     txs.slice(0, MAX_TX).forEach(function (n) { h.push(txBlock(model, nodes, edgesByTx, n)); });
     if (!txs.length) h.push('<p>No loaded transaction in this selection.</p>');
 
-    h.push('<h2>Wallets</h2><table><tr><th>Address</th><th>Name</th><th>First seen</th><th>Last seen</th><th>Received</th><th>Sent</th><th>Balance</th><th>Cluster</th></tr>');
+    h.push('<h2>Wallets</h2><table><tr><th>Address</th><th>Name</th><th>First on chain</th><th>Last on chain</th><th>Received</th><th>Sent</th><th>Balance</th><th>Cluster</th></tr>');
     var clusterOf = {}; (an.clusters || []).forEach(function (c) { c.addrs.forEach(function (id) { clusterOf[id] = c.label; }); });
     wallets.slice().sort(function (a, b) { return (b.received || 0) - (a.received || 0); }).slice(0, MAX_WALLETS).forEach(function (n) {
       h.push('<tr><td><code>' + esc(n.address) + '</code></td><td>' + esc(walletName(model, n)) + '</td><td>' + esc(n.firstSeen != null ? t(n.firstSeen) : '') + '</td><td>' + esc(n.lastSeen != null ? t(n.lastSeen) : '') + '</td><td class="num">' + amountCell(model, n.received || 0, n.firstSeen) + '</td><td class="num">' + amountCell(model, n.sent || 0, n.lastSeen) + '</td><td class="num">' + balanceCell(model, n) + '</td><td>' + esc(clusterOf[n.id] || '') + '</td></tr>');
@@ -343,8 +386,40 @@
       h.push('</table>' + (lk.rows.length > MAX_WALLETS ? '<p class="hint">The first ' + MAX_WALLETS + ' of ' + lk.rows.length + ' are listed; the embedded data has them all.</p>' : ''));
     }
 
+    var te = timeInfo(model);
+    if (te) {
+      var anyPeer = te.rows.some(function (r) { return r.relay; });
+      h.push('<h2>When transactions were first seen</h2><p class="hint">A transaction\'s time above is the time of the block that holds it. A service that watches the network as it happens can say when it first saw a transaction, which is nearer to when it was sent. '
+        + 'That is the service\'s record, asked for on request and kept with the time it was asked; it is not part of the blockchain. <i>No record</i> means the service learned of the transaction from its block, which says nothing about when it was sent. '
+        + (model.timeRelay ? 'The peer is the first node that passed the transaction to the service; it is not necessarily the sender, and an address in a network range says who runs the range, not who used it.' : 'The peers that passed the transactions on were left out of this report' + (anyPeer ? '' : ' (none was recorded)') + '.') + '</p><ul>'
+        + te.sources.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'
+        + '<table><tr><th>Transaction</th><th>Block time</th><th>First seen</th><th>Before its block</th>' + (model.timeRelay ? '<th>Peer</th>' : '') + '<th>Source, asked</th></tr>');
+      te.rows.slice(0, MAX_WALLETS).forEach(function (r) {
+        h.push('<tr><td><code>' + esc(r.txid) + '</code></td><td>' + esc(r.time != null ? t(r.time) : '') + '</td><td>' + (r.seen ? esc(t(Math.floor(r.received))) : '<span class="hint">no record</span>') + '</td><td>'
+          + (r.seen && r.confirmed != null ? (r.received <= r.confirmed ? esc(gapWords(r.confirmed - r.received)) : '<span class="hint">none</span>') : '') + '</td>' + (model.timeRelay ? '<td>' + (r.relay ? '<code>' + esc(r.relay) + '</code>' : '') + '</td>' : '')
+          + '<td>' + esc(r.sourceName || r.source) + (r.at ? ', ' + esc(t(r.at)) : '') + '</td></tr>');
+      });
+      h.push('</table>' + (te.rows.length > MAX_WALLETS ? '<p class="hint">The first ' + MAX_WALLETS + ' of ' + te.rows.length + ' are listed; the embedded data has them all.</p>' : ''));
+    }
+
+    var wi = (model.windowEvidence || []).filter(function (r) { return r && r.txid; });
+    if (wi.length) {
+      h.push('<h2>Time window from block data</h2><p class="hint">A transaction\'s time above is the time of its block. The blocks before it show how much earlier it can have been sent: a miner builds a block from what it has seen and takes the best paying first, '
+        + 'so a transaction that the block before would have taken, had it been waiting, was sent after that block was built. And a wallet that sets a transaction\'s locktime to the height of the newest block signed it after that block was found. '
+        + 'This is Hopline\'s reading of the blocks the data source gave, not a measurement and not part of the blockchain; a margin of a few minutes is taken off because a miner builds a block before it finds it and sets the time stamp itself. '
+        + 'Where there is no window, the blocks before did not allow one (for example because they were full and the transaction paid little above what they took).</p>'
+        + '<table><tr><th>Transaction</th><th>Not before (about)</th><th>Not after (its block)</th><th>Window</th><th>From the blocks before</th><th>From its locktime</th><th>Asked</th></tr>');
+      wi.slice(0, MAX_WALLETS).forEach(function (r) {
+        h.push('<tr><td><code>' + esc(r.txid) + '</code></td><td>' + (r.notBefore != null ? esc(t(r.notBefore)) : '<span class="hint">no window</span>') + '</td><td>' + esc(r.blockTime != null ? t(r.blockTime) : '') + '</td><td>'
+          + (r.window != null ? esc(gapWords(r.window)) : '') + '</td><td>' + (r.after != null ? 'about ' + esc(t(r.after)) + '. ' : '') + esc(r.because || '') + '</td><td>'
+          + (r.signedBlock != null ? 'about ' + esc(t(r.signedAfter)) + ', after block ' + esc(String(r.signedBlock)) + ', if its wallet sets the locktime to the height of the newest block' : '') + '</td><td>' + esc(r.at ? t(r.at) : '') + '</td></tr>');
+      });
+      h.push('</table>' + (wi.length > MAX_WALLETS ? '<p class="hint">The first ' + MAX_WALLETS + ' of ' + wi.length + ' are listed; the embedded data has them all.</p>' : ''));
+    }
+
     h.push('<h2>Method and limits</h2><ul>'
       + '<li><b>Data:</b> transactions, amounts, times and spending status were read from the source named in the summary at the retrieval times shown. "Unspent" means unspent when its status was last checked, not now. A wallet\'s <i>Received</i> and <i>Sent</i> count only the transactions in this report; its <i>Balance</i> is what the server reported for the whole address at the time shown, and is not read for every wallet.</li>'
+      + '<li><b>Times:</b> a transaction\'s time is the time of the block that holds it, which the miner sets: the transaction may have been sent minutes or hours earlier.' + (te ? ' A first-seen time is what an outside service recorded; it is that service\'s claim and is not part of the chain.' : '') + (wi.length ? ' A time window is Hopline\'s reading of the blocks before the transaction\'s block, with a margin of a few minutes; it is an inference and says when a transaction can have been sent, not when it was.' : '') + '</li>'
       + '<li><b>Patterns</b> are rules over the loaded transactions: consolidation (5 or more inputs into 1 or 2 outputs), batch payment (up to 3 inputs, 6 or more outputs), CoinJoin-like (3 or more input wallets and several outputs of exactly the same value to different addresses), peel chain (4 or more linked one-input, two-output transactions whose small output is at most half the large one and not dust-sized), round amount (an output of at least 0.01 BTC that is a multiple of 0.0001 BTC, in a transaction that is none of the others, does not spend from a service wallet and does not pay the same amount to three or more recipients: a number somebody chose, not a statement of who), swap or bridge memo (an OP_RETURN in THORChain\'s format that asks for the payment to be swapped into an asset on another chain, with the address it is to be paid out to; the OUT: or REFUND: memo THORChain writes on a payment it makes, with the hash it names; the request ID of a cross-chain service such as Relay; or a Rootstock peg-in with its destination address: what the sender wrote, not proof that anything was carried out).</li>'
       + '<li><b>Likely change</b> weighs: the output address is also an input; the only output of the same address type as the inputs; a round payment amount; the other output paying a known or tagged wallet; an output smaller than every input; the spender having the same wallet habits. Each reason is listed beside the finding. Close calls are not named, and neither are two outputs within 1% of each other unless one address is also an input (an even split looks like two payments). Only a strong guess is called likely; the rest are called possible, and a lead to follow from both outputs.</li>'
       + '<li><b>Clusters</b> use the common-input rule (inputs spent together share an owner). A CoinJoin, a PayJoin or a shared wallet can break it.</li>'

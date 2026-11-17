@@ -279,3 +279,72 @@ test('the wallets table ends with what the balances say: how many were read, the
   const none = await RP.build(modelOf(sample()));
   assert.doesNotMatch(none.html, /Balances were read for/, 'nothing to say when no balance was read');
 });
+
+test('report: when a service first saw transactions has its own table, the block time is said to be the miner\'s, and the peers stay out unless asked for', () => {
+  const Style = require('../public/js/hopline-style.js');
+  const rows = [
+    { txid: tid(1), time: 1650000000, source: 'blockcypher', sourceName: 'BlockCypher', found: true, seen: true, received: 1649999000.5, confirmed: 1650000000, relay: '203.0.113.9:8333', height: 700001, at: 1700000000 },
+    { txid: tid(2), time: 1650006000, source: 'blockcypher', sourceName: 'BlockCypher', found: true, seen: false, received: null, confirmed: 1650006000, relay: '', height: 700002, at: 1700000005 }];
+  const render = (over) => { const m = modelOf(sample(), over); return RP.render(m, RP.evidenceText(m.evidence), 'a'.repeat(64)); };
+  const withPeers = render({ timeEvidence: rows, timeRelay: true });
+  assert.ok(withPeers.includes('<h2>When transactions were first seen</h2>'));
+  assert.ok(withPeers.includes('BlockCypher - 2 transactions asked, 1 with a first-seen time, 1 with no record from before the block, asked between ' + Style.fmtTimeFull(1700000000) + ' and ' + Style.fmtTimeFull(1700000005)));
+  assert.ok(withPeers.includes(Style.fmtTimeFull(1649999000)) && withPeers.includes('16 min 40 s'), 'the first-seen time and how much earlier than its block');
+  assert.ok(withPeers.includes('<span class="hint">no record</span>'), 'no record is not a time');
+  assert.ok(withPeers.includes('<th>Peer</th>') && withPeers.includes('203.0.113.9:8333') && withPeers.includes('says who runs the range, not who used it'));
+  const without = render({ timeEvidence: rows, timeRelay: false });
+  assert.ok(without.includes('<h2>When transactions were first seen</h2>') && without.includes('16 min 40 s'));
+  assert.ok(!without.includes('203.0.113.9') && !without.includes('<th>Peer</th>') && without.includes('The peers that passed the transactions on were left out of this report'));
+  assert.ok(withPeers.includes('<b>Times:</b>') && withPeers.includes('A first-seen time is what an outside service recorded'));
+  const plain = render({});
+  assert.ok(!plain.includes('When transactions were first seen') && !plain.includes('A first-seen time is what an outside service recorded'), 'nothing asked, no section');
+  assert.ok(plain.includes('<b>Times:</b>') && plain.includes('the time of the block that holds it, which the miner sets'), 'but the block time is always said to be the block\'s');
+  assert.ok(plain.includes('a transaction\'s time is the time of its block') && plain.includes('<th>First on chain</th><th>Last on chain</th>') && !plain.includes('<th>First seen</th>'));
+  const evil = render({ timeEvidence: [Object.assign({}, rows[0], { sourceName: '<img src=x>', relay: '<b>x</b>' })], timeRelay: true });
+  assert.ok(!/<img src=x>|<b>x<\/b>/.test(evil.replace(/<script type="application\/json"[\s\S]*$/, '')), 'nothing from outside is HTML');
+});
+
+test('report: the time window has its own table with the reason, says it is a reading and not a measurement, and is absent when nothing was narrowed', () => {
+  const TW = require('../public/js/hopline-timewindow.js'), Style = require('../public/js/hopline-style.js');
+  const T0 = 1794000000;
+  const facts = (over) => Object.assign({ found: true, at: 1700000000, height: 1000, blockTime: T0, vsize: 200, fee: 1000, locktime: 0, seqFinal: false, prev: [], lock: null }, over);
+  const rows = TW.reportRows([
+    { type: 'tx', txid: tid(1), ext: { chainwindow: TW.clean(facts({ locktime: 998, prev: [{ height: 999, time: T0 - 600, weight: 2000000, txCount: 1500, p25: null }], lock: { height: 998, time: T0 - 1250 } })) } },
+    { type: 'tx', txid: tid(2), ext: { chainwindow: TW.clean(facts({ at: 1700000005, height: 1001, blockTime: T0 + 600, fee: 100 })) } }]);
+  const render = (over) => { const m = modelOf(sample(), over); return RP.render(m, RP.evidenceText(m.evidence), 'a'.repeat(64)); };
+  const html = render({ windowEvidence: rows });
+  assert.ok(html.includes('<h2>Time window from block data</h2>'));
+  assert.ok(html.includes('not a measurement and not part of the blockchain') && html.includes('Where there is no window'));
+  assert.ok(html.includes(Style.fmtTimeFull(T0 - 780)) && html.includes('13 min 0 s') && html.includes(', after block 998, if its wallet sets the locktime') && html.includes('about ' + Style.fmtTimeFull(T0 - 1250 - 180)), 'not before, the window, and each reading with its own time');
+  assert.ok(html.includes('<th>From the blocks before</th><th>From its locktime</th>') && html.includes('about ' + Style.fmtTimeFull(T0 - 780) + '. Block 999') && html.includes('had room left, so a miner building it would have taken this transaction') && html.includes('<span class="hint">no window</span>') && html.includes('under what nodes relay'));
+  assert.ok(html.includes('A time window is Hopline\'s reading of the blocks before the transaction\'s block'), 'the limits say so too');
+  const plain = render({});
+  assert.ok(!plain.includes('Time window from block data') && !plain.includes('A time window is Hopline'), 'nothing narrowed, no section');
+  const evil = render({ windowEvidence: [Object.assign({}, rows[0], { because: '<img src=x>' })] });
+  assert.ok(!evil.replace(/<script type="application\/json"[\s\S]*$/, '').includes('<img src=x>'), 'nothing from outside is HTML');
+});
+
+test('report: where the money is now has a table that says whether the numbers add up, names what is not known, and escapes everything', () => {
+  const place = (count, sats, wallets) => ({ count, sats, wallets: wallets || [], walletCount: (wallets || []).length });
+  const money = (over) => Object.assign({ refs: ['THREAT <b>x</b>'], received: 6000000, coins: 4, txs: 2, fees: 2500,
+    resting: place(1, 2900000, [{ address: 'bc1qresting', name: '<i>Mine</i>', amount: 2900000, count: 1, readAt: 1700000000 }]),
+    unchecked: place(1, 2850000, [{ address: 'bc1qunknown', name: '', amount: 2850000, count: 1, readAt: null }]), movedOn: place(0, 0), named: place(0, 0),
+    mixed: { count: 1, sats: 300, foreign: 200, txids: ['ab'.repeat(32)] }, gap: { count: 0, sats: 0 }, sum: 6000000, off: 0, closes: true, truncated: false }, over);
+  const render = (over) => { const m = modelOf(sample(), over); return RP.render(m, RP.evidenceText(m.evidence), 'a'.repeat(64)); };
+  const html = render({ money: money() });
+  assert.ok(html.includes('<h2>Where the money is now</h2>') && html.includes('0.06000000 BTC in this report'));
+  assert.ok(html.includes('Resting (unspent)') && html.includes('bc1qresting') && html.includes('0.02900000 BTC') && html.includes('read 2023-11-14 22:13:20 UTC'), 'what rests, with when the spends were read');
+  assert.ok(html.includes('Not checked') && html.includes('not known whether spent') && html.includes('bc1qunknown'), 'not checked is said apart from resting');
+  assert.ok(html.includes('Mixed with other money') && html.includes('together with 0.00000200 BTC from others') && html.includes('ab'.repeat(32)));
+  assert.ok(html.includes('<th>Received</th><th></th><th class="num">0.06000000 BTC</th><th>Everything received is accounted for.</th>'));
+  assert.ok(!html.includes('Moved on, not followed') && !html.includes('Named wallets'), 'a place with nothing in it is not listed');
+  assert.ok(html.includes('A coin <i>not checked</i> is one nobody asked the server about'));
+  const off = render({ money: money({ closes: false, off: 1350, sum: 5998650 }) });
+  assert.ok(off.includes('Does not add up: 0.05998650 BTC accounted for, 1,350 sat unaccounted.'));
+  const cut = render({ money: money({ closes: false, truncated: true }) });
+  assert.ok(cut.includes('The trail was cut short: the numbers do not add up.'));
+  assert.ok(!render({}).includes('Where the money is now'), 'no reference, no section');
+  assert.ok(!render({ money: money({ received: 0, coins: 0 }) }).includes('Where the money is now'), 'nothing received, no section');
+  const plain = html.replace(/<script type="application\/json"[\s\S]*$/, '');
+  assert.ok(!/<b>x<\/b>|<i>Mine<\/i>/.test(plain), 'nothing from outside is HTML');
+});

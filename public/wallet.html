@@ -79,8 +79,8 @@ window.addEventListener('error', function (e) {
       <div id="sToRow" hidden title="What this wallet paid to other wallets, fees included: the total sent without the change it paid back to itself"><dt>To others</dt><dd id="sTo"></dd></div>
       <div><dt>Pending</dt><dd id="sPending"></dd></div>
       <div><dt>Transactions</dt><dd id="sCount"></dd></div>
-      <div><dt>First seen</dt><dd id="sFirst"></dd></div>
-      <div><dt>Last seen</dt><dd id="sLast"></dd></div>
+      <div><dt>First on chain</dt><dd id="sFirst"></dd></div>
+      <div><dt>Last on chain</dt><dd id="sLast"></dd></div>
     </dl>
     <p class="hint" id="sFlowHint" hidden></p>
   </section>
@@ -196,6 +196,7 @@ window.addEventListener('error', function (e) {
 <script src="config.js"></script>
 <script src="js/hopline-address.js"></script>
 <script src="js/hopline-tags.js"></script>
+<script src="js/hopline-timewindow.js"></script>
 <script src="js/hopline-external.js"></script>
 <script src="js/hopline-model.js"></script>
 <script src="js/hopline-style.js"></script>
