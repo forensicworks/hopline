@@ -101,7 +101,7 @@ def test_asking_blockcypher_changes_the_times_and_the_panel_follows_without_anyt
     before = findings(tpage)
     assert "The times are those of the blocks" in before
     select(tpage, "tx:" + tid(2))
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
     show_findings(tpage); settle(tpage)
     after = findings(tpage)
     assert "Some times are when a service first saw the transaction" in after, after

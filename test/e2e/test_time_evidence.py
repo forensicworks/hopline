@@ -79,8 +79,11 @@ def dialogs_of(page, answer):
 
 
 def press(page, selector, ok=None):
-    """Tick the box that confirms what is sent (when there is one), press a look-up button and wait until the look-up is over: the page's own idle does not cover it."""
+    """Tick the box that confirms what is sent (and only that one), press a look-up button and wait until the look-up is over: the page's own idle does not cover it."""
     if ok:
+        for other in page.locator("#inspBody .consent input[type=checkbox]").all():                  # one button asks every service that is ticked: ask only the one that was meant
+            if other.is_checked() and "#" + other.get_attribute("id") != ok:
+                other.uncheck()
         page.check(ok)
     page.click(selector)
     page.wait_for_function("() => !window.__hopline.state.ext.busy", timeout=20000)
@@ -96,15 +99,15 @@ def test_the_button_waits_for_a_ticked_box_that_says_what_is_sent_and_no_dialog_
     scene(tpage, mock, bc)
     select(tpage, "tx:" + tid(1))
     assert "block time" in details(tpage) and not re.search(r"^time$", details(tpage), re.M), "the time on a transaction is named for what it is"
-    assert tpage.inner_text("#btnBlockcypher") == "Ask BlockCypher when it was first seen"
-    assert tpage.get_attribute("#btnBlockcypher", "title").startswith("Sends this transaction id to BlockCypher") and "Tick the box to confirm" in tpage.get_attribute("#btnBlockcypher", "title")
+    assert tpage.inner_text("#btnFirstSeen") == "Ask the ticked services", "nothing is ticked: the button does not name a service"
+    assert tpage.get_attribute("#btnFirstSeen", "title").startswith("Sends this transaction id to each service whose box is ticked") and "Tick a box to confirm" in tpage.get_attribute("#btnFirstSeen", "title")
     said = dialogs_of(tpage, True)
     assert "Send the transaction id to BlockCypher (api.blockcypher.com)" in tpage.inner_text("#inspBody")
-    assert tpage.is_disabled("#btnBlockcypher") and not tpage.is_checked("#chkBlockcypher"), "nothing can be sent until the box is ticked"
+    assert tpage.is_disabled("#btnFirstSeen") and not tpage.is_checked("#chkBlockcypher"), "nothing can be sent until the box is ticked"
     tpage.check("#chkBlockcypher")
-    assert tpage.is_enabled("#btnBlockcypher")
+    assert tpage.is_enabled("#btnFirstSeen") and tpage.inner_text("#btnFirstSeen") == "Ask BlockCypher when it was first seen"
     tpage.uncheck("#chkBlockcypher")
-    assert tpage.is_disabled("#btnBlockcypher"), "unticked again: it cannot be sent"
+    assert tpage.is_disabled("#btnFirstSeen"), "unticked again: it cannot be sent"
     assert bc.requests == [] and ext(tpage, 1) is None and said == [], "nothing was sent, nothing was kept, and no dialog came up"
 
 
@@ -112,7 +115,7 @@ def test_the_answer_is_a_card_with_the_first_seen_time_and_how_much_earlier_and_
     scene(tpage, mock, bc)
     select(tpage, "tx:" + tid(1))
     before = tpage.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).time", "tx:" + tid(1))
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
     assert bc.requests == ["https://api.blockcypher.com/v1/btc/main/txs/%s?limit=1" % tid(1)]
     card = tpage.inner_text("#inspBody .extcard")
     assert iso(BLOCK1 - 200).replace("T", " ").replace("Z", "") + " UTC" in card, card
@@ -121,14 +124,14 @@ def test_the_answer_is_a_card_with_the_first_seen_time_and_how_much_earlier_and_
     assert e["seen"] is True and e["relay"] == PEER and abs(e["received"] - (BLOCK1 - 200 + 0.652)) < 0.001 and e["found"] is True
     assert "relayed_by" in e["raw"], "the reply is kept as it came"
     assert tpage.evaluate("(id) => window.__hopline.state.graph.nodes.get(id).time", "tx:" + tid(1)) == before, "the time of the block is not touched"
-    assert tpage.inner_text("#btnBlockcypher") == "Ask BlockCypher again"
+    assert tpage.inner_text("#btnFirstSeen") == "Ask BlockCypher again"
     assert "1 with a first-seen time" in toast_text(tpage)
 
 
 def test_a_transaction_blockcypher_learned_of_from_its_block_has_no_first_seen_time(tpage, mock, bc):
     scene(tpage, mock, bc)
     select(tpage, "tx:" + tid(2))
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
     card = tpage.inner_text("#inspBody .extcard")
     assert "learned of this transaction from its block" in card and "says nothing about when it was sent" in card
     assert "First seen" not in card and "Peer that passed it on" not in card, "no record is not shown as a time"
@@ -141,7 +144,7 @@ def test_a_transaction_unknown_to_blockcypher_is_an_answer_not_an_error(tpage, m
     scene(tpage, mock, bc)
     bc.replies.pop(tid(2))
     select(tpage, "tx:" + tid(2))
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
     assert "does not know this transaction" in tpage.inner_text("#inspBody .extcard")
     e = ext(tpage, 2)
     assert e["found"] is False and e["seen"] is False
@@ -151,11 +154,13 @@ def test_several_selected_transactions_are_asked_together_and_a_limit_stops_it_b
     scene(tpage, mock, bc)
     select(tpage, "tx:" + tid(1), "tx:" + tid(2))
     assert "when first seen (2 transactions)" in details(tpage)
-    assert tpage.inner_text("#btnAskTimes") == "Ask BlockCypher about 2 transactions"
+    assert tpage.inner_text("#btnAskTimes") == "Ask the ticked services"
     assert "send the 2 transaction ids to blockcypher (api.blockcypher.com)" in details(tpage) and tpage.is_disabled("#btnAskTimes")
     bc.limit_after = 1
     said = dialogs_of(tpage, True)
-    tpage.check("#chkAskTimes"); tpage.click("#btnAskTimes")
+    tpage.check("#chkAskTimes")
+    assert tpage.inner_text("#btnAskTimes") == "Ask BlockCypher about 2 transactions"
+    tpage.click("#btnAskTimes")
     tpage.wait_for_function("() => /limit/.test(document.getElementById('toast').textContent)", timeout=15000); idle(tpage); settle(tpage)
     assert said == [], "no dialog: the box was the confirmation"
     assert "1 of 2 were answered" in toast_text(tpage)
@@ -171,14 +176,15 @@ def test_several_selected_transactions_are_asked_together_and_a_limit_stops_it_b
     assert ext(tpage, 2)["seen"] is False
     select(tpage, "tx:" + tid(1), "tx:" + tid(2))
     assert "was asked about 2: 1 with a first-seen time, 1 with no record from before the block." in details(tpage)
-    assert tpage.locator("#btnAskTimes").count() == 0
+    assert tpage.locator("#chkAskTimes").count() == 0, "BlockCypher has answered about all of them: nothing is left to ask it"
+    assert tpage.locator("#chkAskTimesBlockchaincom").count() == 1 and tpage.inner_text("#btnAskTimes") == "Ask the ticked services", "the other service was not asked, and the one button is for it"
 
 
 def test_over_tor_it_is_not_asked_and_nothing_is_sent(tpage, mock, bc):
     scene(tpage, mock, bc)
     tpage.click("#sideTab"); tpage.select_option("#source", "tor")
     select(tpage, "tx:" + tid(1))
-    tpage.check("#chkBlockcypher"); tpage.click("#btnBlockcypher")
+    tpage.check("#chkBlockcypher"); tpage.click("#btnFirstSeen")
     assert "Tor" in toast_text(tpage) and bc.requests == []
     select(tpage, "tx:" + tid(1), "tx:" + tid(2))
     tpage.check("#chkAskTimes"); tpage.click("#btnAskTimes")
@@ -188,7 +194,7 @@ def test_over_tor_it_is_not_asked_and_nothing_is_sent(tpage, mock, bc):
 def test_only_transactions_are_asked_and_a_wallet_has_no_such_button(tpage, mock, bc):
     scene(tpage, mock, bc)
     select(tpage, "addr:" + addr("a"))
-    assert tpage.locator("#btnBlockcypher").count() == 0 and "first on chain" in details(tpage) and "first seen" not in details(tpage)
+    assert tpage.locator("#btnFirstSeen").count() == 0 and "first on chain" in details(tpage) and "first seen" not in details(tpage)
     select(tpage, "addr:" + addr("a"), "addr:" + addr("b"))
     assert tpage.locator("#btnAskTimes").count() == 0, "two wallets selected: nothing to ask about"
     assert bc.requests == []
@@ -229,7 +235,7 @@ def test_the_answer_survives_a_file_and_the_other_kind_of_vertex_does_not_get_it
 def test_a_link_to_the_canvas_and_the_nodes_csv_do_not_carry_the_peer(tpage, mock, bc, tmp_path):
     scene(tpage, mock, bc)
     select(tpage, "tx:" + tid(1))
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
     tpage.evaluate("""() => { window.__copied = []; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (t) => { window.__copied.push(t); return Promise.resolve(); } } }); }""")
     tpage.click("summary:has-text('Export')")
     tpage.click("[data-export=link]"); tpage.wait_for_function("() => window.__copied.length > 0", timeout=15000)
@@ -288,22 +294,22 @@ def test_without_a_look_up_the_report_has_no_such_table_but_still_says_what_the_
 def test_the_tick_stays_after_a_look_up_and_the_box_still_decides_what_the_button_sends(tpage, mock, bc):
     scene(tpage, mock, bc)
     select(tpage, "tx:" + tid(1))
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
-    assert len(bc.requests) == 1 and tpage.inner_text("#btnBlockcypher") == "Ask BlockCypher again"
-    assert tpage.is_checked("#chkBlockcypher") and tpage.is_enabled("#btnBlockcypher"), "the tick stays after a look-up: asking again needs only the button"
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
+    assert len(bc.requests) == 1 and tpage.inner_text("#btnFirstSeen") == "Ask BlockCypher again"
+    assert tpage.is_checked("#chkBlockcypher") and tpage.is_enabled("#btnFirstSeen"), "the tick stays after a look-up: asking again needs only the button"
     tpage.evaluate("() => { document.getElementById('chkBlockcypher').checked = false; }")      # cleared without the page being told, as if it were tampered with
-    tpage.evaluate("() => { document.getElementById('btnBlockcypher').disabled = false; }")
-    tpage.click("#btnBlockcypher")
-    assert "Tick the box first" in toast_text(tpage) and len(bc.requests) == 1, "the button itself asks the box, not what the page remembers"
+    tpage.evaluate("() => { document.getElementById('btnFirstSeen').disabled = false; }")
+    tpage.click("#btnFirstSeen")
+    assert "Tick the box of a service first" in toast_text(tpage) and len(bc.requests) == 1, "the button itself asks the boxes, not what the page remembers"
 
 
 def test_one_tick_covers_the_service_in_every_view_and_each_label_says_what_is_sent(tpage, mock, bc):
     scene(tpage, mock, bc)
     select(tpage, "tx:" + tid(1))
-    assert not tpage.is_checked("#chkBlockcypher") and tpage.is_disabled("#btnBlockcypher"), "nothing is ticked at the start"
+    assert not tpage.is_checked("#chkBlockcypher") and tpage.is_disabled("#btnFirstSeen"), "nothing is ticked at the start"
     tpage.check("#chkBlockcypher")
     select(tpage, "tx:" + tid(2))
-    assert tpage.is_checked("#chkBlockcypher") and tpage.is_enabled("#btnBlockcypher"), "another transaction: still ticked"
+    assert tpage.is_checked("#chkBlockcypher") and tpage.is_enabled("#btnFirstSeen"), "another transaction: still ticked"
     assert "send the transaction id to blockcypher (api.blockcypher.com)" in details(tpage)
     select(tpage, "tx:" + tid(1), "tx:" + tid(2))
     assert tpage.is_checked("#chkAskTimes") and tpage.is_enabled("#btnAskTimes"), "a selection: the same tick"
@@ -313,7 +319,7 @@ def test_one_tick_covers_the_service_in_every_view_and_each_label_says_what_is_s
     tpage.uncheck("#chkAskTimes")
     assert tpage.is_disabled("#btnAskTimes")
     select(tpage, "tx:" + tid(1))
-    assert not tpage.is_checked("#chkBlockcypher") and tpage.is_disabled("#btnBlockcypher"), "unticked in one view: unticked in the other"
+    assert not tpage.is_checked("#chkBlockcypher") and tpage.is_disabled("#btnFirstSeen"), "unticked in one view: unticked in the other"
     assert bc.requests == []
 
 
@@ -337,7 +343,7 @@ def test_the_tick_is_kept_in_the_open_page_only(tpage, mock, bc, tmp_path):
 def test_the_peer_has_a_copy_button_that_copies_the_address_without_the_port(tpage, mock, bc):
     scene(tpage, mock, bc)
     select(tpage, "tx:" + tid(1))
-    press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
+    press(tpage, "#btnFirstSeen", ok="#chkBlockcypher")
     tpage.evaluate("""() => { window.__copied = []; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (t) => { window.__copied.push(t); return Promise.resolve(); } } }); }""")
     assert tpage.locator("#inspBody .extcard .copybtn").count() == 1, "one copy button: beside the peer, not beside the other rows"
     row = tpage.locator("#inspBody .extcard dd", has_text=PEER)

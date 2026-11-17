@@ -2615,27 +2615,78 @@
    * The box that confirms what is sent to a third party: ticked, its button works. The tick is given for the service (`sid`) and stays for the rest of the page session, so the details drawn again after a look-up,
    * another transaction and a selection all start ticked; the label beside it says what is sent this time. It is kept in memory only (state.ext.tick): never in the workspace file, a link or the browser's storage,
    * and a reload clears it. The button itself still asks the box, not the memory, when it is pressed.
-   * Returns { label, ok() }; it enables and disables `btn`.
+   * Returns { label, ok() }; `changed` is called when the box is ticked or unticked (the one button of the services follows the boxes).
    */
-  function consentBox(btn, id, text, sid) {
+  function consentBox(changed, id, text, sid) {
     var cb = el('input', { type: 'checkbox', id: id });
-    cb.checked = state.ext.tick[sid] === true; btn.disabled = !cb.checked;
-    cb.addEventListener('change', function () { state.ext.tick[sid] = cb.checked; btn.disabled = !cb.checked; });
+    cb.checked = state.ext.tick[sid] === true;
+    cb.addEventListener('change', function () { state.ext.tick[sid] = cb.checked; changed(); });
     return { label: el('label', { 'class': 'check consent', title: 'Stays ticked until you untick it or reload the page' }, [cb, ' ' + text]), ok: function () { return cb.checked; } };
   }
 
   function externalCard(n) {
-    var tx = n.type === 'tx';
-    var box = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: tx ? 'Time evidence' : 'External sources' })]);
-    XT.list(tx ? 'tx' : 'addr').forEach(function (s) {
-      var ext = n.ext && n.ext[s.id], cap = s.id.charAt(0).toUpperCase() + s.id.slice(1), def = tx ? XT.source(s.id) : null, third = tx && def.third !== false, consent = null;
-      var btn = el('button', { type: 'button', id: 'btn' + cap, text: tx ? def.ask[ext ? 'again' : 'button'] : (ext ? 'Look up again in ' : 'Look up in ') + s.short, title: sourceTip(s) + (third ? ' Tick the box to confirm.' : ''), disabled: third ? 'disabled' : null,
-                          onclick: function () { if (tx) lookupTxSource(s.id, [n.id], consent ? consent.ok() : true); else lookupSource(s.id, n.id); } });
-      if (third) { consent = consentBox(btn, 'chk' + cap, 'Send the transaction id to ' + def.name + ' (' + def.host + ')', s.id); box.appendChild(consent.label); }
+    if (n.type === 'tx') return timeCard(n);
+    var box = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'External sources' })]);
+    XT.list('addr').forEach(function (s) {
+      var ext = n.ext && n.ext[s.id];
+      var btn = el('button', { type: 'button', id: 'btn' + capOf(s.id), text: (ext ? 'Look up again in ' : 'Look up in ') + s.short, title: sourceTip(s), onclick: function () { lookupSource(s.id, n.id); } });
       box.appendChild(el('div', { 'class': 'insp-actions' }, [btn]));
       if (ext) box.appendChild(sourceCard(n, s.id, ext));
     });
     return box;
+  }
+  function capOf(id) { return id.charAt(0).toUpperCase() + id.slice(1); }
+
+  /**
+   * A transaction's time evidence: a box for each service that sends the id to a third party and ONE button that asks the ones that are ticked, one after another, each with its own limit; then what each said.
+   * The narrowing from block data sends nothing anywhere: it keeps its own button.
+   */
+  function timeCard(n) {
+    var box = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Time evidence' })]);
+    var srcs = XT.list('tx'), third = srcs.filter(function (s) { return XT.source(s.id).third !== false; });
+    if (third.length) {
+      var parts = third.map(function (s) {
+        var def = XT.source(s.id);
+        return { s: s, ids: [n.id], had: !!(n.ext && n.ext[s.id]), boxId: 'chk' + capOf(s.id), text: 'Send the transaction id to ' + def.name + ' (' + def.host + ')' };
+      });
+      var grp = askGroup(parts, 'btnFirstSeen', function (ticked) {
+        if (!ticked.length) return 'Ask the ticked services';
+        return 'Ask ' + ticked.map(function (p) { return p.s.short; }).join(' and ') + (ticked.every(function (p) { return p.had; }) ? ' again' : ' when it was first seen');
+      }, 'Sends this transaction id to each service whose box is ticked, one after another: each then knows which transaction you are looking at. Tick a box to confirm.');
+      grp.labels.forEach(function (l) { box.appendChild(l); });
+      box.appendChild(el('div', { 'class': 'insp-actions' }, [grp.button]));
+    }
+    srcs.forEach(function (s) {
+      var ext = n.ext && n.ext[s.id], def = XT.source(s.id);
+      if (def.third === false) box.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', id: 'btn' + capOf(s.id), text: def.ask[ext ? 'again' : 'button'], title: sourceTip(s), onclick: function () { lookupTxSource(s.id, [n.id], true); } })]));
+      if (ext) box.appendChild(sourceCard(n, s.id, ext));
+    });
+    return box;
+  }
+
+  /**
+   * The services that send ids to a third party, as boxes (each names its service and host, and keeps its own tick) and one button that asks the ticked ones. `parts` is
+   * [{ s: the source, ids: what to ask it, boxId, text: what its box says }]; `wording(ticked)` is the button's text for the parts that are ticked. Returns { button, labels } (the boxes, in the order of `parts`).
+   */
+  function askGroup(parts, id, wording, tip) {
+    var btn = el('button', { type: 'button', id: id, title: tip, disabled: 'disabled', onclick: function () {
+      var ticked = parts.filter(function (p) { return p.consent.ok(); });
+      if (!ticked.length) { toast('Tick the box of a service first.', true); return; }                  // the button itself asks the boxes, as it did when each service had its own button
+      askTicked(ticked.map(function (p) { return { sid: p.s.id, ids: p.ids }; }));
+    } });
+    function refresh() { var ticked = parts.filter(function (p) { return p.consent.ok(); }); btn.disabled = !ticked.length; btn.textContent = wording(ticked); }
+    parts.forEach(function (p) { p.consent = consentBox(refresh, p.boxId, p.text, p.s.id); });
+    refresh();
+    return { button: btn, labels: parts.map(function (p) { return p.consent.label; }) };
+  }
+  /** Ask the services in turn (one look-up runs at a time), each about its own ids and keeping its own limit; with more than one, say in one message how each went. */
+  function askTicked(list) {
+    var said = [];
+    return list.reduce(function (p, it) {
+      return p.then(function () { return lookupTxSource(it.sid, it.ids, true, list.length > 1).then(function (o) { if (o) said.push(o); }); });
+    }, Promise.resolve()).then(function () {
+      if (list.length > 1 && said.length) toast(said.map(function (o) { return o.text; }).join(' '), said.some(function (o) { return o.bad; }));
+    });
   }
   function sourceTip(s) {
     var d = XT.source(s.id);
@@ -2710,20 +2761,21 @@
   /**
    * Ask a transaction source about some transactions, on request: BlockCypher (when it first saw them), or the data source in use (the blocks before them). A source that sends the ids to a
    * third party needs `confirmed` (the box beside its button, ticked). Each answer is kept on its transaction as it arrives, so a request limit in the middle loses nothing, and nothing else
-   * changes: the time of the block stays what it is.
+   * changes: the time of the block stays what it is. Resolves { text, bad } (how it went; it is said in a message unless `quiet`), or null when nothing was asked.
    */
-  function lookupTxSource(sid, ids, confirmed) {
+  function lookupTxSource(sid, ids, confirmed, quiet) {
     var def = XT.source(sid), x = state.ext, g = state.graph;
-    if (!def || def.kind !== 'tx') { toast('Unknown source.', true); return; }
-    if (def.third !== false && state.source === 'tor') { toast('Look-ups are switched off while the data source is Tor: they would go outside Tor and tell ' + def.short + ' which transactions you are looking at.', true); return; }
+    if (!def || def.kind !== 'tx') { toast('Unknown source.', true); return Promise.resolve(null); }
+    if (def.third !== false && state.source === 'tor') { toast('Look-ups are switched off while the data source is Tor: they would go outside Tor and tell ' + def.short + ' which transactions you are looking at.', true); return Promise.resolve(null); }
     var byTx = new Map(); (ids || []).forEach(function (id) { var n = g.nodes.get(id); if (n && n.type === 'tx' && n.txid) byTx.set(n.txid, id); });
-    if (!byTx.size) { toast('Choose a transaction.', true); return; }
-    if (x.busy) { toast('A look-up is already running.', true); return; }
-    if (def.third !== false && confirmed !== true) { toast('Tick the box first: this sends ' + (byTx.size === 1 ? 'the transaction id' : 'the transaction ids') + ' to ' + def.name + '.', true); return; }
+    if (!byTx.size) { toast('Choose a transaction.', true); return Promise.resolve(null); }
+    if (x.busy) { toast('A look-up is already running.', true); return Promise.resolve(null); }
+    if (def.third !== false && confirmed !== true) { toast('Tick the box first: this sends ' + (byTx.size === 1 ? 'the transaction id' : 'the transaction ids') + ' to ' + def.name + '.', true); return Promise.resolve(null); }
     x.busy = true;
     var done = 0, good = 0, bad = 0, firstBad = '', asked = byTx.size, kinds = def.kinds || { good: 'useful', none: 'not useful' };
     toast((def.third === false ? 'Asking the data source about ' : 'Asking ' + def.short + ' about ') + plural(asked, 'transaction') + '…');
-    XT.lookupMany(sid, Array.from(byTx.keys()), { ctx: sourceCtx(), confirm: function () { return confirmed === true; }, onResult: function (res) {
+    var outcome = null;
+    return XT.lookupMany(sid, Array.from(byTx.keys()), { ctx: sourceCtx(), confirm: function () { return confirmed === true; }, onResult: function (res) {
       var node = g.nodes.get(byTx.get(res.address));
       if (res.error) { bad++; if (!firstBad) firstBad = (res.error && res.error.message) || 'It could not be done.'; return; }
       if (!node) return;
@@ -2732,17 +2784,17 @@
     } }).then(function (r) {
       if (r.stopped === 'declined') return;
       var failed = r.stopped === 'failed';
-      if (!failed && !done && bad) { toast(firstBad, true); return; }
-      toast(failed ? ((r.error && r.error.message) || 'The look-up failed.') + (done ? ' ' + done + ' of ' + asked + ' were answered before that and are kept.' : '')
-                   : def.short + ': ' + plural(done, 'transaction') + ' answered, ' + good + ' ' + kinds.good + ' and ' + (done - good) + ' ' + kinds.none + '.' + (bad ? ' ' + plural(bad, 'transaction') + ' could not be done: ' + firstBad : ''), failed);
+      if (!failed && !done && bad) { outcome = { text: firstBad, bad: true }; return; }
+      outcome = { bad: failed, text: failed ? ((r.error && r.error.message) || 'The look-up failed.') + (done ? ' ' + done + ' of ' + asked + ' were answered before that and are kept.' : '')
+                   : def.short + ': ' + plural(done, 'transaction') + ' answered, ' + good + ' ' + kinds.good + ' and ' + (done - good) + ' ' + kinds.none + '.' + (bad ? ' ' + plural(bad, 'transaction') + ' could not be done: ' + firstBad : '') };
       showInspector(); updateFindings(); scheduleSave();                                     // what a service said about when changes the time of day of the trail
-    }, function (e) { toast((e && e.message) || 'The look-up failed.', true); }).then(function () { x.busy = false; });
+    }, function (e) { outcome = { text: (e && e.message) || 'The look-up failed.', bad: true }; }).then(function () { x.busy = false; if (outcome && !quiet) toast(outcome.text, outcome.bad); return outcome; });
   }
 
-  /** In "N selected": for each transaction source, what it said about the selected transactions and a button for the ones it was not asked about (at most 30 at a time). */
+  /** In "N selected": for each transaction source, what it said about the selected transactions; for the services that send ids to a third party a box each and one button that asks the ticked ones, for the ones they were not asked about (at most 30 at a time). */
   function timeList(txIds) {
     var g = state.graph, srcs = XT.list('tx'); if (!srcs.length || !txIds.length) return null;
-    var wrap = el('div', {});
+    var wrap = el('div', {}), parts = [], last = null;
     srcs.forEach(function (s) {
       var def = XT.source(s.id), kinds = def.kinds || { good: 'useful', none: 'not useful' }, asked = 0, good = 0, todo = [];
       txIds.forEach(function (id) {
@@ -2751,16 +2803,26 @@
       });
       var kids = [el('span', { 'class': 'lbl', text: (def.label || def.short) + ' (' + plural(txIds.length, 'transaction') + ')' })];
       kids.push(el('p', { 'class': 'hint', text: asked ? s.short + ' was asked about ' + asked + ': ' + good + ' ' + kinds.good + ', ' + (asked - good) + ' ' + kinds.none + '.' + (todo.length ? ' ' + todo.length + ' not asked yet.' : '') : def.intro || '' }));
+      var section = el('div', { 'class': 'insp-section' }, kids);
       if (todo.length) {
         var batch = todo.slice(0, 30), count = batch.length < todo.length ? batch.length + ' of ' + todo.length : plural(batch.length, 'transaction');
-        var third = def.third !== false, consent = null;
-        var btn = el('button', { type: 'button', id: def.manyId || 'btnAsk' + s.id, text: def.ask.many.replace('%s', count), title: def.ask.manyTip + (third ? '. Tick the box to confirm' : ''), disabled: third ? 'disabled' : null,
-                                 onclick: function () { lookupTxSource(s.id, batch, consent ? consent.ok() : true); } });
-        if (third) { consent = consentBox(btn, 'chk' + (def.manyId || 'btnAsk' + s.id).replace(/^btn/, ''), 'Send ' + (batch.length === 1 ? 'the transaction id' : 'the ' + batch.length + ' transaction ids') + ' to ' + def.name + ' (' + def.host + ')', s.id); kids.push(consent.label); }
-        kids.push(el('div', { 'class': 'insp-actions' }, [btn]));
+        if (def.third !== false) {
+          parts.push({ s: s, ids: batch, count: count, section: section, boxId: 'chk' + (def.manyId || 'btnAsk' + s.id).replace(/^btn/, ''),
+                       text: 'Send ' + (batch.length === 1 ? 'the transaction id' : 'the ' + batch.length + ' transaction ids') + ' to ' + def.name + ' (' + def.host + ')' });
+        } else {
+          section.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', id: def.manyId || 'btnAsk' + s.id, text: def.ask.many.replace('%s', count), title: def.ask.manyTip, onclick: function () { lookupTxSource(s.id, batch, true); } })]));
+        }
       }
-      wrap.appendChild(el('div', { 'class': 'insp-section' }, kids));
+      if (def.third !== false) last = section;
+      wrap.appendChild(section);
     });
+    if (parts.length) {
+      var grp = askGroup(parts, 'btnAskTimes', function (ticked) {
+        return ticked.length ? 'Ask ' + ticked.map(function (p) { return p.s.short + ' about ' + p.count; }).join(' and ') : 'Ask the ticked services';
+      }, 'Sends the transaction ids to each service whose box is ticked, slowly, one service after another; each stops when its request limit is reached. Tick a box to confirm.');
+      parts.forEach(function (p, k) { p.section.appendChild(grp.labels[k]); });
+      wrap.insertBefore(el('div', { 'class': 'insp-section' }, [el('div', { 'class': 'insp-actions' }, [grp.button])]), last.nextSibling);
+    }
     return wrap;
   }
 
