@@ -163,7 +163,7 @@ def test_several_selected_transactions_are_asked_together_and_a_limit_stops_it_b
     select(tpage, "tx:" + tid(1), "tx:" + tid(2))
     assert "blockcypher was asked about 1: 1 with a first-seen time, 0 with no record from before the block. 1 not asked yet." in details(tpage)
     assert tpage.inner_text("#btnAskTimes") == "Ask BlockCypher about 1 transaction"
-    assert tpage.is_disabled("#btnAskTimes") and not tpage.is_checked("#chkAskTimes"), "the box is clear again: every look-up is confirmed"
+    assert tpage.is_checked("#chkAskTimes") and tpage.is_enabled("#btnAskTimes"), "the tick stays: it was given for this service"
     assert "send the transaction id to blockcypher" in details(tpage), "and says what is sent this time: one id"
     bc.limit_after = None
     tpage.check("#chkAskTimes"); tpage.click("#btnAskTimes"); tpage.wait_for_function("() => /answered, /.test(document.getElementById('toast').textContent)", timeout=15000); idle(tpage)
@@ -285,15 +285,53 @@ def test_without_a_look_up_the_report_has_no_such_table_but_still_says_what_the_
     assert bc.requests == [], "making a report asks nobody"
 
 
-def test_the_box_is_clear_again_after_every_look_up_and_a_button_forced_open_sends_nothing(tpage, mock, bc):
+def test_the_tick_stays_after_a_look_up_and_the_box_still_decides_what_the_button_sends(tpage, mock, bc):
     scene(tpage, mock, bc)
     select(tpage, "tx:" + tid(1))
     press(tpage, "#btnBlockcypher", ok="#chkBlockcypher")
     assert len(bc.requests) == 1 and tpage.inner_text("#btnBlockcypher") == "Ask BlockCypher again"
-    assert tpage.is_disabled("#btnBlockcypher") and not tpage.is_checked("#chkBlockcypher"), "asking again needs a new tick"
-    tpage.evaluate("() => { document.getElementById('btnBlockcypher').disabled = false; }")       # as if the page were tampered with
+    assert tpage.is_checked("#chkBlockcypher") and tpage.is_enabled("#btnBlockcypher"), "the tick stays after a look-up: asking again needs only the button"
+    tpage.evaluate("() => { document.getElementById('chkBlockcypher').checked = false; }")      # cleared without the page being told, as if it were tampered with
+    tpage.evaluate("() => { document.getElementById('btnBlockcypher').disabled = false; }")
     tpage.click("#btnBlockcypher")
-    assert "Tick the box first" in toast_text(tpage) and len(bc.requests) == 1, "the button itself checks that the box was ticked"
+    assert "Tick the box first" in toast_text(tpage) and len(bc.requests) == 1, "the button itself asks the box, not what the page remembers"
+
+
+def test_one_tick_covers_the_service_in_every_view_and_each_label_says_what_is_sent(tpage, mock, bc):
+    scene(tpage, mock, bc)
+    select(tpage, "tx:" + tid(1))
+    assert not tpage.is_checked("#chkBlockcypher") and tpage.is_disabled("#btnBlockcypher"), "nothing is ticked at the start"
+    tpage.check("#chkBlockcypher")
+    select(tpage, "tx:" + tid(2))
+    assert tpage.is_checked("#chkBlockcypher") and tpage.is_enabled("#btnBlockcypher"), "another transaction: still ticked"
+    assert "send the transaction id to blockcypher (api.blockcypher.com)" in details(tpage)
+    select(tpage, "tx:" + tid(1), "tx:" + tid(2))
+    assert tpage.is_checked("#chkAskTimes") and tpage.is_enabled("#btnAskTimes"), "a selection: the same tick"
+    assert "send the 2 transaction ids to blockcypher (api.blockcypher.com)" in details(tpage), "the label says how many are sent this time"
+    assert tpage.inner_text("#btnAskTimes") == "Ask BlockCypher about 2 transactions"
+    assert bc.requests == [], "ticking sent nothing"
+    tpage.uncheck("#chkAskTimes")
+    assert tpage.is_disabled("#btnAskTimes")
+    select(tpage, "tx:" + tid(1))
+    assert not tpage.is_checked("#chkBlockcypher") and tpage.is_disabled("#btnBlockcypher"), "unticked in one view: unticked in the other"
+    assert bc.requests == []
+
+
+def test_the_tick_is_kept_in_the_open_page_only(tpage, mock, bc, tmp_path):
+    scene(tpage, mock, bc)
+    select(tpage, "tx:" + tid(1))
+    tpage.check("#chkBlockcypher")
+    assert tpage.evaluate("() => window.__hopline.state.ext.tick.blockcypher") is True
+    kept = "\n".join(tpage.evaluate("() => [localStorage, sessionStorage].flatMap((s) => Object.keys(s).map((k) => k + '=' + s.getItem(k)))"))
+    assert kept and re.search(r"blockcypher\W+true", kept) is None and "consent" not in kept.lower(), "not in the browser's storage (read as it is kept, not nested in another text)"
+    tpage.evaluate("() => { document.getElementById('exportMenu').open = true; }")
+    with tpage.expect_download() as d:
+        tpage.click("[data-export=json]")
+    f = tmp_path / "w.json"; d.value.save_as(str(f))
+    saved = f.read_text(encoding="utf-8")
+    assert '"tick"' not in saved and re.search(r'"blockcypher":\s*true', saved) is None, "not in the workspace file"
+    tpage.reload(); tpage.wait_for_function("() => !!window.__hopline && !!window.__hopline.state", timeout=20000)
+    assert tpage.evaluate("() => JSON.stringify(window.__hopline.state.ext.tick)") == "{}", "a reload clears it"
 
 
 def test_the_peer_has_a_copy_button_that_copies_the_address_without_the_port(tpage, mock, bc):
