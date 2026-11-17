@@ -71,6 +71,7 @@ The two sanctions lists are on by default because a missing sanctions banner rea
 
 - **Transactions and addresses:** a public block explorer API of your choice, mempool.space by default with Blockstream.info as its backup, mempool.space over Tor, or your own Esplora server. Each one sees your IP address and which addresses and transactions you look up. mempool.space publishes no rate limit.
 - **Prices:** the mempool.space price history, or prices from your own server. Only the currency and the times are sent, never an address.
+- **Blocks, to narrow when a transaction was sent:** *Narrow the time from block data* asks the same data source for the blocks before the transaction's block (a few more requests for each transaction, for block heights, not for any address). Nothing goes to another service.
 - Details and limits: [Data sources and limits](https://github.com/forensicworks/hopline/wiki/Data-sources-and-limits).
 
 ## Lookups with your own key or account, on request
@@ -78,6 +79,7 @@ The two sanctions lists are on by default because a missing sanctions banner rea
 - **Arkham Intelligence, with a key:** a wallet is looked up through `tools/arkham_proxy.py`, a small program on your own computer that keeps your API key in an environment variable, so the key never enters the page. One wallet at a time, after you confirm, never for the whole graph; the reply is shown with its raw text and nothing is applied automatically. Off while the data source is Tor.
 - **Arkham Intelligence, without a key:** *Check in Arkham* in the right-click menu, the details and the wallet overview opens Arkham's own page for the wallet or transaction in a new tab, with no referrer, so your own Arkham account is used if you are signed in there. Nothing is sent until you click; Arkham is then told what you are looking at. Not offered over Tor.
 - Other providers need an adapter in the proxy and have not been built.
+- **BlockCypher, when a transaction was first seen:** *Ask BlockCypher when it was first seen* in a transaction's details sends the **transaction id** (never an address) to `api.blockcypher.com`, from the page, with no cookies and no referrer. You tick a box beside the button every time to confirm what is sent (it says which service and how many ids); it is not offered over Tor; it asks slowly and stops when BlockCypher's request limit is reached. BlockCypher then knows which transaction you looked at, and its answer (when it first saw the transaction and, sometimes, the peer that passed it on: an IP address) is kept in the workspace file as that service's claim, out of links, the assistant, the CSV exports and, unless you tick a box, the report. No account or key is used.
 
 ## Looked at and not used
 

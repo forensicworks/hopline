@@ -90,7 +90,7 @@
       if (!n || typeof n.id !== 'string' || !n.id || !NODE_TYPES[n.type]) { dropped++; return; }
       var c = clean(n, 0);
       Tags.sanitize(c);                                                     // tag / colour / shape: only valid values ever reach a canvas
-      if ('ext' in c) { var x = Ext.cleanExt(c.ext); if (x) c.ext = x; else delete c.ext; }
+      if ('ext' in c) { var x = Ext.cleanExt(c.ext, c.type === 'tx' ? 'tx' : 'addr'); if (x) c.ext = x; else delete c.ext; }
       if ('noCluster' in c && c.noCluster !== true) delete c.noCluster;      // only the flag itself is meaningful
       cleanProvenance(c);
       if (c.type === 'addr' && typeof c.address === 'string') {            // bech32 is case-insensitive: one vertex per address, however it was written
@@ -132,7 +132,7 @@
   function row(cells) { return cells.join(','); }
   /** What outside sources said about a wallet, in one cell, source by source: "Arkham Intelligence: Binance · Hot Wallet (cex) [2026-10-29 12:00:00 UTC] | Other: no entry". */
   function lookupsText(n) {
-    return Ext.entries(n).map(function (e) { return e.sourceName + ': ' + (e.found ? e.label + (e.category ? ' (' + e.category + ')' : '') : 'no entry') + (e.at ? ' [' + Style.fmtTimeFull(e.at) + ']' : ''); }).join(' | ');
+    return Ext.entries(n).map(function (e) { return e.sourceName + ': ' + (e.found ? e.label + (e.category ? ' (' + e.category + ')' : '') : (e.none || 'no entry')) + (e.at ? ' [' + Style.fmtTimeFull(e.at) + ']' : ''); }).join(' | ');
   }
 
   var BUILTIN = 'Built-in list';
