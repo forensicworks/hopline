@@ -321,8 +321,96 @@ test('the address asked is built in one place: sent in the request, kept with th
   assert.equal(X.timeRows([node(Object.assign({}, r.ext, { url: other }))])[0].url, other, 'what was recorded wins over what is built now');
 });
 
+// ---- Blockchain.com: the second source of first-seen times
+const BI_BLOCK = secs('2026-03-04T10:24:49Z');                                           // the time of the block, as the data source gives it
+const biReply = (over) => Object.assign({ hash: BC_TX, ver: 2, size: 235, relayed_by: '0.0.0.0', time: BI_BLOCK - 197, block_height: 840123, double_spend: false, inputs: [{ index: 0 }], out: [{ n: 0 }] }, over);
+
+test('parseBlockchaincom: its time is a first-seen time only when it differs from the time of the block, and it names no peer', () => {
+  const seen = X.parseBlockchaincom(biReply(), BI_BLOCK);
+  assert.deepEqual([seen.found, seen.seen, seen.received, seen.confirmed, seen.height], [true, true, BI_BLOCK - 197, BI_BLOCK, 840123]);
+  const echo = X.parseBlockchaincom(biReply({ time: BI_BLOCK }), BI_BLOCK);
+  assert.deepEqual([echo.found, echo.seen, echo.received], [true, false, null], 'the time of the block repeated: no record from before it');
+  const pending = X.parseBlockchaincom(biReply({ block_height: undefined }), null);
+  assert.deepEqual([pending.seen, pending.received, pending.confirmed, pending.height], [true, BI_BLOCK - 197, null, null], 'not in a block yet: its time is a first-seen time');
+  assert.equal(X.parseBlockchaincom(biReply({ time: BI_BLOCK + 60 }), BI_BLOCK).seen, true, 'seen after the (earlier) time stamp of its block is still a real record');
+  ['', null, undefined, 5, [], {}, 'x', { hash: 'nothex' }].forEach((g) => assert.equal(X.parseBlockchaincom(g, BI_BLOCK).found, false, JSON.stringify(g)));
+  assert.equal(X.parseBlockchaincom(biReply({ time: 'yesterday' }), BI_BLOCK).seen, false, 'not a time');
+  assert.equal(X.parseBlockchaincom(biReply({ time: 5 }), BI_BLOCK).seen, false, 'a time before 2009 is not a time');
+  assert.ok(!('relay' in seen), 'it names no peer: the 0.0.0.0 it sends is not read');
+});
+
+test('toBlockchaincomExt keeps the parsed fields, when it was asked, the address and the reply without its long lists; cleanExt keeps only what is known', () => {
+  const e = X.toBlockchaincomExt(biReply(), BI_BLOCK, 1700000000, X.blockchaincomUrl(BC_TX));
+  assert.deepEqual([e.found, e.seen, e.at, e.url], [true, true, 1700000000, 'https://blockchain.info/rawtx/' + BC_TX]);
+  assert.ok(e.raw.includes('"relayed_by":"0.0.0.0"') && !e.raw.includes('"inputs"') && !e.raw.includes('"out"'), 'the reply as it came, but not the inputs and outputs the graph already has');
+  assert.ok(X.toBlockchaincomExt(biReply({ junk: 'x'.repeat(9000) }), BI_BLOCK, 1).raw.length <= X.RAW_LIMIT + 1);
+  const kept = X.cleanExt({ blockchaincom: Object.assign({}, e, { junk: 1, relay: '203.0.113.9:8333', url: 'javascript:alert(1)' }) }, 'tx');
+  assert.equal(kept.blockchaincom.junk, undefined);
+  assert.equal(kept.blockchaincom.relay, '', 'no peer, whatever a file says');
+  assert.equal('url' in kept.blockchaincom, false, 'an address that is not a plain https address is dropped');
+  assert.equal(X.cleanExt({ blockchaincom: e }, 'tx').blockchaincom.url, e.url, 'and a good one is kept');
+  assert.equal(X.cleanExt({ blockchaincom: e }, 'addr'), null, 'not on a wallet');
+  assert.equal(X.cleanExt({ blockchaincom: { found: true, seen: true, received: null } }, 'tx').blockchaincom.seen, false, 'seen needs a time');
+});
+
+test('lookupBlockchaincom asks for one transaction, sends no cookies and no referrer, keeps the address, and every failure has a kind', async () => {
+  const f = fakeFetch(() => resp(200, biReply()));
+  const r = await X.lookupBlockchaincom({ fetch: f, txid: BC_TX.toUpperCase(), blockTime: BI_BLOCK });
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].url, 'https://blockchain.info/rawtx/' + BC_TX);
+  assert.equal(f.calls[0].init.credentials, 'omit'); assert.equal(f.calls[0].init.referrerPolicy, 'no-referrer');
+  assert.deepEqual([r.found, r.ext.seen, r.ext.received, r.ext.url], [true, true, BI_BLOCK - 197, f.calls[0].url], 'the address kept is the address that was sent');
+  const unknown = await X.lookupBlockchaincom({ fetch: fakeFetch(() => resp(404, { error: 'not-found-or-invalid-arg' })), txid: BC_TX, blockTime: BI_BLOCK });
+  assert.deepEqual([unknown.found, unknown.ext.seen, unknown.ext.url], [false, false, 'https://blockchain.info/rawtx/' + BC_TX], 'unknown to it is an answer, not an error');
+  const kind = (handler) => X.lookupBlockchaincom({ fetch: handler, txid: BC_TX }).then(() => 'ok', (e) => e.kind);
+  assert.equal(await kind(() => Promise.resolve(resp(429, 'slow down'))), 'rate');
+  assert.equal(await kind(() => Promise.resolve(resp(500, 'x'))), 'upstream');
+  assert.equal(await kind(() => Promise.resolve(resp(200, 'not json'))), 'bad');
+  assert.equal(await kind(() => Promise.reject(new Error('offline'))), 'network');
+  const g = fakeFetch(() => resp(200, {}));
+  assert.equal(await X.lookupBlockchaincom({ fetch: g, txid: 'abc' }).then(() => 'ok', (e) => e.kind), 'bad'); assert.equal(g.calls.length, 0, 'nothing is sent for what is not a transaction id');
+  const hang = (url, init) => new Promise((_, rej) => { init.signal.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' }))); });
+  await assert.rejects(X.lookupBlockchaincom({ fetch: hang, txid: BC_TX, timeoutMs: 30 }), (e) => e.kind === 'timeout');
+  const viaBase = fakeFetch(() => resp(200, biReply()));
+  const mirror = await X.lookupBlockchaincom({ fetch: viaBase, txid: BC_TX, base: 'https://example.test/x/' });
+  assert.equal(viaBase.calls[0].url, 'https://example.test/x/rawtx/' + BC_TX, 'a base that is given is the one asked');
+  assert.equal(mirror.ext.url, viaBase.calls[0].url, 'and the one kept');
+});
+
+test('the source takes the block time from the transaction on screen, so one reply is a first-seen time for one block time and none for another', async () => {
+  const src = X.source('blockchaincom');
+  const asked = (node) => src.lookup(BC_TX, Object.assign({ fetch: fakeFetch(() => resp(200, biReply())) }, node ? { node: () => node } : {}));
+  assert.equal((await asked({ time: BI_BLOCK })).ext.seen, true);
+  assert.equal((await asked({ time: BI_BLOCK - 197 })).ext.seen, false, 'the block is at the time it gives: no record from before the block');
+  assert.equal((await asked(null)).ext.seen, true, 'no transaction on screen, no block time: its time is a first-seen time');
+  assert.equal((await asked({ time: null })).ext.seen, true, 'a transaction not in a block yet');
+});
+
+test('the second source is a third party for transactions, asked slowly, and gives the address it asks', () => {
+  const d = X.source('blockchaincom');
+  assert.deepEqual([d.kind, d.third, d.report, d.host, d.name], ['tx', true, 'firstseen', 'blockchain.info', 'Blockchain.com']);
+  assert.ok(d.paceMs >= 700, 'a service with a request limit is asked slowly');
+  assert.equal(d.url(BC_TX), 'https://blockchain.info/rawtx/' + BC_TX);
+  assert.notEqual(d.manyId, X.source('blockcypher').manyId, 'its own button for a selection');
+  assert.equal(X.list('tx').filter((s) => s.third !== false).length, 2, 'two services that need a tick');
+});
+
+test('firstSeen gives the earliest time any service recorded on a transaction, and the report rows keep the two services apart', () => {
+  const bc = X.toBlockcypherExt(bcReply({ received: '2026-03-04T10:21:32.652Z' }), 1);
+  const bi = X.toBlockchaincomExt(biReply({ time: secs('2026-03-04T10:21:30Z') }), BI_BLOCK, 1);
+  const f = X.firstSeen({ blockcypher: bc, blockchaincom: bi });
+  assert.deepEqual([f.time, f.source, f.sourceName], [secs('2026-03-04T10:21:30Z'), 'blockchaincom', 'Blockchain.com'], 'the earlier of the two');
+  const echo = X.toBlockchaincomExt(biReply({ time: BI_BLOCK }), BI_BLOCK, 1);
+  assert.equal(X.firstSeen({ blockcypher: bc, blockchaincom: echo }).source, 'blockcypher', 'one with no record does not count');
+  assert.equal(X.firstSeen({ blockchaincom: echo }), null, 'none recorded');
+  assert.equal(X.firstSeen(null), null); assert.equal(X.firstSeen({ arkham: { seen: true, received: 5 } }), null, 'only a source of first-seen times counts');
+  const rows = X.timeRows([{ type: 'tx', txid: BC_TX, time: BI_BLOCK, ext: { blockcypher: bc, blockchaincom: bi } }]);
+  assert.deepEqual(rows.map((r) => [r.source, r.sourceName, r.seen, r.relay, r.url]),
+                   [['blockcypher', 'BlockCypher', true, '203.0.113.9:8333', X.blockcypherUrl(BC_TX)], ['blockchaincom', 'Blockchain.com', true, '', 'https://blockchain.info/rawtx/' + BC_TX]]);
+});
+
 test('sources are for wallets or for transactions: list, entries and the file each keep to their own kind', () => {
-  assert.deepEqual(X.list().map((s) => s.id), ['arkham']); assert.deepEqual(X.list('tx').map((s) => s.id), ['blockcypher', 'chainwindow']); assert.deepEqual(X.list('all').map((s) => s.id), ['arkham', 'blockcypher', 'chainwindow']);
+  assert.deepEqual(X.list().map((s) => s.id), ['arkham']); assert.deepEqual(X.list('tx').map((s) => s.id), ['blockcypher', 'blockchaincom', 'chainwindow']); assert.deepEqual(X.list('all').map((s) => s.id), ['arkham', 'blockcypher', 'blockchaincom', 'chainwindow']);
   assert.throws(() => X.register({ id: 'odd', name: 'x', kind: 'block', lookup() {}, clean() {}, describe() {} }), /wallets \(addr\) or for transactions \(tx\)/);
   const ext = X.cleanExt({ blockcypher: X.toBlockcypherExt(bcReply(), 1700000000) }, 'tx');
   const txNode = { type: 'tx', txid: BC_TX, time: secs('2026-03-04T10:24:49Z'), ext };
