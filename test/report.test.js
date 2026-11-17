@@ -280,6 +280,22 @@ test('the wallets table ends with what the balances say: how many were read, the
   assert.doesNotMatch(none.html, /Balances were read for/, 'nothing to say when no balance was read');
 });
 
+test('report: two services for the same transaction are two rows, each with its own address, and the one that names no peer has none', () => {
+  const rows = [
+    { txid: tid(1), time: 1650000000, source: 'blockcypher', sourceName: 'BlockCypher', found: true, seen: true, received: 1649999000.5, confirmed: 1650000000, relay: '203.0.113.9:8333', height: 700001, at: 1700000000,
+      url: 'https://api.blockcypher.com/v1/btc/main/txs/' + tid(1) + '?limit=1' },
+    { txid: tid(1), time: 1650000000, source: 'blockchaincom', sourceName: 'Blockchain.com', found: true, seen: true, received: 1649999003, confirmed: 1650000000, relay: '', height: 700001, at: 1700000009,
+      url: 'https://blockchain.info/rawtx/' + tid(1) }];
+  const render = (over) => { const m = modelOf(sample(), over); return RP.render(m, RP.evidenceText(m.evidence), 'a'.repeat(64)); };
+  const html = render({ timeEvidence: rows, timeRelay: true });
+  assert.ok(html.includes('BlockCypher - 1 transaction asked, 1 with a first-seen time') && html.includes('Blockchain.com - 1 transaction asked, 1 with a first-seen time'), 'each service is told on its own line');
+  assert.equal(html.split('class="url"').length - 1, 2, 'each row has the address that was asked');
+  assert.ok(html.includes('<td>BlockCypher, ') && html.includes('<td>Blockchain.com, ') && html.includes('https://blockchain.info/rawtx/' + tid(1)), 'the service is named in each row');
+  assert.ok(html.includes('203.0.113.9:8333') && html.includes('<td></td>'), 'the peer of the one, and nothing for the one that names none');
+  const without = render({ timeEvidence: rows, timeRelay: false, timePeersLeft: true });
+  assert.ok(!without.includes('203.0.113.9') && without.includes('may still name its peer') && without.split('class="url"').length - 1 === 2, 'the peers left out, the addresses still there');
+});
+
 test('report: the address that was asked is shown with each lookup as text, never as a link, and the peers left out are said to be in the reply there', () => {
   const rows = [
     { txid: tid(1), time: 1650000000, source: 'blockcypher', sourceName: 'BlockCypher', found: true, seen: true, received: 1649999000.5, confirmed: 1650000000, relay: '203.0.113.9:8333', height: 700001, at: 1700000000,

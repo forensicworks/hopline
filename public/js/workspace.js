@@ -5043,7 +5043,7 @@
     return HoplineLosses.toCsv(r, { currency: on ? state.fiat.currency : '',
       fiat: on ? function (sats, time) { var f = time == null ? null : fiatOf(sats, time); return f ? f.value : null; } : null,
       today: on ? function (sats) { var f = fiatToday(sats); return f ? f.value : null; } : null,
-      firstSeen: function (txid) { var n = state.graph.nodes.get('tx:' + txid), b = n && n.ext && n.ext.blockcypher; return b && b.seen === true && typeof b.received === 'number' ? b.received : null; } });
+      firstSeen: function (txid) { var n = state.graph.nodes.get('tx:' + txid), f = n && XT.firstSeen(n.ext); return f ? f.time : null; } });
   }
   function lossRoles(p) { return p.roles.length ? ' · ' + p.roles.map(function (x) { return x === 'test' ? 'test payment' : 'main payment'; }).join(' and ') : ''; }
   function lossesBlock(box, u) {
@@ -5129,8 +5129,8 @@
   function trailItems(w, graph) {
     var out = [];
     (w.followed || []).forEach(function (txid) {
-      var n = graph.nodes.get('tx:' + txid), b = n && n.ext && n.ext.blockcypher;
-      if (b && b.seen === true && typeof b.received === 'number') out.push({ txid: txid, time: b.received, basis: 'first seen' });
+      var n = graph.nodes.get('tx:' + txid), f = n && XT.firstSeen(n.ext);                // the earliest time any service recorded
+      if (f) out.push({ txid: txid, time: f.time, basis: 'first seen' });
       else if (n && n.time != null) out.push({ txid: txid, time: n.time, basis: 'block time' });
     });
     return out;
@@ -5142,7 +5142,7 @@
     if (zoneMemo.key !== key) { zoneMemo.key = key; zoneMemo.z = items.length ? HoplineTimezone.fit(items) : null; }
     return zoneMemo.z;
   }
-  function zoneSig() { var z = trailZone(); return z ? z.n + '/' + z.fitting.join(',') + '/' + z.basis : ''; }
+  function zoneSig() { var z = trailZone(); return z ? z.n + '/' + z.fitting.join(',') + '/' + z.basis + '/' + z.events.map(function (e) { return e.time; }).join(',') : ''; }       // the times too: a service that says an earlier time changes the panel and nothing else
   function zoneTable(z) {
     var few = z.events.length <= 8;
     return z.offsets.map(function (o) {

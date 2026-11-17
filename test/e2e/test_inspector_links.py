@@ -172,6 +172,7 @@ def test_after_select_all_escape_clears_the_selection_and_leaves_nothing_ringed(
     section(fpage, "Spent by").locator(".selall").click()
     fpage.wait_for_function("() => window.__hopline.state.selected.size === 3", timeout=4000)
     fpage.wait_for_timeout(400)
+    fpage.mouse.move(*empty_spot(fpage))                                                 # the pointer is not left on a row of the details that is drawn again: that row would be hovered, and rightly ringed, and where it falls depends on how tall the details are
     fpage.keyboard.press("Escape")
     fpage.wait_for_function("() => window.__hopline.state.selected.size === 0", timeout=4000)
     fpage.wait_for_timeout(300)

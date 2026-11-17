@@ -35,6 +35,7 @@
   var ARKHAM_EXPLORER = 'https://arkm.com/explorer/';                                    // Arkham's own site (intel.arkm.com sends visitors there)
   var RAW_LIMIT = 4000;
   var BLOCKCYPHER_BASE = 'https://api.blockcypher.com/v1/btc/main';
+  var BLOCKCHAINCOM_BASE = 'https://blockchain.info';
   var MIN_TIME = 1230768000, MAX_TIME = 4102444800;                                    // 2009 .. 2100: a time outside it is not a time
 
   function text(v, max) {
@@ -284,6 +285,86 @@
     return out;
   }
 
+  // ---- Blockchain.com: when it first saw a transaction ----------------------------------------------------------------
+  /** The address asked for one transaction at Blockchain.com: base + /rawtx/<id>. */
+  function blockchaincomUrl(txid, base) {
+    return String(base || BLOCKCHAINCOM_BASE).replace(/\/+$/, '') + '/rawtx/' + String(txid || '').toLowerCase();
+  }
+  /**
+   * Read a Blockchain.com transaction reply: { found, seen, received, confirmed, height }. Its `time` is when its node first saw the transaction, or, when it had no record from before the block, the time of the block:
+   * so it is a first-seen time only when it differs from `blockTime`, the time of the block as the data source gave it (or when there is no block yet). `confirmed` is that block time, kept for the comparison.
+   * It names no peer: its `relayed_by` is a placeholder (0.0.0.0), which is not read.
+   */
+  function parseBlockchaincom(json, blockTime) {
+    var o = isObj(json) ? json : {};
+    var found = typeof o.hash === 'string' && /^[0-9a-fA-F]{64}$/.test(o.hash), time = num(o.time), block = num(blockTime);
+    var seen = found && time != null && (block == null || time !== block);
+    return { found: found, seen: seen, received: seen ? time : null, confirmed: block,
+             height: typeof o.block_height === 'number' && isFinite(o.block_height) && o.block_height >= 0 ? Math.floor(o.block_height) : null };
+  }
+  /** What is kept on a transaction: the parsed fields, when it was asked, the address asked (when given) and (capped) the reply as it came, without the long lists of inputs and outputs (the graph has them). */
+  function toBlockchaincomExt(json, blockTime, at, url) {
+    var p = parseBlockchaincom(json, blockTime), raw = '';
+    try {
+      var keep = {}; if (isObj(json)) Object.keys(json).forEach(function (k) { if (k !== 'inputs' && k !== 'out') keep[k] = json[k]; });
+      raw = JSON.stringify(keep);
+    } catch (e) { raw = ''; }
+    if (raw.length > RAW_LIMIT) raw = raw.slice(0, RAW_LIMIT) + '…';
+    p.at = typeof at === 'number' ? at : Math.floor(Date.now() / 1000);
+    p.raw = raw;
+    if (cleanUrl(url)) p.url = url;
+    return p;
+  }
+  /** Validate the Blockchain.com entry of an `ext` read from a file. */
+  function cleanBlockchaincom(a) {
+    if (!isObj(a)) return null;
+    var received = num(a.received), seen = a.seen === true && received != null;
+    var out = { found: a.found === true, seen: seen, received: seen ? received : null, confirmed: num(a.confirmed), relay: '',
+                height: typeof a.height === 'number' && isFinite(a.height) && a.height >= 0 ? Math.floor(a.height) : null,
+                at: typeof a.at === 'number' && isFinite(a.at) ? Math.floor(a.at) : 0, raw: typeof a.raw === 'string' ? a.raw.slice(0, RAW_LIMIT + 1) : '' };
+    if (cleanUrl(a.url)) out.url = a.url;
+    return out;
+  }
+  /**
+   * Ask Blockchain.com about one transaction. Resolves { found, ext } (found false when it does not know the transaction); rejects with an Error whose .kind is
+   * 'rate' | 'upstream' | 'timeout' | 'network' | 'bad'. No cookies and no referrer go with the request, like the one to BlockCypher.
+   * opts: { fetch, txid, base, blockTime, timeoutMs }
+   */
+  function lookupBlockchaincom(opts) {
+    var id = String(opts.txid || '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(id)) return Promise.reject(fail('bad', 'That is not a transaction id.'));
+    var url = blockchaincomUrl(id, opts.base), blockTime = opts.blockTime;
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null, timer = null, timedOut = false;
+    if (ctl) timer = setTimeout(function () { timedOut = true; ctl.abort(); }, opts.timeoutMs || 25000);
+    return opts.fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'omit', referrerPolicy: 'no-referrer', signal: ctl ? ctl.signal : undefined })
+      .then(function (res) {
+        return res.text().then(function (body) {
+          var json = null; try { json = JSON.parse(body); } catch (e) { json = null; }
+          if (res.status === 404) return { found: false, ext: toBlockchaincomExt({}, blockTime, undefined, url) };
+          if (res.status === 429) throw fail('rate', 'Blockchain.com\'s request limit was reached. Wait a while and ask again.', 429);
+          if (!res.ok) throw fail('upstream', 'Blockchain.com answered HTTP ' + res.status + '.', res.status);
+          if (json === null) throw fail('bad', 'Blockchain.com answered with something that is not JSON.', res.status);
+          var ext = toBlockchaincomExt(json, blockTime, undefined, url);
+          return { found: ext.found, ext: ext };
+        });
+      }, function (e) {
+        if (timedOut) throw fail('timeout', 'Blockchain.com did not answer in time.');
+        throw fail('network', 'Could not reach Blockchain.com (' + (e && e.message ? e.message : e) + '). If it was asked many times, its request limit may have been reached.');
+      }).then(function (v) { if (timer) clearTimeout(timer); return v; }, function (e) { if (timer) clearTimeout(timer); throw e; });
+  }
+
+  /** The earliest first-seen time among the services that recorded one on a transaction (its `ext`): { time, source, sourceName }, or null when none did. */
+  function firstSeen(ext) {
+    var best = null;
+    if (!isObj(ext)) return null;
+    REG.forEach(function (d, id) {
+      if (d.kind !== 'tx' || d.report !== 'firstseen' || !isObj(ext[id])) return;
+      var a = ext[id];
+      if (a.seen === true && typeof a.received === 'number' && (best === null || a.received < best.time)) best = { time: a.received, source: id, sourceName: d.name };
+    });
+    return best;
+  }
+
   // ---- the registry: one contract for every source -------------------------------------------------------------------
   var REG = new Map();
   /** Add a source. A source without `clean` or `describe` cannot be stored or shown, so it is refused. */
@@ -395,6 +476,31 @@
   });
 
   register({
+    id: 'blockchaincom', name: 'Blockchain.com', short: 'Blockchain.com', kind: 'tx', third: true, paceMs: 1000, none: 'no first-seen record', report: 'firstseen', host: 'blockchain.info', manyId: 'btnAskTimesBlockchaincom',
+    ask: { button: 'Ask Blockchain.com when it was first seen', again: 'Ask Blockchain.com again',
+           tip: 'Sends this transaction id to Blockchain.com (blockchain.info), which then knows you are looking at it. It answers when it first saw the transaction. It names no peer.',
+           many: 'Ask Blockchain.com about %s', manyTip: 'Sends the transaction ids to Blockchain.com, slowly, and stops when its request limit is reached' },
+    label: 'When first seen', intro: 'The time on a transaction is the time of its block. Blockchain.com can say when it first saw them.',
+    kinds: { good: 'with a first-seen time', none: 'with no record from before the block' }, useful: function (a) { return a.seen === true; },
+    ready: function () { return ''; },
+    lookup: function (txid, ctx) { var n = ctx.node ? ctx.node(txid) : null; return lookupBlockchaincom({ fetch: ctx.fetch, txid: txid, base: ctx.blockchaincom, blockTime: n && typeof n.time === 'number' ? n.time : null }); },
+    clean: cleanBlockchaincom,
+    url: function (txid) { return blockchaincomUrl(txid); },
+    describe: function (a) {
+      return { found: a.seen === true, label: a.seen ? 'first seen ' + utcText(a.received) : 'no first-seen record', category: 'Broadcast time', tags: [], suggest: '', at: a.at,
+               note: a.seen ? '' : a.found ? 'Blockchain.com learned of it from its block.' : 'Blockchain.com does not know it.' };
+    },
+    headline: function (a) { return a.seen ? 'first seen ' + utcText(a.received) : a.found ? 'no record from before its block' : 'it does not know this transaction'; },
+    explain: function (a) {
+      return a.seen ? 'This is what Blockchain.com recorded; it is not part of the blockchain. It names no peer.'
+        : a.found ? 'Blockchain.com has no record from before the block: the time it gives is the block\'s. That says nothing about when the transaction was sent.' : 'Blockchain.com does not know this transaction.';
+    },
+    fields: function (a) {
+      return [['First seen', a.seen ? utcText(a.received) : ''], ['Before its block', a.seen && a.confirmed != null ? (a.received <= a.confirmed ? gapText(a.confirmed - a.received) : 'none: the block\'s time stamp is earlier') : ''], ['Block', a.height]];
+    }
+  });
+
+  register({
     id: 'chainwindow', name: 'Block data', short: 'Block data', kind: 'tx', third: false, none: 'no window', manyId: 'btnAskWindow',
     ask: { button: 'Narrow the time from block data', again: 'Narrow it again',
            tip: 'Asks the data source you are using for the blocks before this transaction\'s block (a few requests) and works out the earliest it can have been sent. Nothing goes to another service.',
@@ -410,6 +516,6 @@
     fields: function (a) { return TW.rows(a); }
   });
 
-  return { parseBlockcypher: parseBlockcypher, lookupBlockcypher: lookupBlockcypher, toBlockcypherExt: toBlockcypherExt, blockcypherUrl: blockcypherUrl, timeRows: timeRows, utcText: utcText, gapText: gapText, relayText: relayText, relayHost: relayHost, BLOCKCYPHER_BASE: BLOCKCYPHER_BASE,
+  return { parseBlockcypher: parseBlockcypher, lookupBlockcypher: lookupBlockcypher, toBlockcypherExt: toBlockcypherExt, blockcypherUrl: blockcypherUrl, parseBlockchaincom: parseBlockchaincom, lookupBlockchaincom: lookupBlockchaincom, toBlockchaincomExt: toBlockchaincomExt, blockchaincomUrl: blockchaincomUrl, firstSeen: firstSeen, timeRows: timeRows, utcText: utcText, gapText: gapText, relayText: relayText, relayHost: relayHost, BLOCKCYPHER_BASE: BLOCKCYPHER_BASE,
            relayUrl: relayUrl, SOURCES: SOURCES, register: register, unregister: unregister, source: source, list: list, describe: describe, entries: entries, lookupMany: lookupMany, parseArkham: parseArkham, tagFor: tagFor, toExt: toExt, cleanExt: cleanExt, lookupArkham: lookupArkham, proxyHealth: proxyHealth, arkhamUrl: arkhamUrl, ARKHAM_EXPLORER: ARKHAM_EXPLORER, RAW_LIMIT: RAW_LIMIT };
 }));
