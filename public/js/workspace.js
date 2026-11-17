@@ -57,7 +57,7 @@
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
     stepMode: 'ask', stepSize: 5, shareMax: SH.DEFAULT_LIMIT, autoBalance: true, autoHistory: true, autoUpdate: false, autoTag: true, tagSeen: new Set(), arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
-    ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: {}, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
+    ext: { proxy: 'http://127.0.0.1:8787', token: '', remember: false, consented: {}, tick: {}, busy: false }, today: null, todayAt: 0, fiatError: '', priceClient: null,
     retired: { data: 0, price: 0, retried: 0, failed: 0 },
     busy: false, playMs: 90, layoutRes: null, client: null, explorer: null, tb: { min: null, max: null }, amountMax: 0, playTimer: null,
     log: []
@@ -2612,13 +2612,16 @@
 
   /** One block per source in the registry (HoplineExternal): a button to ask it, and what it said, each on its own card. Nothing is asked until you press a button. */
   /**
-   * The box that confirms what is sent to a third party: ticked, its button works. The details are drawn again after every look-up, so the box is clear again and every look-up is confirmed.
+   * The box that confirms what is sent to a third party: ticked, its button works. The tick is given for the service (`sid`) and stays for the rest of the page session, so the details drawn again after a look-up,
+   * another transaction and a selection all start ticked; the label beside it says what is sent this time. It is kept in memory only (state.ext.tick): never in the workspace file, a link or the browser's storage,
+   * and a reload clears it. The button itself still asks the box, not the memory, when it is pressed.
    * Returns { label, ok() }; it enables and disables `btn`.
    */
-  function consentBox(btn, id, text) {
+  function consentBox(btn, id, text, sid) {
     var cb = el('input', { type: 'checkbox', id: id });
-    cb.addEventListener('change', function () { btn.disabled = !cb.checked; });
-    return { label: el('label', { 'class': 'check consent' }, [cb, ' ' + text]), ok: function () { return cb.checked; } };
+    cb.checked = state.ext.tick[sid] === true; btn.disabled = !cb.checked;
+    cb.addEventListener('change', function () { state.ext.tick[sid] = cb.checked; btn.disabled = !cb.checked; });
+    return { label: el('label', { 'class': 'check consent', title: 'Stays ticked until you untick it or reload the page' }, [cb, ' ' + text]), ok: function () { return cb.checked; } };
   }
 
   function externalCard(n) {
@@ -2628,7 +2631,7 @@
       var ext = n.ext && n.ext[s.id], cap = s.id.charAt(0).toUpperCase() + s.id.slice(1), def = tx ? XT.source(s.id) : null, third = tx && def.third !== false, consent = null;
       var btn = el('button', { type: 'button', id: 'btn' + cap, text: tx ? def.ask[ext ? 'again' : 'button'] : (ext ? 'Look up again in ' : 'Look up in ') + s.short, title: sourceTip(s) + (third ? ' Tick the box to confirm.' : ''), disabled: third ? 'disabled' : null,
                           onclick: function () { if (tx) lookupTxSource(s.id, [n.id], consent ? consent.ok() : true); else lookupSource(s.id, n.id); } });
-      if (third) { consent = consentBox(btn, 'chk' + cap, 'Send the transaction id to ' + def.name + ' (' + def.host + ')'); box.appendChild(consent.label); }
+      if (third) { consent = consentBox(btn, 'chk' + cap, 'Send the transaction id to ' + def.name + ' (' + def.host + ')', s.id); box.appendChild(consent.label); }
       box.appendChild(el('div', { 'class': 'insp-actions' }, [btn]));
       if (ext) box.appendChild(sourceCard(n, s.id, ext));
     });
@@ -2706,7 +2709,7 @@
 
   /**
    * Ask a transaction source about some transactions, on request: BlockCypher (when it first saw them), or the data source in use (the blocks before them). A source that sends the ids to a
-   * third party needs `confirmed` (the box beside its button, ticked), every time. Each answer is kept on its transaction as it arrives, so a request limit in the middle loses nothing, and nothing else
+   * third party needs `confirmed` (the box beside its button, ticked). Each answer is kept on its transaction as it arrives, so a request limit in the middle loses nothing, and nothing else
    * changes: the time of the block stays what it is.
    */
   function lookupTxSource(sid, ids, confirmed) {
@@ -2753,7 +2756,7 @@
         var third = def.third !== false, consent = null;
         var btn = el('button', { type: 'button', id: def.manyId || 'btnAsk' + s.id, text: def.ask.many.replace('%s', count), title: def.ask.manyTip + (third ? '. Tick the box to confirm' : ''), disabled: third ? 'disabled' : null,
                                  onclick: function () { lookupTxSource(s.id, batch, consent ? consent.ok() : true); } });
-        if (third) { consent = consentBox(btn, 'chk' + (def.manyId || 'btnAsk' + s.id).replace(/^btn/, ''), 'Send ' + (batch.length === 1 ? 'the transaction id' : 'the ' + batch.length + ' transaction ids') + ' to ' + def.name + ' (' + def.host + ')'); kids.push(consent.label); }
+        if (third) { consent = consentBox(btn, 'chk' + (def.manyId || 'btnAsk' + s.id).replace(/^btn/, ''), 'Send ' + (batch.length === 1 ? 'the transaction id' : 'the ' + batch.length + ' transaction ids') + ' to ' + def.name + ' (' + def.host + ')', s.id); kids.push(consent.label); }
         kids.push(el('div', { 'class': 'insp-actions' }, [btn]));
       }
       wrap.appendChild(el('div', { 'class': 'insp-section' }, kids));
