@@ -21,12 +21,14 @@ def fix_fee(mock, n):
     r["fee"] = sum(v["prevout"]["value"] for v in r["vin"]) - sum(o["value"] for o in r["vout"])
 
 
-def scene(page, mock, tx3_ins=None, outs3=None, unread=True, fix3=True):
+def scene(page, mock, tx3_ins=None, outs3=None, unread=True, fix3=True, times=None):
     tx(mock, 1, [IN(90, 0, "victim", 70000)], [OUT("ref", 60000), OUT("victim", 9800)], spent={0: 2})
     tx(mock, 2, [IN(1, 0, "ref", 60000)], [OUT("a", 30000), OUT("b", 29000)], spent={0: 3})
     tx(mock, 3, tx3_ins or [IN(2, 0, "a", 30000)], outs3 or [OUT("c", 28500)])
     for n in (1, 2, 3) if fix3 else (1, 2):
         fix_fee(mock, n)
+    for n, when in (times or {}).items():                                         # the block time of a transaction, to space them out
+        mock.routes["/tx/" + tid(n)]["status"]["block_time"] = when
     if unread:
         mock.fail["/tx/" + tid(3) + "/outspends"] = 500                      # the spends of the last transaction cannot be read: its coin is "not checked"
     open_query(page, tid(1)); settle(page)

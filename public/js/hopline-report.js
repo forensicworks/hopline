@@ -363,6 +363,45 @@
         + '<tr><th>Received</th><th></th><th class="num">' + bt(mo.received) + '</th><th>' + (mo.closes ? 'Everything received is accounted for.' : mo.truncated ? 'The trail was cut short: the numbers do not add up.' : 'Does not add up: ' + bt(mo.sum) + ' accounted for, ' + esc(fmtInt(Math.abs(mo.off))) + ' sat ' + (mo.off > 0 ? 'unaccounted' : 'too many') + '.') + '</th></tr></table>');
     }
 
+    var ls = model.losses;
+    if (ls && (ls.paid.length || ls.returned.length)) {
+      var lb = function (sats) { return esc(Style.fmtBtc(sats)) + ' BTC'; };
+      h.push('<h2>Payments from victim wallets</h2><p class="hint">What wallets tagged VICTIM (and the wallets spent together with them) paid to the wallets tagged THREAT or chosen as the reference. The tags are the analyst\'s: Hopline does not find who is whose. '
+        + 'Each amount is what the transaction paid to that wallet, not what the victim\'s wallet spent, so change that went back is not counted; a payment that was a small test and the larger one that followed it are named. '
+        + (ls.fiat ? 'Values are indicative, at the time of each transaction' + (model.fiatNote ? ': ' + esc(model.fiatNote) : '') + '. ' : '')
+        + (ls.mixed ? plural(ls.mixed, 'transaction') + ' that spent coins of both sides ' + (ls.mixed === 1 ? 'is' : 'are') + ' left out. ' : '') + '</p>'
+        + '<table><tr><th>When (UTC)</th><th>Transaction</th><th>Paid to</th><th>Amount</th>' + (ls.fiat ? '<th>Value then (' + esc(ls.fiat.currency) + ')</th>' : '') + '<th>What</th></tr>'
+        + ls.paid.map(function (p) { return '<tr><td>' + esc(p.time != null ? t(p.time) : 'not in a block') + '</td><td><code>' + esc(p.txid) + '</code></td><td><code>' + esc(p.to) + '</code></td><td class="num">' + lb(p.amount) + '</td>' + (ls.fiat ? '<td class="num">' + esc(p.fiat) + '</td>' : '') + '<td>' + esc(p.roles.map(function (x) { return x === 'test' ? 'test payment' : 'main payment'; }).join(' and ')) + '</td></tr>'; }).join('')
+        + ls.returned.map(function (p) { return '<tr><td>' + esc(p.time != null ? t(p.time) : 'not in a block') + '</td><td><code>' + esc(p.txid) + '</code></td><td><code>' + esc(p.to) + '</code></td><td class="num">-' + lb(p.amount) + '</td>' + (ls.fiat ? '<td class="num">' + esc(p.fiat) + '</td>' : '') + '<td>returned to the victim</td></tr>'; }).join('')
+        + '<tr><th>Net</th><th></th><th></th><th class="num">' + lb(ls.net) + '</th>' + (ls.fiat ? '<th class="num">' + esc(ls.fiat.net) + '</th>' : '') + '<th>' + plural(ls.paidCount, 'payment') + ' paid' + (ls.returned.length ? ', ' + plural(ls.returned.length, 'return') : '') + (ls.fiat && ls.fiat.today ? '; worth ' + esc(ls.fiat.today) + ' today' : '') + '</th></tr></table>'
+        + (ls.paidCount > ls.paid.length ? '<p class="hint">The first ' + ls.paid.length + ' of ' + ls.paidCount + ' payments are listed; the embedded data has them all.</p>' : '')
+        + (ls.recipients.length > 1 ? '<p class="hint">By receiving wallet: ' + ls.recipients.map(function (x) { return '<code>' + esc(x.address) + '</code> ' + lb(x.paid) + ' in ' + plural(x.count, 'payment'); }).join('; ') + '.</p>' : ''));
+    }
+
+    var zn = model.zone;
+    if (zn && zn.n > 0) {
+      var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], few = zn.events.length <= 8;
+      h.push('<h2>When the trail moved</h2><p class="hint">The time of day of the transactions that spent the money: those within half an hour of each other count as one event, and a time is when a service first saw the transaction where that was asked, else the time of its block, which can be minutes or hours after it was sent. '
+        + 'This is a hypothesis about the local time of whoever sent them, not a finding: people work nights, scripts run at any hour, and a few events fit many offsets.</p><p>' + esc(zn.text) + '</p>'
+        + '<table><tr><th>Event (UTC)</th><th>Weekday</th><th>Time is</th><th>Transactions</th></tr>'
+        + zn.events.slice(0, 40).map(function (e) { return '<tr><td>' + esc(t(Math.floor(e.time))) + '</td><td>' + days[new Date(e.time * 1000).getUTCDay()] + '</td><td>' + esc(e.basis) + '</td><td>' + e.txids.map(function (x) { return '<code>' + esc(x) + '</code>'; }).join(', ') + (e.count > e.txids.length ? ' <span class="hint">and ' + (e.count - e.txids.length) + ' more</span>' : '') + '</td></tr>'; }).join('')
+        + '</table>' + (zn.events.length > 40 ? '<p class="hint">The first 40 of ' + zn.events.length + ' events are listed.</p>' : '')
+        + '<table><tr><th>Offset</th>' + (few ? zn.events.map(function (e, i) { return '<th>Event ' + (i + 1) + '</th>'; }).join('') : '') + '<th>In waking hours (07:00 to 22:59)</th><th>At night (00:00 to 05:59)</th></tr>'
+        + zn.offsets.map(function (o) { return '<tr' + (o.all ? ' class="fit"' : '') + '><td>' + esc(o.text) + '</td>' + (few ? o.hours.map(function (x) { return '<td class="num">' + esc(x) + '</td>'; }).join('') : '') + '<td class="num">' + o.waking + ' of ' + zn.n + (o.all ? ' (all)' : '') + '</td><td class="num">' + o.night + '</td></tr>'; }).join('')
+        + '</table>');
+    }
+    var pt = model.patterns;
+    if (pt && pt.test.length + pt.handoff.length + pt.split.length) {
+      h.push('<h2>Patterns that are context</h2><p class="hint">Shapes found in the transactions of this report that are common in ordinary use and say nothing about who is behind them. They are not findings and are not counted with them: each is a thing to look at, not a lead.</p>');
+      [['Test payment', pt.test, 'A small payment and soon after a much larger one from the same sender to the same wallet (at least 50 times as much, within a week or in the same block). People often send a small amount first to see that it arrives; a scam often asks for one.'],
+       ['Hand-off before confirming', pt.handoff, 'Chains of at least two transactions in one block, each spending coins that the one before had paid to a different owner, so the coins were passed on before the first payment was confirmed. A script watching the mempool does it; so does anybody in a hurry. Spending your own unconfirmed change is not counted, and a single hand-off is too common to list.'],
+       ['Split and collect', pt.split, 'A run of at least three transactions with one input and two outputs that each pay the same wallet and pass the rest on, listed when the amounts are round or the pieces were later spent together.']].forEach(function (g) {
+        if (!g[1].length) return;
+        h.push('<h3>' + esc(g[0]) + ' (' + g[1].length + ')</h3><p class="hint">' + esc(g[2]) + '</p><table><tr><th>When (UTC)</th><th>Transactions</th><th>What</th></tr>'
+          + g[1].map(function (r) { return '<tr><td>' + esc(r.time != null ? t(r.time) : '') + '</td><td>' + r.txids.map(function (x) { return '<code>' + esc(x) + '</code>'; }).join('<br>') + '</td><td>' + esc(r.text) + '</td></tr>'; }).join('') + '</table>');
+      });
+    }
+
     h.push('<h2>Transactions in time order</h2><p class="hint">Inputs are the wallets whose coins were spent, outputs the wallets that received them.' + (txs.length > MAX_TX ? ' Only the first ' + MAX_TX + ' of ' + txs.length + ' are listed here; the embedded data has them all.' : '') + '</p>');
     txs.slice(0, MAX_TX).forEach(function (n) { h.push(txBlock(model, nodes, edgesByTx, n)); });
     if (!txs.length) h.push('<p>No loaded transaction in this selection.</p>');

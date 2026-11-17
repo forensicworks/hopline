@@ -29,7 +29,7 @@
    * Returns { refs, received, coins, truncated, resting, unchecked, movedOn, named, mixed, gap, fees, txs, sum, off, closes }, where resting, unchecked, movedOn and named are
    * { count, sats, rows } with rows [{ id (the wallet), address, amount, txid, vout, readAt (when the spends of the transaction were read, or null), label (named), next (movedOn: the transaction to load) }]
    * largest first; mixed is { count, sats (what went in from these coins), foreign (what went in from others), rows: [{ txid, trailIn, foreign, time }] }; gap is { count, sats, rows: [{ txid, sats }] };
-   * fees is the sum of the fees of the transactions followed and txs their number.
+   * fees is the sum of the fees of the transactions followed and txs their number; followed lists their ids (the moves of whoever held the money, in the order they were reached).
    */
   function where(graph, refIds, opts) {
     opts = opts || {};
@@ -37,7 +37,7 @@
     var refs = new Set((Array.isArray(refIds) ? refIds : [refIds]).filter(function (id) { return typeof id === 'string' && graph.nodes.has(id); }));
     var coins = new Map(), pending = [], seeds = [], candidates = new Map(), expanded = new Set(), truncated = false;
     var out = { refs: Array.from(refs), received: 0, coins: 0, truncated: false, resting: bucket(), unchecked: bucket(), movedOn: bucket(), named: bucket(),
-                mixed: { count: 0, sats: 0, foreign: 0, rows: [] }, gap: { count: 0, sats: 0, rows: [] }, fees: 0, txs: 0, sum: 0, off: 0, closes: true };
+                mixed: { count: 0, sats: 0, foreign: 0, rows: [] }, gap: { count: 0, sats: 0, rows: [] }, fees: 0, txs: 0, followed: [], sum: 0, off: 0, closes: true };
     function bucket() { return { count: 0, sats: 0, rows: [] }; }
 
     function outEdges(txId) { return graph.edgesOf(txId).filter(function (e) { return e.kind === 'out' && e.source === txId; }); }
@@ -89,7 +89,7 @@
 
     function expand(txid, inp) {
       var s = inp.node, txId = ID.tx(txid), seen = 0;
-      expanded.add(txid); out.txs++;
+      expanded.add(txid); out.txs++; out.followed.push(txid);
       out.fees += typeof s.fee === 'number' ? s.fee : Math.max(0, (s.valueIn || 0) - (s.valueOut || 0));
       outEdges(txId).forEach(function (e) { seen += e.amount; addCoin(e); });
       var missing = (s.valueOut || 0) - seen;

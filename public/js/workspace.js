@@ -2732,7 +2732,7 @@
       if (!failed && !done && bad) { toast(firstBad, true); return; }
       toast(failed ? ((r.error && r.error.message) || 'The look-up failed.') + (done ? ' ' + done + ' of ' + asked + ' were answered before that and are kept.' : '')
                    : def.short + ': ' + plural(done, 'transaction') + ' answered, ' + good + ' ' + kinds.good + ' and ' + (done - good) + ' ' + kinds.none + '.' + (bad ? ' ' + plural(bad, 'transaction') + ' could not be done: ' + firstBad : ''), failed);
-      showInspector(); scheduleSave();
+      showInspector(); updateFindings(); scheduleSave();                                     // what a service said about when changes the time of day of the trail
     }, function (e) { toast((e && e.message) || 'The look-up failed.', true); }).then(function () { x.busy = false; });
   }
 
@@ -5012,6 +5012,169 @@
     if (acts.length) box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
   }
 
+  // ---- payments from victims: the loss table --------------------------------------------------------------------------------------------------------------
+  /** The wallets tagged VICTIM, and those tagged THREAT or chosen as the reference (a wallet that is both is the victim's). */
+  function lossSides() {
+    var g = state.graph, victims = [], threats = [];
+    g.nodes.forEach(function (n) { if (n.type !== 'addr') return; if (n.tag === 'VICTIM') victims.push(n.id); else if (n.tag === 'THREAT') threats.push(n.id); });
+    routeStarts().forEach(function (id) { if (/^addr:/.test(id) && g.nodes.has(id) && threats.indexOf(id) < 0 && victims.indexOf(id) < 0) threats.push(id); });
+    return { victims: victims, threats: threats };
+  }
+  var lossMemo = { an: null, key: '', r: null };
+  /** HoplineLosses.find over the tagged wallets, kept until the analysis or the wallets change; null without both sides or without a payment. */
+  function lossesNow() {
+    var an = analysis(), sd = lossSides(); if (!sd.victims.length || !sd.threats.length) return null;
+    var key = sd.victims.join(',') + '|' + sd.threats.join(',');
+    if (lossMemo.an !== an || lossMemo.key !== key) { lossMemo.an = an; lossMemo.key = key; lossMemo.r = HoplineLosses.find(state.graph, an, sd); }
+    return lossMemo.r.paid.length || lossMemo.r.returned.length ? lossMemo.r : null;
+  }
+  function lossFiat(sats, time) { if (!fiatOn()) return null; return time == null ? fiatToday(sats) : fiatOf(sats, time); }
+  function lossSig() {
+    var r = lossesNow(); if (!r) return '';
+    var f = r.paid.length ? lossFiat(r.paid[0].amount, r.paid[0].time) : null, n = lossFiat(r.net, null);
+    return [r.totalPaid, r.totalReturned, r.paid.length, r.returned.length, r.mixed, state.fiat.currency, f ? f.text : '', n ? n.text : ''].join(',');
+  }
+  /** The loss table as CSV: with the fiat values when a currency is chosen, and when a service first saw each transaction where that was asked. */
+  function lossCsv(r) {
+    var on = fiatOn();
+    return HoplineLosses.toCsv(r, { currency: on ? state.fiat.currency : '',
+      fiat: on ? function (sats, time) { var f = time == null ? null : fiatOf(sats, time); return f ? f.value : null; } : null,
+      today: on ? function (sats) { var f = fiatToday(sats); return f ? f.value : null; } : null,
+      firstSeen: function (txid) { var n = state.graph.nodes.get('tx:' + txid), b = n && n.ext && n.ext.blockcypher; return b && b.seen === true && typeof b.received === 'number' ? b.received : null; } });
+  }
+  function lossRoles(p) { return p.roles.length ? ' · ' + p.roles.map(function (x) { return x === 'test' ? 'test payment' : 'main payment'; }).join(' and ') : ''; }
+  function lossesBlock(box, u) {
+    var r = lossesNow(); if (!r) return;
+    function btc(sats) { return S.fmtBtc(sats) + ' BTC'; }
+    function withFiat(sats, time) { var f = lossFiat(sats, time); return btc(sats) + (f ? ' · ' + f.text : ''); }
+    box.appendChild(u.head('Payments from victims', 'losses'));
+    box.appendChild(el('p', { 'class': 'hint', text: 'What wallets tagged VICTIM (and the wallets spent together with them) paid to the wallets tagged THREAT or chosen as the reference. The tags are yours. Each amount is what the transaction paid to that wallet, not what the victim\'s wallet spent.' }));
+    r.paid.slice(0, 30).forEach(function (p) {
+      var ids = ['tx:' + p.txid];
+      box.appendChild(u.row(el('span', { 'class': 'rowtext' }, [(p.time != null ? S.fmtTime(p.time) : 'not in a block') + lossRoles(p)]), withFiat(p.amount, p.time), p.txid + ' · paid to ' + p.to, function () { selectIds(ids, 'the payment'); }, p.txid, 'transaction id', ids, '#4da3ff'));
+    });
+    if (r.paid.length > 30) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (r.paid.length - 30) + ' more payments' }));
+    r.returned.slice(0, 10).forEach(function (p) {
+      var ids = ['tx:' + p.txid];
+      box.appendChild(u.row(el('span', { 'class': 'rowtext' }, ['Returned · ' + (p.time != null ? S.fmtTime(p.time) : 'not in a block')]), '−' + withFiat(p.amount, p.time), p.txid + ' · paid back to ' + p.to, function () { selectIds(ids, 'the return'); }, p.txid, 'transaction id', ids, '#3ddc97'));
+    });
+    function sum(list, today) { var v = 0, any = false; list.forEach(function (p) { var f = today ? fiatToday(p.amount) : (p.time == null ? null : fiatOf(p.amount, p.time)); if (f && f.value != null) { v += f.value; any = true; } }); return any ? v : null; }
+    var cur = state.fiat.currency, at = fiatOn() ? sum(r.paid, false) : null, back = fiatOn() ? sum(r.returned, false) : null, today = fiatOn() ? lossFiat(r.net, null) : null;
+    box.appendChild(el('p', { 'class': 'hint', text: 'Paid: ' + plural(r.paid.length, 'payment') + ', ' + btc(r.totalPaid) + (at != null ? ' (' + PR.format(at, cur) + ' at the time of each)' : '') + '. '
+                                                    + (r.returned.length ? 'Returned: ' + btc(r.totalReturned) + (back != null ? ' (' + PR.format(back, cur) + ')' : '') + '. ' : '')
+                                                    + 'Net ' + btc(r.net) + (at != null ? ' (' + PR.format(at - (back || 0), cur) + ' at the time' + (today ? ', ' + today.text + ' today' : '') + ')' : '') + '.'
+                                                    + (r.mixed ? ' ' + plural(r.mixed, 'transaction') + ' that spent coins of both sides ' + (r.mixed === 1 ? 'was' : 'were') + ' left out.' : '') }));
+    box.appendChild(el('div', { 'class': 'insp-actions' }, [
+      el('button', { type: 'button', id: 'btnLossCopy', text: 'Copy CSV', title: 'Copy the table, with a TOTAL row, as CSV', onclick: function () { copy(lossCsv(r), 'the payments as CSV'); } }),
+      el('button', { type: 'button', id: 'btnLossSave', text: 'Save CSV', title: 'Save the table, with a TOTAL row, as a CSV file', onclick: function () { download('hopline-payments-' + stamp() + '.csv', lossCsv(r), 'text/csv;charset=utf-8'); } })]));
+  }
+  /** The loss table for the report, as plain data (what is on screen): the numbers, and each payment with its value then. */
+  function reportLosses(r) {
+    function row(p) { var f = lossFiat(p.amount, p.time); return { time: p.time, txid: p.txid, to: p.to, amount: p.amount, roles: p.roles, height: p.height, fiat: f ? f.text : '' }; }
+    var on = fiatOn(), cur = state.fiat.currency;
+    function total(list) { var v = 0, any = false; list.forEach(function (p) { var f = p.time == null ? null : fiatOf(p.amount, p.time); if (f && f.value != null) { v += f.value; any = true; } }); return any ? v : null; }
+    var at = on ? total(r.paid) : null, back = on ? total(r.returned) : null, today = on ? lossFiat(r.net, null) : null;
+    return { paid: r.paid.slice(0, 500).map(row), returned: r.returned.slice(0, 200).map(row), paidCount: r.paid.length, totalPaid: r.totalPaid, totalReturned: r.totalReturned, net: r.net, mixed: r.mixed,
+             recipients: r.recipients.slice(0, 10).map(function (x) { return { address: x.address, paid: x.paid, count: x.count }; }), first: r.first, last: r.last,
+             fiat: on && at != null ? { currency: cur, paid: PR.format(at, cur), returned: back != null ? PR.format(back, cur) : '', net: PR.format(at - (back || 0), cur), today: today ? today.text : '' } : null };
+  }
+
+  // ---- patterns that are context, and the time of day of the trail ---------------------------------------------------------------------------------------------
+  var PATTERN_COLORS = { test: '#4da3ff', handoff: '#ffa94d', split: '#b36bff' };
+  var patMemo = { an: null, r: null };
+  /** HoplinePatterns.find over the graph, kept until the analysis changes; null when nothing was found. */
+  function patternsNow() {
+    var an = analysis();
+    if (patMemo.an !== an) { patMemo.an = an; patMemo.r = state.graph.nodes.size ? HoplinePatterns.find(state.graph, an) : null; }
+    return patMemo.r && patMemo.r.counts.total ? patMemo.r : null;
+  }
+  function patternsSig() { var r = patternsNow(); return r ? [r.counts.test, r.counts.handoff, r.counts.links, r.counts.split].join(',') : ''; }
+  /** One pattern in words: { left, amt, text }. */
+  function patternWords(kind, p) {
+    var gap = HoplineTimeWindow.gapText;
+    if (kind === 'test') {
+      return { left: S.fmtBtc(p.test.amount) + ' BTC, then ' + S.fmtBtc(p.main.amount) + ' BTC', amt: '×' + fmtInt(p.ratio),
+               text: 'Paid ' + S.fmtBtc(p.test.amount) + ' BTC to ' + p.test.address + ' and, ' + (p.gap === 0 ? 'in the same block' : gap(p.gap) + ' later') + ', ' + S.fmtBtc(p.main.amount) + ' BTC (' + fmtInt(p.ratio) + ' times as much) from the same sender to the same wallet.' };
+    }
+    if (kind === 'handoff') {
+      var rates = p.parentRate != null && p.childRate != null ? (Math.round(p.parentRate * 10) / 10) + ' → ' + (Math.round(p.childRate * 10) / 10) + ' sat/vB' : '';
+      return { left: plural(p.hops, 'hand-off') + ' in block ' + fmtInt(p.height), amt: rates || plural(p.ids.length, 'transaction'),
+               text: plural(p.ids.length, 'transaction') + ' confirmed together in block ' + fmtInt(p.height) + ', each spending coins that the one before had just paid to another owner (' + plural(p.hops, 'hand-off') + ')' + (rates ? '; the fee rate went from ' + rates : '') + '.' };
+    }
+    return { left: plural(p.steps, 'step') + ' paying ' + S.shortId(p.address, 8), amt: S.fmtBtc(p.total) + ' BTC',
+             text: 'A run of ' + p.steps + ' transactions with one input and two outputs, each paying ' + p.paid.map(function (a) { return S.fmtBtc(a); }).join(', ') + ' BTC to ' + p.address + (p.round ? ' (round amounts)' : '') + ' and passing the rest on'
+                   + (p.collected ? '; ' + plural(p.collected.pieces, 'piece') + ' were later spent together in ' + S.shortId(p.collected.txid, 8) : '') + '.' };
+  }
+  function patternsBlock(box, u) {
+    var r = patternsNow(); if (!r) return;
+    box.appendChild(u.head('Patterns that are context', 'patterns'));
+    box.appendChild(el('p', { 'class': 'hint', text: 'Shapes that are common in ordinary use and say nothing about who is behind them. Not findings, and not counted with them: each is a thing to look at, not a lead.' }));
+    [['test', 'Test payment', r.test], ['handoff', 'Hand-off before confirming', r.handoff], ['split', 'Split and collect', r.split]].forEach(function (g) {
+      var kind = g[0], items = g[2]; if (!items.length) return;
+      var all = []; items.forEach(function (p) { HoplinePatterns.idsOf(kind, p).forEach(function (id) { if (all.indexOf(id) < 0) all.push(id); }); });
+      var dot = el('span', { text: '● ' }); dot.style.color = PATTERN_COLORS[kind];
+      box.appendChild(u.row(el('span', { 'class': 'rowtext' }, [dot, g[1]]), String(items.length), 'Select the ' + all.length + ' transactions of these', function () { selectIds(all, g[1].toLowerCase()); }, undefined, undefined, all, PATTERN_COLORS[kind]));
+      items.slice(0, 6).forEach(function (p) {
+        var w = patternWords(kind, p), ids = HoplinePatterns.idsOf(kind, p);
+        box.appendChild(u.row(el('span', { 'class': 'rowtext' }, [w.left]), w.amt, w.text, function () { selectIds(ids, g[1].toLowerCase()); }, undefined, undefined, ids, PATTERN_COLORS[kind]));
+      });
+      if (items.length > 6) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (items.length - 6) + ' more' }));
+    });
+  }
+
+  /** The transactions that spent the money as events for HoplineTimezone: the time a service first saw them when that was asked, else the time of their block. */
+  function trailItems(w, graph) {
+    var out = [];
+    (w.followed || []).forEach(function (txid) {
+      var n = graph.nodes.get('tx:' + txid), b = n && n.ext && n.ext.blockcypher;
+      if (b && b.seen === true && typeof b.received === 'number') out.push({ txid: txid, time: b.received, basis: 'first seen' });
+      else if (n && n.time != null) out.push({ txid: txid, time: n.time, basis: 'block time' });
+    });
+    return out;
+  }
+  var zoneMemo = { key: '', z: null };
+  function trailZone() {
+    var w = moneyNow(); if (!w || !w.followed.length) return null;
+    var items = trailItems(w, state.graph), key = items.map(function (x) { return x.txid + '@' + x.time + x.basis; }).join(',');
+    if (zoneMemo.key !== key) { zoneMemo.key = key; zoneMemo.z = items.length ? HoplineTimezone.fit(items) : null; }
+    return zoneMemo.z;
+  }
+  function zoneSig() { var z = trailZone(); return z ? z.n + '/' + z.fitting.join(',') + '/' + z.basis : ''; }
+  function zoneTable(z) {
+    var few = z.events.length <= 8;
+    return z.offsets.map(function (o) {
+      return (o.text + '      ').slice(0, 7) + (few ? o.hours.map(function (h) { return HoplineTimezone.hourText(h); }).join(' ') + '   ' : '') + o.waking + '/' + z.n + ' waking, ' + o.night + ' at night' + (o.all ? '  ← all in waking hours' : '');
+    }).join('\n');
+  }
+  function trailBlock(box, u) {
+    var z = trailZone(); if (!z) return;
+    box.appendChild(u.head('When the trail moved', 'trailtime'));
+    box.appendChild(el('p', { 'class': 'hint', text: 'The time of day of the transactions that spent the money (' + plural(z.n, 'event') + ': those within half an hour of each other count as one), as a hypothesis about the local time of whoever sent them. Not a finding. '
+                                                    + (z.basis === 'first seen' ? 'The times are when a service first saw them.' : z.basis === 'mixed' ? 'Some times are when a service first saw the transaction, the others the time of its block.' : 'The times are those of the blocks: a transaction may have been sent minutes or hours before its block.') }));
+    box.appendChild(el('p', { 'class': 'hint tznote' + (z.enough ? '' : ' weak'), text: z.text }));
+    z.events.slice(0, 12).forEach(function (e) {
+      var d = new Date(e.time * 1000);
+      box.appendChild(el('div', { 'class': 'hint mono', text: S.fmtTimeFull(Math.floor(e.time)) + ' · ' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()] + ' · ' + e.basis + (e.txids.length > 1 ? ' · ' + e.txids.length + ' transactions' : '') }));
+    });
+    if (z.events.length > 12) box.appendChild(el('div', { 'class': 'hint', text: '… and ' + (z.events.length - 12) + ' more events' }));
+    box.appendChild(el('details', { 'class': 'tztable' }, [el('summary', { text: 'All ' + z.offsets.length + ' offsets' }), el('pre', { text: zoneTable(z) })]));
+  }
+
+  /** The time of day of the trail for the report, as plain data (what is on screen). */
+  function reportZone(mw, graph) {
+    var items = trailItems(mw, graph); if (!items.length) return null;
+    var z = HoplineTimezone.fit(items);
+    return { n: z.n, spanDays: z.spanDays, enough: z.enough, text: z.text, basis: z.basis, need: z.need,
+             events: z.events.map(function (e) { return { time: e.time, basis: e.basis, txids: e.txids.slice(0, 5), count: e.txids.length }; }),
+             offsets: z.offsets.map(function (o) { return { text: o.text, hours: o.hours.map(function (h) { return HoplineTimezone.hourText(h); }), waking: o.waking, night: o.night, all: o.all }; }) };
+  }
+  /** The patterns for the report, as plain data: { test, handoff, split } each a list of { time, txids, text }, at most 200 of each. */
+  function reportPatterns(r) {
+    function rows(kind, list, when) { return list.slice(0, 200).map(function (p) { return { time: when(p), txids: HoplinePatterns.idsOf(kind, p).map(function (id) { return id.slice(3); }), text: patternWords(kind, p).text }; }); }
+    var out = { test: rows('test', r.test, function (p) { return p.main.time; }), handoff: rows('handoff', r.handoff, function (p) { return p.time; }), split: rows('split', r.split, function (p) { return p.time; }) };
+    return out.test.length + out.handoff.length + out.split.length ? out : null;
+  }
+
   // ---- what the wallets on the canvas hold: Colour by Balance, the Holding funds chip and its group in the Findings ---------------------------------------
   /**
    * The wallets in the graph by what they hold, from the balances that were read: { holds, small, empty, unknown } (arrays of vertices; holds largest first), `read` (how many have a
@@ -5174,7 +5337,7 @@
     updateFindStrip();
     var box = $('anFindings');
     if (!state.graph.nodes.size) { box.textContent = ''; findingsFor = null; detRefresh(); return; }
-    var an = analysis(), byKind = {}, kinds, loaded = 0, stamp = routeStamp() + '|' + holdings().sig + '|' + moneySig();
+    var an = analysis(), byKind = {}, kinds, loaded = 0, stamp = routeStamp() + '|' + holdings().sig + '|' + moneySig() + '|' + zoneSig() + '|' + patternsSig() + '|' + lossSig();
     if (findingsFor === an && findingsStamp === stamp && box.firstChild) return;      // nothing it shows has changed: leave the buttons alone (a replay refreshes many times a second)
     findingsFor = an; findingsStamp = stamp; previewOff(); box.textContent = ''; detRefresh();
     state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded) loaded++; });
@@ -5251,6 +5414,9 @@
       box.appendChild(el('p', { 'class': 'hint', text: 'On the built-in list or a label list you loaded. A name is somebody\'s claim, not proof.' + (ref ? ' A route follows the coins that were spent, in order; it is a lead, not proof of who owns what.' : '') }));
     }
     moneyBlock(box, { row: row, head: head });
+    lossesBlock(box, { row: row, head: head });
+    trailBlock(box, { row: row, head: head });
+    patternsBlock(box, { row: row, head: head });
     holdingBlock(box, { row: row, head: head });
     handoffBlock(box, { row: row, head: head });
     suggestBlock(box, { row: row, head: head });
@@ -6019,14 +6185,19 @@
     var an = analysis(), title = LB.cleanText($('reportTitle').value, 120) || 'Hopline investigation report', by = LB.cleanText($('reportBy').value, 80);
     var base = JSON.parse(IO.toJson(g, { only: vis, view: viewState(), source: sourceBase() }));
     var relayOn = !!($('reportRelay') && $('reportRelay').checked);
-    var money = null;                                                                    // where the money is now, over what is on screen: the graph of the report is built from its own data
+    var money = null, zone = null, patterns = null, losses = null;                                           // computed over what is on screen: the graph of the report is built from its own data
     try {
-      var onScreen = routeStarts().filter(function (id) { return vis.nodes.has(id); });
+      var sub = IO.fromJson(JSON.stringify(base)).graph, onScreen = routeStarts().filter(function (id) { return vis.nodes.has(id); });
       if (onScreen.length) {
-        var mw = HoplineMoney.where(IO.fromJson(JSON.stringify(base)).graph, onScreen, { stop: state.auto.stopLabel ? stopName : null });
-        if (mw.received > 0 || mw.coins > 0) money = reportMoney(mw, onScreen);
+        var mw = HoplineMoney.where(sub, onScreen, { stop: state.auto.stopLabel ? stopName : null });
+        if (mw.received > 0 || mw.coins > 0) { money = reportMoney(mw, onScreen); zone = reportZone(mw, sub); }
       }
-    } catch (e) { money = null; }
+      patterns = reportPatterns(HoplinePatterns.find(sub, AN.analyse(sub, {})));
+      var victims = [], threats = [];
+      sub.nodes.forEach(function (n) { if (n.type !== 'addr') return; if (n.tag === 'VICTIM') victims.push(n.id); else if (n.tag === 'THREAT') threats.push(n.id); });
+      onScreen.forEach(function (id) { if (/^addr:/.test(id) && threats.indexOf(id) < 0 && victims.indexOf(id) < 0) threats.push(id); });
+      if (victims.length && threats.length) { var lr = HoplineLosses.find(sub, AN.analyse(sub, {}), { victims: victims, threats: threats }); if (lr.paid.length || lr.returned.length) losses = reportLosses(lr); }
+    } catch (e) { money = zone = patterns = losses = null; }
     if (!relayOn) base.nodes.forEach(function (n) {                                // the peer that passed a transaction on is an IP address: out of the report and out of its embedded data, unless asked for
       if (n.type === 'tx' && n.ext) XT.list('tx').forEach(function (src) { var e = n.ext[src.id]; if (e) { e.relay = ''; e.raw = ''; } });
     });
@@ -6050,7 +6221,7 @@
     base.evidence.coverage = leftOut;
     var image = null; try { image = renderer.toDataUrl(); } catch (e) { /* a tainted or empty canvas: the report simply has no picture */ }
     var model = { title: title, preparedBy: by, generated: Date.now(), evidence: base, nodes: base.nodes, edges: base.edges,
-                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups, trace: trace, leftOut: leftOut, lookups: reportLookups(base.nodes), timeEvidence: XT.timeRows(base.nodes), timeRelay: relayOn, windowEvidence: HoplineTimeWindow.reportRows(base.nodes), money: money,
+                  analysis: { tx: atx, chains: chains, clusters: clusters, skipped: an.clusters.skipped }, groups: groups, trace: trace, leftOut: leftOut, lookups: reportLookups(base.nodes), timeEvidence: XT.timeRows(base.nodes), timeRelay: relayOn, windowEvidence: HoplineTimeWindow.reportRows(base.nodes), money: money, zone: zone, patterns: patterns, losses: losses,
                   dustSats: state.dustSats, known: function (a) { return KNOWN[a] || null; }, packs: reportPacks(), fiat: fiatOn() ? function (s, t) { var f = fiatOf(s, t); return f ? f.text : ''; } : null, fiatNote: fiatNoteText(),
                   image: image, fingerprint: function (n) { var f = AN.fingerprint(n); return f ? f.text : ''; } };
     return RP.build(model).then(function (r) {

@@ -31,6 +31,7 @@ test('where: every satoshi that reached the wallet is accounted for, and the num
   const g = build([t1, tx(2, [[1, 0, 'ref', 60000]], [['a', 30000], ['b', 29000]]), tx(3, [[2, 0, 'a', 30000]], [['c', 28500]])], { 1: [sp(2), open], 2: [sp(3), open] });
   const w = MN.where(g, [REF]);
   assert.deepEqual([w.received, w.coins, w.txs, w.fees], [60000, 4, 2, 2500]);
+  assert.deepEqual(w.followed, [tid(2), tid(3)], 'the transactions that spent the money, not the one that paid it');
   assert.deepEqual([w.resting.sats, w.resting.count, w.resting.rows[0].address], [29000, 1, adr('b')]);
   assert.deepEqual([w.unchecked.sats, w.unchecked.count, w.unchecked.rows[0].address], [28500, 1, adr('c')]);
   assert.deepEqual([w.movedOn.sats, w.named.sats, w.mixed.sats, w.gap.sats], [0, 0, 0, 0]);
@@ -55,6 +56,7 @@ test('where: money spent together with other money is mixed: it is not followed 
   assert.deepEqual([w.mixed.count, w.mixed.sats, w.mixed.foreign, w.mixed.rows[0].txid], [1, 30000, 20000, tid(3)]);
   assert.equal(w.unchecked.sats, 0, 'c was not followed: nothing is guessed about what came out of a mixed transaction');
   assert.deepEqual([w.resting.sats, w.fees, w.sum, w.closes], [29000, 1000, 60000, true]);
+  assert.deepEqual(w.followed, [tid(2)], 'a mixed transaction is not one of the moves of the trail');
 });
 
 test('where: change that comes back to the wallet is part of the trail and is not received twice', () => {
