@@ -77,6 +77,7 @@ function message(ev, nameOf) {
     case 'gap': lines.push('⚠️ <b>More than 25 new transactions since the last check</b>: the older ones were not read.', wallet); break;
     case 'error': lines.push('❌ <b>Monitor error</b>', wallet, esc(ev.message)); break;
     case 'recovered': lines.push('✔️ <b>Reading this wallet again</b>', wallet); break;
+    case 'skipped': lines.push('⚠️ <b>Line ' + esc(ev.line) + ' of the wallets file is not an address</b>', 'It is not being watched; the other wallets are. Look for a typo, or a name without # in front of it.'); break;
     default: lines.push(esc(ev.type), wallet);
   }
   lines.push('<i>' + utc(Date.parse(ev.at)) + (ev.n ? ' · event #' + esc(ev.n) : '') + '</i>');

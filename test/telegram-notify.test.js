@@ -70,6 +70,7 @@ test('the other events: start with the balance, confirmation, dropped, gap, erro
   assert.match(Tg.message({ type: 'gap', at: AT, wallet: A, n: 4 }, {}), /More than 25 new transactions/);
   assert.match(Tg.message({ type: 'error', at: AT, wallet: A, message: 'HTTP 500 for /address/<x> & more', n: 5 }, {}), /❌ <b>Monitor error<\/b>[\s\S]*HTTP 500 for \/address\/&lt;x&gt; &amp; more/);
   assert.match(Tg.message({ type: 'recovered', at: AT, wallet: A, n: 6 }, {}), /Reading this wallet again/);
+  assert.match(Tg.message({ type: 'skipped', at: AT, line: 7, n: 9 }, {}), /⚠️ <b>Line 7 of the wallets file is not an address<\/b>\nIt is not being watched; the other wallets are\./);
   assert.match(Tg.message({ type: 'something-new', at: AT, n: 8 }, {}), /^something-new/);
   assert.doesNotThrow(() => Tg.message({ type: 'tx', n: 1 }, {}), 'an event without a time or a wallet does not break it');
 });
