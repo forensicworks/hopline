@@ -64,9 +64,9 @@ test('summary: what was cut in the block is said in the summary\'s own limits', 
 test('prompt: the block is in the evidence as arrays with named columns, the times have their seconds, and the rule for reading it comes with it', () => {
   const { sum } = make();
   const p = As.prompt(sum, 'triage'), ev = evidenceOf(p), t = ev.timing;
-  assert.deepEqual(t.firstSeen.columns, ['txid', 'blockTime', 'firstSeen', 'waitSeconds', 'sources', 'group', 'relayRecorded']);
+  assert.deepEqual(t.firstSeen.columns, ['txid', 'firstSeen', 'blockTime', 'waitSeconds', 'sources', 'group', 'relayRecorded']);
   const row = t.firstSeen.rows.find((r) => r[0] === tid(1));
-  assert.deepEqual(row.slice(1, 4), ['2023-11-15 00:10:00 UTC', '2023-11-15 00:08:40 UTC', 80]);
+  assert.deepEqual(row.slice(1, 4), ['2023-11-15 00:08:40 UTC', '2023-11-15 00:10:00 UTC', 80], 'first seen comes before the time of the block');
   assert.equal(row[6], true, 'it says a peer was recorded, not which');
   assert.deepEqual(t.pairs.columns.slice(0, 6), ['txidA', 'txidB', 'groupA', 'groupB', 'why', 'gapSeconds']);
   assert.deepEqual([t.pairs.rows[0][0], t.pairs.rows[0][1], t.pairs.rows[0][4], t.pairs.rows[0][5]], [tid(1), tid(4), 'first seen within 120 s', 58]);
@@ -96,15 +96,32 @@ test('prompt: three states for a habit, the changes two groups share, the caveat
   assert.deepEqual(cc.differ, [], 'and it is not listed as a difference');
   assert.ok(cc.same.includes('lock none') && cc.same.includes('sequence ffffffff'));
   const row = t.pairs.rows[0];
-  assert.deepEqual(t.pairs.columns.slice(-2), ['block', 'considerations']);
-  assert.match(row[8].join(' '), /no habit record for 0{62}1a/, 'the caveats of a pair are in the row');
+  assert.deepEqual(t.pairs.columns.slice(-4), ['fromStartA', 'fromStartB', 'linksTwoTrails', 'considerations']);
+  assert.match(row[11].join(' '), /no habit record for 0{62}1a/, 'the caveats of a pair are in the row');
   assert.equal(row[5], 0.75, 'the gap is exact');
   const tr = t.firstSeen.rows.find((r) => r[0] === tid(3));
-  assert.equal(tr[2], '2023-11-15 00:49:59.500 UTC', 'a time with a fraction of a second is written with its milliseconds');
-  assert.equal(tr[1], '2023-11-15 00:50:00 UTC', 'and a whole second without');
+  assert.equal(tr[1], '2023-11-15 00:49:59.500 UTC', 'a time with a fraction of a second is written with its milliseconds');
+  assert.equal(tr[2], '2023-11-15 00:50:00 UTC', 'and a whole second without');
   assert.match(t.rule, /SUPPORTS a link; what weakens it is/);
   assert.match(t.rule, /gapSeconds is exact: use it and do not subtract the written times/);
+  assert.match(t.rule, /Never answer yes or no to whether two wallets or cases have the same operator/);
+  assert.match(t.rule, /absence of a link in the evidence is not evidence of different operators/);
+  assert.match(t.rule, /linksTwoTrails true is the kind that links two cases/);
+  assert.match(t.rule, /Copy rows exactly when you quote them/);
   assert.match(JSON.stringify(evidenceOf(As.prompt(sum, 'triage')).legend), /patternFlags \(round, peel, consolidation\) are shapes the analysis found/);
+});
+
+test('trails and roles: the starting points are named without their prefixes, a pair says whether it links two trails, and the victims left out are counted', () => {
+  const g = scene(), an = AN.analyse(g, {});
+  const S1 = 'addr:' + adr('start1'), S2 = 'addr:' + adr('start2');
+  const trails = new Map([[ID.tx(tid(1)), [S1]], [ID.tx(tid(2)), [S1]], [ID.tx(tid(3)), [S1]], [ID.tx(tid(4)), [S2]], [ID.tx(tid(5)), [S2]], [ID.tx(tid(6)), [S2]]]);
+  const timing = TM.build(g, an, { sameBlock: false, trails, role: (k) => (k.indexOf('zz') >= 0 ? 'VICTIM' : '') });
+  const sum = As.summary(g, an, { timing });
+  assert.deepEqual(sum.timing.pairs[0].trails, [[adr('start1')], [adr('start2')]], 'no vertex prefix in the summary');
+  const t = evidenceOf(As.prompt(sum, 'triage')).timing, row = t.pairs.rows[0], cols = t.pairs.columns;
+  assert.deepEqual([row[cols.indexOf('fromStartA')], row[cols.indexOf('fromStartB')], row[cols.indexOf('linksTwoTrails')]], [[adr('start1')], [adr('start2')], true]);
+  assert.deepEqual(t.habits.groups.map((x) => x.descendsFromStartingPoints), [[adr('start1')], [adr('start2')]]);
+  assert.equal(t.habits.victimGroupsLeftOut, 1, 'the wallet of one transaction (zz) has a group of one: it is counted when it is the only one of VICTIM');
 });
 
 test('prompt: a label cannot close the evidence block or start a new instruction', () => {

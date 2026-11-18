@@ -111,10 +111,11 @@
   function cleanTiming(t, limits) {
     if (!t || typeof t !== 'object' || !t.habits || !Array.isArray(t.pairs)) return null;
     var o = JSON.parse(JSON.stringify(t));
-    function g(k) { return k == null ? null : /^addr:/.test(k) ? plainAddr(k) : plainText(k, 40); }
+    function g(k) { return k == null ? null : /^(addr|tx):/.test(k) ? String(k).replace(/^(addr|tx):/, '') : plainText(k, 40); }
+    function gs(a) { return (Array.isArray(a) ? a : []).map(g); }
     if (o.firstSeen) o.firstSeen.rows.forEach(function (r) { r.group = g(r.group); r.sources = (r.sources || []).map(function (x) { return plainText(x, 40); }); if (r.relay != null) r.relay = plainText(r.relay, 60); });
-    o.pairs.forEach(function (p) { p.groups = p.groups.map(g); p.why = p.why.map(function (x) { return plainText(x, 80); }); p.considerations = (p.considerations || []).map(function (x) { return plainText(x, 400); }); });
-    o.habits.groups.forEach(function (x) { x.group = g(x.group); x.label = plainText(x.label, 80); });
+    o.pairs.forEach(function (p) { p.groups = p.groups.map(g); p.why = p.why.map(function (x) { return plainText(x, 80); }); p.considerations = (p.considerations || []).map(function (x) { return plainText(x.replace(/\b(addr|tx):/g, ''), 400); }); p.trails = (p.trails || [[], []]).map(gs); });
+    o.habits.groups.forEach(function (x) { x.group = g(x.group); x.label = plainText(x.label, 80); x.role = plainText(x.role || '', 40); x.trails = gs(x.trails); });
     o.habits.compare.forEach(function (c) {
       c.groups = c.groups.map(g); c.rows.forEach(function (r) { r.a = r.a == null ? null : plainText(r.a, 40); r.b = r.b == null ? null : plainText(r.b, 40); });
       (c.changeMatches || []).forEach(function (m) { m.feature = plainText(m.feature, 40); m.from = plainText(m.from, 40); m.to = plainText(m.to, 40); });
@@ -482,15 +483,16 @@
     var withPeer = !!(fs && fs.peersIncluded);
     return {
       firstSeen: fs ? { count: fs.count, windowSeconds: fs.windowSeconds, expectedClosePairs: fs.expectedClosePairs,
-                        columns: ['txid', 'blockTime', 'firstSeen', 'waitSeconds', 'sources', 'group', 'relayRecorded'].concat(withPeer ? ['relay'] : []),
-                        rows: rows.map(function (r) { var row = [r.txid, whenS(r.blockTime), whenS(r.firstSeen), r.waitSeconds, r.sources.join(' + '), r.group, r.relayRecorded]; if (withPeer) row.push(r.relay || null); return row; }) } : undefined,
-      pairs: { total: t.pairsTotal, columns: ['txidA', 'txidB', 'groupA', 'groupB', 'why', 'gapSeconds', 'firstSeenGapSeconds', 'block', 'considerations'],
-               rows: pairs.map(function (p) { return [p.txids[0], p.txids[1], p.groups[0], p.groups[1], p.why.join(' and '), p.gapSeconds, p.firstSeenGapSeconds == null ? null : p.firstSeenGapSeconds, p.height, p.considerations || []]; }) },
+                        columns: ['txid', 'firstSeen', 'blockTime', 'waitSeconds', 'sources', 'group', 'relayRecorded'].concat(withPeer ? ['relay'] : []),
+                        rows: rows.map(function (r) { var row = [r.txid, whenS(r.firstSeen), whenS(r.blockTime), r.waitSeconds, r.sources.join(' + '), r.group, r.relayRecorded]; if (withPeer) row.push(r.relay || null); return row; }) } : undefined,
+      pairs: { total: t.pairsTotal, columns: ['txidA', 'txidB', 'groupA', 'groupB', 'why', 'gapSeconds', 'firstSeenGapSeconds', 'block', 'fromStartA', 'fromStartB', 'linksTwoTrails', 'considerations'],
+               rows: pairs.map(function (p) { return [p.txids[0], p.txids[1], p.groups[0], p.groups[1], p.why.join(' and '), p.gapSeconds, p.firstSeenGapSeconds == null ? null : p.firstSeenGapSeconds, p.height, (p.trails || [[], []])[0], (p.trails || [[], []])[1], !!p.linksTwoTrails, p.considerations || []]; }) },
       sameBlock: t.sameBlock || undefined,
       habits: {
+        victimGroupsLeftOut: t.habits.victimGroupsLeftOut || undefined,
         groups: groups.map(function (x) {
           return { group: x.group, label: x.label, wallets: x.wallets, signed: x.signed, from: whenS(x.first), to: whenS(x.last), version: x.version, locktime: x.locktime, sequence: x.sequence, shape: x.shape, outputTypes: x.outputTypes,
-                   patternFlags: x.flags, feeRate: x.fee, commonShare: x.commonShare, eventTimeBasis: x.eventBasis, hoursUtc: x.hoursUtc,
+                   patternFlags: x.flags, feeRate: x.fee, commonShare: x.commonShare, eventTimeBasis: x.eventBasis, hoursUtc: x.hoursUtc, role: x.role || undefined, descendsFromStartingPoints: x.trails && x.trails.length ? x.trails : undefined,
                    changes: x.changes.map(function (c) { return [c.feature, c.from, c.to, whenS(c.lastBefore), whenS(c.firstAfter), c.txidBefore, c.txidAfter]; }), exampleTxids: x.txids };
         }),
         changeColumns: ['feature', 'from', 'to', 'lastBefore', 'firstAfter', 'txidBefore', 'txidAfter'],
@@ -505,7 +507,7 @@
                    }) };
         })
       },
-      rule: 'The timing block holds facts about when and how transactions were made. A first-seen time is a service\'s claim, a habit is a setting that many wallets share (those marked common say little), and two transactions close in time are a coincidence to weigh: say how strong a link is, how rare the match is, what would change your mind, and never name who is behind it. A pair close in time SUPPORTS a link; what weakens it is: a missing habit record, a single pair, a setting most wallets use, the first-seen times coming from different services, and a bursty spread (see considerations and expectedClosePairs). When asked what weakens or supports a link, say which way each fact points. gapSeconds is exact: use it and do not subtract the written times.',
+      rule: 'The timing block holds facts about when and how transactions were made. A first-seen time is a service\'s claim, a habit is a setting that many wallets share (those marked common say little), and two transactions close in time are a coincidence to weigh: say how strong a link is, how rare the match is, what would change your mind, and never name who is behind it. A pair close in time SUPPORTS a link; what weakens it is: a missing habit record, a single pair, a setting most wallets use, the first-seen times coming from different services, and a bursty spread (see considerations and expectedClosePairs). When asked what weakens or supports a link, say which way each fact points. gapSeconds is exact: use it and do not subtract the written times. fromStartA and fromStartB say which starting point of the trail (often one for each case) each transaction descends from; a pair with linksTwoTrails true is the kind that links two cases, and a pair on one trail is expected. Never answer yes or no to whether two wallets or cases have the same operator: say what supports it, what limits it and what the evidence does not hold; the absence of a link in the evidence is not evidence of different operators. Groups tagged VICTIM are left out of the comparisons. Copy rows exactly when you quote them.',
       notes: t.notes
     };
   }

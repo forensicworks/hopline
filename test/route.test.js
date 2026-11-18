@@ -769,3 +769,13 @@ test('handoffs: a Rootstock peg-in is a swap row (the money went into a bridge);
   assert.deepEqual(trailTo(memoOut('OUT:' + 'a7'.repeat(32))), [], 'a payout is money coming out of the service, not a place the trail went into it');
   assert.deepEqual(trailTo(memoOut('REFUND:' + 'a7'.repeat(32))), []);
 });
+
+test('reach: the transactions the coins of a starting point went to, forward only, and not past a service wallet', () => {
+  const g = caseGraph(), idx = R.index(g);
+  const ids = (set) => Array.from(set).sort();
+  assert.deepEqual(ids(R.reach(idx, A('vic'), null, 60)), [T(2), T(3), T(4), T(77)].sort(), 'what vic spent, and onwards (T77 spent x2 and is not loaded): not the payment that funded vic');
+  assert.deepEqual(ids(R.reach(idx, T(1), null, 60)), [T(1), T(2), T(3), T(4), T(77)].sort(), 'a transaction starts from itself');
+  assert.deepEqual(ids(R.reach(idx, A('vic'), (a) => a === A('q1'), 60)), [T(2), T(3)].sort(), 'it stops at a service wallet (the hub function is given the vertex id)');
+  assert.deepEqual(ids(R.reach(idx, A('nobody'), null, 60)), []);
+  assert.ok(!R.reach(idx, A('ran'), null, 60).has(T(21)), 'a coin paid to ran in another transaction is not one of its spends');
+});

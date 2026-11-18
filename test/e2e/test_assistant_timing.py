@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from chains import IN, OUT, tid, tx
+from chains import IN, OUT, addr, tid, tx
 from helpers import open_query, settle
 from test_assistant import MODEL_URL, capture, chat, copied, evidence, model_server, open_ai, set_model
 
@@ -55,13 +55,32 @@ def test_the_copied_prompt_carries_the_timing_block_with_seconds_and_without_the
     text = copied(fpage)[0]
     t = evidence(text)["timing"]
     rows = {r[0]: r for r in t["firstSeen"]["rows"]}
-    assert rows[tid(1)][2] == "2022-04-15 05:21:40 UTC" and rows[tid(4)][2] == "2022-04-15 05:22:38 UTC", "first-seen times, to the second"
+    assert rows[tid(1)][1] == "2022-04-15 05:21:40 UTC" and rows[tid(4)][1] == "2022-04-15 05:22:38 UTC", "first-seen times, to the second"
     assert t["pairs"]["rows"][0][:2] == [tid(1), tid(4)] and t["pairs"]["rows"][0][5] == 58 and "first seen within 120 s" in t["pairs"]["rows"][0][4]
     assert t["pairs"]["columns"][-1] == "considerations" and t["pairs"]["rows"][0][-1] == [], "nothing limits this pair: one service and a habit record on both sides"
     assert [g["signed"] for g in t["habits"]["groups"]] == [3, 3] and len(t["habits"]["groups"][0]["hoursUtc"]) == 24
     assert "never name who is behind it" in t["rule"]
     assert RELAY not in text and "203.0.113.7" not in text, "the relay peer is not sent unless it is asked for"
     assert "timing rows" in fpage.inner_text("#aiSize")
+
+
+def test_a_pair_says_which_starting_point_each_side_descends_from(tpage, mock):
+    groups_scene(tpage, mock); capture(tpage); open_ai(tpage)                                  # the Trace layout: each transaction opened is a starting point of its own
+    tpage.click("#aiCopy")
+    t = evidence(copied(tpage)[0])["timing"]
+    cols = t["pairs"]["columns"]; row = t["pairs"]["rows"][0]
+    assert row[cols.index("fromStartA")] == [tid(1)] and row[cols.index("fromStartB")] == [tid(4)], "each transaction was opened as a starting point of its own"
+    assert row[cols.index("linksTwoTrails")] is True
+    assert [g["descendsFromStartingPoints"] for g in t["habits"]["groups"]] == [[tid(1), tid(2), tid(3)], [tid(4), tid(5), tid(6)]]
+
+
+def test_a_group_of_wallets_tagged_victim_is_left_out_of_the_pairs_and_counted(fpage, mock):
+    groups_scene(fpage, mock); capture(fpage); open_ai(fpage)
+    fpage.evaluate("""(id) => { window.__hopline.state.graph.nodes.get(id).tag = 'VICTIM'; window.__hopline.refresh(); }""", "addr:" + addr("bb"))
+    fpage.click("#aiCopy")
+    t = evidence(copied(fpage)[0])["timing"]
+    assert t["habits"]["victimGroupsLeftOut"] == 1 and len(t["habits"]["groups"]) == 1
+    assert t["pairs"]["rows"] == [], "the only pair was with the victim's transaction"
 
 
 def test_without_any_look_up_the_groups_are_still_told_and_there_is_no_first_seen_part(fpage, mock):

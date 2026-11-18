@@ -150,6 +150,21 @@ function print(args, value) {
   process.stdout.write(JSON.stringify(value, null, args.flags.compact ? 0 : 2) + '\n');
 }
 
+/** For each transaction, the starting points whose coins reached it (the cases of a canvas that holds several), or null with none. */
+function timingTrails(args, ctx) {
+  var t = trailOf(args, ctx, false), m = new Map();
+  if (!t.starts || !t.starts.length) return null;
+  t.starts.forEach(function (s) { RT.reach(t.idx, s, t.hub, RT.MAX_TXS).forEach(function (x) { var l = m.get(x); if (!l) m.set(x, l = []); if (l.indexOf(s) < 0) l.push(s); }); });
+  return m;
+}
+/** The tags of a group's wallets: a group of VICTIM only is left out of the timing block. */
+function timingRole(graph) {
+  return function (key, g) {
+    var tags = [];
+    (g.cluster ? g.cluster.addrs : [key]).forEach(function (id) { var n = graph.nodes.get(id); if (n && n.tag && tags.indexOf(n.tag) < 0) tags.push(n.tag); });
+    return tags.join(' ');
+  };
+}
 /** What to call a signing group in the timing block: the tags and labels of its wallets. */
 function timingLabel(graph) {
   return function (key, g) {
@@ -161,7 +176,7 @@ function timingLabel(graph) {
 
 function summaryOf(args, ctx) {
   var generated = args.flags.generated || new Date().toISOString();
-  return AS.summary(ctx.graph, ctx.an, { generated: generated, known: ctx.known, trace: traceOf(args, ctx, false), timing: TM.build(ctx.graph, ctx.an, { peers: !!args.flags['with-peers'], label: timingLabel(ctx.graph) }) });
+  return AS.summary(ctx.graph, ctx.an, { generated: generated, known: ctx.known, trace: traceOf(args, ctx, false), timing: TM.build(ctx.graph, ctx.an, { peers: !!args.flags['with-peers'], label: timingLabel(ctx.graph), role: timingRole(ctx.graph), trails: timingTrails(args, ctx) }) });
 }
 
 function main(argv) {

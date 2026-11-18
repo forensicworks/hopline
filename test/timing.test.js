@@ -226,6 +226,43 @@ test('pairs: what limits a pair is written by code: the services differ, and a s
   assert.deepEqual(run(both).pairs[0].considerations, [], 'one service for both and a habit record on both sides: nothing limits it');
 });
 
+test('roles: a group of wallets tagged VICTIM is left out of the pairs, the habits and the comparisons, and counted', () => {
+  const txs = [];
+  [1, 2, 3].forEach((n) => txs.push(signed(n, 'aa', n * 100)));
+  [4, 5, 6].forEach((n) => txs.push(signed(n, 'bb', n * 100)));
+  [7, 8, 9].forEach((n) => txs.push(signed(n, 'vv', n * 100)));                                                // the victim: same blocks as the others
+  [10, 11, 12].forEach((n) => txs.push(signed(n, 'mm', n * 100)));
+  const g = build(txs);
+  seen(g, 1, T0 + 20); seen(g, 7, T0 + 26);                                                                    // transactions 1 and 7 first seen 6 s apart
+  const key = (w) => ID.addr(adr(w));
+  const role = (k) => (k === key('vv') ? 'VICTIM' : k === key('mm') ? 'THREAT VICTIM' : '');
+  const without = run(g), withRole = run(g, { role });
+  assert.equal(without.pairs.length > 0 && without.pairs.some((p) => p.txids.includes(tid(7))), true, 'without a role the victim is in a pair');
+  assert.equal(withRole.pairs.some((p) => p.txids.includes(tid(7))), false, 'with it there is no pair with the victim');
+  assert.deepEqual(withRole.habits.groups.map((x) => x.group).sort(), [key('aa'), key('bb'), key('mm')].sort(), 'the victim group is not listed, a group that is also THREAT is');
+  assert.equal(withRole.habits.victimGroupsLeftOut, 1);
+  assert.ok(withRole.habits.compare.every((c) => !c.groups.includes(key('vv'))), 'and not compared');
+  assert.equal(group(withRole, 'mm').role, 'THREAT VICTIM');
+  assert.equal(without.habits.victimGroupsLeftOut, 0);
+});
+
+test('trails: each transaction says which starting point it descends from; a pair on two trails links them and a pair on one does not', () => {
+  const g = build([signed(1, 'aa', 600), signed(2, 'aa', 1200), signed(3, 'aa', 1800), signed(4, 'bb', 600), signed(5, 'bb', 1200), signed(6, 'bb', 1800)]);
+  seen(g, 1, T0 + 520); seen(g, 4, T0 + 578);
+  const S1 = 'addr:' + adr('start1'), S2 = 'addr:' + adr('start2'), T_ = (n) => ID.tx(tid(n));
+  const two = new Map([[T_(1), [S1]], [T_(2), [S1]], [T_(3), [S1]], [T_(4), [S2]], [T_(5), [S2]], [T_(6), [S2]]]);
+  const r = run(g, { trails: two });
+  assert.deepEqual([r.pairs[0].trails, r.pairs[0].linksTwoTrails], [[[S1], [S2]], true]);
+  assert.ok(!r.pairs[0].considerations.some((c) => /same starting point/.test(c)));
+  assert.deepEqual([group(r, 'aa').trails, group(r, 'bb').trails], [[S1], [S2]], 'a group says which starting points it descends from');
+  const one = new Map([[T_(1), [S1]], [T_(4), [S1]], [T_(2), [S1, S2]]]);
+  const same = run(g, { trails: one }).pairs[0];
+  assert.equal(same.linksTwoTrails, false);
+  assert.ok(same.considerations.some((c) => c.includes('descend from the same starting point (' + S1 + ')') && /does not link two trails/.test(c)));
+  const none = run(g).pairs[0];
+  assert.deepEqual([none.trails, none.linksTwoTrails], [[[], []], false], 'without starting points nothing is claimed');
+});
+
 test('the lists are capped and say so', () => {
   const txs = []; let n = 1;
   for (let w = 0; w < 4; w++) for (let k = 0; k < 3; k++) txs.push(signed(n++, 'w' + w, n * 10));
