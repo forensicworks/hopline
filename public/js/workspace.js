@@ -3405,6 +3405,12 @@
       });
       if (funded.length) out.push(linkRows('Funded by', funded, 'funding transactions'));
       if (spent.length) out.push(linkRows('Spent by', spent, 'spending transactions'));
+      var sbk = sameBlockOf(n);
+      if (sbk) {
+        var same = sbk.others.map(function (id) { var t = g.nodes.get(id); return { id: id, label: '↔ ' + S.shortId(t.txid, 6), amount: t.valueOut, time: t.time }; });
+        out.push(linkRows('Common block', same, 'transactions in the same block'));
+        out.push(el('p', { 'class': 'hint', text: 'Confirmed in block ' + fmtInt(sbk.height) + ' with no wallet in common. ' + sameBlockWords(sameBlock()) }));
+      }
       if (!funded.length && !spent.length && n.loaded && !n.outspendsLoaded) out.push(el('p', { 'class': 'hint', text: 'Focus here to load what spent its outputs.' }));
     } else if (n.type === 'addr') {
       var sec = walletTxSection(n); if (sec) out.push(sec);
@@ -3525,7 +3531,8 @@
       box.appendChild(idRow(n.txid, 'transaction id'));
       kv(dl, 'Status', n.loaded === false ? 'not loaded yet' : n.confirmed ? 'confirmed' : n.confirmed === false ? 'unconfirmed' : 'unknown');
       kv(dl, 'Block time', n.time != null ? S.fmtTimeFull(n.time) : null);
-      kv(dl, 'Block', n.height);
+      var sbk = sameBlockOf(n);
+      kv(dl, 'Block', sbk && n.height != null ? n.height + ' · common block with ' + plural(sbk.others.length, 'other transaction') : n.height);
       if (n.loaded) {
         kv(dl, 'Inputs', n.nIn); kv(dl, 'Outputs', n.nOut);
         var part = M.txPartial(state.graph, n);
@@ -3955,6 +3962,34 @@
     }
     return state.an;
   }
+  /**
+   * Transactions confirmed in the same block that have no wallet in common (hopline-sameblock.js): a coincidence to weigh, not a finding. Worked out again only when the graph changed.
+   * The key holds what the analysis keys on, and the heights (a transaction that confirmed has a new height with the same size of graph).
+   */
+  function sameBlock() {
+    analysis();
+    var g = state.graph, h = 0;
+    g.nodes.forEach(function (n) { if (n.type === 'tx' && n.height != null) h += n.height; });
+    var sig = state.anSig + '/' + h;
+    if (!state.sb || state.sbSig !== sig || state.sbGraph !== g) { state.sb = g.nodes.size ? HoplineSameBlock.find(g) : null; state.sbSig = sig; state.sbGraph = g; }
+    return state.sb;
+  }
+  /** How many such pairs to expect by chance. */
+  function sameBlockWords(r) {
+    return 'Among the ' + plural(r.eligible, 'transaction') + ' compared here (over ' + plural(r.span, 'block') + '), ' + HoplineSameBlock.chanceText(r.expected)
+         + ' such pairs would be expected by chance; bursts of activity make it likelier. A coincidence to weigh, not a finding.';
+  }
+  /** What could not be compared, or nothing. */
+  function sameBlockLeft(r) {
+    var left = r.left.notLoaded + r.left.unconfirmed + r.left.partial + r.left.crowded;
+    return left ? ' ' + plural(left, 'transaction') + ' not compared (not loaded, unconfirmed or incomplete).' : '';
+  }
+  /** In a transaction's details: the others of its block on this canvas that it has no wallet in common with, or null. */
+  function sameBlockOf(n) {
+    var r = n && n.type === 'tx' ? sameBlock() : null;
+    return r ? r.byTx.get(n.id) || null : null;
+  }
+
   // the three hooks the canvas calls for every vertex it draws: they only read what refresh() computed
   function nodeFlags(n) {
     var r = n.type === 'tx' && state.an ? state.an.tx.get(n.id) : null, cr = n.type === 'tx' && state.an && state.an.carried ? state.an.carried.get(n.id) : null;
@@ -5885,6 +5920,8 @@
     var dots = [];
     state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.time != null && sc.nodes.has(n.id)) dots.push({ id: n.id, time: n.time, value: n.valueOut, loaded: n.loaded !== false }); });
     dots.sort(function (a, c) { return a.time - c.time; }); state.tbTxs = dots;
+    var sbr = sameBlock();                                                         // blocks with transactions that have nothing in common: marked on the time line
+    state.tbBlocks = sbr ? sbr.blocks.map(function (bl) { var ids = bl.ids.filter(function (id) { return sc.nodes.has(id); }); return ids.length > 1 ? { height: bl.height, time: bl.time, ids: ids } : null; }).filter(Boolean) : [];
     var on = timebarEnabled(), f = state.filter;
     $('tFrom').disabled = $('tTo').disabled = !on; $('tbPlay').disabled = $('tbReset').disabled = !on;
     if (on) {
@@ -5981,6 +6018,16 @@
   var TB_PAD = 8;                                       // room at each end of the time line for the slider handles
   function timeX(t, w) { var b = state.tb; return TB_PAD + (t - b.min) / (b.max - b.min) * (w - 2 * TB_PAD); }
 
+  /** A small block (a square with a cross in it) at the top of the time line, over the dots of a block whose transactions have nothing in common; dimmer outside the time bar's window. */
+  function drawBlockIcon(ctx, x, live) {
+    var s = 11, x0 = Math.round(x - s / 2) + 0.5, y0 = 2.5;
+    ctx.save(); ctx.globalAlpha = live ? 1 : 0.45;
+    ctx.fillStyle = '#120c13'; ctx.fillRect(x0, y0, s, s);
+    ctx.strokeStyle = '#c9a0ff'; ctx.lineWidth = 1.5; ctx.strokeRect(x0, y0, s, s);
+    ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0 + s / 2, y0 + 1); ctx.lineTo(x0 + s / 2, y0 + s - 1); ctx.moveTo(x0 + 1, y0 + s / 2); ctx.lineTo(x0 + s - 1, y0 + s / 2); ctx.stroke();
+    ctx.restore();
+  }
+
   /** The time line: a time scale, a bar per slice of time, and one dot per transaction at its exact time. */
   function drawHistogram() {
     var cv = $('hist'), dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
@@ -6023,8 +6070,16 @@
       ctx.beginPath(); ctx.arc(x, barsH + 0.5, 3, 0, Math.PI * 2); ctx.fillStyle = inside ? '#ffffff' : '#7a6a7a'; ctx.fill();
       ctx.lineWidth = 1.5; ctx.strokeStyle = inside ? '#4a8ca8' : '#3a2c3a'; ctx.stroke();
     });
+    var marks = [];
+    (state.tbBlocks || []).forEach(function (bl) {                                // blocks whose transactions have nothing in common
+      if (bl.time < b.min || bl.time > b.max) return;
+      var x = timeX(bl.time, w), live = bl.time >= from && bl.time <= to;
+      ctx.save(); ctx.globalAlpha = live ? 0.5 : 0.25; ctx.strokeStyle = '#c9a0ff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 14); ctx.lineTo(Math.round(x) + 0.5, barsH - 3); ctx.stroke(); ctx.restore();
+      drawBlockIcon(ctx, x, live);
+      marks.push({ x: x, height: bl.height, ids: bl.ids });
+    });
     if (state.tbHover) { ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(Math.round(state.tbHover.x) + 0.5, 0); ctx.lineTo(Math.round(state.tbHover.x) + 0.5, barsH + 6); ctx.stroke(); }
-    state.tbGeom = { w: w, h: h, barsH: barsH, bins: bins, bw: bw };
+    state.tbGeom = { w: w, h: h, barsH: barsH, bins: bins, bw: bw, blocks: marks };
   }
 
   /** What is under a point on the time line: the dot within reach, else the slice of time (with the transactions in it). */
@@ -6037,7 +6092,9 @@
     var bin = Math.min(g.bins - 1, Math.max(0, Math.floor((x - TB_PAD) / g.bw))), t0 = b.min + bin / g.bins * span, t1 = b.min + (bin + 1) / g.bins * span;
     var inBin = txs.filter(function (t) { return t.time >= t0 && (t.time < t1 || (bin === g.bins - 1 && t.time <= t1)); });
     var at = b.min + Math.max(0, Math.min(1, (x - TB_PAD) / (g.w - 2 * TB_PAD))) * span;
-    return { dots: dots, bin: bin, inBin: inBin, at: Math.round(at) };
+    var blk = null, bd = 7;
+    (g.blocks || []).forEach(function (k) { var d = Math.abs(k.x - x); if (d < bd) { blk = k; bd = d; } });
+    return { dots: dots, bin: bin, inBin: inBin, at: Math.round(at), block: blk };
   }
 
   function showTimeTip(e) {
@@ -6045,7 +6102,14 @@
     if (!hit) { tip.hidden = true; return; }
     tip.textContent = '';
     function line(k, v) { tip.appendChild(el('div', {}, k ? [el('b', { text: k + ' ' }), String(v)] : [String(v)])); }
-    if (hit.dots.length === 1) {
+    if (hit.block) {                                                              // the icon: what it says, and how likely it is by chance
+      var sbr = sameBlock(), chance = sbr ? HoplineSameBlock.chanceText(sbr.expected) : '';
+      tip.appendChild(el('div', {}, [el('b', { text: '\u25A6 Common block ' + fmtInt(hit.block.height) })]));
+      line('', plural(hit.block.ids.length, 'transaction') + ' with no wallet in common');
+      if (sbr) line('', chance.charAt(0).toUpperCase() + chance.slice(1) + ' such pairs expected by chance here. A coincidence, not a finding.');
+      if (sbr && sameBlockLeft(sbr)) line('', sameBlockLeft(sbr).trim());
+      line('', 'Click to select them');
+    } else if (hit.dots.length === 1) {
       var d = hit.dots[0];
       line('Transaction', S.shortId(d.id.slice(3), 8)); line('Time', S.fmtTimeFull(d.time));
       if (d.loaded) line('Value', amountText(d.value, d.time)); else line('', 'Not loaded yet');
@@ -6079,14 +6143,20 @@
       if (!tbDrag.moved && Math.abs(tbDrag.x1 - tbDrag.x0) > 5) { tbDrag.moved = true; $('tooltip').hidden = true; }
       if (tbDrag.moved) { state.tbHover = null; drawHistogram(); return; }
     }
-    state.tbHover = { x: x }; drawHistogram(); showTimeTip(e);
+    state.tbHover = { x: x }; drawHistogram(); showTimeTip(e); ringBlock(x);
   }
-  function onTimeLeave() { state.tbHover = null; $('tooltip').hidden = true; drawHistogram(); }
+  /** Pointing at a block icon rings its transactions on the graph, as pointing at a chip or a row does (and takes the ring off when the pointer moves away). */
+  function ringBlock(x) {
+    var hit = timeHit(x), blk = hit && hit.block;
+    if (blk && state.hoverPreview) { if (state.tbRing !== blk.height) { state.tbRing = blk.height; renderer.setPreview(blk.ids, null); } }
+    else if (state.tbRing != null) { state.tbRing = null; previewOff(); }
+  }
+  function onTimeLeave() { state.tbHover = null; $('tooltip').hidden = true; drawHistogram(); if (state.tbRing != null) { state.tbRing = null; previewOff(); } }
   function onTimeClick(e) {
     if (state.tbSuppress) { state.tbSuppress = false; return; }
     var r = $('hist').getBoundingClientRect(), hit = timeHit(e.clientX - r.left);
     if (!hit) return;
-    var ids = (hit.dots.length ? hit.dots : hit.inBin).map(function (t) { return t.id; });
+    var ids = hit.block ? hit.block.ids.slice() : (hit.dots.length ? hit.dots : hit.inBin).map(function (t) { return t.id; });
     var on = renderer.data ? renderer.data.visible.nodes : new Set(), vis = ids.filter(function (id) { return on.has(id); });
     if (!ids.length) return;
     if (!vis.length) { toast('Those transactions are not on screen (a filter or the layout is hiding them).'); return; }
