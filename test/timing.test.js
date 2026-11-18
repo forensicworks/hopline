@@ -75,6 +75,13 @@ test('pairs: transactions of different groups first seen within the window, with
   assert.deepEqual(run(g).pairs.map((p) => p.txids), [[tid(2), tid(3)], [tid(1), tid(2)]], 'the closest first; 1 and 3 are 10 s apart but of one group: not a pair');
 });
 
+test('pairs: gaps between first-seen times are rounded to milliseconds', () => {
+  const g = build([signed(1, 'aa', 600), signed(2, 'bb', 600), signed(3, 'aa', 1200)]);
+  seen(g, 1, T0 + 520.1234567); seen(g, 2, T0 + 578.4);
+  const r = run(g);
+  assert.deepEqual([r.pairs[0].gapSeconds, r.pairs[0].firstSeenGapSeconds], [58.277, 58.277]);
+});
+
 test('pairs: the same block with no wallet in common comes from the same-block module, and a pair that is both is one pair with both reasons', () => {
   const g = build([signed(1, 'aa', 600), signed(2, 'bb', 650), signed(3, 'cc', 700), signed(4, 'aa', 1800)]);
   seen(g, 1, T0 + 520); seen(g, 2, T0 + 578);

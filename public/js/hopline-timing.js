@@ -171,6 +171,8 @@
       var fa = facts.get('tx:' + p.txids[0]), fb = facts.get('tx:' + p.txids[1]);
       if (p.gapSeconds == null && fa && fb) p.gapSeconds = Math.abs(fa.time - fb.time);
       if (fa && fb && fa.fs && fb.fs) p.firstSeenGapSeconds = Math.abs(fa.fs.time - fb.fs.time);
+      if (p.gapSeconds != null) p.gapSeconds = round3(p.gapSeconds);                        // first-seen times have fractions of a second: milliseconds are enough
+      if (p.firstSeenGapSeconds != null) p.firstSeenGapSeconds = round3(p.firstSeenGapSeconds);
     });
     pairList.sort(function (a, b) { return (a.gapSeconds == null ? 1e12 : a.gapSeconds) - (b.gapSeconds == null ? 1e12 : b.gapSeconds) || (a.txids[0] < b.txids[0] ? -1 : 1); });
     var pairTotal = pairList.length; pairList = cut(pairList, caps.pairs, 'pairs', limits);
