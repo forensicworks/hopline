@@ -172,6 +172,60 @@ test('compare: what two groups agree on and differ in, and the common settings a
   assert.ok(ab.hoursOverlap > 0);
 });
 
+test('compare: a group with no single habit is mixed, not different, and a group with 5 v1 and 6 v2 is not called v2', () => {
+  const txs = [];
+  [1, 2, 3, 4, 5].forEach((n) => txs.push(signed(n, 'aa', n * 100, { version: 1 })));                        // aa: 5 v1 and 6 v2: no single version
+  [6, 7, 8, 9, 10, 11].forEach((n) => txs.push(signed(n, 'aa', n * 100, { version: 2 })));
+  [12, 13, 14].forEach((n) => txs.push(signed(n, 'bb', n * 100, { version: 2 })));                           // bb: v2 throughout
+  const r = run(build(txs)), c = r.habits.compare[0];
+  const row = (f) => c.rows.find((x) => x.feature === f);
+  assert.deepEqual([row('version').mixed, row('version').same, row('version').a, row('version').b], [true, false, null, 'v2']);
+  assert.deepEqual([row('sequence').mixed, row('sequence').same], [false, true], 'a clear habit is still compared');
+  assert.equal(c.agree, 4, 'locktime, sequence, shape and fee rate agree; the mixed version is not counted as agreement');
+});
+
+test('compare: the same change of habit in two groups, with the windows each group changed in and where they meet', () => {
+  const mk = (who, base, versions) => versions.map((v, i) => signed(base + i, who, (base + i) * 1000, { version: v }));
+  const g = build(mk('aa', 10, [1, 1, 1, 2, 2, 2]).concat(mk('bb', 30, [1, 1, 2, 2]), mk('cc', 50, [2, 2, 1, 1]), mk('dd', 70, [1, 1, 2, 2, 2])));
+  const r = run(g), find = (x, y) => r.habits.compare.find((c) => c.groups.join() === [ID.addr(adr(x)), ID.addr(adr(y))].join());
+  const ab = find('aa', 'bb');
+  assert.equal(ab.changeMatches.length, 1);
+  const m = ab.changeMatches[0];
+  assert.deepEqual([m.feature, m.from, m.to], ['version', 'v1', 'v2']);
+  assert.deepEqual(m.windowA, [T0 + 12000, T0 + 13000]);                                                     // aa: its last v1 is transaction 12 and its first v2 transaction 13
+  assert.deepEqual(m.windowB, [T0 + 31000, T0 + 32000]);
+  assert.equal(m.overlap, null, 'transaction numbers 12-13 and 31-32 are far apart in time: the windows do not meet');
+  const ad = find('aa', 'dd');
+  assert.equal(ad.changeMatches.length, 1, 'aa and dd both went from v1 to v2');
+  assert.equal(find('aa', 'cc').changeMatches.length, 0, 'cc went the other way: not the same change');
+});
+
+test('compare: the windows of two groups that changed at the same time overlap, and a pair with an overlap scores higher', () => {
+  const txs = [];
+  [1, 1, 1, 2, 2, 2].forEach((v, i) => txs.push(signed(i + 1, 'aa', i * 1000, { version: v })));               // aa changes between 2000 and 3000
+  [1, 1, 1, 2, 2, 2].forEach((v, i) => txs.push(signed(i + 11, 'bb', i * 1000 + 400, { version: v })));       // bb between 2400 and 3400
+  [1, 1, 1, 2, 2, 2].forEach((v, i) => txs.push(signed(i + 21, 'cc', i * 1000 + 90000, { version: v })));     // cc a day later
+  const r = run(build(txs)), find = (x, y) => r.habits.compare.find((c) => c.groups.join() === [ID.addr(adr(x)), ID.addr(adr(y))].join());
+  assert.deepEqual(find('aa', 'bb').changeMatches[0].overlap, [T0 + 2400, T0 + 3000]);
+  assert.equal(find('aa', 'cc').changeMatches[0].overlap, null);
+  assert.ok(find('aa', 'bb').score > find('aa', 'cc').score, 'a change in common that overlaps counts as one more agreement');
+  assert.equal(r.habits.compare[0].groups.join(), [ID.addr(adr('aa')), ID.addr(adr('bb'))].join(), 'and it puts the pair first');
+});
+
+test('pairs: what limits a pair is written by code: the services differ, and a side with no habit record', () => {
+  const g = build([signed(1, 'aa', 600), signed(2, 'aa', 1200), signed(3, 'aa', 1800), signed(4, 'bb', 600)]);
+  seen(g, 1, T0 + 520); seen(g, 4, T0 + 578);
+  g.nodes.get(ID.tx(tid(1))).ext.blockchaincom = { found: true, seen: true, received: T0 + 530, confirmed: T0 + 600, height: 1001, at: 0 };
+  const p = run(g).pairs[0];
+  assert.equal(p.considerations.length, 2);
+  assert.match(p.considerations[0], /first-seen times come from different services/);
+  assert.ok(p.considerations[0].includes('BlockCypher + Blockchain.com') && p.considerations[0].includes(tid(1)) && p.considerations[0].includes(tid(4)));
+  assert.match(p.considerations[1], /no habit record for 0{63}4: its signing group has fewer than 3 signed transactions/);
+  const both = build([signed(1, 'aa', 600), signed(2, 'aa', 1200), signed(3, 'aa', 1800), signed(4, 'bb', 600), signed(5, 'bb', 1200), signed(6, 'bb', 1800)]);
+  seen(both, 1, T0 + 520); seen(both, 4, T0 + 578);
+  assert.deepEqual(run(both).pairs[0].considerations, [], 'one service for both and a habit record on both sides: nothing limits it');
+});
+
 test('the lists are capped and say so', () => {
   const txs = []; let n = 1;
   for (let w = 0; w < 4; w++) for (let k = 0; k < 3; k++) txs.push(signed(n++, 'w' + w, n * 10));

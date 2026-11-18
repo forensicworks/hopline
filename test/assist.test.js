@@ -433,11 +433,11 @@ test('summary and prompt: a hand-off to a named wallet carries its kind, and the
   const s = As.summary(g, An.analyse(g, {}), { trace: t });
   assert.deepEqual(s.trace.handoffs.map((r) => r.kind), ['service', 'service', 'named']);
   const p = As.prompt(s, 'triage', {}), ev = JSON.parse(p.user.slice(p.user.indexOf('<<EVIDENCE (JSON)\n') + 18, p.user.lastIndexOf('\nEVIDENCE>>')));
-  assert.deepEqual(ev.trace.handoffColumns, ['time', 'direction', 'service', 'txid', 'btc', 'walletBeforeOrAfter', 'kind']);
-  assert.equal(ev.trace.handoffs[2][6], 'named');
+  assert.deepEqual(ev.trace.handoffColumns, ['time', 'direction', 'service', 'serviceWallet', 'txid', 'btc', 'trailWallet', 'kind']);
+  assert.equal(ev.trace.handoffs[2][7], 'named');
   assert.ok(s.notes.some((n) => /"named" is not a service/.test(n)), 'the evidence says how to read a named hand-off');
   const plain = As.summary(g, An.analyse(g, {}), { trace: traceFixture() }), pp = As.prompt(plain, 'triage', {});
-  assert.deepEqual(JSON.parse(pp.user.slice(pp.user.indexOf('<<EVIDENCE (JSON)\n') + 18, pp.user.lastIndexOf('\nEVIDENCE>>'))).trace.handoffColumns, ['time', 'direction', 'service', 'txid', 'btc', 'walletBeforeOrAfter'], 'unchanged without a named one');
+  assert.deepEqual(JSON.parse(pp.user.slice(pp.user.indexOf('<<EVIDENCE (JSON)\n') + 18, pp.user.lastIndexOf('\nEVIDENCE>>'))).trace.handoffColumns, ['time', 'direction', 'service', 'serviceWallet', 'txid', 'btc', 'trailWallet'], 'unchanged without a named one');
 });
 
 test('idSets: what the trail names may be cited by an answer, and nothing else', () => {
@@ -460,7 +460,7 @@ test('prompt: a short form of the trail goes into the evidence, with the first h
   const sum = As.summary(g, An.analyse(g, {}), { trace: t }), p = As.prompt(sum, 'triage', {});
   const ev = JSON.parse(p.user.slice(p.user.indexOf('<<EVIDENCE (JSON)\n') + 18, p.user.lastIndexOf('\nEVIDENCE>>')));
   assert.equal(ev.trace.handoffs.length, 12);
-  assert.deepEqual(ev.trace.handoffColumns, ['time', 'direction', 'service', 'txid', 'btc', 'walletBeforeOrAfter']);
+  assert.deepEqual(ev.trace.handoffColumns, ['time', 'direction', 'service', 'serviceWallet', 'txid', 'btc', 'trailWallet']);
   assert.equal(ev.trace.openEnds.next.neverLookedUp, 1);
   assert.deepEqual(ev.trace.openEnds.next.rows[0], [tid(3), a('q3'), 8e-7]);
   assert.ok(ev.limits.some((l) => /12 of 20 service hand-offs/.test(l)));

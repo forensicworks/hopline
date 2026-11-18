@@ -38,12 +38,13 @@
     coinjoin: 'Several wallets\' inputs and several outputs of exactly the same value to different addresses. The addresses spent together are probably different owners.',
     swap: 'An OP_RETURN that asks THORChain to swap the payment into an asset on another chain (a swap memo: the asset, the address it is to be paid out to, the limit, the streaming split and an affiliate), that THORChain writes on a payment it makes (OUT: and the hash of the inbound transaction of a swap it pays out, REFUND: and the hash of a payment it gives back), that carries the request ID of a cross-chain service such as Relay (0x and 64 hex digits, which says nothing about where the money went), or that is a Rootstock peg-in (RSKT, a version and the destination address on Rootstock). It is what the sender wrote, not proof that anything was carried out; the payment to the service is another output of the transaction.',
     round: 'An output that is a round amount: a number somebody chose, where a wallet computes an amount such as change to the last satoshi. Often the payment, with the other output the change. A service paying a fixed amount, a policy or a test gives the same, so it does not say who or what chose it.',
-    timing: 'The timing block holds facts about WHEN and HOW transactions were made, none of them a finding. firstSeen: the time a service says its node first saw a transaction (a claim, not the time of broadcast; waitSeconds is the block time minus it). pairs: transactions of different signing groups that are close in time (the same block with no wallet in common, or first seen within windowSeconds); a block holds thousands of transactions, so expectedByChance and expectedClosePairs say how many pairs a random spread would give. habits: for each signing group (the owner the analysis gives the inputs of a transaction) the transaction version, locktime kind, input sequence, shape (inputs and outputs), fee rate, the hours of the day (UTC) its transactions happened, the points where a habit changes and stays changed, and for pairs of groups what agrees and what differs. A habit marked common is what ordinary wallet software does by default, so agreement on it says little. Weigh a match by how rare it is, and say how strong a link is and what would change it.'
+    timing: 'The timing block holds facts about WHEN and HOW transactions were made, none of them a finding. firstSeen: the time a service says its node first saw a transaction (a claim, not the time of broadcast; waitSeconds is the block time minus it). pairs: transactions of different signing groups that are close in time (the same block with no wallet in common, or first seen within windowSeconds); a block holds thousands of transactions, so expectedByChance and expectedClosePairs say how many pairs a random spread would give. habits: for each signing group (the owner the analysis gives the inputs of a transaction) the transaction version, locktime kind, input sequence, shape (inputs and outputs), fee rate, the hours of the day (UTC) its transactions happened, the points where a habit changes and stays changed, and for pairs of groups what agrees and what differs. A habit marked common is what ordinary wallet software does by default, so agreement on it says little. patternFlags (round, peel, consolidation) are shapes the analysis found in the transactions, never wallet settings and never a common habit. A habit listed as mixed means the group has no single value for it. Weigh a match by how rare it is, and say how strong a link is and what would change it.'
   };
   var NOTES = [
     'Every pattern, change guess and cluster is a heuristic computed from the transactions that were loaded. None of it proves who controls what.',
     'A peel chain is a shape; ordinary wallets that pay from a single coin produce the same shape.',
     'Common-input clusters join addresses spent together; a CoinJoin, a PayJoin, a shared custodial wallet or a multisig breaks that assumption.',
+    'In a hand-off row, serviceWallet is the service\'s own wallet and trailWallet is the wallet on the trail\'s side of the hand-off (the one that paid a deposit, or received a withdrawal): never call trailWallet a service wallet. startingPoints, when there are several, are the places the investigator began the trail from, often one for each case.',
     'A name or label on a wallet is somebody\'s claim, not a fact. Its source is named where it is known.',
     'Only what was loaded is analysed: a transaction that was not loaded is not in the evidence, so absence here is not absence on the chain.',
     'A service hand-off is where money that was traced met a wallet a list names as a service (an exchange, for example), found by following each coin to the transaction that spent it; a missing hand-off or a trail that is still open only means none was found in what was loaded. A hand-off whose kind is "named" is not a service but a wallet a sanctions or ransomware list names, which the trail passes through.'
@@ -98,7 +99,8 @@
                rows: (x.rows || []).slice(0, CAPS.endRows).map(function (r) { return { kind: r.kind, address: r.address || null, sats: r.amount == null ? null : r.amount, txid: r.txid, steps: r.depth }; }) };
     }
     var hf = t.handoffs || [];
-    return { referenceKind: /^tx:/.test(t.reference) ? 'transaction' : 'wallet', reference: t.reference.replace(/^(addr|tx):/, ''), referenceName: plainText(t.referenceName || ''),
+    var starts = (Array.isArray(t.starts) ? t.starts : []).slice(0, 8).map(function (id) { return String(id).replace(/^(addr|tx):/, ''); });
+    return { referenceKind: /^tx:/.test(t.reference) ? 'transaction' : 'wallet', reference: t.reference.replace(/^(addr|tx):/, ''), referenceName: plainText(t.referenceName || ''), startingPoints: starts,
              handoffs: hf.slice(0, CAPS.handoffs).map(function (r) {
                return { kind: r.kind === 'named' ? 'named' : 'service', direction: r.dir, service: plainText(r.service), serviceWallet: r.address, txid: r.txid, time: r.time, timeText: when(r.time), sats: r.amount, walletBeforeOrAfter: r.walletAddress || null, steps: r.depth, mergesInputs: !!r.merges };
              }),
@@ -111,9 +113,12 @@
     var o = JSON.parse(JSON.stringify(t));
     function g(k) { return k == null ? null : /^addr:/.test(k) ? plainAddr(k) : plainText(k, 40); }
     if (o.firstSeen) o.firstSeen.rows.forEach(function (r) { r.group = g(r.group); r.sources = (r.sources || []).map(function (x) { return plainText(x, 40); }); if (r.relay != null) r.relay = plainText(r.relay, 60); });
-    o.pairs.forEach(function (p) { p.groups = p.groups.map(g); p.why = p.why.map(function (x) { return plainText(x, 80); }); });
+    o.pairs.forEach(function (p) { p.groups = p.groups.map(g); p.why = p.why.map(function (x) { return plainText(x, 80); }); p.considerations = (p.considerations || []).map(function (x) { return plainText(x, 400); }); });
     o.habits.groups.forEach(function (x) { x.group = g(x.group); x.label = plainText(x.label, 80); });
-    o.habits.compare.forEach(function (c) { c.groups = c.groups.map(g); c.rows.forEach(function (r) { r.a = r.a == null ? null : plainText(r.a, 40); r.b = r.b == null ? null : plainText(r.b, 40); }); });
+    o.habits.compare.forEach(function (c) {
+      c.groups = c.groups.map(g); c.rows.forEach(function (r) { r.a = r.a == null ? null : plainText(r.a, 40); r.b = r.b == null ? null : plainText(r.b, 40); });
+      (c.changeMatches || []).forEach(function (m) { m.feature = plainText(m.feature, 40); m.from = plainText(m.from, 40); m.to = plainText(m.to, 40); });
+    });
     (o.limits || []).forEach(function (l) { limits.push(plainText(l, 200)); });
     delete o.limits;
     o.notes = (o.notes || []).map(function (x) { return plainText(x, 400); });
@@ -309,6 +314,7 @@
     if (sum.trace) {
       var tr = sum.trace;
       if (tr.referenceKind === 'wallet') ev.addresses.add(tr.reference); else ev.txids.add(tr.reference);
+      (tr.startingPoints || []).forEach(function (s) { if (/^[0-9a-f]{64}$/i.test(s)) ev.txids.add(s); else ev.addresses.add(s); });
       tr.handoffs.forEach(function (r) { ev.txids.add(r.txid); ev.addresses.add(r.serviceWallet); if (r.walletBeforeOrAfter) ev.addresses.add(r.walletBeforeOrAfter); });
       ['next', 'prev'].forEach(function (k) { tr.openEnds[k].rows.forEach(function (r) { ev.txids.add(r.txid); if (r.address) ev.addresses.add(r.address); }); });
     }
@@ -459,13 +465,13 @@
       return { count: x.count, btc: btc(x.sats), neverLookedUp: x.unchecked, notLoaded: x.notLoaded, namedWalletsReached: x.named.slice(0, 5).map(function (n) { return n.label + ' (' + btc(n.sats) + ' BTC)'; }),
                rows: x.rows.slice(0, 8).map(function (r) { return [r.txid, r.address, btc(r.sats)]; }) };
     }
-    return { reference: t.reference, referenceKind: t.referenceKind, referenceName: t.referenceName || undefined,
-             handoffs: t.handoffs.slice(0, 12).map(function (r) { var row = [r.timeText, r.direction, r.service, r.txid, btc(r.sats), r.walletBeforeOrAfter]; if (named) row.push(r.kind); return row; }),
-             handoffColumns: ['time', 'direction', 'service', 'txid', 'btc', 'walletBeforeOrAfter'].concat(named ? ['kind'] : []),
+    return { reference: t.reference, referenceKind: t.referenceKind, referenceName: t.referenceName || undefined, startingPoints: t.startingPoints && t.startingPoints.length > 1 ? t.startingPoints : undefined,
+             handoffs: t.handoffs.slice(0, 12).map(function (r) { var row = [r.timeText, r.direction, r.service, r.serviceWallet, r.txid, btc(r.sats), r.walletBeforeOrAfter]; if (named) row.push(r.kind); return row; }),
+             handoffColumns: ['time', 'direction', 'service', 'serviceWallet', 'txid', 'btc', 'trailWallet'].concat(named ? ['kind'] : []),
              openEnds: { next: side(t.openEnds.next), prev: side(t.openEnds.prev) }, openEndColumns: ['txid', 'address', 'btc'] };
   }
 
-  function whenS(t) { return t == null ? null : new Date(t * 1000).toISOString().slice(0, 19).replace('T', ' ') + ' UTC'; }
+  function whenS(t) { return t == null ? null : new Date(Math.round(t * 1000)).toISOString().slice(0, Math.round(t * 1000) % 1000 ? 23 : 19).replace('T', ' ') + ' UTC'; }
   /** The timing block cut down for a prompt: rows are arrays (the columns are named once), the times are written out with their seconds, and the lists are shorter than the summary's. */
   function compactTiming(t, limits) {
     var fs = t.firstSeen, rows = fs ? fs.rows.slice(0, 40) : [], pairs = t.pairs.slice(0, 25), groups = t.habits.groups.slice(0, 8), cmp = t.habits.compare.slice(0, 10);
@@ -478,8 +484,8 @@
       firstSeen: fs ? { count: fs.count, windowSeconds: fs.windowSeconds, expectedClosePairs: fs.expectedClosePairs,
                         columns: ['txid', 'blockTime', 'firstSeen', 'waitSeconds', 'sources', 'group', 'relayRecorded'].concat(withPeer ? ['relay'] : []),
                         rows: rows.map(function (r) { var row = [r.txid, whenS(r.blockTime), whenS(r.firstSeen), r.waitSeconds, r.sources.join(' + '), r.group, r.relayRecorded]; if (withPeer) row.push(r.relay || null); return row; }) } : undefined,
-      pairs: { total: t.pairsTotal, columns: ['txidA', 'txidB', 'groupA', 'groupB', 'why', 'gapSeconds', 'firstSeenGapSeconds', 'block'],
-               rows: pairs.map(function (p) { return [p.txids[0], p.txids[1], p.groups[0], p.groups[1], p.why.join(' and '), p.gapSeconds, p.firstSeenGapSeconds == null ? null : p.firstSeenGapSeconds, p.height]; }) },
+      pairs: { total: t.pairsTotal, columns: ['txidA', 'txidB', 'groupA', 'groupB', 'why', 'gapSeconds', 'firstSeenGapSeconds', 'block', 'considerations'],
+               rows: pairs.map(function (p) { return [p.txids[0], p.txids[1], p.groups[0], p.groups[1], p.why.join(' and '), p.gapSeconds, p.firstSeenGapSeconds == null ? null : p.firstSeenGapSeconds, p.height, p.considerations || []]; }) },
       sameBlock: t.sameBlock || undefined,
       habits: {
         groups: groups.map(function (x) {
@@ -491,10 +497,15 @@
         compare: cmp.map(function (c) {
           return { groups: c.groups, agreeingHabits: c.agree, agreeingCommonHabits: c.agreeCommon, hoursOverlap: c.hoursOverlap,
                    same: c.rows.filter(function (r) { return r.same; }).map(function (r) { return r.feature + ' ' + r.a + (r.common ? ' (common)' : ''); }),
-                   differ: c.rows.filter(function (r) { return !r.same; }).map(function (r) { return r.feature + ': ' + r.a + ' against ' + r.b; }) };
+                   differ: c.rows.filter(function (r) { return !r.same && !r.mixed; }).map(function (r) { return r.feature + ': ' + r.a + ' against ' + r.b; }),
+                   mixed: c.rows.filter(function (r) { return r.mixed; }).map(function (r) { return r.feature + ': ' + (r.a == null && r.b == null ? 'neither group has a single value' : r.a == null ? 'the first group has no single value (the other: ' + r.b + ')' : 'the second group has no single value (the other: ' + r.a + ')'); }),
+                   changesInCommon: (c.changeMatches || []).map(function (m) {
+                     return m.feature + ' ' + m.from + ' to ' + m.to + ': one group between ' + whenS(m.windowA[0]) + ' and ' + whenS(m.windowA[1]) + ', the other between ' + whenS(m.windowB[0]) + ' and ' + whenS(m.windowB[1])
+                          + (m.overlap ? '; the windows overlap from ' + whenS(m.overlap[0]) + ' to ' + whenS(m.overlap[1]) : '; the windows do not overlap');
+                   }) };
         })
       },
-      rule: 'The timing block holds facts about when and how transactions were made. A first-seen time is a service\'s claim, a habit is a setting that many wallets share (those marked common say little), and two transactions close in time are a coincidence to weigh: say how strong a link is, how rare the match is, what would change your mind, and never name who is behind it.',
+      rule: 'The timing block holds facts about when and how transactions were made. A first-seen time is a service\'s claim, a habit is a setting that many wallets share (those marked common say little), and two transactions close in time are a coincidence to weigh: say how strong a link is, how rare the match is, what would change your mind, and never name who is behind it. A pair close in time SUPPORTS a link; what weakens it is: a missing habit record, a single pair, a setting most wallets use, the first-seen times coming from different services, and a bursty spread (see considerations and expectedClosePairs). When asked what weakens or supports a link, say which way each fact points. gapSeconds is exact: use it and do not subtract the written times.',
       notes: t.notes
     };
   }

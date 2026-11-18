@@ -4601,7 +4601,7 @@
     var d = routeData();
     if (!d.ref || !d.idx) return null;
     var t = RT.trace(d.idx, d.ref, { starts: d.starts, hub: routeHub, name: stopName, listed: routeListed, stop: state.auto.stopLabel ? stopName : null, has: has });
-    t.referenceName = routeName(d.ref);
+    t.referenceName = routeName(d.ref); t.starts = d.starts || [];
     return t;
   }
 
