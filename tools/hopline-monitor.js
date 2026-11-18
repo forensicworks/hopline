@@ -13,6 +13,9 @@
  * It asks an Esplora API (mempool.space by default, or your own with --api) about each wallet's totals; when they change it reads the newest transactions and writes one line to the log for each new
  * one (and for each that gets confirmed), then runs your command if you gave one. It remembers what it has seen in the state file, so stopping and starting it misses nothing and repeats nothing.
  *
+ * The wallets file: one address a line, anything after # ignored (a name, for instance). A line that is not an address is skipped, not fatal: the other wallets are still watched, and a `skipped` event says
+ * once which line it was, by its number and never by its text (it may be a key pasted by mistake).
+ *
  * What the time in an event means: `at` is this machine's clock when the event was written, and `seenAt` the same moment in seconds: the first time THIS PROGRAM saw the transaction, which is never earlier than
  * the interval between two checks before it was sent. Keep the clock right (NTP). A transaction's block time is only the time of its block. With --blockcypher each new transaction's id is also sent to BlockCypher,
  * which says when it first saw it and which peer passed it on: that is a third party, so it is off unless you ask for it.
@@ -43,15 +46,18 @@ function cleanAddress(a) {
   if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(a)) return a;
   return null;
 }
-/** The addresses of a text file: one a line, anything after # ignored, blank lines and repeats dropped. Returns { list, bad: [line] }. */
+/**
+ * The addresses of a text file: one a line, anything after # ignored, blank lines and repeats dropped. Returns { list, bad: [line text], badAt: [{ line: number, key }] }. `key` stands for the line's text
+ * (its number and the start of its hash), so that the same mistake can be recognised later without keeping the text.
+ */
 function parseWallets(text) {
-  var list = [], bad = [];
-  String(text || '').split(/\r?\n/).forEach(function (line) {
+  var list = [], bad = [], badAt = [];
+  String(text || '').split(/\r?\n/).forEach(function (line, i) {
     var t = line.replace(/#.*$/, '').trim(); if (!t) return;
-    var a = cleanAddress(t); if (!a) { bad.push(t); return; }
+    var a = cleanAddress(t); if (!a) { bad.push(t); badAt.push({ line: i + 1, key: (i + 1) + ':' + sha256(t).slice(0, 12) }); return; }
     if (list.indexOf(a) < 0) list.push(a);
   });
-  return { list: list, bad: bad };
+  return { list: list, bad: bad, badAt: badAt };
 }
 
 // ---- the log ----------------------------------------------------------------------------------------------------------------------------------
@@ -101,6 +107,7 @@ function describe(e) {
     case 'gap': return t + w + ' GAP more than ' + PAGE + ' new transactions since the last check: the older ones were not read';
     case 'error': return t + w + ' ERROR ' + e.message;
     case 'recovered': return t + w + ' OK again';
+    case 'skipped': return t + ' SKIPPED line ' + e.line + ' of the wallets file is not an address, so nothing on it is watched';
     default: return t + ' ' + e.type;
   }
 }
@@ -145,7 +152,7 @@ async function blockcypherOf(ctx, txid) {
 // ---- one check of one wallet -------------------------------------------------------------------------------------------------------------------
 function emit(ctx, ev) {
   var line = appendEvent(ctx.log, ctx.tail, ev);
-  if (!ctx.quiet || ev.type === 'error' || ev.type === 'gap') ctx.out(describe(line));
+  if (!ctx.quiet || ev.type === 'error' || ev.type === 'gap' || ev.type === 'skipped') ctx.out(describe(line));
   ctx.events.push(line);
   if (ctx.onEvent) runCommand(ctx, line);
   return line;
@@ -210,6 +217,15 @@ async function checkWallet(ctx, wallet) {
   }
 }
 function noteRecovered(ctx, wallet, at) { if (ctx.state.errors[wallet]) { delete ctx.state.errors[wallet]; emit(ctx, { type: 'recovered', at: at, wallet: wallet }); } }
+/**
+ * The lines of the wallets file that are not addresses are left out and said once each, by their number and never by their text (it may be a key pasted by mistake, and the event goes to the log and
+ * to whatever --on-event sends it to). One that is fixed or removed is forgotten, so the same mistake made again is said again.
+ */
+function noteSkipped(ctx, skipped, at) {
+  var now = {}; skipped.forEach(function (s) { now[s.key] = true; });
+  Object.keys(ctx.state.skipped).forEach(function (k) { if (!now[k]) delete ctx.state.skipped[k]; });
+  skipped.forEach(function (s) { if (!ctx.state.skipped[s.key]) { ctx.state.skipped[s.key] = true; emit(ctx, { type: 'skipped', at: at, line: s.line }); } });
+}
 async function newTx(ctx, wallet, tx, at, seenAt, baseline) {
   var eff = effect(tx, wallet), confirmed = !!(tx.status && tx.status.confirmed);
   var ev = { type: 'tx', at: at, seenAt: seenAt, wallet: wallet, txid: tx.txid, status: confirmed ? 'confirmed' : 'unconfirmed', in: eff.in, out: eff.out, fee: typeof tx.fee === 'number' ? tx.fee : null };
@@ -221,17 +237,17 @@ async function newTx(ctx, wallet, tx, at, seenAt, baseline) {
 
 // ---- the loop ---------------------------------------------------------------------------------------------------------------------------------
 function loadState(file) {
-  try { var s = JSON.parse(fs.readFileSync(file, 'utf8')); if (s && s.wallets) { s.errors = s.errors || {}; return s; } } catch (e) { /* none yet */ }
-  return { version: 1, wallets: {}, errors: {} };
+  try { var s = JSON.parse(fs.readFileSync(file, 'utf8')); if (s && s.wallets) { s.errors = s.errors || {}; s.skipped = s.skipped || {}; return s; } } catch (e) { /* none yet */ }
+  return { version: 1, wallets: {}, errors: {}, skipped: {} };
 }
 function saveState(file, state) {
-  fs.writeFileSync(file + '.tmp', JSON.stringify({ version: 1, wallets: state.wallets, errors: state.errors }), 'utf8');
+  fs.writeFileSync(file + '.tmp', JSON.stringify({ version: 1, wallets: state.wallets, errors: state.errors, skipped: state.skipped }), 'utf8');
   fs.renameSync(file + '.tmp', file);
 }
 
 /**
- * Check every wallet, once or until stopped. options: { wallets, api, every (seconds), log, state, onEvent, blockcypher (true | false), blockcypherApi, once, quiet, delay (ms between wallets),
- * fetch, now, out, sleep, maxCycles, stop() }. Resolves { events, cycles, failed }.
+ * Check every wallet, once or until stopped. options: { wallets, skipped (the lines of the wallets file that were left out: [{ line, key }]), api, every (seconds), log, state, onEvent, blockcypher (true | false),
+ * blockcypherApi, once, quiet, delay (ms between wallets), fetch, now, out, sleep, maxCycles, stop() }. Resolves { events, cycles, failed }.
  */
 async function run(options) {
   var o = Object.assign({ api: DEFAULT_API, every: 60, log: 'hopline-events.jsonl', state: 'hopline-monitor-state.json', delay: 400, fetch: globalThis.fetch, now: Date.now, out: function (s) { console.log(s); }, sleep: sleep }, options);
@@ -241,6 +257,7 @@ async function run(options) {
   var cycles = 0, bad = 0;
   for (;;) {
     ctx.failed = []; ctx.waitMore = 0;
+    noteSkipped(ctx, o.skipped || [], iso(o.now()));
     for (var i = 0; i < o.wallets.length; i++) {
       if (o.stop && o.stop()) break;
       await checkWallet(ctx, o.wallets[i]);
@@ -260,11 +277,11 @@ async function run(options) {
 const USAGE = 'Usage:\n'
   + '  node hopline-monitor.js --wallets wallets.txt | --address ADDR [--address ADDR ...]   [--every SECONDS] [--log FILE] [--state FILE] [--api URL] [--on-event COMMAND] [--blockcypher] [--once] [--quiet]\n'
   + '  node hopline-monitor.js list FILE      the events as text\n  node hopline-monitor.js txids FILE     the transaction ids, one a line\n  node hopline-monitor.js verify FILE    check that the log was not changed\n'
-  + 'Wallets: one address a line in the file (anything after # is ignored). --every is at least ' + MIN_EVERY + ' seconds (default 60). --blockcypher sends each new transaction id to BlockCypher (a third party).\n';
+  + 'Wallets: one address a line in the file (anything after # is ignored; a line that is not an address is skipped and said once, by its number). --every is at least ' + MIN_EVERY + ' seconds (default 60). --blockcypher sends each new transaction id to BlockCypher (a third party).\n';
 
 /** The command line as options, or { error } with what is wrong. */
 function parseArgs(argv) {
-  var o = { addresses: [], walletsFile: '', every: 60, api: DEFAULT_API, log: 'hopline-events.jsonl', state: 'hopline-monitor-state.json', onEvent: '', blockcypher: false, once: false, quiet: false };
+  var o = { addresses: [], skipped: [], walletsFile: '', every: 60, api: DEFAULT_API, log: 'hopline-events.jsonl', state: 'hopline-monitor-state.json', onEvent: '', blockcypher: false, once: false, quiet: false };
   var i = 0, takes = { '--wallets': 'walletsFile', '--address': null, '--every': 'every', '--log': 'log', '--state': 'state', '--api': 'api', '--on-event': 'onEvent' };
   for (; i < argv.length; i++) {
     var a = argv[i];
@@ -282,11 +299,10 @@ function parseArgs(argv) {
   var wallets = [];
   if (o.walletsFile) {
     var text; try { text = fs.readFileSync(o.walletsFile, 'utf8'); } catch (e) { return { error: 'Cannot read ' + o.walletsFile + ': ' + e.message }; }
-    var p = parseWallets(text); if (p.bad.length) return { error: 'Not an address in ' + o.walletsFile + ': ' + p.bad[0] };
-    wallets = p.list;
+    var p = parseWallets(text); wallets = p.list; o.skipped = p.badAt;                          // a line that is not an address is left out and said (by its number), the others are still watched
   }
   for (var k = 0; k < o.addresses.length; k++) { var c = cleanAddress(o.addresses[k]); if (!c) return { error: 'Not an address: ' + o.addresses[k] }; if (wallets.indexOf(c) < 0) wallets.push(c); }
-  if (!wallets.length) return { error: 'No wallets: give --wallets FILE or --address ADDR.' };
+  if (!wallets.length) return { error: o.skipped.length ? 'No wallets: no line of ' + o.walletsFile + ' is an address (line ' + o.skipped.slice(0, 5).map(function (s) { return s.line; }).join(', ') + (o.skipped.length > 5 ? ', ...' : '') + ').' : 'No wallets: give --wallets FILE or --address ADDR.' };
   o.wallets = wallets;
   return o;
 }

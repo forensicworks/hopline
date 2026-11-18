@@ -299,8 +299,11 @@ test('the command line: wallets from a file and from --address, and every mistak
     assert.match(err(['--address', A, '--frobnicate']), /Unknown option --frobnicate/);
     assert.match(err(['--address', A, '--log']), /--log needs a value/);
     assert.match(err(['--wallets', path.join(dir, 'nope.txt')]), /Cannot read/);
-    fs.writeFileSync(file, A + '\nhello\n');
-    assert.match(err(['--wallets', file]), /Not an address in .*w\.txt: hello/);
+    fs.writeFileSync(file, A + '\nhello\n   # only a name\nbc1q # too short\n');
+    const skip = Mon.parseArgs(['--wallets', file, '--once']);
+    assert.deepEqual([skip.error, skip.wallets, skip.skipped.map((s) => s.line)], [undefined, [A], [2, 4]], 'a line that is not an address is left out, not fatal; a name alone is no line');
+    fs.writeFileSync(file, 'hello\nworld\n');
+    assert.match(err(['--wallets', file]), /No wallets: no line of .*w\.txt is an address \(line 1, 2\)/);
     assert.deepEqual([Mon.cleanAddress(' ' + A.toUpperCase() + ' '), Mon.cleanAddress('bc1q'), Mon.cleanAddress(null), Mon.cleanAddress('0x' + 'a'.repeat(40))], [A, null, null, null]);
     const run = spawnSync(process.execPath, [TOOL], { encoding: 'utf8' });
     assert.deepEqual([run.status, /No wallets/.test(run.stderr), /Usage:/.test(run.stderr)], [2, true, true]);
@@ -322,5 +325,43 @@ test('run from the command line against a server: one pass with --once writes th
     const two = await pass();
     assert.deepEqual([two.code, Mon.readEvents(files.log).length], [0, 3], 'start, start, and the waiting transaction: nothing more');
     assert.equal(Mon.verifyLog(files.log).ok, true);
+  });
+});
+
+test('a line of the wallets file that is not an address is skipped and said once by its number, never by its text; the others are still watched; fixed and made again, it is said again', async () => {
+  await scene(async ({ srv, dir, files, go }) => {
+    srv.add(A, srv.mk(1, { height: 900001, to: [[A, 10000]] }));
+    const secret = 'xpub6SECRETSECRETSECRET', wallets = path.join(dir, 'w.txt'), shown = [];
+    const pass = (text) => { fs.writeFileSync(wallets, text); const o = Mon.parseArgs(['--wallets', wallets]); return go({ wallets: o.wallets, skipped: o.skipped, out: (s) => shown.push(s) }); };
+    const one = await pass(A + '\n' + secret + '\n');
+    assert.deepEqual(types(one), ['skipped', 'start'], 'the wallet that is an address is looked at all the same');
+    assert.equal(one.events[0].line, 2);
+    assert.ok(shown.some((s) => /SKIPPED line 2 of the wallets file is not an address/.test(s)), 'said on screen even with --quiet');
+    for (const text of [JSON.stringify(one.events), fs.readFileSync(files.log, 'utf8'), fs.readFileSync(files.state, 'utf8'), shown.join('\n')]) assert.equal(text.indexOf(secret), -1, 'the text of the line is nowhere');
+    assert.deepEqual(types(await pass(A + '\n' + secret + '\n')), [], 'the same mistake is not said again at the next check');
+    assert.deepEqual(types(await pass(A + '\n')), [], 'a line that was fixed or removed is forgotten without a word');
+    const again = await pass(A + '\n' + secret + '\n');
+    assert.deepEqual([types(again), again.events[0].line], [['skipped'], 2], 'the same mistake made again is said again');
+    const other = await pass(A + '\n' + secret + 'X\n');
+    assert.deepEqual(types(other), ['skipped'], 'a different text on the same line is a different mistake');
+    assert.equal(Mon.verifyLog(files.log).ok, true);
+    assert.match(Mon.describe(one.events[0]), /SKIPPED line 2 of the wallets file is not an address, so nothing on it is watched/);
+  });
+});
+
+test('from the command line a wallets file with one wrong line still watches the others, and says which line, once, without repeating its text', async () => {
+  await scene(async ({ srv, dir, files }) => {
+    srv.add(A, srv.mk(1, { height: 900001, to: [[A, 10000]] }));
+    const secret = 'xpub6SECRETSECRETSECRET', wallets = path.join(dir, 'w.txt'); fs.writeFileSync(wallets, '# mine\n' + A + '   # Savings\n' + secret + '\n');
+    const pass = () => new Promise((resolve) => {
+      const c = spawn(process.execPath, [TOOL, '--wallets', wallets, '--api', srv.base + '/api', '--log', files.log, '--state', files.state, '--once', '--quiet'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '', err = ''; c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { err += d; }); c.on('exit', (code) => resolve({ code, out, err }));
+    });
+    const one = await pass();
+    assert.equal(one.code, 0); assert.match(one.out, /SKIPPED line 3 of the wallets file/); assert.equal((one.out + one.err).indexOf(secret), -1);
+    const two = await pass();
+    assert.equal(two.code, 0); assert.equal(two.out, '', 'quiet, and nothing new to say');
+    assert.deepEqual(Mon.readEvents(files.log).map((e) => e.type), ['skipped', 'start']);
+    assert.equal(fs.readFileSync(files.log, 'utf8').indexOf(secret), -1);
   });
 });
