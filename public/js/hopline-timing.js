@@ -127,7 +127,7 @@
   }
 
   /**
-   * graph, an: a loaded graph and its analysis. opts: { windowSeconds (120), minSigned (3), peers (false), caps, label(groupKey, group) -> text, sameBlock (a module with find(); default the loaded one; false for none) }.
+   * graph, an: a loaded graph and its analysis. opts: { windowSeconds (120), minSigned (3), peers (false), caps, role(groupKey, group) -> the tags of its wallets (a group of VICTIM only is left out), trails (Map of transaction vertex id -> the starting points it descends from), label(groupKey, group) -> text, sameBlock (a module with find(); default the loaded one; false for none) }.
    * Returns { firstSeen, pairs, sameBlock, habits, limits, notes } or null when there is nothing to say.
    */
   function build(graph, an, opts) {
@@ -138,6 +138,17 @@
       var f = factsOf(graph, an, id);
       if (f) { facts.set(id, f); var l = byGroup.get(f.group); if (!l) byGroup.set(f.group, l = []); l.push(f); }
     });
+    // groups made only of wallets tagged VICTIM are not actors: they are left out of the pairs and the habits (and counted)
+    var victims = 0;
+    if (typeof cfg.role === 'function') {
+      Array.from(byGroup.keys()).forEach(function (key) {
+        var list = byGroup.get(key);
+        if (String(cfg.role(key, { cluster: list[0].cluster }) || '').trim() === 'VICTIM') { list.forEach(function (f) { facts.delete(f.id); }); byGroup.delete(key); victims++; }
+      });
+    }
+    // the starting points each transaction descends from (coins followed forward from each): a Map of transaction vertex id -> [starting point ids]
+    var trails = cfg.trails instanceof Map ? cfg.trails : null;
+    facts.forEach(function (f, id) { f.trails = trails && trails.get(id) ? trails.get(id).slice().sort() : []; });
     // first-seen rows: every transaction a service was asked about (signed by a group or not)
     graph.nodes.forEach(function (n) {
       if (n.type !== 'tx' || n.loaded !== true || !XT || !n.ext) return;
@@ -183,6 +194,8 @@
     var pairList = Array.from(pairs.values());
     pairList.forEach(function (p) {                                                       // the gap between the two first-seen times, or between the block times
       var fa = facts.get('tx:' + p.txids[0]), fb = facts.get('tx:' + p.txids[1]);
+      p.trails = [fa ? fa.trails : [], fb ? fb.trails : []];
+      p.linksTwoTrails = p.trails[0].length > 0 && p.trails[1].length > 0 && !p.trails[0].some(function (s) { return p.trails[1].indexOf(s) >= 0; });
       if (p.gapSeconds == null && fa && fb) p.gapSeconds = Math.abs(fa.time - fb.time);
       if (fa && fb && fa.fs && fb.fs) p.firstSeenGapSeconds = Math.abs(fa.fs.time - fb.fs.time);
       if (p.gapSeconds != null) p.gapSeconds = round3(p.gapSeconds);                        // first-seen times have fractions of a second: milliseconds are enough
@@ -212,17 +225,21 @@
         var f = facts.get('tx:' + p.txids[i]);
         if (f && !haveHabits.has(f.group)) cons.push('no habit record for ' + p.txids[i] + ': its signing group has fewer than ' + cfg.minSigned + ' signed transactions, so its habits cannot be compared');
       });
+      var shared = p.trails[0].filter(function (s) { return p.trails[1].indexOf(s) >= 0; });
+      if (shared.length) cons.push('both transactions descend from the same starting point (' + shared.join(', ') + '), so this pair does not link two trails');
       p.considerations = cons;
     });
     var habitGroups = groups.map(function (g) {
       return { group: g.key, label: typeof cfg.label === 'function' ? cfg.label(g.key, g) : g.key, wallets: g.cluster ? g.cluster.size : 1, signed: g.signed, first: g.first, last: g.last,
                version: g.version, locktime: g.lock, sequence: g.sequence, shape: top2(g.shape), outputTypes: g.outputTypes, flags: g.flags, fee: g.fee, commonShare: g.commonShare,
-               eventBasis: g.basis, hoursUtc: g.hoursUtc, changes: g.changes.slice(0, caps.changes), txids: g.facts.slice(0, 8).map(function (f) { return f.txid; }) };
+               eventBasis: g.basis, hoursUtc: g.hoursUtc, changes: g.changes.slice(0, caps.changes), txids: g.facts.slice(0, 8).map(function (f) { return f.txid; }),
+               role: typeof cfg.role === 'function' ? String(cfg.role(g.key, g) || '') : '', trails: unionTrails(g.facts) };
     });
     if (!firstSeen && !pairList.length && !habitGroups.length && !(sameBlock && sameBlock.pairs)) return null;
-    return { firstSeen: firstSeen, pairs: pairList, pairsTotal: pairTotal, sameBlock: sameBlock, habits: { minSigned: cfg.minSigned, groupsTotal: groupTotal, groups: habitGroups, compare: cmp, compareTotal: cmpTotal },
+    return { firstSeen: firstSeen, pairs: pairList, pairsTotal: pairTotal, sameBlock: sameBlock, habits: { minSigned: cfg.minSigned, groupsTotal: groupTotal, victimGroupsLeftOut: victims, groups: habitGroups, compare: cmp, compareTotal: cmpTotal },
              limits: limits, notes: NOTES };
   }
+  function unionTrails(list) { var s = new Set(); list.forEach(function (f) { (f.trails || []).forEach(function (t) { s.add(t); }); }); return Array.from(s).sort(); }
   function top2(map) { return Object.keys(map).sort(function (a, b) { return map[b] - map[a] || (a < b ? -1 : 1); }).slice(0, 6).reduce(function (o, k) { o[k] = map[k]; return o; }, {}); }
 
   return { build: build, DEFAULTS: DEFAULTS, NOTES: NOTES };

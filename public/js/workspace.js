@@ -4780,8 +4780,21 @@
     (g.cluster ? g.cluster.addrs : [key]).forEach(function (id) { var n = state.graph.nodes.get(id); if (n && (n.label || n.tag)) names.push(((n.tag || '') + ' ' + (n.label || '')).trim()); });
     return names.slice(0, 2).join(' / ');
   }
+  /** The tags of a group's wallets: a group of VICTIM only is not an actor, and the timing block leaves it out. */
+  function timingRole(key, g) {
+    var tags = [];
+    (g.cluster ? g.cluster.addrs : [key]).forEach(function (id) { var n = state.graph.nodes.get(id); if (n && n.tag && tags.indexOf(n.tag) < 0) tags.push(n.tag); });
+    return tags.join(' ');
+  }
+  /** For each transaction, the starting points of the trail whose coins reached it (stopping at service wallets): the cases of a canvas that holds several. null with no starting point. */
+  function timingTrails() {
+    var d = routeData(), m = new Map();
+    if (!d.idx || !d.starts || !d.starts.length) return null;
+    d.starts.forEach(function (s) { RT.reach(d.idx, s, routeHub, RT.MAX_TXS).forEach(function (t) { var l = m.get(t); if (!l) m.set(t, l = []); if (l.indexOf(s) < 0) l.push(s); }); });
+    return m;
+  }
   function assistSummary() { return AS.summary(state.graph, analysis(), { generated: new Date().toISOString(), title: LB.cleanText($('reportTitle').value, 120), known: assistKnown, trace: routeTraceData(),
-                                                                            timing: HoplineTiming.build(state.graph, analysis(), { label: timingLabel }) }); }
+                                                                            timing: HoplineTiming.build(state.graph, analysis(), { label: timingLabel, role: timingRole, trails: timingTrails() }) }); }
 
   /** The prompt for the chosen task, or null (with a message) when it cannot be made. */
   function assistPrompt() {

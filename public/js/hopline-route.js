@@ -136,6 +136,12 @@
     return { dist: dist, via: via };
   }
 
+  /** The transactions the coins of a starting point went to: every transaction reached by following the coins forward from a wallet (what it spent) or from a transaction (itself first), stopping at service wallets (`hub(address)`). A Set of transaction ids. */
+  function reach(idx, ref, hub, max) {
+    var w = walk(idx, startsFor(idx, ref, 'next'), 'next', hub, max || MAX_TXS);
+    return new Set(w.dist.keys());
+  }
+
   function hubIn(links, hub) { var out = []; links.forEach(function (l) { if (hub && hub(l.address) && out.indexOf(l.address) < 0) out.push(l.address); }); return out; }
 
   // ---- finding a route ------------------------------------------------------------------------------
@@ -572,6 +578,6 @@
              openEnds: { next: endsSummary(openEnds(idx, refId, 'next', { stop: opts.stop, max: opts.max }), has), prev: endsSummary(openEnds(idx, refId, 'prev', { stop: opts.stop, max: opts.max }), has) } };
   }
 
-  return { MAX_TXS: MAX_TXS, MERGE_INPUTS: MERGE_INPUTS, isHub: isHub, nameOf: nameOf, listedName: listedName, referenceOf: referenceOf, startsOf: startsOf, index: index, find: find, findMany: findMany, relations: relations, openEnds: openEnds,
+  return { MAX_TXS: MAX_TXS, MERGE_INPUTS: MERGE_INPUTS, isHub: isHub, nameOf: nameOf, listedName: listedName, referenceOf: referenceOf, startsOf: startsOf, index: index, reach: reach, find: find, findMany: findMany, relations: relations, openEnds: openEnds,
            handoffs: handoffs, endsSuccessors: endsSuccessors, pickEnds: pickEnds, timeWindow: timeWindow, endRank: endRank, connect: connect, trace: trace, offscreen: offscreen };
 }));
