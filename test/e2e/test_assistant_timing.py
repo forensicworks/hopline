@@ -57,6 +57,7 @@ def test_the_copied_prompt_carries_the_timing_block_with_seconds_and_without_the
     rows = {r[0]: r for r in t["firstSeen"]["rows"]}
     assert rows[tid(1)][2] == "2022-04-15 05:21:40 UTC" and rows[tid(4)][2] == "2022-04-15 05:22:38 UTC", "first-seen times, to the second"
     assert t["pairs"]["rows"][0][:2] == [tid(1), tid(4)] and t["pairs"]["rows"][0][5] == 58 and "first seen within 120 s" in t["pairs"]["rows"][0][4]
+    assert t["pairs"]["columns"][-1] == "considerations" and t["pairs"]["rows"][0][-1] == [], "nothing limits this pair: one service and a habit record on both sides"
     assert [g["signed"] for g in t["habits"]["groups"]] == [3, 3] and len(t["habits"]["groups"][0]["hoursUtc"]) == 24
     assert "never name who is behind it" in t["rule"]
     assert RELAY not in text and "203.0.113.7" not in text, "the relay peer is not sent unless it is asked for"

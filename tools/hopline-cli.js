@@ -136,7 +136,7 @@ function traceOf(args, ctx, needRef) {
   var t = trailOf(args, ctx, needRef);
   if (!t.ref) return null;
   var r = RT.trace(t.idx, t.ref, { starts: t.starts, hub: t.hub, name: t.name, listed: t.listed, stop: t.name });
-  r.referenceName = t.name(t.ref) || '';
+  r.referenceName = t.name(t.ref) || ''; r.starts = t.starts || [];
   return r;
 }
 /** The trace with a `source` on each hand-off row, for the commands that print rows: what the lists say about the service wallet (a name of your own is not a list's claim). */

@@ -100,16 +100,30 @@
   function compare(a, b, cfg) {
     var rows = [];
     ['version', 'lock', 'sequence', 'shape'].forEach(function (f) {
-      var x = a.dominant[f], y = b.dominant[f];
-      if (!x || !y || x.share < cfg.dominant || y.share < cfg.dominant) { rows.push({ feature: f, a: x ? x.value : null, b: y ? y.value : null, same: false, common: false, unclear: true }); return; }
-      rows.push({ feature: f, a: x.value, b: y.value, same: x.value === y.value, common: f === 'shape' ? false : a.commonShare >= 0.8 && b.commonShare >= 0.8 });
+      var x = a.dominant[f], y = b.dominant[f], xs = !!x && x.share >= cfg.dominant, ys = !!y && y.share >= cfg.dominant;
+      if (!xs || !ys) { rows.push({ feature: f, a: xs ? x.value : null, b: ys ? y.value : null, same: false, mixed: true, common: false }); return; }      // one of them has no single habit: not the same, not different either
+      rows.push({ feature: f, a: x.value, b: y.value, same: x.value === y.value, mixed: false, common: f === 'shape' ? false : a.commonShare >= 0.8 && b.commonShare >= 0.8 });
     });
     if (a.fee && b.fee) {
       var wa = a.fee.wholeNumberShare >= cfg.dominant, wb = b.fee.wholeNumberShare >= cfg.dominant, na = a.fee.wholeNumberShare <= 1 - cfg.dominant, nb = b.fee.wholeNumberShare <= 1 - cfg.dominant;
-      if ((wa || na) && (wb || nb)) rows.push({ feature: 'feeRate', a: wa ? 'whole numbers' : 'fractions', b: wb ? 'whole numbers' : 'fractions', same: wa === wb, common: false });
+      if ((wa || na) && (wb || nb)) rows.push({ feature: 'feeRate', a: wa ? 'whole numbers' : 'fractions', b: wb ? 'whole numbers' : 'fractions', same: wa === wb, mixed: false, common: false });
+      else rows.push({ feature: 'feeRate', a: wa ? 'whole numbers' : na ? 'fractions' : null, b: wb ? 'whole numbers' : nb ? 'fractions' : null, same: false, mixed: true, common: false });
     }
     var overlap = 0; for (var h = 0; h < 24; h++) overlap += Math.min(a.hoursUtc[h] / a.signed, b.hoursUtc[h] / b.signed);
     return { rows: rows, hoursOverlap: round3(overlap), agree: rows.filter(function (r) { return r.same && !r.common; }).length, agreeCommon: rows.filter(function (r) { return r.same && r.common; }).length };
+  }
+
+  /** The changes of habit two groups share: the same feature changing the same way. Each group changed somewhere between its last transaction before and its first after, so each has a window; `overlap` is where the windows meet, or null. */
+  function changeMatches(a, b) {
+    var out = [];
+    a.changes.forEach(function (ca) {
+      b.changes.forEach(function (cb) {
+        if (ca.feature !== cb.feature || ca.from !== cb.from || ca.to !== cb.to) return;
+        var lo = Math.max(ca.lastBefore, cb.lastBefore), hi = Math.min(ca.firstAfter, cb.firstAfter);
+        out.push({ feature: ca.feature, from: ca.from, to: ca.to, windowA: [ca.lastBefore, ca.firstAfter], windowB: [cb.lastBefore, cb.firstAfter], overlap: lo <= hi ? [lo, hi] : null });
+      });
+    });
+    return out;
   }
 
   /**
@@ -184,9 +198,22 @@
     groups.sort(function (a, b) { return b.signed - a.signed || (a.key < b.key ? -1 : 1); });
     var groupTotal = groups.length; groups = cut(groups, caps.groups, 'signing groups', limits);
     var cmp = [];
-    for (var a = 0; a < groups.length; a++) for (var b = a + 1; b < groups.length; b++) { var c = compare(groups[a], groups[b], cfg); cmp.push({ groups: [groups[a].key, groups[b].key], rows: c.rows, agree: c.agree, agreeCommon: c.agreeCommon, hoursOverlap: c.hoursOverlap }); }
-    cmp.sort(function (x, y) { return y.agree - x.agree || y.hoursOverlap - x.hoursOverlap || (x.groups[0] < y.groups[0] ? -1 : 1); });
+    for (var a = 0; a < groups.length; a++) for (var b = a + 1; b < groups.length; b++) {
+      var c = compare(groups[a], groups[b], cfg), cm = changeMatches(groups[a], groups[b]), meet = cm.filter(function (m) { return m.overlap; }).length;
+      cmp.push({ groups: [groups[a].key, groups[b].key], rows: c.rows, agree: c.agree, agreeCommon: c.agreeCommon, hoursOverlap: c.hoursOverlap, changeMatches: cm, score: c.agree + meet });
+    }
+    cmp.sort(function (x, y) { return y.score - x.score || y.hoursOverlap - x.hoursOverlap || (x.groups[0] < y.groups[0] ? -1 : 1); });
     var cmpTotal = cmp.length; cmp = cut(cmp, caps.compare, 'comparisons of two groups', limits);
+    var haveHabits = new Set(groups.map(function (g) { return g.key; })), sourcesOf = new Map(fsRows.map(function (r) { return [r.txid, r.sources]; }));
+    pairList.forEach(function (p) {                                                       // what limits a pair, said by code so that a model need not guess it
+      var cons = [], sa = sourcesOf.get(p.txids[0]), sb = sourcesOf.get(p.txids[1]);
+      if (sa && sb && sa.join(' + ') !== sb.join(' + ')) cons.push('the first-seen times come from different services (' + p.txids[0] + ': ' + sa.join(' + ') + '; ' + p.txids[1] + ': ' + sb.join(' + ') + ')');
+      [0, 1].forEach(function (i) {
+        var f = facts.get('tx:' + p.txids[i]);
+        if (f && !haveHabits.has(f.group)) cons.push('no habit record for ' + p.txids[i] + ': its signing group has fewer than ' + cfg.minSigned + ' signed transactions, so its habits cannot be compared');
+      });
+      p.considerations = cons;
+    });
     var habitGroups = groups.map(function (g) {
       return { group: g.key, label: typeof cfg.label === 'function' ? cfg.label(g.key, g) : g.key, wallets: g.cluster ? g.cluster.size : 1, signed: g.signed, first: g.first, last: g.last,
                version: g.version, locktime: g.lock, sequence: g.sequence, shape: top2(g.shape), outputTypes: g.outputTypes, flags: g.flags, fee: g.fee, commonShare: g.commonShare,

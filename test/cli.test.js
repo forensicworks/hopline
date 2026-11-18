@@ -277,6 +277,7 @@ test('summary and prompt carry the trail when there is a reference, and say noth
   assert.equal(run(['summary', FILE, '--generated', 'x']).json().trace, null);
   const s = run(['summary', FILE, '--ref', a('origin'), '--generated', 'x']).json();
   assert.equal(s.trace.handoffs[0].service, 'Binance Hot Wallet');
+  assert.deepEqual(s.trace.startingPoints, [a('origin')], 'the starting point of the trail is in the summary');
   const p = run(['prompt', FILE, '--task', 'triage', '--ref', a('origin')]);
   assert.equal(p.code, 0); assert.match(p.out, /"handoffs":\[\["2022-04-15/);
 });
