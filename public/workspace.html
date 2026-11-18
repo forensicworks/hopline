@@ -249,7 +249,7 @@ window.addEventListener('error', function (e) {
     <details id="aiSection">
       <summary>Assistant</summary>
       <div class="sec">
-        <p class="hint">The findings come from the analysis; an assistant only reads, ranks or words them, and every id in its answer is checked against the evidence. Everything loaded is included, hidden or not. Nothing here leaves this computer: the only model it asks is one on this computer, set up below.</p>
+        <p class="hint">The findings come from the analysis; an assistant only reads, ranks or words them, and every id in its answer is checked against the evidence. Everything loaded is included, hidden or not. The evidence also holds timing and habits: when a service first saw a transaction (only where you asked it), which transactions of different wallets sit close in time, and the settings of each wallet group (version, locktime, sequence, fee rate, the hours of the day it moves money). Relay peers are left out. Nothing here leaves this computer: the only model it asks is one on this computer, set up below.</p>
         <label for="aiTask">Ask for</label>
         <select id="aiTask">
           <option value="triage">Triage: what to look at first</option>
@@ -616,6 +616,7 @@ window.addEventListener('error', function (e) {
 <script src="js/hopline-money.js"></script>
 <script src="js/hopline-patterns.js"></script>
 <script src="js/hopline-sameblock.js"></script>
+<script src="js/hopline-timing.js"></script>
 <script src="js/hopline-timezone.js"></script>
 <script src="js/hopline-losses.js"></script>
 <script src="js/hopline-labels.js"></script>

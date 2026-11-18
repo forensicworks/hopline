@@ -15,7 +15,7 @@
  * workspace.json is a file made by Export > JSON in the workspace (use - to read it from standard input; for check, answer.txt can be - too).
  * The reference (--ref, a wallet address or a transaction id) is the first starting point of the trace the file was saved from, or a wallet tagged THREAT.
  * Options: --known <file> (the wallet list to use; default is public/data/known-addresses.js), --packs <folder> (the packs the site ships that are on as shipped, the OFAC list;
- * default is public/packs), --with <id,id> (also use these shipped packs, e.g. ransomwhere), --no-packs, --no-known (no names from either), --generated <ISO time>, --compact.
+ * default is public/packs), --with <id,id> (also use these shipped packs, e.g. ransomwhere), --no-packs, --no-known (no names from either), --generated <ISO time>, --compact, --with-peers (put the relay peers the first-seen look-ups recorded in the timing block; left out by default).
  * It reads files and prints; it never opens a connection. Exit codes: 0 done, 1 check found ids that are not in the evidence, 2 could not run.
  * The shape of the JSON is described in docs/interface.md.
  */
@@ -23,7 +23,7 @@
 var fs = require('fs'), path = require('path');
 var JS = path.join(__dirname, '..', 'public', 'js');
 var IO = require(path.join(JS, 'hopline-io.js')), AN = require(path.join(JS, 'hopline-analysis.js')), DT = require(path.join(JS, 'hopline-detections.js')), AS = require(path.join(JS, 'hopline-assist.js'));
-var LB = require(path.join(JS, 'hopline-labels.js')), PK = require(path.join(JS, 'hopline-packs.js')), RT = require(path.join(JS, 'hopline-route.js'));
+var LB = require(path.join(JS, 'hopline-labels.js')), PK = require(path.join(JS, 'hopline-packs.js')), RT = require(path.join(JS, 'hopline-route.js')), TM = require(path.join(JS, 'hopline-timing.js'));
 
 function fail(msg, code) { process.stderr.write('hopline: ' + msg + '\n'); process.exit(code || 2); }
 
@@ -42,7 +42,7 @@ function usage() {
     '  handoffs   <workspace.json> [--ref R] [--csv]     where the trail meets a service wallet or a wallet a sanctions or ransomware list names, as JSON or CSV',
     '  route      <workspace.json> --from A --to B       the route the money took from one wallet or transaction to another (exit code 1 if there is none)',
     '',
-    'A file name of - reads standard input. Options: --known <file>, --packs <folder>, --with <id,id>, --no-packs, --no-known, --generated <ISO time>, --compact.',
+    'A file name of - reads standard input. Options: --known <file>, --packs <folder>, --with <id,id>, --no-packs, --no-known, --generated <ISO time>, --compact, --with-peers (relay peers in the timing block).',
     'For trace, handoffs and route a wallet is an address and a transaction a 64-character id; --ref defaults to the first starting point saved in the file (the hand-offs of trace and handoffs run from every starting point saved in the file unless --ref names one, and each row says which one: from).',
     'The workspace file is Export > JSON from the workspace. The JSON shapes are in docs/interface.md.'
   ].join('\n');
@@ -54,7 +54,7 @@ function parseArgs(argv) {
     var a = argv[i];
     if (a === '-' || a.slice(0, 2) !== '--') { out._.push(a); continue; }
     if (valued[a]) { if (i + 1 >= argv.length) fail('Option ' + a + ' needs a value.'); out.flags[a.slice(2)] = argv[++i]; }
-    else if (a === '--no-known' || a === '--no-packs' || a === '--compact' || a === '--json' || a === '--help' || a === '--csv') out.flags[a.slice(2)] = true;
+    else if (a === '--no-known' || a === '--no-packs' || a === '--compact' || a === '--json' || a === '--help' || a === '--csv' || a === '--with-peers') out.flags[a.slice(2)] = true;
     else fail('Unknown option ' + a + '. Try: node tools/hopline-cli.js help');
   }
   return out;
@@ -150,9 +150,18 @@ function print(args, value) {
   process.stdout.write(JSON.stringify(value, null, args.flags.compact ? 0 : 2) + '\n');
 }
 
+/** What to call a signing group in the timing block: the tags and labels of its wallets. */
+function timingLabel(graph) {
+  return function (key, g) {
+    var names = [];
+    (g.cluster ? g.cluster.addrs : [key]).forEach(function (id) { var n = graph.nodes.get(id); if (n && (n.label || n.tag)) names.push(((n.tag || '') + ' ' + (n.label || '')).trim()); });
+    return names.slice(0, 2).join(' / ');
+  };
+}
+
 function summaryOf(args, ctx) {
   var generated = args.flags.generated || new Date().toISOString();
-  return AS.summary(ctx.graph, ctx.an, { generated: generated, known: ctx.known, trace: traceOf(args, ctx, false) });
+  return AS.summary(ctx.graph, ctx.an, { generated: generated, known: ctx.known, trace: traceOf(args, ctx, false), timing: TM.build(ctx.graph, ctx.an, { peers: !!args.flags['with-peers'], label: timingLabel(ctx.graph) }) });
 }
 
 function main(argv) {
