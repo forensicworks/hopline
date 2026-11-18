@@ -4774,7 +4774,14 @@
     return { label: k.label, category: k.category, source: k.pack || k.source || 'built-in list', sanctions: k.sanctions === true, alsoListedAs: k.alt || [],
              licence: m.licence || '', attribution: m.attribution || '', asOf: c.asOf || m.asOf || '', url: k.url || m.sourceUrl || '' };
   }
-  function assistSummary() { return AS.summary(state.graph, analysis(), { generated: new Date().toISOString(), title: LB.cleanText($('reportTitle').value, 120), known: assistKnown, trace: routeTraceData() }); }
+  /** What to call a signing group in the timing block: the tags and labels of its wallets (the relay peers are left out of it). */
+  function timingLabel(key, g) {
+    var names = [];
+    (g.cluster ? g.cluster.addrs : [key]).forEach(function (id) { var n = state.graph.nodes.get(id); if (n && (n.label || n.tag)) names.push(((n.tag || '') + ' ' + (n.label || '')).trim()); });
+    return names.slice(0, 2).join(' / ');
+  }
+  function assistSummary() { return AS.summary(state.graph, analysis(), { generated: new Date().toISOString(), title: LB.cleanText($('reportTitle').value, 120), known: assistKnown, trace: routeTraceData(),
+                                                                            timing: HoplineTiming.build(state.graph, analysis(), { label: timingLabel }) }); }
 
   /** The prompt for the chosen task, or null (with a message) when it cannot be made. */
   function assistPrompt() {
@@ -4797,7 +4804,7 @@
     try { p = AS.prompt(assistSummary(), task, { maxRows: state.assist.rows, focus: focus, question: question }); } catch (e) { toast(e.message, true); return null; }
     ai.focus = focus;
     $('aiSize').textContent = 'About ' + p.tokens.toLocaleString() + ' tokens: ' + plural(p.shown.patterns, 'pattern row') + ', ' + plural(p.shown.peelChains, 'peel chain') + ', ' + plural(p.shown.clusters, 'cluster') + ', ' + plural(p.shown.wallets, 'noted wallet')
-      + (p.shown.focus != null ? ', ' + plural(p.shown.focus, 'item') + ' described in full' : '') + '.' + more
+      + (p.shown.focus != null ? ', ' + plural(p.shown.focus, 'item') + ' described in full' : '') + (p.shown.timing != null ? ', ' + plural(p.shown.timing, 'timing row') + ' (first-seen times, pairs, habits)' : '') + '.' + more
       + (p.tokens > 3500 ? ' That is more than many local models read by default: lower the pattern rows, or raise the context window of the model.' : '');
     return p;
   }

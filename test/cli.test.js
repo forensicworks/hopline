@@ -313,3 +313,23 @@ test('trace and handoffs: each row says what the lists say about its service wal
   const none = run(['handoffs', FILE, '--ref', a('origin'), '--no-known']);
   assert.equal(none.code === 0 ? none.json().length : 0, 0, 'with no lists there is no hand-off, so no source to name');
 });
+
+test('summary: the timing block carries first-seen times and habits, the relay peer only with --with-peers, and there is none when there is nothing to say', () => {
+  assert.equal(run(['summary', FILE]).json().timing, null);
+  const g = new Graph();
+  for (let i = 0; i < 3; i++) add(g, 80 + i, [IN(240 + i, 0, a('mine'), 50000)], [OUT(a('mineto' + i), 49600)]);
+  add(g, 90, [IN(245, 0, a('other'), 50000)], [OUT(a('otherto'), 49600)]);
+  const seenAt = (n, received, relay) => { g.nodes.get(ID.tx(tid(n))).ext = { blockcypher: { found: true, seen: true, received, confirmed: 1650000000 + n * 600, relay, height: 700000 + n, at: 0 } }; };
+  seenAt(80, 1650000000 + 80 * 600 - 900, '203.0.113.7:8333'); seenAt(90, 1650000000 + 80 * 600 - 860, '');
+  const file = path.join(dir, 'timing-ws.json'); fs.writeFileSync(file, IO.toJson(g, {}));
+  const t = run(['summary', file]).json().timing;
+  assert.ok(t && t.firstSeen.count === 2 && t.habits.groups.length === 1 && t.pairs.length === 1, JSON.stringify(t && Object.keys(t)));
+  assert.equal(t.pairs[0].gapSeconds, 40);
+  assert.equal(run(['summary', file]).out.includes('203.0.113.7'), false, 'no peer by default');
+  const withPeers = run(['summary', file, '--with-peers']).json().timing;
+  assert.equal(withPeers.firstSeen.peersIncluded, true);
+  assert.equal(withPeers.firstSeen.rows.find((r) => r.txid === tid(80)).relay, '203.0.113.7:8333');
+  const p = run(['prompt', file, '--task', 'triage']);
+  assert.equal(p.code, 0);
+  assert.match(p.out, /"timing":\{"firstSeen"/);
+});
