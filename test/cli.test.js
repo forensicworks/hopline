@@ -334,3 +334,33 @@ test('summary: the timing block carries first-seen times and habits, the relay p
   assert.equal(p.code, 0);
   assert.match(p.out, /"timing":\{"rule"/);
 });
+
+test('prompt --task next and --actions: the actions text is in the prompt only then, and the rules above the task are the same', () => {
+  const plain = run(['prompt', FILE, '--task', 'triage']).out, withActions = run(['prompt', FILE, '--task', 'triage', '--actions']).out, next = run(['prompt', FILE, '--task', 'next']).out;
+  assert.ok(!plain.includes('ACTIONS (optional)'));
+  assert.ok(withActions.includes('ACTIONS (optional)') && next.includes('ACTIONS (optional)') && next.includes('TASK: Next steps.'));
+  const rules = (t) => t.split('\n\nTASK:')[0];
+  assert.equal(rules(plain), rules(withActions));
+  assert.equal(run(['prompt', FILE, '--task', 'next', '--json']).json().task, 'next');
+  assert.match(run(['prompt', FILE, '--task', 'nonsense']).err, /Unknown task/);
+});
+
+test('actions: the block in an answer is read, checked against the workspace and worded, and exit 1 says there is no readable block', () => {
+  const answer = 'Look at the start of the chain.\n\n```json\n' + JSON.stringify({ actions: [
+    { action: 'select', ids: [tid(10), tid(11)], why: 'the first two steps' },
+    { action: 'load', id: tid(250), why: 'the transaction that funded the chain' },
+    { action: 'load', id: tid(250).slice(0, -1) + '0', why: 'a garbled copy of that id' },
+    { action: 'ask_arkham', id: a('origin'), why: 'a third party' }] }) + '\n```\n';
+  fs.writeFileSync(path.join(dir, 'answer-actions.txt'), answer);
+  const r = run(['actions', FILE, 'answer-actions.txt']);
+  assert.equal(r.code, 0);
+  const j = r.json();
+  assert.deepEqual(j.actions.map((x) => x.text), ['Select 2 vertices (2 transactions)', 'Load transaction fafafa\u2026fafafa']);
+  assert.deepEqual(j.dropped.map((d) => d.n), [3, 4]);
+  assert.match(j.dropped[0].reason, /not in the evidence or the workspace/); assert.match(j.dropped[1].reason, /unknown action "ask_arkham"/);
+  const none = run(['actions', FILE, '-'], { input: 'No block in this answer.' });
+  assert.equal(none.code, 1); assert.equal(none.json().found, false);
+  const bad = run(['actions', FILE, '-'], { input: '```json\n{"actions":[\n```' });
+  assert.equal(bad.code, 1); assert.match(bad.json().error, /not valid JSON/);
+  assert.equal(run(['actions', FILE]).code, 2);
+});

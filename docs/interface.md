@@ -13,8 +13,9 @@ node tools/hopline-cli.js summary    workspace.json
 node tools/hopline-cli.js detections workspace.json [--kind peel] [--chain P-65a1]
 node tools/hopline-cli.js chains     workspace.json
 node tools/hopline-cli.js focus      workspace.json <transaction id | address | P-65a1 | C3>
-node tools/hopline-cli.js prompt     workspace.json --task triage [--focus <ref>] [--max-rows 60] [--json]
+node tools/hopline-cli.js prompt     workspace.json --task triage [--focus <ref>] [--max-rows 60] [--actions] [--json]
 node tools/hopline-cli.js check      workspace.json answer.txt
+node tools/hopline-cli.js actions    workspace.json answer.txt
 node tools/hopline-cli.js trace      workspace.json [--ref <wallet or transaction>]
 node tools/hopline-cli.js handoffs   workspace.json [--ref <wallet or transaction>] [--csv]
 node tools/hopline-cli.js route      workspace.json --from <wallet or transaction> --to <wallet or transaction>
@@ -24,7 +25,7 @@ Options: `--known <file>` (the wallet list to name wallets with; the default is 
 
 `trace`, `handoffs` and `route` follow the money by what spent each coin, never by matching addresses, in the loaded transactions only. `trace` says where the trails meet a service wallet (from every starting point saved in the file, or from `--ref` when given: each row says which, `from`; `handoffs`: a deposit or a withdrawal, oldest first, with the wallet just before a deposit or just after a withdrawal) or passes a wallet that a sanctions or ransomware list names (a row of `kind` `named`, not a service: the trail goes on through it; `kind` is `service` otherwise, and your own labels and tags are not rows) and where it is still open (`openEnds`: outputs whose spend was never looked up, spenders and funders that are not loaded, the named wallets it ended at, what sits unspent). `handoffs --csv` is the same rows as CSV. **Who said a name.** Every row of `trace` and `handoffs` has a `source`: what the lists say about its service wallet, kept apart from the name the row shows (which may be your own label): `{ list, licence, attribution, asOf, url }`, or `null` when no list names the wallet (the built-in list is called *Built-in list* and says nothing about its licence). In the CSV the same five come after `start` as `source_list`, `source_licence`, `source_attribution`, `source_as_of` and `source_url`, empty when there is none. The columns that were there stay where they were. `route` prints the route and its steps, or `{ "route": null }` and exit code `1` when none was found in what is loaded (which only means none was found there). The reference is `--ref` (an address or a transaction id), else the first starting point saved in the file (a workspace made from a trace has one), else a wallet tagged THREAT. A service wallet is a name on the lists that is not a ransomware or sanctions entry, or a vertex tagged EXCH, MIXER, SERVICE, MARKET or GAMBLING; a route is not carried across one unless there is no other way, and then `acrossServiceWallets` names it.
 
-Exit codes: `0` done, `1` `check` found an id that is not in the evidence or `route` found no route, `2` it could not run (the message is on standard error).
+Exit codes: `0` done, `1` `check` found an id that is not in the evidence, `actions` found no readable block or `route` found no route, `2` it could not run (the message is on standard error).
 
 Label packs and the labels you typed are not in the built-in list; a label or tag you gave a wallet is part of the workspace file and is used.
 
@@ -75,6 +76,14 @@ Peel steps are listed once, inside their chain; the other patterns are rows, cut
 - **not in the workspace**: made up, garbled or from somewhere else. `ok` is false and the exit code is `1`.
 
 A shortened id (`1f0849…c46ad`) is accepted only when it can be only one transaction. A paragraph that states an amount without citing any id is listed under `uncited` (a hint, not a failure). What the check cannot do is tell whether a sentence that cites a real id says something true about it: that still needs a person.
+
+## Actions the model may propose
+
+With **Let the model propose actions** ticked in the workspace's *Assistant* section (off by default), or `--actions` on `prompt` (and `--task next`, which asks for only the list), the prompt adds a short instruction and a format: after its answer the model may write one fenced JSON block, `{"actions":[{"action":"load","id":"<transaction id or address>","why":"<one sentence>"}]}`. The actions are `select` and `ring` (`ids`: up to 20 ids that are on the canvas), `load` (`id`: an id the evidence or the workspace names and that is not loaded yet), `follow` (`id`: a loaded transaction, `direction`: `forward` or `backward`) and `compare` (`groups`: two ids of two different signing groups). There is no action that asks a third party anything.
+
+The block is read strictly and checked by code, never by the model. A block that is not JSON, an unknown action, a missing or too long `why` (200 characters), a malformed id, an id that neither the evidence nor the workspace holds (a made-up or garbled one), a vertex that is not loaded where one is needed, and any entry after the eighth are dropped with their reason; of several blocks the last is read. The workspace shows what is left as a checklist: each line is written by Hopline from the fields, the model's `why` is shown apart as "the model says", and **nothing runs until a person presses Apply** (or *Apply all*, which first says how many requests the loads would take). A load or a follow is a load like any other: the data source you chose, the request limit, *Undo load* and an entry in the activity log. A comparison shows as a card under its row and in the Findings, and is not saved in the file.
+
+`node tools/hopline-cli.js actions workspace.json answer.txt` does the reading and the checking without the page and prints `{ found, error?, blocks, actions: [{ n, action, why, text, ... }], dropped: [{ n, reason }] }`; the exit code is `1` when there is no readable block.
 
 ## A model on this computer
 

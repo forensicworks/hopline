@@ -9,8 +9,9 @@
  *   node tools/hopline-cli.js trace      workspace.json [--ref R]          how far the trail from the reference got: hand-offs and open ends
  *   node tools/hopline-cli.js handoffs   workspace.json [--ref R] [--csv]  where the trails meet a service wallet, as JSON or CSV (from every starting point, or from R)
  *   node tools/hopline-cli.js route      workspace.json --from A --to B    the route the money took from one wallet or transaction to another (exit code 1 if none)
- *   node tools/hopline-cli.js prompt     workspace.json --task triage|narrative|explain|challenge|ask [--focus <ref>] [--question "..."] [--max-rows 60] [--json]
+ *   node tools/hopline-cli.js prompt     workspace.json --task triage|narrative|explain|challenge|ask|next [--focus <ref>] [--question "..."] [--max-rows 60] [--actions] [--json]
  *   node tools/hopline-cli.js check      workspace.json answer.txt         which ids an answer cites that are not in the evidence (exit code 1 if any)
+ *   node tools/hopline-cli.js actions    workspace.json answer.txt         the actions in the answer's block, checked against the workspace and worded as the page words them (exit code 1 if there is no readable block)
  *
  * workspace.json is a file made by Export > JSON in the workspace (use - to read it from standard input; for check, answer.txt can be - too).
  * The reference (--ref, a wallet address or a transaction id) is the first starting point of the trace the file was saved from, or a wallet tagged THREAT.
@@ -24,6 +25,7 @@ var fs = require('fs'), path = require('path');
 var JS = path.join(__dirname, '..', 'public', 'js');
 var IO = require(path.join(JS, 'hopline-io.js')), AN = require(path.join(JS, 'hopline-analysis.js')), DT = require(path.join(JS, 'hopline-detections.js')), AS = require(path.join(JS, 'hopline-assist.js'));
 var LB = require(path.join(JS, 'hopline-labels.js')), PK = require(path.join(JS, 'hopline-packs.js')), RT = require(path.join(JS, 'hopline-route.js')), TM = require(path.join(JS, 'hopline-timing.js'));
+var MD = require(path.join(JS, 'hopline-model.js'));
 
 function fail(msg, code) { process.stderr.write('hopline: ' + msg + '\n'); process.exit(code || 2); }
 
@@ -35,8 +37,9 @@ function usage() {
     '  detections <workspace.json> [--kind K] [--chain L]  every pattern found, oldest first (K: peel, consolidation, batch, coinjoin, round, swap)',
     '  chains     <workspace.json>                       every possible peel chain with its steps and payments',
     '  focus      <workspace.json> <ref>                 one transaction id, address, peel chain name (P-65a1) or cluster name (C3)',
-    '  prompt     <workspace.json> --task T [--focus ref] [--question Q] [--max-rows N] [--json]',
-    '                                                     the text to give an assistant (T: triage, narrative, explain, challenge, ask; ask needs --question)',
+    '  prompt     <workspace.json> --task T [--focus ref] [--question Q] [--max-rows N] [--actions] [--json]',
+    '                                                     the text to give an assistant (T: triage, narrative, explain, challenge, ask, next; ask needs --question; --actions lets the model propose actions)',
+    '  actions    <workspace.json> <answer.txt>          the actions in the answer\'s block, checked against the workspace and worded as the page words them (exit code 1 if there is no readable block)',
     '  check      <workspace.json> <answer.txt>          the ids an answer cites, and which are not in the evidence (exit code 1 if any)',
     '  trace      <workspace.json> [--ref R]             how far the trail from the reference got: service hand-offs and where it is still open',
     '  handoffs   <workspace.json> [--ref R] [--csv]     where the trail meets a service wallet or a wallet a sanctions or ransomware list names, as JSON or CSV',
@@ -54,7 +57,7 @@ function parseArgs(argv) {
     var a = argv[i];
     if (a === '-' || a.slice(0, 2) !== '--') { out._.push(a); continue; }
     if (valued[a]) { if (i + 1 >= argv.length) fail('Option ' + a + ' needs a value.'); out.flags[a.slice(2)] = argv[++i]; }
-    else if (a === '--no-known' || a === '--no-packs' || a === '--compact' || a === '--json' || a === '--help' || a === '--csv' || a === '--with-peers') out.flags[a.slice(2)] = true;
+    else if (a === '--no-known' || a === '--no-packs' || a === '--compact' || a === '--json' || a === '--help' || a === '--csv' || a === '--with-peers' || a === '--actions') out.flags[a.slice(2)] = true;
     else fail('Unknown option ' + a + '. Try: node tools/hopline-cli.js help');
   }
   return out;
@@ -199,7 +202,7 @@ function main(argv) {
   }
   if (cmd === 'prompt') {
     ctx = load(args);
-    var task = args.flags.task; if (!task) fail('Say what the assistant should do: --task triage, narrative, explain, challenge or ask.');
+    var task = args.flags.task; if (!task) fail('Say what the assistant should do: --task triage, narrative, explain, challenge, ask or next.');
     var focus = null;
     if (args.flags.focus) { focus = AS.focus(ctx.graph, ctx.an, args.flags.focus, { known: ctx.known }); if (!focus) fail('"' + args.flags.focus + '" is not in the workspace.'); }
     if (task === 'ask') {                                                          // the --focus item first, then whatever the question names that the workspace holds
@@ -210,10 +213,23 @@ function main(argv) {
     var rowsMax = args.flags['max-rows'] == null ? 60 : parseInt(args.flags['max-rows'], 10);
     if (!(rowsMax >= 1 && rowsMax <= 1000)) fail('--max-rows is a number from 1 to 1000.');
     var p;
-    try { p = AS.prompt(summaryOf(args, ctx), task, { maxRows: rowsMax, focus: focus, question: args.flags.question }); } catch (e) { fail(e.message); }
+    try { p = AS.prompt(summaryOf(args, ctx), task, { maxRows: rowsMax, focus: focus, question: args.flags.question, actions: args.flags.actions === true }); } catch (e) { fail(e.message); }
     if (args.flags.json) print(args, { task: p.task, system: p.system, user: p.user, tokens: p.tokens, shown: p.shown });
     else process.stdout.write(p.text + '\n');
     return 0;
+  }
+  if (cmd === 'actions') {
+    ctx = load(args);
+    if (!args._[2]) fail('Name the file with the assistant\'s answer (or - for standard input).');
+    if (args._[1] === '-' && args._[2] === '-') fail('Only one of the two can be read from standard input.');
+    var said = readText(args._[2], 'answer'), ids = AS.idSets(summaryOf(args, ctx), ctx.graph, null);
+    var at = function (id) { return vertexOf(ctx.graph, id); };                    // the vertex of a transaction id or an address, or null
+    var proposed = AS.validateActions(AS.parseActions(said), {
+      evidence: ids.evidence, workspace: ids.workspace, loaded: function (id) { return !!at(id); },
+      needsLoad: function (id) { var v = at(id), n = v && ctx.graph.nodes.get(v); return !n || (n.type === 'tx' ? !n.loaded : n.type === 'addr' ? !MD.historyRead(n) : false); },
+      groupOf: function (id) { var v = at(id); return v ? TM.groupOf(ctx.graph, ctx.an, v) : null; } });
+    print(args, proposed);
+    return proposed.found && !proposed.error ? 0 : 1;
   }
   if (cmd === 'check') {
     ctx = load(args);

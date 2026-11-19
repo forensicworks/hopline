@@ -2,7 +2,7 @@
 
 Status: **a plan, agreed in outline (the open questions are answered below).** It follows `docs/evidence-timing-and-habits.md` (step 1 and its tuning, built and live). Step 4, bounded runs, is at the end and is not part of this.
 
-**Built so far:** PR A, the function and the button by hand (2026-11-19): `HoplineTiming.compareGroups` and `groupOf`, *Compare these two groups* for two selected vertices, the card and the *Group comparisons* group in the Findings, and the starting points named with their tag and label in the evidence. Still to build: PR B (the model's action block and the checklist) and PR C (suggested notes marked as the model's).
+**Built so far:** PR A, the function and the button by hand (2026-11-19): `HoplineTiming.compareGroups` and `groupOf`, *Compare these two groups* for two selected vertices, the card and the *Group comparisons* group in the Findings, and the starting points named with their tag and label in the evidence. **PR B, the model's actions and the checklist** (2026-11-20): the strict parser and the checks (`parseActions`, `validateActions`, `actionText` in `hopline-assist.js`), the setting *Let the model propose actions* (off by default), the task *Next steps*, the checklist with Apply and Apply all, and the `actions` command and `--actions` flag of the command-line tool. `suggest` is not in it. Still to build: PR C (suggested notes marked as the model's).
 
 ## Why
 
