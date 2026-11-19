@@ -101,6 +101,7 @@
     var rows = [];
     ['version', 'lock', 'sequence', 'shape'].forEach(function (f) {
       var x = a.dominant[f], y = b.dominant[f], xs = !!x && x.share >= cfg.dominant, ys = !!y && y.share >= cfg.dominant;
+      if (!x || !y) { rows.push({ feature: f, a: x ? x.value : null, b: y ? y.value : null, same: false, mixed: false, missing: true, common: false }); return; }                // no transaction of one of them carries it: not known
       if (!xs || !ys) { rows.push({ feature: f, a: xs ? x.value : null, b: ys ? y.value : null, same: false, mixed: true, common: false }); return; }      // one of them has no single habit: not the same, not different either
       rows.push({ feature: f, a: x.value, b: y.value, same: x.value === y.value, mixed: false, common: f === 'shape' ? false : a.commonShare >= 0.8 && b.commonShare >= 0.8 });
     });
@@ -260,5 +261,70 @@
   function unionTrails(list) { var s = new Set(); list.forEach(function (f) { (f.trails || []).forEach(function (t) { s.add(t); }); }); return Array.from(s).sort(); }
   function top2(map) { return Object.keys(map).sort(function (a, b) { return map[b] - map[a] || (a < b ? -1 : 1); }).slice(0, 6).reduce(function (o, k) { o[k] = map[k]; return o; }, {}); }
 
-  return { build: build, DEFAULTS: DEFAULTS, NOTES: NOTES };
+  /** The group a vertex belongs to: a wallet's owner (its cluster, else itself) or the signing group of a transaction; null for anything else. */
+  function groupOf(graph, an, id) {
+    var n = graph.nodes.get(id);
+    if (!n) return null;
+    if (n.type === 'addr') return owner(an, id).key;
+    if (n.type === 'tx') { var f = factsOf(graph, an, id); return f ? f.group : null; }
+    return null;
+  }
+
+  /**
+   * Two signing groups side by side, from what is loaded. NOT A FINDING: a similarity or a coincidence to weigh, with how many such pairs a random spread would give.
+   * keyA, keyB: group keys (from groupOf). opts: the same as build() (windowSeconds, minSigned, label, trails, sameBlock).
+   * Returns { groups: [{ key, label, signed, first, last, wallets, trails, version, locktime, sequence, shape, fee, hoursUtc, changes }], pairs: [{ txids, why, gapSeconds, firstSeenGapSeconds, height, considerations }],
+   *           expected: { sameBlock, closeFirstSeen }, habits: { rows, agree, agreeCommon, hoursOverlap, changeMatches }, startingPoints: { a, b, shared, linksTwoTrails }, considerations }
+   * or { error } when a group has no signed transaction loaded.
+   */
+  function compareGroups(graph, an, keyA, keyB, opts) {
+    var cfg = Object.assign({}, DEFAULTS, opts || {}), sb = opts && 'sameBlock' in opts ? opts.sameBlock : SB, trails = cfg.trails instanceof Map ? cfg.trails : null;
+    var lists = { a: [], b: [] };
+    graph.nodes.forEach(function (n, id) {
+      if (n.type !== 'tx') return;
+      var f = factsOf(graph, an, id);
+      if (!f || (f.group !== keyA && f.group !== keyB)) return;
+      f.trails = trails && trails.get(id) ? trails.get(id).slice().sort() : [];
+      (f.group === keyA ? lists.a : lists.b).push(f);
+    });
+    if (keyA === keyB) return { error: 'Both belong to one group: pick wallets of two different groups.' };
+    if (!lists.a.length || !lists.b.length) return { error: 'No signed transaction is loaded for ' + (!lists.a.length ? 'the first' : 'the second') + ' group, so there is nothing to compare.' };
+    var ga = groupStats(keyA, lists.a, cfg), gb = groupStats(keyB, lists.b, cfg);
+    // the pairs between the two: first seen close in time, or the same block with no wallet in common
+    var sbRes = sb && typeof sb.find === 'function' ? sb.find(graph) : null, pairs = [], sourcesOf = function (f) { return f.fs ? XT.timeRows([graph.nodes.get(f.id)]).filter(function (r) { return r.seen && typeof r.received === 'number'; }).map(function (r) { return r.sourceName; }) : null; };
+    lists.a.forEach(function (fa) {
+      lists.b.forEach(function (fb) {
+        var why = [], gap = null;
+        if (fa.fs && fb.fs && Math.abs(fa.fs.time - fb.fs.time) <= cfg.windowSeconds) { why.push('first seen within ' + cfg.windowSeconds + ' s'); gap = Math.abs(fa.fs.time - fb.fs.time); }
+        var info = sbRes ? sbRes.byTx.get(fa.id) : null;
+        if (info && info.others.indexOf(fb.id) >= 0) why.push('same block, no wallet in common');
+        if (!why.length) return;
+        var cons = [], sa = sourcesOf(fa), sbb = sourcesOf(fb), shared = fa.trails.filter(function (t) { return fb.trails.indexOf(t) >= 0; });
+        if (sa && sbb && sa.join(' + ') !== sbb.join(' + ')) cons.push('the first-seen times come from different services (' + fa.txid + ': ' + sa.join(' + ') + '; ' + fb.txid + ': ' + sbb.join(' + ') + ')');
+        if (shared.length) cons.push('both transactions descend from the same starting point (' + shared.join(', ') + '), so this pair does not link two trails');
+        pairs.push({ txids: [fa.txid, fb.txid], why: why, gapSeconds: round3(gap == null ? Math.abs(fa.time - fb.time) : gap), firstSeenGapSeconds: fa.fs && fb.fs ? round3(Math.abs(fa.fs.time - fb.fs.time)) : null,
+                     height: fa.height != null && fa.height === fb.height ? fa.height : null, considerations: cons });
+      });
+    });
+    pairs.sort(function (x, y) { return x.gapSeconds - y.gapSeconds || (x.txids[0] < y.txids[0] ? -1 : 1); });
+    // how many such pairs a random spread of these two groups' transactions would give (a yardstick: activity comes in bursts, so the real chance is higher)
+    var all = lists.a.concat(lists.b), heights = all.filter(function (f) { return f.height != null; }).map(function (f) { return f.height; });
+    var spanBlocks = heights.length ? Math.max.apply(null, heights) - Math.min.apply(null, heights) + 1 : 0;
+    var fsA = lists.a.filter(function (f) { return f.fs; }), fsB = lists.b.filter(function (f) { return f.fs; }), fsTimes = fsA.concat(fsB).map(function (f) { return f.fs.time; });
+    var spanFs = fsTimes.length > 1 ? Math.max.apply(null, fsTimes) - Math.min.apply(null, fsTimes) : 0;
+    var expected = { sameBlock: spanBlocks ? round3(lists.a.length * lists.b.length / spanBlocks) : null,
+                     closeFirstSeen: spanFs > 0 ? round3(fsA.length * fsB.length * Math.min(1, 2 * cfg.windowSeconds / spanFs)) : null };
+    var c = compare(ga, gb, cfg), ta = unionTrails(lists.a), tb = unionTrails(lists.b), sharedStarts = ta.filter(function (x) { return tb.indexOf(x) >= 0; }), cons = [];
+    [[ga, lists.a], [gb, lists.b]].forEach(function (pair) { if (pair[1].length < cfg.minSigned) cons.push('the group of ' + pair[1][0].txid + ' has only ' + pair[1].length + ' signed transaction' + (pair[1].length === 1 ? '' : 's') + ' (fewer than ' + cfg.minSigned + '), so its habits are thin'); });
+    if (sharedStarts.length) cons.push('both groups descend from the same starting point (' + sharedStarts.join(', ') + '), so their similarity does not link two starting points');
+    function view(g, list) {
+      return { key: g.key, label: typeof cfg.label === 'function' ? cfg.label(g.key, g) : g.key, signed: g.signed, first: g.first, last: g.last, wallets: g.cluster ? g.cluster.size : 1, trails: unionTrails(list),
+               version: g.version, locktime: g.lock, sequence: g.sequence, shape: top2(g.shape), fee: g.fee, hoursUtc: g.hoursUtc, changes: g.changes, txids: list.slice(0, 8).map(function (f) { return f.txid; }) };
+    }
+    return { groups: [view(ga, lists.a), view(gb, lists.b)], pairs: pairs, expected: expected,
+             habits: { rows: c.rows, agree: c.agree, agreeCommon: c.agreeCommon, hoursOverlap: c.hoursOverlap, changeMatches: changeMatches(ga, gb) },
+             startingPoints: { a: ta, b: tb, shared: sharedStarts, linksTwoTrails: ta.length > 0 && tb.length > 0 && sharedStarts.length === 0 }, considerations: cons };
+  }
+
+  return { build: build, compareGroups: compareGroups, groupOf: groupOf, DEFAULTS: DEFAULTS, NOTES: NOTES };
 }));

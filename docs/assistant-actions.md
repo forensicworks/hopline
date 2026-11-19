@@ -2,6 +2,8 @@
 
 Status: **a plan, agreed in outline (the open questions are answered below).** It follows `docs/evidence-timing-and-habits.md` (step 1 and its tuning, built and live). Step 4, bounded runs, is at the end and is not part of this.
 
+**Built so far:** PR A, the function and the button by hand (2026-11-19): `HoplineTiming.compareGroups` and `groupOf`, *Compare these two groups* for two selected vertices, the card and the *Group comparisons* group in the Findings, and the starting points named with their tag and label in the evidence. Still to build: PR B (the model's action block and the checklist) and PR C (suggested notes marked as the model's).
+
 ## Why
 
 Today the assistant only reads: it is given the evidence, it answers in words, and the person then does the work (load this transaction, follow that wallet, compare these two groups). In the tests with a local model the answers named exactly what to do next, and the person had to find the button. The aim is to turn "what to do next" into a short checklist the person can apply with one press, without giving the model any control.

@@ -268,6 +268,88 @@ test('compare: two groups that descend from the same starting point share it and
   assert.deepEqual([none.trails, none.linksTwoTrails], [[[], []], false], 'without any trail nothing is claimed');
 });
 
+test('groupOf: a wallet is in its owner, a transaction in its signing group, and anything else in none', () => {
+  const together = tx(1, [[501, 0, 'aa', 30000], [502, 0, 'ab', 30000]], [['dest', 59600]], 0);                  // aa and ab are spent together: one owner (a cluster)
+  const g = build([together, signed(2, 'cc', 100)]);
+  const an = AN.analyse(g, {});
+  const cl = an.clusters.byAddr.get(ID.addr(adr('aa')));
+  assert.ok(cl);
+  assert.equal(TM.groupOf(g, an, ID.addr(adr('aa'))), cl.label);
+  assert.equal(TM.groupOf(g, an, ID.addr(adr('ab'))), cl.label, 'both wallets of the cluster are one group');
+  assert.equal(TM.groupOf(g, an, ID.addr(adr('cc'))), ID.addr(adr('cc')), 'a wallet on its own is its own group');
+  assert.equal(TM.groupOf(g, an, ID.tx(tid(2))), ID.addr(adr('cc')), 'a transaction is in the group that signed it');
+  assert.equal(TM.groupOf(g, an, ID.tx(tid(1))), cl.label);
+  assert.equal(TM.groupOf(g, an, ID.addr(adr('dest'))), ID.addr(adr('dest')));
+  assert.equal(TM.groupOf(g, an, 'tx:' + 'ff'.repeat(32)), null, 'not in the graph');
+});
+
+const compareOf = (g, a, b, opts) => TM.compareGroups(g, AN.analyse(g, {}), ID.addr(adr(a)), ID.addr(adr(b)), Object.assign({ sameBlock: false }, opts));
+
+test('compareGroups: the pairs between two groups only, with the gap, and what a random spread would give', () => {
+  const txs = [];
+  [1, 2, 3].forEach((n) => txs.push(signed(n, 'aa', n * 600)));
+  [4, 5, 6].forEach((n) => txs.push(signed(n, 'bb', (n - 3) * 600)));
+  [7, 8, 9].forEach((n) => txs.push(signed(n, 'cc', (n - 6) * 600)));
+  const g = build(txs);
+  seen(g, 1, T0 + 520); seen(g, 4, T0 + 578); seen(g, 7, T0 + 530); seen(g, 3, T0 + 5000); seen(g, 6, T0 + 9000); seen(g, 2, T0 + 4000);      // 1 and 4: 58 s; 1 and 7: 10 s (another group); 2, 3 and 6 far apart
+  const r = compareOf(g, 'aa', 'bb');
+  assert.equal(r.error, undefined);
+  assert.equal(r.pairs.length, 1, 'cc is not one of the two');
+  assert.deepEqual([r.pairs[0].txids, r.pairs[0].why, r.pairs[0].gapSeconds, r.pairs[0].firstSeenGapSeconds], [[tid(1), tid(4)], ['first seen within 120 s'], 58, 58]);
+  assert.deepEqual(r.groups.map((x) => [x.key, x.signed]), [[ID.addr(adr('aa')), 3], [ID.addr(adr('bb')), 3]]);
+  assert.equal(r.expected.closeFirstSeen, round(3 * 2 * 240 / 8480), 'a yardstick: 3 and 2 first-seen times over 8480 s, each within 120 s either way');
+  assert.equal(r.expected.sameBlock, 3, '3 and 3 transactions over 3 blocks');
+  assert.equal(r.habits.rows.find((x) => x.feature === 'version').same, true);
+  assert.deepEqual([r.habits.agree, r.habits.agreeCommon], [2, 3], 'shape and fee rate agree; version, locktime and sequence agree too but are what most wallets do (common), so they are counted apart');
+  assert.equal(r.startingPoints.linksTwoTrails, false, 'no starting point given: nothing is claimed');
+  const swapped = compareOf(g, 'bb', 'aa');
+  assert.deepEqual(swapped.pairs[0].txids, [tid(4), tid(1)], 'the transactions follow the groups in the order they were asked for');
+});
+
+test('compareGroups: the same block with no wallet in common comes from the same-block module, and the expected number is the pairs over the blocks spanned', () => {
+  const g = build([signed(1, 'aa', 600), signed(2, 'aa', 1800), signed(3, 'bb', 650), signed(4, 'bb', 6600)]);          // 1 and 3 in block 1001; the others far apart (heights 1001, 1003, 1001, 1011)
+  const stub = { find: () => ({ pairs: 1, blocks: [], eligible: 4, span: 11, expected: 0.1, byTx: new Map([[ID.tx(tid(1)), { others: [ID.tx(tid(3))] }], [ID.tx(tid(3)), { others: [ID.tx(tid(1))] }]]) }) };
+  const r = compareOf(g, 'aa', 'bb', { sameBlock: stub });
+  assert.equal(r.pairs.length, 1);
+  assert.deepEqual([r.pairs[0].txids, r.pairs[0].why, r.pairs[0].height, r.pairs[0].gapSeconds], [[tid(1), tid(3)], ['same block, no wallet in common'], 1001, 50]);
+  assert.equal(r.expected.sameBlock, round(2 * 2 / 11), 'two transactions of each over 11 blocks (1001 to 1011)');
+  assert.equal(r.expected.closeFirstSeen, null, 'no first-seen time: no number');
+});
+const round = (x) => Math.round(x * 1000) / 1000;
+
+test('compareGroups: what limits the comparison is said: thin habits, different services, the same starting point', () => {
+  const g = build([signed(1, 'aa', 600), signed(2, 'bb', 600)]);
+  seen(g, 1, T0 + 520); seen(g, 2, T0 + 578);
+  g.nodes.get(ID.tx(tid(1))).ext.blockchaincom = { found: true, seen: true, received: T0 + 530, confirmed: T0 + 600, height: 1001, at: 0 };
+  const S1 = 'addr:' + adr('start1'), T_ = (n) => ID.tx(tid(n));
+  const r = compareOf(g, 'aa', 'bb', { trails: new Map([[T_(1), [S1]], [T_(2), [S1]]]) });
+  assert.equal(r.pairs.length, 1);
+  assert.ok(r.pairs[0].considerations.some((c) => /come from different services/.test(c)));
+  assert.ok(r.pairs[0].considerations.some((c) => /descend from the same starting point/.test(c) && /does not link two trails/.test(c)));
+  assert.equal(r.considerations.filter((c) => /has only 1 signed transaction \(fewer than 3\), so its habits are thin/.test(c)).length, 2, 'one per group');
+  assert.ok(r.considerations.some((c) => /both groups descend from the same starting point/.test(c) && /does not link two starting points/.test(c)));
+  assert.deepEqual([r.startingPoints.a, r.startingPoints.b, r.startingPoints.shared, r.startingPoints.linksTwoTrails], [[S1], [S1], [S1], false]);
+  const apart = compareOf(g, 'aa', 'bb', { trails: new Map([[T_(1), [S1]], [T_(2), ['addr:' + adr('start2')]]]) });
+  assert.equal(apart.startingPoints.linksTwoTrails, true, 'two starting points');
+  assert.ok(!apart.considerations.some((c) => /same starting point/.test(c)));
+});
+
+test('compareGroups: a habit no transaction of a group carries is not known, which is neither the same, nor different, nor mixed', () => {
+  const g = build([1, 2, 3].map((n) => signed(n, 'aa', n * 100)).concat([4, 5, 6].map((n) => signed(n, 'bb', n * 100))));
+  [4, 5, 6].forEach((n) => { const x = g.nodes.get(ID.tx(tid(n))); x.version = null; x.locktime = null; });          // loaded without a version and a locktime
+  const r = compareOf(g, 'aa', 'bb'), row = (f) => r.habits.rows.find((x) => x.feature === f);
+  assert.deepEqual([row('version').missing, row('version').same, row('version').mixed, row('version').a, row('version').b], [true, false, false, 'v2', null]);
+  assert.equal(row('shape').missing, undefined, 'what both carry is compared as before');
+  assert.equal(r.habits.agree, 2, 'shape and fee rate agree; an unknown habit is no agreement');
+});
+
+test('compareGroups: the same group, or a group with no signed transaction, is an error in words', () => {
+  const g = build([signed(1, 'aa', 600), signed(2, 'bb', 600)]);
+  assert.match(compareOf(g, 'aa', 'aa').error, /one group/);
+  assert.match(compareOf(g, 'aa', 'zz').error, /second group/);
+  assert.match(compareOf(g, 'zz', 'aa').error, /first group/);
+});
+
 test('roles: a group of wallets tagged VICTIM is left out of the pairs, the habits and the comparisons, and counted', () => {
   const txs = [];
   [1, 2, 3].forEach((n) => txs.push(signed(n, 'aa', n * 100)));

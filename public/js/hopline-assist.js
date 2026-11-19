@@ -477,7 +477,8 @@
 
   function whenS(t) { return t == null ? null : new Date(Math.round(t * 1000)).toISOString().slice(0, Math.round(t * 1000) % 1000 ? 23 : 19).replace('T', ' ') + ' UTC'; }
   /** The timing block cut down for a prompt: rows are objects with named fields (a model misreads long arrays of columns), the pairs that link two starting points come first, the times are written out with their seconds, and the lists are shorter than the summary's. */
-  function compactTiming(t, limits) {
+  function compactTiming(t, limits, who) {
+    who = who || function (a) { return { address: a }; };
     var fs = t.firstSeen, rows = fs ? fs.rows.slice(0, 40) : [], pairs = t.pairs.slice(0, 25), groups = t.habits.groups.slice(0, 8), cmp = t.habits.compare.slice(0, 10);
     if (fs && fs.rows.length > 40) limits.push('Only the first 40 of ' + fs.rows.length + ' first-seen rows are in this prompt.');
     if (t.pairs.length > 25) limits.push('Only the first 25 of ' + t.pairs.length + ' pairs are in this prompt.');
@@ -488,7 +489,7 @@
     return {
       rule: 'The timing block holds facts about when and how transactions were made. A first-seen time is a service\'s claim, a habit is a setting that many wallets share (those marked common say little), and two transactions close in time are a coincidence to weigh: say how strong a link is, how rare the match is, what would change your mind, and never name who is behind it. A pair close in time SUPPORTS a link; what weakens it is: a missing habit record, a single pair, a setting most wallets use, the first-seen times coming from different services, and a bursty spread (see considerations and expectedClosePairs). When asked what weakens or supports a link, say which way each fact points. gapSeconds is exact: use it and do not subtract the written times. startingPointsOfA and startingPointsOfB say which starting point of the trail (often one for each case) each transaction descends from; a pair with linksTwoStartingPoints true is the kind that links two cases, and a pair on one trail is expected. Never answer yes or no to whether two wallets or cases have the same operator: say what supports it, what limits it and what the evidence does not hold; the absence of a link in the evidence is not evidence of different operators. Groups tagged VICTIM are left out of the comparisons. Copy rows exactly when you quote them. For a question about the starting points or the cases, read linksBetweenStartingPoints first: a pair listed there is the evidence that connects two starting points, so never say there is none when one is listed. sharedHabitChanges lists a change of habit that two groups made the same way. shareWithDefaultSettings is the share of a group\'s transactions that use the settings most wallets use by default (0 means none). No wallet in common is the condition that makes a close pair a coincidence: it is never a weakness. A habit similarity between two groups that descend from the same starting point says nothing about a link between starting points: only linksBetweenStartingPoints does.',
       linksBetweenStartingPoints: t.trailLinks == null ? undefined : t.trailLinks.map(function (l) {
-        return { startingPointA: l.startingPoints[0], startingPointB: l.startingPoints[1],
+        return { startingPointA: who(l.startingPoints[0]), startingPointB: who(l.startingPoints[1]),
                  pairs: l.pairs.map(function (p) {
                    return { transactionFromStartingPointA: p.fromStartingPointA, transactionFromStartingPointB: p.fromStartingPointB, groupOfTransactionA: p.groupOfA, groupOfTransactionB: p.groupOfB,
                             gapSeconds: p.gapSeconds, why: p.why.join(' and '), block: p.height == null ? undefined : p.height, considerations: p.considerations || [] };
@@ -518,8 +519,9 @@
                           + (m.overlap ? '; the windows overlap from ' + whenS(m.overlap[0]) + ' to ' + whenS(m.overlap[1]) : '; the windows do not overlap');
                    }),
                    same: c.rows.filter(function (r) { return r.same; }).map(function (r) { return r.feature + ' ' + r.a + (r.common ? ' (common)' : ''); }),
-                   differ: c.rows.filter(function (r) { return !r.same && !r.mixed; }).map(function (r) { return r.feature + ': ' + r.a + ' against ' + r.b; }),
+                   differ: c.rows.filter(function (r) { return !r.same && !r.mixed && !r.missing; }).map(function (r) { return r.feature + ': ' + r.a + ' against ' + r.b; }),
                    mixed: c.rows.filter(function (r) { return r.mixed; }).map(function (r) { return r.feature + ': ' + (r.a == null && r.b == null ? 'neither group has a single value' : r.a == null ? 'the first group has no single value (the other: ' + r.b + ')' : 'the second group has no single value (the other: ' + r.a + ')'); }),
+                   notKnown: c.rows.some(function (r) { return r.missing; }) ? c.rows.filter(function (r) { return r.missing; }).map(function (r) { return r.feature; }) : undefined,
                    agreeingHabits: c.agree, agreeingCommonHabits: c.agreeCommon, hoursOverlap: c.hoursOverlap };
         })
       },
@@ -537,7 +539,11 @@
     if (sum.clusters.length > 20) limits.push('Only the first 20 of ' + sum.clusters.length + ' clusters are in this prompt.');
     var change = sum.change.slice(0, 30); if (sum.change.length > 30) limits.push('Only the first 30 of ' + sum.change.length + ' change guesses are in this prompt.');
     var wallets = sum.wallets.slice(0, 40); if (sum.wallets.length > 40) limits.push('Only the first 40 of ' + sum.wallets.length + ' noted wallets are in this prompt.');
-    var timing = sum.timing ? compactTiming(sum.timing, limits) : undefined;
+    var byAddr = {}; sum.wallets.forEach(function (w) { byAddr[w.address] = w; });
+    function who(a) { var w = byAddr[a], o = { address: a }; if (w && w.tag) o.tag = w.tag; if (w && w.label) o.label = w.label; return o; }          // a starting point with the tag and label the person gave it, so 'the threat wallets' can be told
+    var timing = sum.timing ? compactTiming(sum.timing, limits, who) : undefined;
+    var trace = sum.trace ? compactTrace(sum.trace, limits) : undefined;
+    if (trace && trace.startingPoints) trace.startingPoints = trace.startingPoints.map(who);
     var ev = {
       format: sum.format, version: sum.version, title: sum.title || undefined, counts: sum.counts, timeSpan: sum.timeSpan ? { from: sum.timeSpan.fromText, to: sum.timeSpan.toText } : null, sources: sum.sources,
       legend: sum.legend, notes: sum.notes,
@@ -547,7 +553,7 @@
       paymentColumns: ['txid', 'address', 'btc'],
       clusters: clusters,
       likelyChange: change.map(function (c) { return { txid: c.txid, output: c.vout, address: c.address, btc: btc(c.sats), confidence: c.confidence, reasons: c.reasons }; }),
-      wallets: wallets, trace: sum.trace ? compactTrace(sum.trace, limits) : undefined, timing: timing, untrustedFields: sum.untrustedFields, limits: limits
+      wallets: wallets, trace: trace, timing: timing, untrustedFields: sum.untrustedFields, limits: limits
     };
     return ev;
   }
