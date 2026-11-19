@@ -104,7 +104,7 @@ test('prompt: three states for a habit, the changes two groups share, the caveat
   const an = AN.analyse(g, {}), timing = TM.build(g, an, { sameBlock: false }), sum = As.summary(g, an, { timing });
   const t = evidenceOf(As.prompt(sum, 'triage')).timing;
   const cmp = t.habits.compare.find((c) => c.groups.includes(adr('aa')) && c.groups.includes(adr('bb')));
-  assert.ok(cmp.sharedHabitChanges.length === 1 && /version v1 to v2: one group between 2023-11-15 00:50:00 UTC and 2023-11-15 01:06:40 UTC/.test(cmp.sharedHabitChanges[0]) && /the windows overlap from/.test(cmp.sharedHabitChanges[0]), cmp.sharedHabitChanges.join('|'));
+  assert.ok(cmp.sharedHabitChanges.length === 1 && cmp.sharedHabitChanges[0].startsWith('version v1 to v2: ' + adr('aa') + ' between 2023-11-15 00:50:00 UTC and 2023-11-15 01:06:40 UTC, ' + adr('bb') + ' between 2023-11-15 00:56:40 UTC and 2023-11-15 01:13:20 UTC; the windows overlap') && /the windows overlap from/.test(cmp.sharedHabitChanges[0]), cmp.sharedHabitChanges.join('|'));
   const ks = Object.keys(cmp);
   assert.ok(ks.indexOf('sharedHabitChanges') < ks.indexOf('same') && ks.indexOf('sharedHabitChanges') < ks.indexOf('mixed'), 'the shared changes come before what is the same, different or mixed');
   const cc = t.habits.compare.find((c) => c.groups.includes(adr('cc')) && c.groups.includes(adr('aa')));
@@ -129,6 +129,9 @@ test('prompt: three states for a habit, the changes two groups share, the caveat
   assert.match(t.rule, /says nothing about a link between starting points: only linksBetweenStartingPoints does/);
   assert.match(t.rule, /shareWithDefaultSettings is the share of a group's transactions that use the settings most wallets use by default/);
   assert.match(t.rule, /Copy rows exactly when you quote them/);
+  assert.match(t.rule, /A tag is the investigator's own mark: two wallets with the same tag are not thereby linked/);
+  assert.match(t.rule, /never say that starting points, wallets or groups converged, merged or were joined unless a listed field says so/);
+  assert.match(t.rule, /a habit that is not marked common is not for that reason unusual/);
   assert.match(JSON.stringify(evidenceOf(As.prompt(sum, 'triage')).legend), /patternFlags \(round, peel, consolidation\) are shapes the analysis found/);
 });
 
@@ -193,7 +196,7 @@ test('prompt: the habits of a linking pair keep a mixed feature apart from a dif
   assert.deepEqual(h.mixed, ['version: neither group has a single value'], 'half version 1 and half version 2 in both: mixed');
   assert.deepEqual(h.differ, [], 'and not a difference');
   assert.equal(h.sharedHabitChanges.length, 1);
-  assert.match(h.sharedHabitChanges[0], /^version v1 to v2: one group between 2023-11-15 00:33:20 UTC and 2023-11-15 00:50:00 UTC, the other between 2023-11-15 00:40:00 UTC and 2023-11-15 00:56:40 UTC; the windows overlap from /);
+  assert.ok(h.sharedHabitChanges[0].startsWith('version v1 to v2: ' + adr('aa') + ' between 2023-11-15 00:33:20 UTC and 2023-11-15 00:50:00 UTC, ' + adr('bb') + ' between 2023-11-15 00:40:00 UTC and 2023-11-15 00:56:40 UTC; the windows overlap from '), 'each window is named by its group, the first of the pair first: ' + h.sharedHabitChanges[0]);
 });
 
 test('compare: a similarity between two groups on the same trail says so, and says it does not link two starting points', () => {
