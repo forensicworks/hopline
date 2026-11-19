@@ -154,6 +154,48 @@ test('trails and roles: the starting points are named without their prefixes, a 
   assert.equal(t.habits.victimGroupsLeftOut, 1, 'the wallet of one transaction (zz) has a group of one: it is counted when it is the only one of VICTIM');
 });
 
+test('prompt: a pair that links two starting points carries the habits of its own two groups, or says they cannot be compared, and the rule says not to borrow another comparison', () => {
+  const S1 = 'addr:' + adr('start1'), S2 = 'addr:' + adr('start2');
+  const linkPair = (g) => {
+    g.refreshDerived();
+    const an = AN.analyse(g, {}), trails = new Map([[ID.tx(tid(1)), [S1]], [ID.tx(tid(4)), [S2]]]);
+    g.nodes.get(ID.tx(tid(1))).ext = { blockcypher: { found: true, seen: true, received: T0 + 520, confirmed: T0 + 600, relay: '', height: 1001, at: 0 } };
+    g.nodes.get(ID.tx(tid(4))).ext = { blockcypher: { found: true, seen: true, received: T0 + 578, confirmed: T0 + 600, relay: '', height: 1001, at: 0 } };
+    const sum = As.summary(g, an, { timing: TM.build(g, an, { sameBlock: false, trails }) });
+    const t = evidenceOf(As.prompt(sum, 'triage')).timing;
+    return { t, pair: t.linksBetweenStartingPoints[0].pairs[0] };
+  };
+  const full = new Graph(); [signed(1, 'aa', 600), signed(2, 'aa', 1200), signed(3, 'aa', 1800), signed(4, 'bb', 600), signed(5, 'bb', 1300), signed(6, 'bb', 1900)].forEach((t) => full.addTx(t));
+  const h = linkPair(full).pair.habitsOfTheTwoGroups;
+  assert.deepEqual([h.comparable, h.agreeingHabits, h.agreeingCommonHabits, h.differ, h.mixed], [true, 5, 0, [], []], 'final sequences are not what most wallets do, so all five count');
+  assert.deepEqual(h.same, ['version v2', 'lock none', 'sequence ffffffff', 'shape 1in/1out', 'feeRate whole numbers'], 'what is the same, written as the compare entries write it');
+  assert.deepEqual(Object.keys(h), ['comparable', 'sharedHabitChanges', 'same', 'differ', 'mixed', 'agreeingHabits', 'agreeingCommonHabits'], 'the shared changes first, as in the compare entries');
+  assert.deepEqual(Object.keys(linkPair(full).pair).slice(-2), ['considerations', 'habitsOfTheTwoGroups'], 'right after the caveats of the pair');
+  const thin = new Graph(); [signed(1, 'aa', 600), signed(4, 'bb', 600), signed(5, 'bb', 1300), signed(6, 'bb', 1900)].forEach((t) => thin.addTx(t));
+  const { t, pair } = linkPair(thin);
+  assert.deepEqual(pair.habitsOfTheTwoGroups, { comparable: false, why: 'the signing group ' + adr('aa') + ' has 1 signed transaction (fewer than 3), so its habits cannot be compared' });
+  assert.match(t.rule, /the habits of the two groups of a linking pair are in its habitsOfTheTwoGroups: when comparable is false, say they cannot be compared and do not use the comparison of two other groups in their place/);
+  assert.match(t.rule, /No wallet in common says nothing about who owns the wallets: never say the owners are different or distinct/);
+  assert.match(t.rule, /A feature listed under mixed is not a difference: only what is listed under differ differs/);
+  assert.match(t.rule, /does not make the data support the same operator: say what it supports and what it leaves open/);
+});
+
+test('prompt: the habits of a linking pair keep a mixed feature apart from a difference, and carry the change both groups made', () => {
+  const g = new Graph(), S1 = 'addr:' + adr('start1'), S2 = 'addr:' + adr('start2');
+  const sg = (n, who, at, version) => { const t = signed(n, who, at); t.version = version; return t; };
+  [1, 1, 1, 2, 2, 2].forEach((v, i) => g.addTx(sg(i + 1, 'aa', i * 1000, v)));                         // aa changes between 2000 and 3000
+  [1, 1, 1, 2, 2, 2].forEach((v, i) => g.addTx(sg(i + 11, 'bb', i * 1000 + 400, v)));                  // bb between 2400 and 3400: the windows overlap
+  g.refreshDerived();
+  g.nodes.get(ID.tx(tid(1))).ext = { blockcypher: { found: true, seen: true, received: T0 + 10, confirmed: T0 + 600, relay: '', height: 1000, at: 0 } };
+  g.nodes.get(ID.tx(tid(11))).ext = { blockcypher: { found: true, seen: true, received: T0 + 70, confirmed: T0 + 600, relay: '', height: 1000, at: 0 } };
+  const an = AN.analyse(g, {}), trails = new Map([[ID.tx(tid(1)), [S1]], [ID.tx(tid(11)), [S2]]]);
+  const h = evidenceOf(As.prompt(As.summary(g, an, { timing: TM.build(g, an, { sameBlock: false, trails }) }), 'triage')).timing.linksBetweenStartingPoints[0].pairs[0].habitsOfTheTwoGroups;
+  assert.deepEqual(h.mixed, ['version: neither group has a single value'], 'half version 1 and half version 2 in both: mixed');
+  assert.deepEqual(h.differ, [], 'and not a difference');
+  assert.equal(h.sharedHabitChanges.length, 1);
+  assert.match(h.sharedHabitChanges[0], /^version v1 to v2: one group between 2023-11-15 00:33:20 UTC and 2023-11-15 00:50:00 UTC, the other between 2023-11-15 00:40:00 UTC and 2023-11-15 00:56:40 UTC; the windows overlap from /);
+});
+
 test('compare: a similarity between two groups on the same trail says so, and says it does not link two starting points', () => {
   const g = scene(), an = AN.analyse(g, {}), S1 = 'addr:' + adr('start1');
   const trails = new Map([1, 2, 3, 4, 5, 6].map((n) => [ID.tx(tid(n)), [S1]]));

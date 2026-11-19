@@ -117,7 +117,13 @@
     o.pairs.forEach(function (p) { p.groups = p.groups.map(g); p.why = p.why.map(function (x) { return plainText(x, 80); }); p.considerations = (p.considerations || []).map(function (x) { return plainText(x.replace(/\b(addr|tx):/g, ''), 400); }); p.trails = (p.trails || [[], []]).map(gs); });
     if (Array.isArray(o.trailLinks)) o.trailLinks.forEach(function (l) {
       l.startingPoints = gs(l.startingPoints);
-      l.pairs.forEach(function (p) { p.groupOfA = g(p.groupOfA); p.groupOfB = g(p.groupOfB); p.why = (p.why || []).map(function (x) { return plainText(x, 80); }); p.considerations = (p.considerations || []).map(function (x) { return plainText(x.replace(/\b(addr|tx):/g, ''), 400); }); });
+      l.pairs.forEach(function (p) {
+        if (p.habits) {
+          (p.habits.thin || []).forEach(function (x) { x.group = g(x.group); });
+          (p.habits.rows || []).forEach(function (r) { r.a = r.a == null ? null : plainText(r.a, 40); r.b = r.b == null ? null : plainText(r.b, 40); });
+          (p.habits.changeMatches || []).forEach(function (m) { m.feature = plainText(m.feature, 40); m.from = plainText(m.from, 40); m.to = plainText(m.to, 40); });
+        }
+        p.groupOfA = g(p.groupOfA); p.groupOfB = g(p.groupOfB); p.why = (p.why || []).map(function (x) { return plainText(x, 80); }); p.considerations = (p.considerations || []).map(function (x) { return plainText(x.replace(/\b(addr|tx):/g, ''), 400); }); });
     });
     o.habits.groups.forEach(function (x) { x.group = g(x.group); x.label = plainText(x.label, 80); x.role = plainText(x.role || '', 40); x.trails = gs(x.trails); });
     o.habits.compare.forEach(function (c) {
@@ -486,13 +492,30 @@
     if (t.habits.compare.length > 10) limits.push('Only the first 10 of ' + t.habits.compare.length + ' comparisons of two groups are in this prompt.');
     var withPeer = !!(fs && fs.peersIncluded);
     function sp(a) { return Array.isArray(a) ? a : []; }
+    /** What the habits of the two groups of a linking pair say, or why they cannot be compared: so that no model needs to borrow the comparison of two other groups. */
+    function habitsOfPair(h) {
+      if (!h) return undefined;
+      if (!h.comparable) return { comparable: false, why: h.thin.map(function (x) { return 'the signing group ' + x.group + ' has ' + x.signed + ' signed transaction' + (x.signed === 1 ? '' : 's') + ' (fewer than ' + t.habits.minSigned + ')'; }).join('; ') + ', so its habits cannot be compared' };
+      var rows = h.rows, list = function (f) { return rows.filter(f); }, known = list(function (r) { return r.missing; }).map(function (r) { return r.feature; });
+      return { comparable: true,
+               sharedHabitChanges: (h.changeMatches || []).map(function (m) {
+                 return m.feature + ' ' + m.from + ' to ' + m.to + ': one group between ' + whenS(m.windowA[0]) + ' and ' + whenS(m.windowA[1]) + ', the other between ' + whenS(m.windowB[0]) + ' and ' + whenS(m.windowB[1])
+                      + (m.overlap ? '; the windows overlap from ' + whenS(m.overlap[0]) + ' to ' + whenS(m.overlap[1]) : '; the windows do not overlap');
+               }),
+               same: list(function (r) { return r.same; }).map(function (r) { return r.feature + ' ' + r.a + (r.common ? ' (common)' : ''); }),
+               differ: list(function (r) { return !r.same && !r.mixed && !r.missing; }).map(function (r) { return r.feature + ': ' + r.a + ' against ' + r.b; }),
+               mixed: list(function (r) { return r.mixed; }).map(function (r) { return r.feature + ': ' + (r.a == null && r.b == null ? 'neither group has a single value' : r.a == null ? 'the first group has no single value (the other: ' + r.b + ')' : 'the second group has no single value (the other: ' + r.a + ')'); }),
+               notKnown: known.length ? known : undefined, agreeingHabits: h.agree, agreeingCommonHabits: h.agreeCommon };
+    }
     return {
-      rule: 'The timing block holds facts about when and how transactions were made. A first-seen time is a service\'s claim, a habit is a setting that many wallets share (those marked common say little), and two transactions close in time are a coincidence to weigh: say how strong a link is, how rare the match is, what would change your mind, and never name who is behind it. A pair close in time SUPPORTS a link; what weakens it is: a missing habit record, a single pair, a setting most wallets use, the first-seen times coming from different services, and a bursty spread (see considerations and expectedClosePairs). When asked what weakens or supports a link, say which way each fact points. gapSeconds is exact: use it and do not subtract the written times. startingPointsOfA and startingPointsOfB say which starting point of the trail (often one for each case) each transaction descends from; a pair with linksTwoStartingPoints true is the kind that links two cases, and a pair on one trail is expected. Never answer yes or no to whether two wallets or cases have the same operator: say what supports it, what limits it and what the evidence does not hold; the absence of a link in the evidence is not evidence of different operators. Groups tagged VICTIM are left out of the comparisons. Copy rows exactly when you quote them. For a question about the starting points or the cases, read linksBetweenStartingPoints first: a pair listed there is the evidence that connects two starting points, so never say there is none when one is listed. sharedHabitChanges lists a change of habit that two groups made the same way. shareWithDefaultSettings is the share of a group\'s transactions that use the settings most wallets use by default (0 means none). No wallet in common is the condition that makes a close pair a coincidence: it is never a weakness. A habit similarity between two groups that descend from the same starting point says nothing about a link between starting points: only linksBetweenStartingPoints does.',
+      rule: 'The timing block holds facts about when and how transactions were made. A first-seen time is a service\'s claim, a habit is a setting that many wallets share (those marked common say little), and two transactions close in time are a coincidence to weigh: say how strong a link is, how rare the match is, what would change your mind, and never name who is behind it. A pair close in time SUPPORTS a link; what weakens it is: a missing habit record, a single pair, a setting most wallets use, the first-seen times coming from different services, and a bursty spread (see considerations and expectedClosePairs). When asked what weakens or supports a link, say which way each fact points. gapSeconds is exact: use it and do not subtract the written times. startingPointsOfA and startingPointsOfB say which starting point of the trail (often one for each case) each transaction descends from; a pair with linksTwoStartingPoints true is the kind that links two cases, and a pair on one trail is expected. Never answer yes or no to whether two wallets or cases have the same operator: say what supports it, what limits it and what the evidence does not hold; the absence of a link in the evidence is not evidence of different operators. Groups tagged VICTIM are left out of the comparisons. Copy rows exactly when you quote them. For a question about the starting points or the cases, read linksBetweenStartingPoints first: a pair listed there is the evidence that connects two starting points, so never say there is none when one is listed. sharedHabitChanges lists a change of habit that two groups made the same way. shareWithDefaultSettings is the share of a group\'s transactions that use the settings most wallets use by default (0 means none). No wallet in common is the condition that makes a close pair a coincidence: it is never a weakness. A habit similarity between two groups that descend from the same starting point says nothing about a link between starting points: only linksBetweenStartingPoints does, and the habits of the two groups of a linking pair are in its habitsOfTheTwoGroups: when comparable is false, say they cannot be compared and do not use the comparison of two other groups in their place. '
+            + 'No wallet in common says nothing about who owns the wallets: never say the owners are different or distinct. A feature listed under mixed is not a difference: only what is listed under differ differs. A pair close in time, even with every caveat read, does not make the data support the same operator: say what it supports and what it leaves open.',
       linksBetweenStartingPoints: t.trailLinks == null ? undefined : t.trailLinks.map(function (l) {
         return { startingPointA: who(l.startingPoints[0]), startingPointB: who(l.startingPoints[1]),
                  pairs: l.pairs.map(function (p) {
                    return { transactionFromStartingPointA: p.fromStartingPointA, transactionFromStartingPointB: p.fromStartingPointB, groupOfTransactionA: p.groupOfA, groupOfTransactionB: p.groupOfB,
-                            gapSeconds: p.gapSeconds, why: p.why.join(' and '), block: p.height == null ? undefined : p.height, considerations: p.considerations || [] };
+                            gapSeconds: p.gapSeconds, why: p.why.join(' and '), block: p.height == null ? undefined : p.height, considerations: p.considerations || [],
+                            habitsOfTheTwoGroups: habitsOfPair(p.habits) };
                  }) };
       }),
       pairs: { total: t.pairsTotal,

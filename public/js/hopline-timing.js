@@ -233,6 +233,14 @@
       if (shared.length) cons.push('both transactions descend from the same starting point (' + shared.join(', ') + '), so this pair does not link two trails');
       p.considerations = cons;
     });
+    // what the habits of the two groups of a pair say, compared here so that nobody has to borrow the comparison of two other groups; a group with too few signed transactions cannot be compared
+    function habitsOfGroups(ka, kb) {
+      var la = byGroup.get(ka) || [], lb = byGroup.get(kb) || [], thin = [];
+      [[ka, la], [kb, lb]].forEach(function (x) { if (x[1].length < cfg.minSigned) thin.push({ group: x[0], signed: x[1].length }); });
+      if (thin.length) return { comparable: false, thin: thin };
+      var ga = groupStats(ka, la, cfg), gb = groupStats(kb, lb, cfg), c = compare(ga, gb, cfg);
+      return { comparable: true, rows: c.rows, agree: c.agree, agreeCommon: c.agreeCommon, changeMatches: changeMatches(ga, gb) };
+    }
     // the pairs that connect two starting points, grouped by the two (null when no transaction has a trail: nothing is claimed)
     var linkMap = new Map();
     pairList.forEach(function (p) {
@@ -243,7 +251,8 @@
           var two = sa < sb ? [sa, sb] : [sb, sa], key = two.join('|'), l = linkMap.get(key);
           if (!l) linkMap.set(key, l = { startingPoints: two, pairs: [] });
           var iA = sa < sb ? 0 : 1, iB = 1 - iA;                                      // which side of the pair descends from the first of the two starting points
-          l.pairs.push({ txids: p.txids, fromStartingPointA: p.txids[iA], fromStartingPointB: p.txids[iB], groupOfA: p.groups[iA], groupOfB: p.groups[iB], gapSeconds: p.gapSeconds, why: p.why, height: p.height, considerations: p.considerations });
+          l.pairs.push({ txids: p.txids, fromStartingPointA: p.txids[iA], fromStartingPointB: p.txids[iB], groupOfA: p.groups[iA], groupOfB: p.groups[iB], gapSeconds: p.gapSeconds, why: p.why, height: p.height, considerations: p.considerations,
+                              habits: habitsOfGroups(p.groups[iA], p.groups[iB]) });
         });
       });
     });
