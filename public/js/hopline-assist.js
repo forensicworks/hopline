@@ -115,9 +115,13 @@
     function gs(a) { return (Array.isArray(a) ? a : []).map(g); }
     if (o.firstSeen) o.firstSeen.rows.forEach(function (r) { r.group = g(r.group); r.sources = (r.sources || []).map(function (x) { return plainText(x, 40); }); if (r.relay != null) r.relay = plainText(r.relay, 60); });
     o.pairs.forEach(function (p) { p.groups = p.groups.map(g); p.why = p.why.map(function (x) { return plainText(x, 80); }); p.considerations = (p.considerations || []).map(function (x) { return plainText(x.replace(/\b(addr|tx):/g, ''), 400); }); p.trails = (p.trails || [[], []]).map(gs); });
+    if (Array.isArray(o.trailLinks)) o.trailLinks.forEach(function (l) {
+      l.startingPoints = gs(l.startingPoints);
+      l.pairs.forEach(function (p) { p.groupOfA = g(p.groupOfA); p.groupOfB = g(p.groupOfB); p.why = (p.why || []).map(function (x) { return plainText(x, 80); }); p.considerations = (p.considerations || []).map(function (x) { return plainText(x.replace(/\b(addr|tx):/g, ''), 400); }); });
+    });
     o.habits.groups.forEach(function (x) { x.group = g(x.group); x.label = plainText(x.label, 80); x.role = plainText(x.role || '', 40); x.trails = gs(x.trails); });
     o.habits.compare.forEach(function (c) {
-      c.groups = c.groups.map(g); c.rows.forEach(function (r) { r.a = r.a == null ? null : plainText(r.a, 40); r.b = r.b == null ? null : plainText(r.b, 40); });
+      c.groups = c.groups.map(g); c.trails = (c.trails || [[], []]).map(gs); c.sharedStartingPoints = gs(c.sharedStartingPoints); c.rows.forEach(function (r) { r.a = r.a == null ? null : plainText(r.a, 40); r.b = r.b == null ? null : plainText(r.b, 40); });
       (c.changeMatches || []).forEach(function (m) { m.feature = plainText(m.feature, 40); m.from = plainText(m.from, 40); m.to = plainText(m.to, 40); });
     });
     (o.limits || []).forEach(function (l) { limits.push(plainText(l, 200)); });
@@ -467,13 +471,12 @@
                rows: x.rows.slice(0, 8).map(function (r) { return [r.txid, r.address, btc(r.sats)]; }) };
     }
     return { reference: t.reference, referenceKind: t.referenceKind, referenceName: t.referenceName || undefined, startingPoints: t.startingPoints && t.startingPoints.length > 1 ? t.startingPoints : undefined,
-             handoffs: t.handoffs.slice(0, 12).map(function (r) { var row = [r.timeText, r.direction, r.service, r.serviceWallet, r.txid, btc(r.sats), r.walletBeforeOrAfter]; if (named) row.push(r.kind); return row; }),
-             handoffColumns: ['time', 'direction', 'service', 'serviceWallet', 'txid', 'btc', 'trailWallet'].concat(named ? ['kind'] : []),
+             handoffs: t.handoffs.slice(0, 12).map(function (r) { var row = { time: r.timeText, direction: r.direction, service: r.service, serviceWallet: r.serviceWallet, txid: r.txid, btc: btc(r.sats), trailWallet: r.walletBeforeOrAfter }; if (named) row.kind = r.kind; return row; }),
              openEnds: { next: side(t.openEnds.next), prev: side(t.openEnds.prev) }, openEndColumns: ['txid', 'address', 'btc'] };
   }
 
   function whenS(t) { return t == null ? null : new Date(Math.round(t * 1000)).toISOString().slice(0, Math.round(t * 1000) % 1000 ? 23 : 19).replace('T', ' ') + ' UTC'; }
-  /** The timing block cut down for a prompt: rows are arrays (the columns are named once), the times are written out with their seconds, and the lists are shorter than the summary's. */
+  /** The timing block cut down for a prompt: rows are objects with named fields (a model misreads long arrays of columns), the pairs that link two starting points come first, the times are written out with their seconds, and the lists are shorter than the summary's. */
   function compactTiming(t, limits) {
     var fs = t.firstSeen, rows = fs ? fs.rows.slice(0, 40) : [], pairs = t.pairs.slice(0, 25), groups = t.habits.groups.slice(0, 8), cmp = t.habits.compare.slice(0, 10);
     if (fs && fs.rows.length > 40) limits.push('Only the first 40 of ' + fs.rows.length + ' first-seen rows are in this prompt.');
@@ -481,33 +484,45 @@
     if (t.habits.groups.length > 8) limits.push('Only the first 8 of ' + t.habits.groups.length + ' signing groups are in this prompt.');
     if (t.habits.compare.length > 10) limits.push('Only the first 10 of ' + t.habits.compare.length + ' comparisons of two groups are in this prompt.');
     var withPeer = !!(fs && fs.peersIncluded);
+    function sp(a) { return Array.isArray(a) ? a : []; }
     return {
+      rule: 'The timing block holds facts about when and how transactions were made. A first-seen time is a service\'s claim, a habit is a setting that many wallets share (those marked common say little), and two transactions close in time are a coincidence to weigh: say how strong a link is, how rare the match is, what would change your mind, and never name who is behind it. A pair close in time SUPPORTS a link; what weakens it is: a missing habit record, a single pair, a setting most wallets use, the first-seen times coming from different services, and a bursty spread (see considerations and expectedClosePairs). When asked what weakens or supports a link, say which way each fact points. gapSeconds is exact: use it and do not subtract the written times. startingPointsOfA and startingPointsOfB say which starting point of the trail (often one for each case) each transaction descends from; a pair with linksTwoStartingPoints true is the kind that links two cases, and a pair on one trail is expected. Never answer yes or no to whether two wallets or cases have the same operator: say what supports it, what limits it and what the evidence does not hold; the absence of a link in the evidence is not evidence of different operators. Groups tagged VICTIM are left out of the comparisons. Copy rows exactly when you quote them. For a question about the starting points or the cases, read linksBetweenStartingPoints first: a pair listed there is the evidence that connects two starting points, so never say there is none when one is listed. sharedHabitChanges lists a change of habit that two groups made the same way. shareWithDefaultSettings is the share of a group\'s transactions that use the settings most wallets use by default (0 means none). No wallet in common is the condition that makes a close pair a coincidence: it is never a weakness. A habit similarity between two groups that descend from the same starting point says nothing about a link between starting points: only linksBetweenStartingPoints does.',
+      linksBetweenStartingPoints: t.trailLinks == null ? undefined : t.trailLinks.map(function (l) {
+        return { startingPointA: l.startingPoints[0], startingPointB: l.startingPoints[1],
+                 pairs: l.pairs.map(function (p) {
+                   return { transactionFromStartingPointA: p.fromStartingPointA, transactionFromStartingPointB: p.fromStartingPointB, groupOfTransactionA: p.groupOfA, groupOfTransactionB: p.groupOfB,
+                            gapSeconds: p.gapSeconds, why: p.why.join(' and '), block: p.height == null ? undefined : p.height, considerations: p.considerations || [] };
+                 }) };
+      }),
+      pairs: { total: t.pairsTotal,
+               rows: pairs.map(function (p) {
+                 return { txidA: p.txids[0], txidB: p.txids[1], groupA: p.groups[0], groupB: p.groups[1], why: p.why.join(' and '), gapSeconds: p.gapSeconds, firstSeenGapSeconds: p.firstSeenGapSeconds == null ? undefined : p.firstSeenGapSeconds,
+                          block: p.height == null ? undefined : p.height, startingPointsOfA: sp((p.trails || [[], []])[0]), startingPointsOfB: sp((p.trails || [[], []])[1]), linksTwoStartingPoints: !!p.linksTwoTrails, considerations: p.considerations || [] };
+               }) },
       firstSeen: fs ? { count: fs.count, windowSeconds: fs.windowSeconds, expectedClosePairs: fs.expectedClosePairs,
-                        columns: ['txid', 'firstSeen', 'blockTime', 'waitSeconds', 'sources', 'group', 'relayRecorded'].concat(withPeer ? ['relay'] : []),
-                        rows: rows.map(function (r) { var row = [r.txid, whenS(r.firstSeen), whenS(r.blockTime), r.waitSeconds, r.sources.join(' + '), r.group, r.relayRecorded]; if (withPeer) row.push(r.relay || null); return row; }) } : undefined,
-      pairs: { total: t.pairsTotal, columns: ['txidA', 'txidB', 'groupA', 'groupB', 'why', 'gapSeconds', 'firstSeenGapSeconds', 'block', 'fromStartA', 'fromStartB', 'linksTwoTrails', 'considerations'],
-               rows: pairs.map(function (p) { return [p.txids[0], p.txids[1], p.groups[0], p.groups[1], p.why.join(' and '), p.gapSeconds, p.firstSeenGapSeconds == null ? null : p.firstSeenGapSeconds, p.height, (p.trails || [[], []])[0], (p.trails || [[], []])[1], !!p.linksTwoTrails, p.considerations || []]; }) },
+                        rows: rows.map(function (r) { var o = { txid: r.txid, firstSeen: whenS(r.firstSeen), blockTime: whenS(r.blockTime), waitSeconds: r.waitSeconds, sources: r.sources.join(' + '), group: r.group, relayRecorded: r.relayRecorded }; if (withPeer) o.relay = r.relay || null; return o; }) } : undefined,
       sameBlock: t.sameBlock || undefined,
       habits: {
         victimGroupsLeftOut: t.habits.victimGroupsLeftOut || undefined,
         groups: groups.map(function (x) {
           return { group: x.group, label: x.label, wallets: x.wallets, signed: x.signed, from: whenS(x.first), to: whenS(x.last), version: x.version, locktime: x.locktime, sequence: x.sequence, shape: x.shape, outputTypes: x.outputTypes,
-                   patternFlags: x.flags, feeRate: x.fee, commonShare: x.commonShare, eventTimeBasis: x.eventBasis, hoursUtc: x.hoursUtc, role: x.role || undefined, descendsFromStartingPoints: x.trails && x.trails.length ? x.trails : undefined,
-                   changes: x.changes.map(function (c) { return [c.feature, c.from, c.to, whenS(c.lastBefore), whenS(c.firstAfter), c.txidBefore, c.txidAfter]; }), exampleTxids: x.txids };
+                   patternFlags: x.flags, feeRate: x.fee, shareWithDefaultSettings: x.commonShare, eventTimeBasis: x.eventBasis, hoursUtc: x.hoursUtc, role: x.role || undefined, descendsFromStartingPoints: x.trails && x.trails.length ? x.trails : undefined,
+                   changes: x.changes.map(function (c) { return { feature: c.feature, from: c.from, to: c.to, lastBefore: whenS(c.lastBefore), firstAfter: whenS(c.firstAfter), txidBefore: c.txidBefore, txidAfter: c.txidAfter }; }), exampleTxids: x.txids };
         }),
-        changeColumns: ['feature', 'from', 'to', 'lastBefore', 'firstAfter', 'txidBefore', 'txidAfter'],
         compare: cmp.map(function (c) {
-          return { groups: c.groups, agreeingHabits: c.agree, agreeingCommonHabits: c.agreeCommon, hoursOverlap: c.hoursOverlap,
+          var same = (c.sharedStartingPoints || []);
+          return { groups: c.groups, startingPointsOfGroupA: (c.trails || [[], []])[0], startingPointsOfGroupB: (c.trails || [[], []])[1], linksTwoStartingPoints: !!c.linksTwoTrails,
+                   considerations: same.length ? ['both groups descend from the same starting point (' + same.join(', ') + '), so their similarity does not link two starting points'] : [],
+                   sharedHabitChanges: (c.changeMatches || []).map(function (m) {
+                     return m.feature + ' ' + m.from + ' to ' + m.to + ': one group between ' + whenS(m.windowA[0]) + ' and ' + whenS(m.windowA[1]) + ', the other between ' + whenS(m.windowB[0]) + ' and ' + whenS(m.windowB[1])
+                          + (m.overlap ? '; the windows overlap from ' + whenS(m.overlap[0]) + ' to ' + whenS(m.overlap[1]) : '; the windows do not overlap');
+                   }),
                    same: c.rows.filter(function (r) { return r.same; }).map(function (r) { return r.feature + ' ' + r.a + (r.common ? ' (common)' : ''); }),
                    differ: c.rows.filter(function (r) { return !r.same && !r.mixed; }).map(function (r) { return r.feature + ': ' + r.a + ' against ' + r.b; }),
                    mixed: c.rows.filter(function (r) { return r.mixed; }).map(function (r) { return r.feature + ': ' + (r.a == null && r.b == null ? 'neither group has a single value' : r.a == null ? 'the first group has no single value (the other: ' + r.b + ')' : 'the second group has no single value (the other: ' + r.a + ')'); }),
-                   changesInCommon: (c.changeMatches || []).map(function (m) {
-                     return m.feature + ' ' + m.from + ' to ' + m.to + ': one group between ' + whenS(m.windowA[0]) + ' and ' + whenS(m.windowA[1]) + ', the other between ' + whenS(m.windowB[0]) + ' and ' + whenS(m.windowB[1])
-                          + (m.overlap ? '; the windows overlap from ' + whenS(m.overlap[0]) + ' to ' + whenS(m.overlap[1]) : '; the windows do not overlap');
-                   }) };
+                   agreeingHabits: c.agree, agreeingCommonHabits: c.agreeCommon, hoursOverlap: c.hoursOverlap };
         })
       },
-      rule: 'The timing block holds facts about when and how transactions were made. A first-seen time is a service\'s claim, a habit is a setting that many wallets share (those marked common say little), and two transactions close in time are a coincidence to weigh: say how strong a link is, how rare the match is, what would change your mind, and never name who is behind it. A pair close in time SUPPORTS a link; what weakens it is: a missing habit record, a single pair, a setting most wallets use, the first-seen times coming from different services, and a bursty spread (see considerations and expectedClosePairs). When asked what weakens or supports a link, say which way each fact points. gapSeconds is exact: use it and do not subtract the written times. fromStartA and fromStartB say which starting point of the trail (often one for each case) each transaction descends from; a pair with linksTwoTrails true is the kind that links two cases, and a pair on one trail is expected. Never answer yes or no to whether two wallets or cases have the same operator: say what supports it, what limits it and what the evidence does not hold; the absence of a link in the evidence is not evidence of different operators. Groups tagged VICTIM are left out of the comparisons. Copy rows exactly when you quote them.',
       notes: t.notes
     };
   }

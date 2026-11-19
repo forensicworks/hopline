@@ -46,7 +46,7 @@ def test_two_transactions_of_different_wallets_in_one_block_are_a_pair_in_the_ev
     t = evidence(copied(fpage)[0])["timing"]
     assert t["sameBlock"]["pairs"] == 1 and t["sameBlock"]["blocks"] == [700100]
     row = t["pairs"]["rows"][0]
-    assert row[:2] == [tid(2), tid(5)] and row[4] == "same block, no wallet in common" and row[7] == 700100
+    assert [row["txidA"], row["txidB"], row["why"], row["block"]] == [tid(2), tid(5), "same block, no wallet in common", 700100]
 
 
 def test_the_copied_prompt_carries_the_timing_block_with_seconds_and_without_the_relay_peer(fpage, mock):
@@ -54,10 +54,11 @@ def test_the_copied_prompt_carries_the_timing_block_with_seconds_and_without_the
     fpage.click("#aiCopy")
     text = copied(fpage)[0]
     t = evidence(text)["timing"]
-    rows = {r[0]: r for r in t["firstSeen"]["rows"]}
-    assert rows[tid(1)][1] == "2022-04-15 05:21:40 UTC" and rows[tid(4)][1] == "2022-04-15 05:22:38 UTC", "first-seen times, to the second"
-    assert t["pairs"]["rows"][0][:2] == [tid(1), tid(4)] and t["pairs"]["rows"][0][5] == 58 and "first seen within 120 s" in t["pairs"]["rows"][0][4]
-    assert t["pairs"]["columns"][-1] == "considerations" and t["pairs"]["rows"][0][-1] == [], "nothing limits this pair: one service and a habit record on both sides"
+    rows = {r["txid"]: r for r in t["firstSeen"]["rows"]}
+    assert rows[tid(1)]["firstSeen"] == "2022-04-15 05:21:40 UTC" and rows[tid(4)]["firstSeen"] == "2022-04-15 05:22:38 UTC", "first-seen times, to the second"
+    pr = t["pairs"]["rows"][0]
+    assert [pr["txidA"], pr["txidB"], pr["gapSeconds"]] == [tid(1), tid(4), 58] and "first seen within 120 s" in pr["why"]
+    assert pr["considerations"] == [], "nothing limits this pair: one service and a habit record on both sides"
     assert [g["signed"] for g in t["habits"]["groups"]] == [3, 3] and len(t["habits"]["groups"][0]["hoursUtc"]) == 24
     assert "never name who is behind it" in t["rule"]
     assert RELAY not in text and "203.0.113.7" not in text, "the relay peer is not sent unless it is asked for"
@@ -68,9 +69,11 @@ def test_a_pair_says_which_starting_point_each_side_descends_from(tpage, mock):
     groups_scene(tpage, mock); capture(tpage); open_ai(tpage)                                  # the Trace layout: each transaction opened is a starting point of its own
     tpage.click("#aiCopy")
     t = evidence(copied(tpage)[0])["timing"]
-    cols = t["pairs"]["columns"]; row = t["pairs"]["rows"][0]
-    assert row[cols.index("fromStartA")] == [tid(1)] and row[cols.index("fromStartB")] == [tid(4)], "each transaction was opened as a starting point of its own"
-    assert row[cols.index("linksTwoTrails")] is True
+    row = t["pairs"]["rows"][0]
+    assert row["startingPointsOfA"] == [tid(1)] and row["startingPointsOfB"] == [tid(4)], "each transaction was opened as a starting point of its own"
+    assert row["linksTwoStartingPoints"] is True
+    links = t["linksBetweenStartingPoints"]
+    assert len(links) == 1 and links[0]["pairs"][0]["transactionFromStartingPointA"] == tid(1) and links[0]["pairs"][0]["gapSeconds"] == 58, "the pair that links two starting points is listed by itself, first"
     assert [g["descendsFromStartingPoints"] for g in t["habits"]["groups"]] == [[tid(1), tid(2), tid(3)], [tid(4), tid(5), tid(6)]]
 
 
@@ -111,7 +114,7 @@ def test_a_model_on_this_computer_is_sent_the_timing_block_and_its_citations_of_
     body = json.loads(server[0]["body"])
     sent = body["messages"][1]["content"]
     assert server[0]["url"] == MODEL_URL + "/chat/completions" and "authorization" not in server[0]["headers"]
-    assert '"timing":{"firstSeen"' in sent and RELAY not in sent
+    assert '"timing":{"rule"' in sent and RELAY not in sent
     fpage.wait_for_function("() => document.getElementById('aiResult').innerText.includes('NOT in this workspace')")
     r = fpage.inner_text("#aiResult")
     assert "1 id is NOT in this workspace" in r and ("ab" * 32) in r, "the invented id is flagged, the two that are in the timing block are not"

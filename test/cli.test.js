@@ -279,7 +279,7 @@ test('summary and prompt carry the trail when there is a reference, and say noth
   assert.equal(s.trace.handoffs[0].service, 'Binance Hot Wallet');
   assert.deepEqual(s.trace.startingPoints, [a('origin')], 'the starting point of the trail is in the summary');
   const p = run(['prompt', FILE, '--task', 'triage', '--ref', a('origin')]);
-  assert.equal(p.code, 0); assert.match(p.out, /"handoffs":\[\["2022-04-15/);
+  assert.equal(p.code, 0); assert.match(p.out, /"handoffs":\[\{"time":"2022-04-15/);
 });
 
 // ---- who said it: the name of a wallet says which list, under which licence, from when ------------------------------------------------------------------------------
@@ -332,5 +332,5 @@ test('summary: the timing block carries first-seen times and habits, the relay p
   assert.equal(withPeers.firstSeen.rows.find((r) => r.txid === tid(80)).relay, '203.0.113.7:8333');
   const p = run(['prompt', file, '--task', 'triage']);
   assert.equal(p.code, 0);
-  assert.match(p.out, /"timing":\{"firstSeen"/);
+  assert.match(p.out, /"timing":\{"rule"/);
 });
