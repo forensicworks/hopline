@@ -320,7 +320,9 @@ def test_the_assistant_gets_the_trail_with_its_names_marked_untrusted(tpage, moc
     trace_case(tpage, mock)
     capture(tpage); open_ai(tpage); tpage.click("#aiCopy"); settle(tpage)
     ev = assist_evidence(copied(tpage)[-1])
-    assert ev["trace"]["handoffs"][0][1:3] == ["withdrawal", "Test exchange"], ev["trace"]
+    first = ev["trace"]["handoffs"][0]
+    assert [first["direction"], first["service"]] == ["withdrawal", "Test exchange"], ev["trace"]
+    assert "serviceWallet" in first and "trailWallet" in first, "a hand-off is a row of named fields"
     assert "trace.handoffs[].service" in ev["untrustedFields"]
 
 

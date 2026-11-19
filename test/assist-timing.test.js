@@ -61,15 +61,17 @@ test('summary: what was cut in the block is said in the summary\'s own limits', 
   assert.equal(sum.timing.limits, undefined, 'the block has no list of its own any more');
 });
 
-test('prompt: the block is in the evidence as arrays with named columns, the times have their seconds, and the rule for reading it comes with it', () => {
+test('prompt: the block is in the evidence as rows with named fields, the times have their seconds, and the rule for reading it comes with it', () => {
   const { sum } = make();
   const p = As.prompt(sum, 'triage'), ev = evidenceOf(p), t = ev.timing;
-  assert.deepEqual(t.firstSeen.columns, ['txid', 'firstSeen', 'blockTime', 'waitSeconds', 'sources', 'group', 'relayRecorded']);
-  const row = t.firstSeen.rows.find((r) => r[0] === tid(1));
-  assert.deepEqual(row.slice(1, 4), ['2023-11-15 00:08:40 UTC', '2023-11-15 00:10:00 UTC', 80], 'first seen comes before the time of the block');
-  assert.equal(row[6], true, 'it says a peer was recorded, not which');
-  assert.deepEqual(t.pairs.columns.slice(0, 6), ['txidA', 'txidB', 'groupA', 'groupB', 'why', 'gapSeconds']);
-  assert.deepEqual([t.pairs.rows[0][0], t.pairs.rows[0][1], t.pairs.rows[0][4], t.pairs.rows[0][5]], [tid(1), tid(4), 'first seen within 120 s', 58]);
+  const row = t.firstSeen.rows.find((r) => r.txid === tid(1));
+  assert.deepEqual([row.firstSeen, row.blockTime, row.waitSeconds, row.relayRecorded], ['2023-11-15 00:08:40 UTC', '2023-11-15 00:10:00 UTC', 80, true], 'first seen comes before the time of the block, and a peer is said to be recorded, not which');
+  assert.equal('relay' in row, false);
+  assert.deepEqual(Object.keys(t.firstSeen.rows[0]).slice(0, 3), ['txid', 'firstSeen', 'blockTime']);
+  const pr = t.pairs.rows[0];
+  assert.deepEqual([pr.txidA, pr.txidB, pr.why, pr.gapSeconds], [tid(1), tid(4), 'first seen within 120 s', 58]);
+  assert.equal(Array.isArray(pr), false, 'a row is an object, not a list of columns');
+  assert.ok('shareWithDefaultSettings' in t.habits.groups[0] && !('commonShare' in t.habits.groups[0]), 'the share of default settings has a name that says what it is');
   assert.equal(t.habits.groups.length, 2);
   assert.equal(t.habits.groups[0].hoursUtc.length, 24);
   assert.match(t.rule, /never name who is behind it/);
@@ -90,23 +92,30 @@ test('prompt: three states for a habit, the changes two groups share, the caveat
   const an = AN.analyse(g, {}), timing = TM.build(g, an, { sameBlock: false }), sum = As.summary(g, an, { timing });
   const t = evidenceOf(As.prompt(sum, 'triage')).timing;
   const cmp = t.habits.compare.find((c) => c.groups.includes(adr('aa')) && c.groups.includes(adr('bb')));
-  assert.ok(cmp.changesInCommon.length === 1 && /version v1 to v2: one group between 2023-11-15 00:50:00 UTC and 2023-11-15 01:06:40 UTC/.test(cmp.changesInCommon[0]) && /the windows overlap from/.test(cmp.changesInCommon[0]), cmp.changesInCommon.join('|'));
+  assert.ok(cmp.sharedHabitChanges.length === 1 && /version v1 to v2: one group between 2023-11-15 00:50:00 UTC and 2023-11-15 01:06:40 UTC/.test(cmp.sharedHabitChanges[0]) && /the windows overlap from/.test(cmp.sharedHabitChanges[0]), cmp.sharedHabitChanges.join('|'));
+  const ks = Object.keys(cmp);
+  assert.ok(ks.indexOf('sharedHabitChanges') < ks.indexOf('same') && ks.indexOf('sharedHabitChanges') < ks.indexOf('mixed'), 'the shared changes come before what is the same, different or mixed');
   const cc = t.habits.compare.find((c) => c.groups.includes(adr('cc')) && c.groups.includes(adr('aa')));
   assert.deepEqual(cc.mixed, ['version: neither group has a single value'], 'v1 and v2 about as often in both: mixed, not different');
   assert.deepEqual(cc.differ, [], 'and it is not listed as a difference');
   assert.ok(cc.same.includes('lock none') && cc.same.includes('sequence ffffffff'));
   const row = t.pairs.rows[0];
-  assert.deepEqual(t.pairs.columns.slice(-4), ['fromStartA', 'fromStartB', 'linksTwoTrails', 'considerations']);
-  assert.match(row[11].join(' '), /no habit record for 0{62}1a/, 'the caveats of a pair are in the row');
-  assert.equal(row[5], 0.75, 'the gap is exact');
-  const tr = t.firstSeen.rows.find((r) => r[0] === tid(3));
-  assert.equal(tr[1], '2023-11-15 00:49:59.500 UTC', 'a time with a fraction of a second is written with its milliseconds');
-  assert.equal(tr[2], '2023-11-15 00:50:00 UTC', 'and a whole second without');
+  assert.deepEqual(Object.keys(row).slice(-4), ['startingPointsOfA', 'startingPointsOfB', 'linksTwoStartingPoints', 'considerations']);
+  assert.match(row.considerations.join(' '), /no habit record for 0{62}1a/, 'the caveats of a pair are in the row');
+  assert.equal(row.gapSeconds, 0.75, 'the gap is exact');
+  const tr = t.firstSeen.rows.find((r) => r.txid === tid(3));
+  assert.equal(tr.firstSeen, '2023-11-15 00:49:59.500 UTC', 'a time with a fraction of a second is written with its milliseconds');
+  assert.equal(tr.blockTime, '2023-11-15 00:50:00 UTC', 'and a whole second without');
   assert.match(t.rule, /SUPPORTS a link; what weakens it is/);
   assert.match(t.rule, /gapSeconds is exact: use it and do not subtract the written times/);
   assert.match(t.rule, /Never answer yes or no to whether two wallets or cases have the same operator/);
   assert.match(t.rule, /absence of a link in the evidence is not evidence of different operators/);
-  assert.match(t.rule, /linksTwoTrails true is the kind that links two cases/);
+  assert.match(t.rule, /linksTwoStartingPoints true is the kind that links two cases/);
+  assert.match(t.rule, /read linksBetweenStartingPoints first: a pair listed there is the evidence that connects two starting points, so never say there is none when one is listed/);
+  assert.match(t.rule, /sharedHabitChanges lists a change of habit that two groups made the same way/);
+  assert.match(t.rule, /No wallet in common is the condition that makes a close pair a coincidence: it is never a weakness/);
+  assert.match(t.rule, /says nothing about a link between starting points: only linksBetweenStartingPoints does/);
+  assert.match(t.rule, /shareWithDefaultSettings is the share of a group's transactions that use the settings most wallets use by default/);
   assert.match(t.rule, /Copy rows exactly when you quote them/);
   assert.match(JSON.stringify(evidenceOf(As.prompt(sum, 'triage')).legend), /patternFlags \(round, peel, consolidation\) are shapes the analysis found/);
 });
@@ -118,10 +127,30 @@ test('trails and roles: the starting points are named without their prefixes, a 
   const timing = TM.build(g, an, { sameBlock: false, trails, role: (k) => (k.indexOf('zz') >= 0 ? 'VICTIM' : '') });
   const sum = As.summary(g, an, { timing });
   assert.deepEqual(sum.timing.pairs[0].trails, [[adr('start1')], [adr('start2')]], 'no vertex prefix in the summary');
-  const t = evidenceOf(As.prompt(sum, 'triage')).timing, row = t.pairs.rows[0], cols = t.pairs.columns;
-  assert.deepEqual([row[cols.indexOf('fromStartA')], row[cols.indexOf('fromStartB')], row[cols.indexOf('linksTwoTrails')]], [[adr('start1')], [adr('start2')], true]);
+  const t = evidenceOf(As.prompt(sum, 'triage')).timing, row = t.pairs.rows[0];
+  assert.deepEqual([row.startingPointsOfA, row.startingPointsOfB, row.linksTwoStartingPoints], [[adr('start1')], [adr('start2')], true]);
+  assert.equal(t.linksBetweenStartingPoints.length, 1, 'the pairs that link two starting points are listed first and by themselves');
+  const link = t.linksBetweenStartingPoints[0];
+  assert.deepEqual([link.startingPointA, link.startingPointB, link.pairs.length, link.pairs[0].gapSeconds], [adr('start1'), adr('start2'), 1, 58]);
+  assert.deepEqual([link.pairs[0].transactionFromStartingPointA, link.pairs[0].transactionFromStartingPointB, link.pairs[0].groupOfTransactionA, link.pairs[0].groupOfTransactionB], [tid(1), tid(4), adr('aa'), adr('bb')],
+    'each side of the link is named by the starting point it came from, with its group: nothing to mix up');
+  const cmp0 = t.habits.compare.find((c) => c.groups.includes(adr('aa')) && c.groups.includes(adr('bb')));
+  assert.deepEqual([cmp0.startingPointsOfGroupA, cmp0.startingPointsOfGroupB, cmp0.linksTwoStartingPoints, cmp0.considerations], [[adr('start1')], [adr('start2')], true, []], 'two groups on two trails: their similarity is between two starting points');
+  assert.equal(Object.keys(t)[0], 'rule');
+  assert.equal(Object.keys(t)[1], 'linksBetweenStartingPoints', 'right after the rule');
   assert.deepEqual(t.habits.groups.map((x) => x.descendsFromStartingPoints), [[adr('start1')], [adr('start2')]]);
   assert.equal(t.habits.victimGroupsLeftOut, 1, 'the wallet of one transaction (zz) has a group of one: it is counted when it is the only one of VICTIM');
+});
+
+test('compare: a similarity between two groups on the same trail says so, and says it does not link two starting points', () => {
+  const g = scene(), an = AN.analyse(g, {}), S1 = 'addr:' + adr('start1');
+  const trails = new Map([1, 2, 3, 4, 5, 6].map((n) => [ID.tx(tid(n)), [S1]]));
+  const sum = As.summary(g, an, { timing: TM.build(g, an, { sameBlock: false, trails }) });
+  const c = evidenceOf(As.prompt(sum, 'triage')).timing.habits.compare[0];
+  assert.equal(c.linksTwoStartingPoints, false);
+  assert.deepEqual(c.startingPointsOfGroupA, [adr('start1')]);
+  assert.deepEqual(c.considerations, ['both groups descend from the same starting point (' + adr('start1') + '), so their similarity does not link two starting points']);
+  assert.equal(sum.timing.habits.compare[0].sharedStartingPoints[0], adr('start1'), 'no vertex prefix in the summary');
 });
 
 test('prompt: a label cannot close the evidence block or start a new instruction', () => {
@@ -147,8 +176,8 @@ test('trace: the hand-off row names the service wallet and the wallet on the tra
                                openEnds: { next: end, prev: end }, starts });
   const two = As.summary(g, an, { trace: trace(['addr:' + adr('aa'), 'addr:' + adr('bb')]) }), one = As.summary(g, an, { trace: trace(['addr:' + adr('aa')]) });
   const ev = evidenceOf(As.prompt(two, 'triage')).trace;
-  assert.deepEqual(ev.handoffColumns, ['time', 'direction', 'service', 'serviceWallet', 'txid', 'btc', 'trailWallet']);
-  assert.deepEqual([ev.handoffs[0][3], ev.handoffs[0][4], ev.handoffs[0][6]], [adr('svc'), tid(1), adr('trail')], 'the service wallet is its own column and the wallet before the deposit is another');
+  assert.equal(ev.handoffColumns, undefined, 'a hand-off is an object with named fields, so there are no columns to misread');
+  assert.deepEqual([ev.handoffs[0].serviceWallet, ev.handoffs[0].txid, ev.handoffs[0].trailWallet], [adr('svc'), tid(1), adr('trail')], 'the service wallet is its own field and the wallet before the deposit is another');
   assert.deepEqual(ev.startingPoints, [adr('aa'), adr('bb')]);
   assert.equal(evidenceOf(As.prompt(one, 'triage')).trace.startingPoints, undefined, 'one starting point says nothing the reference does not');
   assert.deepEqual(two.trace.startingPoints, [adr('aa'), adr('bb')]);

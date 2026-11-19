@@ -226,6 +226,48 @@ test('pairs: what limits a pair is written by code: the services differ, and a s
   assert.deepEqual(run(both).pairs[0].considerations, [], 'one service for both and a habit record on both sides: nothing limits it');
 });
 
+test('trail links: the pairs that connect two starting points are listed by the two, and nothing is claimed without any trail', () => {
+  const g = build([signed(1, 'aa', 600), signed(2, 'aa', 1200), signed(3, 'aa', 1800), signed(4, 'bb', 600), signed(5, 'bb', 1200), signed(6, 'bb', 1800)]);
+  seen(g, 1, T0 + 520); seen(g, 4, T0 + 578); seen(g, 2, T0 + 1190); seen(g, 5, T0 + 1250);
+  const S1 = 'addr:' + adr('start1'), S2 = 'addr:' + adr('start2'), T_ = (n) => ID.tx(tid(n));
+  const two = new Map([[T_(1), [S1]], [T_(2), [S1]], [T_(3), [S1]], [T_(4), [S2]], [T_(5), [S2]], [T_(6), [S2]]]);
+  const r = run(g, { trails: two });
+  assert.equal(r.trailLinks.length, 1, 'both pairs (1 and 4, 2 and 5) link the same two starting points: one entry');
+  assert.deepEqual(r.trailLinks[0].startingPoints, [S1, S2]);
+  assert.deepEqual(r.trailLinks[0].pairs.map((p) => [p.txids, p.gapSeconds]), [[[tid(2), tid(5)], 60], [[tid(1), tid(4)], 58]].sort((x, y) => x[1] - y[1]).map((x) => x), 'each pair with its transactions and its gap, the closest first');
+  const sameTrail = run(g, { trails: new Map([[T_(1), [S1]], [T_(4), [S1]], [T_(2), [S1]], [T_(5), [S1]]]) });
+  assert.deepEqual(sameTrail.trailLinks, [], 'there are trails, but no pair links two of them');
+  assert.equal(run(g).trailLinks, null, 'without any trail nothing is claimed: null, not an empty list');
+  const three = new Map([[T_(1), [S1, S2]], [T_(4), [S2]], [T_(2), [S1]], [T_(5), ['addr:' + adr('start3')]]]);
+  const many = run(g, { trails: three }).trailLinks;
+  assert.deepEqual(many.map((l) => l.startingPoints.map((x) => x.slice(9, 15))), [['start1', 'start3']], 'the pair 1-4 shares the starting point start2, so it links nothing; the pair 2-5 links start1 and start3');
+});
+
+test('trail links: each side of a link is named by the starting point it came from, whichever order the pair is stored in', () => {
+  const g = build([signed(1, 'aa', 600), signed(2, 'aa', 1200), signed(3, 'aa', 1800), signed(4, 'bb', 600), signed(5, 'bb', 1200), signed(6, 'bb', 1800)]);
+  seen(g, 1, T0 + 520); seen(g, 4, T0 + 578);
+  const S1 = 'addr:' + adr('start1'), S2 = 'addr:' + adr('start2'), T_ = (n) => ID.tx(tid(n));
+  const first = run(g, { trails: new Map([[T_(1), [S1]], [T_(4), [S2]]]) }).trailLinks[0].pairs[0];
+  assert.deepEqual([first.fromStartingPointA, first.fromStartingPointB, first.groupOfA, first.groupOfB], [tid(1), tid(4), ID.addr(adr('aa')), ID.addr(adr('bb'))]);
+  const swapped = run(g, { trails: new Map([[T_(1), [S2]], [T_(4), [S1]]]) }).trailLinks[0].pairs[0];
+  assert.deepEqual([swapped.fromStartingPointA, swapped.fromStartingPointB, swapped.groupOfA, swapped.groupOfB], [tid(4), tid(1), ID.addr(adr('bb')), ID.addr(adr('aa'))], 'start1 is A in both: the transaction that came from it is the A side');
+  assert.deepEqual(swapped.txids, [tid(1), tid(4)], 'the pair keeps its own order');
+});
+
+test('compare: two groups that descend from the same starting point share it and do not link two; groups on two trails do', () => {
+  const txs = [];
+  [1, 2, 3].forEach((n) => txs.push(signed(n, 'aa', n * 100)));
+  [4, 5, 6].forEach((n) => txs.push(signed(n, 'bb', n * 100)));
+  [7, 8, 9].forEach((n) => txs.push(signed(n, 'cc', n * 100)));
+  const g = build(txs), S1 = 'addr:' + adr('start1'), S2 = 'addr:' + adr('start2'), T_ = (n) => ID.tx(tid(n));
+  const trails = new Map([[T_(1), [S1]], [T_(2), [S1]], [T_(3), [S1]], [T_(4), [S1]], [T_(5), [S1]], [T_(6), [S1]], [T_(7), [S2]], [T_(8), [S2]], [T_(9), [S2]]]);
+  const r = run(g, { trails }), find = (x, y) => r.habits.compare.find((c) => c.groups.join() === [ID.addr(adr(x)), ID.addr(adr(y))].join());
+  assert.deepEqual([find('aa', 'bb').sharedStartingPoints, find('aa', 'bb').linksTwoTrails], [[S1], false], 'aa and bb are both on the first trail');
+  assert.deepEqual([find('aa', 'cc').sharedStartingPoints, find('aa', 'cc').linksTwoTrails, find('aa', 'cc').trails], [[], true, [[S1], [S2]]], 'aa and cc are on two');
+  const none = run(g).habits.compare[0];
+  assert.deepEqual([none.trails, none.linksTwoTrails], [[[], []], false], 'without any trail nothing is claimed');
+});
+
 test('roles: a group of wallets tagged VICTIM is left out of the pairs, the habits and the comparisons, and counted', () => {
   const txs = [];
   [1, 2, 3].forEach((n) => txs.push(signed(n, 'aa', n * 100)));

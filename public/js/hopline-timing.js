@@ -213,10 +213,13 @@
     var cmp = [];
     for (var a = 0; a < groups.length; a++) for (var b = a + 1; b < groups.length; b++) {
       var c = compare(groups[a], groups[b], cfg), cm = changeMatches(groups[a], groups[b]), meet = cm.filter(function (m) { return m.overlap; }).length;
-      cmp.push({ groups: [groups[a].key, groups[b].key], rows: c.rows, agree: c.agree, agreeCommon: c.agreeCommon, hoursOverlap: c.hoursOverlap, changeMatches: cm, score: c.agree + meet });
+      var ta = unionTrails(groups[a].facts), tb = unionTrails(groups[b].facts), shared = ta.filter(function (x) { return tb.indexOf(x) >= 0; });
+      cmp.push({ groups: [groups[a].key, groups[b].key], rows: c.rows, agree: c.agree, agreeCommon: c.agreeCommon, hoursOverlap: c.hoursOverlap, changeMatches: cm, score: c.agree + meet,
+                 trails: [ta, tb], sharedStartingPoints: shared, linksTwoTrails: ta.length > 0 && tb.length > 0 && shared.length === 0 });
     }
     cmp.sort(function (x, y) { return y.score - x.score || y.hoursOverlap - x.hoursOverlap || (x.groups[0] < y.groups[0] ? -1 : 1); });
     var cmpTotal = cmp.length; cmp = cut(cmp, caps.compare, 'comparisons of two groups', limits);
+    var anyTrail = false; facts.forEach(function (f) { if (f.trails.length) anyTrail = true; });
     var haveHabits = new Set(groups.map(function (g) { return g.key; })), sourcesOf = new Map(fsRows.map(function (r) { return [r.txid, r.sources]; }));
     pairList.forEach(function (p) {                                                       // what limits a pair, said by code so that a model need not guess it
       var cons = [], sa = sourcesOf.get(p.txids[0]), sb = sourcesOf.get(p.txids[1]);
@@ -229,6 +232,21 @@
       if (shared.length) cons.push('both transactions descend from the same starting point (' + shared.join(', ') + '), so this pair does not link two trails');
       p.considerations = cons;
     });
+    // the pairs that connect two starting points, grouped by the two (null when no transaction has a trail: nothing is claimed)
+    var linkMap = new Map();
+    pairList.forEach(function (p) {
+      if (!p.linksTwoTrails) return;
+      p.trails[0].forEach(function (sa) {
+        p.trails[1].forEach(function (sb) {
+          if (sa === sb) return;
+          var two = sa < sb ? [sa, sb] : [sb, sa], key = two.join('|'), l = linkMap.get(key);
+          if (!l) linkMap.set(key, l = { startingPoints: two, pairs: [] });
+          var iA = sa < sb ? 0 : 1, iB = 1 - iA;                                      // which side of the pair descends from the first of the two starting points
+          l.pairs.push({ txids: p.txids, fromStartingPointA: p.txids[iA], fromStartingPointB: p.txids[iB], groupOfA: p.groups[iA], groupOfB: p.groups[iB], gapSeconds: p.gapSeconds, why: p.why, height: p.height, considerations: p.considerations });
+        });
+      });
+    });
+    var trailLinks = anyTrail ? Array.from(linkMap.values()) : null;
     var habitGroups = groups.map(function (g) {
       return { group: g.key, label: typeof cfg.label === 'function' ? cfg.label(g.key, g) : g.key, wallets: g.cluster ? g.cluster.size : 1, signed: g.signed, first: g.first, last: g.last,
                version: g.version, locktime: g.lock, sequence: g.sequence, shape: top2(g.shape), outputTypes: g.outputTypes, flags: g.flags, fee: g.fee, commonShare: g.commonShare,
@@ -236,7 +254,7 @@
                role: typeof cfg.role === 'function' ? String(cfg.role(g.key, g) || '') : '', trails: unionTrails(g.facts) };
     });
     if (!firstSeen && !pairList.length && !habitGroups.length && !(sameBlock && sameBlock.pairs)) return null;
-    return { firstSeen: firstSeen, pairs: pairList, pairsTotal: pairTotal, sameBlock: sameBlock, habits: { minSigned: cfg.minSigned, groupsTotal: groupTotal, victimGroupsLeftOut: victims, groups: habitGroups, compare: cmp, compareTotal: cmpTotal },
+    return { firstSeen: firstSeen, pairs: pairList, pairsTotal: pairTotal, trailLinks: trailLinks, sameBlock: sameBlock, habits: { minSigned: cfg.minSigned, groupsTotal: groupTotal, victimGroupsLeftOut: victims, groups: habitGroups, compare: cmp, compareTotal: cmpTotal },
              limits: limits, notes: NOTES };
   }
   function unionTrails(list) { var s = new Set(); list.forEach(function (f) { (f.trails || []).forEach(function (t) { s.add(t); }); }); return Array.from(s).sort(); }
