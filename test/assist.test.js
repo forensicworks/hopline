@@ -211,7 +211,7 @@ test('prompt: rules, task and evidence, with peel steps listed once inside their
 
 test('prompt: the tasks, and an explain needs its focus', () => {
   const s = scene(), m = sum(s), f = As.focus(s.g, s.an, 'tx:' + tid(12));
-  assert.deepEqual(As.TASKS.sort(), ['ask', 'challenge', 'explain', 'narrative', 'triage']);
+  assert.deepEqual(As.TASKS.sort(), ['ask', 'challenge', 'explain', 'narrative', 'next', 'triage']);
   assert.match(As.prompt(m, 'narrative').user, /^TASK: Draft the "Key findings"/); assert.match(As.prompt(m, 'challenge').user, /^TASK: Challenge/);
   assert.throws(() => As.prompt(m, 'explain'), /needs a focus/);
   const p = As.prompt(m, 'explain', { focus: f });

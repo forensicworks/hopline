@@ -272,7 +272,7 @@ def test_the_settings_are_remembered(fpage, mock):
     set_model(fpage, model="qwen2.5:7b", endpoint="http://localhost:1234/v1")
     fpage.fill("#aiRows", "30"); fpage.dispatch_event("#aiRows", "change")
     prefs = json.loads(fpage.evaluate("() => localStorage.getItem('hopline.prefs.v1')"))
-    assert prefs["assist"] == {"endpoint": "http://localhost:1234/v1", "model": "qwen2.5:7b", "rows": 30}
+    assert prefs["assist"] == {"endpoint": "http://localhost:1234/v1", "model": "qwen2.5:7b", "rows": 30, "actions": False}
     fpage.reload(); fpage.wait_for_function("window.__hopline && window.__hopline.renderer")
     open_ai(fpage, local=True)
     assert fpage.input_value("#aiEndpoint") == "http://localhost:1234/v1" and fpage.input_value("#aiModel") == "qwen2.5:7b" and fpage.input_value("#aiRows") == "30"
@@ -283,7 +283,7 @@ def test_what_is_saved_for_the_model_holds_no_key_and_no_evidence(fpage, mock):
     set_model(fpage)
     saved = fpage.evaluate("() => JSON.stringify(Object.keys(localStorage).map((k) => [k, localStorage.getItem(k)]))")
     assert "EVIDENCE" not in saved and "You are helping an investigator" not in saved, "a prompt is never stored"
-    assert set(json.loads(fpage.evaluate("() => localStorage.getItem('hopline.prefs.v1')"))["assist"]) == {"endpoint", "model", "rows"}, "an address, a model name and a number: no key, no answer"
+    assert set(json.loads(fpage.evaluate("() => localStorage.getItem('hopline.prefs.v1')"))["assist"]) == {"endpoint", "model", "rows", "actions"}, "an address, a model name, a number and a switch: no key, no answer"
 
 
 # ---- Check ids ---------------------------------------------------------------------------------------------------------------------

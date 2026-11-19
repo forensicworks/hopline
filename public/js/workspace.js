@@ -53,7 +53,7 @@
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: true, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true, hoverPreview: true,
     trace: emptyTrace(), vgroups: new Map(), vseq: 0, routeRef: null, routeFocus: null, openDir: 'next',
-    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true, swap: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60 }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
+    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true, swap: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60, actions: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
     stepMode: 'ask', stepSize: 5, shareMax: SH.DEFAULT_LIMIT, autoBalance: true, autoHistory: true, autoUpdate: false, autoTag: true, tagSeen: new Set(), arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
@@ -1718,7 +1718,7 @@
     var n = state.graph.nodes.get(id); if (!n) return;
     if (n.type === 'tx') {
       var dirLabel = direction === 'forward' ? 'spenders' : direction === 'backward' ? 'funding transactions' : 'both directions';
-      run('Expand ' + S.shortId(n.txid, 6) + ' (' + dirLabel + ')', function () { return state.explorer.expandTx(n.txid, direction || 'both', state.capTx); });
+      return run('Expand ' + S.shortId(n.txid, 6) + ' (' + dirLabel + ')', function () { return state.explorer.expandTx(n.txid, direction || 'both', state.capTx); });
     } else if (n.type === 'addr') {
       loadMoreHistory(id);
     } else {
@@ -4045,7 +4045,7 @@
     box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
     return box;
   }
-  function cmpRemove(c) { var i = cmps.indexOf(c); if (i >= 0) cmps.splice(i, 1); showInspector(); updateFindings(); }
+  function cmpRemove(c) { var i = cmps.indexOf(c); if (i >= 0) cmps.splice(i, 1); showInspector(); updateFindings(); aiActionsNow(); }
   /** In the details of two selected vertices: the button, and the card once it was pressed (kept for this session). null unless exactly two vertices of two groups are selected. */
   function compareSection(ids) {
     if (ids.length !== 2) return null;
@@ -4845,7 +4845,7 @@
   function cleanAssist(a) {
     a = a && typeof a === 'object' ? a : {};
     return { endpoint: typeof a.endpoint === 'string' && a.endpoint ? a.endpoint.slice(0, 300) : DEFAULT_ENDPOINT,
-             model: typeof a.model === 'string' ? a.model.replace(/[^\w.:\/@+\-]/g, '').slice(0, 100) : '', rows: num(a.rows, 5, 400, 60) };
+             model: typeof a.model === 'string' ? a.model.replace(/[^\w.:\/@+\-]/g, '').slice(0, 100) : '', rows: num(a.rows, 5, 400, 60), actions: a.actions === true };
   }
   var ai = { busy: null, focus: null, log: [], models: [] };                                         // busy: the controller of a question in flight; log: the questions asked since the page opened (memory only)
   function assistKnown(a) {
@@ -4894,7 +4894,7 @@
       if (!focus) { toast('Select a transaction or a wallet: that is what the assistant can be asked to explain.', true); return null; }
     }
     var p;
-    try { p = AS.prompt(assistSummary(), task, { maxRows: state.assist.rows, focus: focus, question: question }); } catch (e) { toast(e.message, true); return null; }
+    try { p = AS.prompt(assistSummary(), task, { maxRows: state.assist.rows, focus: focus, question: question, actions: state.assist.actions }); } catch (e) { toast(e.message, true); return null; }
     ai.focus = focus;
     $('aiSize').textContent = 'About ' + p.tokens.toLocaleString() + ' tokens: ' + plural(p.shown.patterns, 'pattern row') + ', ' + plural(p.shown.peelChains, 'peel chain') + ', ' + plural(p.shown.clusters, 'cluster') + ', ' + plural(p.shown.wallets, 'noted wallet')
       + (p.shown.focus != null ? ', ' + plural(p.shown.focus, 'item') + ' described in full' : '') + (p.shown.timing != null ? ', ' + plural(p.shown.timing, 'timing row') + ' (first-seen times, pairs, habits)' : '') + '.' + more
@@ -4905,6 +4905,9 @@
   function aiNoteSet(text, bad) { var n = $('aiNote'); n.textContent = text; n.className = 'hint' + (bad ? ' bad' : ''); }
   function syncAssistUi() {
     var ep = AS.localEndpoint(state.assist.endpoint);
+    $('aiActions').checked = !!state.assist.actions;                                    // the next-steps task exists only while the model may propose actions
+    $('aiTaskNext').hidden = !state.assist.actions; $('aiTaskNext').disabled = !state.assist.actions;
+    if (!state.assist.actions && $('aiTask').value === 'next') $('aiTask').value = 'triage';
     $('aiAskBox').hidden = $('aiTask').value !== 'ask'; syncQuestion(); syncModelPick();
     if (document.activeElement !== $('aiEndpoint')) $('aiEndpoint').value = state.assist.endpoint;
     if (document.activeElement !== $('aiModel')) $('aiModel').value = state.assist.model;
@@ -4992,6 +4995,7 @@
 
   /** Compare every id in the answer box with the evidence and say which ones are not there. The text is shown as text only. */
   function aiCheckNow() {
+    aiActionsNow(true);
     var text = $('aiText').value, box = $('aiResult'); box.textContent = '';
     if (!text.trim()) { box.appendChild(el('p', { 'class': 'hint', text: 'Paste an answer, or ask the model, then check the ids it cites.' })); return; }
     var r = AS.checkCitations(text, AS.idSets(assistSummary(), state.graph, ai.focus));
@@ -5019,6 +5023,114 @@
                          [el('span', { 'class': 'mono', text: c.text }), el('span', { 'class': 'amt', text: c.where === 'evidence' ? 'in the evidence' : 'loaded, not in the evidence' })]));
     });
     box.appendChild(el('p', { 'class': 'hint', text: 'A model\'s text is not evidence. Check each claim against the transactions before it goes into a report.' }));
+  }
+
+  // ---- actions the model proposes: a checklist under its answer. The model only proposes; nothing runs until a person presses Apply -------------------
+  var AI_RING_MS = 8000, aiRingTimer = null;
+  ai.acts = []; ai.appliedFor = ''; ai.applied = new Set(); ai.res = null;                   // the rows now shown, which (by place in the block) were applied for this answer, and what the check of that answer found
+  function aiVid(x) { return /^[0-9a-f]{64}$/i.test(x) ? ID.tx(String(x).toLowerCase()) : ID.addr(x); }
+  /** What the validator needs: the ids the evidence names and the workspace holds, what is loaded, and the signing group of a vertex. */
+  function aiActionsCtx() {
+    var sets = AS.idSets(assistSummary(), state.graph, ai.focus), an = analysis();
+    return { evidence: sets.evidence, workspace: sets.workspace, loaded: function (id) { return state.graph.nodes.has(aiVid(id)); }, needsLoad: function (id) { return needsLoad(aiVid(id)); },
+             groupOf: function (id) { return HoplineTiming.groupOf(state.graph, an, aiVid(id)); } };
+  }
+  function aiCompareOf(a) { var k = cmpKey(a.groups.map(aiVid)); return cmps.filter(function (c) { return cmpKey(c.ids) === k; })[0] || null; }
+  /** A comparison counts as applied while it is in the list; a load or a follow once it ran; a selection and a ring can be pressed again. */
+  function aiIsApplied(e) {
+    if (e.a.action === 'compare') return !!aiCompareOf(e.a);
+    return (e.a.action === 'load' || e.a.action === 'follow') && ai.applied.has(e.a.n);
+  }
+  /** Run one proposed action as an ordinary canvas action; resolves to true when it ran. A load or a follow is a load like any other: the data source you chose, the request limit, Undo load. */
+  function aiRunAction(a) {
+    var gone = function () { toast('That is not on the canvas any more.', true); return Promise.resolve(false); };
+    if (a.action === 'select' || a.action === 'ring') {
+      var ids = a.ids.map(aiVid).filter(function (id) { return state.graph.nodes.has(id); });
+      if (!ids.length) return gone();
+      if (a.action === 'select') { selectIds(ids, 'vertices the assistant named'); return Promise.resolve(true); }
+      renderer.ensureVisible(ids); clearTimeout(aiRingTimer); renderer.setPreview(ids, null);
+      aiRingTimer = setTimeout(function () { if (renderer) renderer.setPreview(null); }, AI_RING_MS);
+      toast(hlOnScreen(ids) + ' of ' + ids.length + ' ringed on the canvas for a few seconds.');
+      return Promise.resolve(true);
+    }
+    if (a.action === 'load') {
+      var lid = aiVid(a.id);
+      if (!needsLoad(lid)) { toast('Already loaded.'); return Promise.resolve(true); }
+      return navigate(lid).then(function (ok) { return ok !== false && state.graph.nodes.has(lid); });
+    }
+    if (a.action === 'follow') {
+      var fid = aiVid(a.id);
+      if (!state.graph.nodes.has(fid)) return gone();
+      return Promise.resolve(expandNode(fid, a.direction)).then(function (r) { return !!r; });
+    }
+    if (a.action === 'compare') {
+      var two = a.groups.map(aiVid), an = analysis(), k0 = HoplineTiming.groupOf(state.graph, an, two[0]), k1 = HoplineTiming.groupOf(state.graph, an, two[1]);
+      if (!k0 || !k1 || k0 === k1) { toast('Those two are not in two different signing groups any more.', true); return Promise.resolve(false); }
+      if (!aiCompareOf(a)) cmps.push({ ids: two });
+      updateFindings();
+      return Promise.resolve(true);
+    }
+    return Promise.resolve(false);
+  }
+  function aiApplyRow(e) {
+    if (aiIsApplied(e)) return Promise.resolve(true);
+    if (state.busy) { toast('Busy: wait for the current action or cancel it.', true); return Promise.resolve(false); }
+    log('Assistant suggested: ' + e.a.text + ' (you applied it).');
+    return aiRunAction(e.a).then(function (ok) {
+      if (ok) { ai.applied.add(e.a.n); aiActionsNow(); return true; }
+      log('Assistant suggested: ' + e.a.text + ' (it could not run).', true);          // the row stays, with its reason in the message above and a note here, so it can be pressed again
+      if (e.row) { var old = e.row.querySelector('[data-failed]'); if (old) old.remove(); e.row.appendChild(el('p', { 'class': 'hint bad', 'data-failed': '1', text: 'It could not run: the message above says why. The row stays, so you can press it again.' })); }
+      return false;
+    });
+  }
+  /** Every row not yet applied, one after the other; it stops at the first that cannot run. */
+  function aiApplyAll() {
+    var todo = ai.acts.filter(function (e) { return !aiIsApplied(e); }), done = 0;
+    (function next(i) {
+      if (i >= todo.length) return;                                                          // each load said what it did, with its own Undo; a last message here would hide that
+      aiApplyRow(todo[i]).then(function (ok) {
+        if (ok) { done++; next(i + 1); } else toast('Stopped at: ' + todo[i].a.text + '. ' + done + ' of ' + todo.length + ' applied.', true);
+      });
+    })(0);
+  }
+  function aiActionRow(e) {
+    var a = e.a, done = aiIsApplied(e), row = el('div', { 'class': 'actrow', 'data-n': String(a.n) });
+    row.appendChild(el('div', { 'class': 'acttext', text: a.text + (a.idsLeftOut ? ' — ' + (a.idsLeftOut === 1 ? '1 id was' : a.idsLeftOut + ' ids were') + ' left out (not loaded, or not in the workspace)' : '') }));
+    row.appendChild(el('div', { 'class': 'hint', text: 'The model says: ' + a.why }));
+    if (a.action === 'load' || a.action === 'follow') row.appendChild(el('div', { 'class': 'hint', text: 'Asks ' + (state.client ? hostOf(state.client.base) : 'the data source') + ', like any load; it counts against the request limit and Undo load takes it back.' }));
+    row.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', text: done ? 'Applied' : 'Apply', disabled: done ? 'disabled' : null, onclick: function () { aiApplyRow(e); } })]));
+    if (a.action === 'compare' && done) { var c = aiCompareOf(a); if (c) row.appendChild(cmpCard(c, cmpResult(c))); }
+    e.row = row;
+    return row;
+  }
+  /**
+   * The checklist for the answer in the box: one row per action, with the sentence Hopline made, the model's reason apart, and Apply. Only with the setting on.
+   * The answer is checked when it changes or when Check ids is pressed (fresh); after an action ran the same result is drawn again, so a load that is now loaded shows "Applied" instead of dropping out as "already loaded".
+   */
+  function aiActionsNow(fresh) {
+    var box = $('aiActionsBox'), text = $('aiText').value;
+    box.textContent = ''; ai.acts = [];
+    if (!state.assist.actions || !text.trim()) { box.hidden = true; return; }
+    if (ai.appliedFor !== text) { ai.appliedFor = text; ai.applied = new Set(); fresh = true; }
+    if (fresh || !ai.res) ai.res = AS.validateActions(AS.parseActions(text), aiActionsCtx());
+    var res = ai.res;
+    box.hidden = false;
+    if (!res.found) { box.appendChild(el('p', { 'class': 'hint', text: 'No block of actions in this answer.' })); return; }
+    box.appendChild(el('span', { 'class': 'lbl', text: 'Proposed actions' + (res.actions.length ? ' (' + res.actions.length + ')' : '') }));
+    box.appendChild(el('p', { 'class': 'hint', text: 'The model only proposes. Nothing runs until you press Apply. Each line is written by Hopline from the action; the reason is the model\'s own words, not evidence.' }));
+    if (res.error) box.appendChild(el('p', { 'class': 'hint bad', text: res.error }));
+    res.actions.forEach(function (a) { ai.acts.push({ a: a }); });
+    var pending = ai.acts.filter(function (e) { return !aiIsApplied(e); }), asks = pending.filter(function (e) { return e.a.action === 'load' || e.a.action === 'follow'; }).length;
+    if (pending.length > 1) {
+      box.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', 'data-all': '1', text: 'Apply all ' + pending.length, title: 'Run the rows one after the other; it stops at the first that cannot run', onclick: aiApplyAll })]));
+      box.appendChild(el('p', { 'class': 'hint', 'data-cost': '1', text: asks ? asks + (asks === 1 ? ' of them asks ' : ' of them ask ') + (state.client ? hostOf(state.client.base) : 'the data source') + ': at least ' + plural(asks, 'request') + ' in all (each load has its own limit of ' + state.capReq + ' requests and its own Undo load).'
+                                                              : 'None of them asks the network.' }));
+    }
+    ai.acts.forEach(function (e) { box.appendChild(aiActionRow(e)); });
+    if (res.dropped.length) {
+      box.appendChild(el('p', { 'class': 'hint', text: plural(res.dropped.length, 'proposal') + ' left out:' }));
+      res.dropped.slice(0, 8).forEach(function (d) { box.appendChild(el('p', { 'class': 'hint', 'data-dropped': String(d.n), text: '#' + d.n + ': ' + d.reason })); });
+    }
   }
 
   // ---- your own question: suggestions, a short memory of what was asked, and the way back to an earlier answer ----------------------------------------
@@ -5072,6 +5184,7 @@
     $('aiAsk').addEventListener('click', aiAsk);
     $('aiTest').addEventListener('click', aiTest);
     $('aiCheck').addEventListener('click', aiCheckNow);
+    $('aiActions').addEventListener('change', function () { state.assist.actions = this.checked; savePrefs(); syncAssistUi(); aiActionsNow(true); });
     $('aiCopyAnswer').addEventListener('click', function () { var t = $('aiText').value; if (t.trim()) copy(t, 'the answer'); else toast('There is no answer to copy.', true); });
     $('aiEndpoint').addEventListener('input', function () { state.assist.endpoint = this.value.slice(0, 300); savePrefs(); aiModelOffer([]); syncAssistUi(); });
     $('aiModelPick').addEventListener('change', function () { if (!this.value) return; state.assist.model = cleanAssist({ model: this.value }).model; savePrefs(); syncAssistUi(); });
