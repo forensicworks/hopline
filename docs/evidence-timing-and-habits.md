@@ -43,6 +43,7 @@ The summary grows, so every list has a cap and says when it was cut (the `limits
 - The legend explains each part (a first-seen time is a claim and a lag; a habit is a setting, many wallets share the common ones; a coincidence is not a link).
 - The notes add: weigh by **rarity**, say how strong a link is and what would change it, never name an operator, and treat `expectedByChance` as a yardstick.
 - Every txid in the block is in the checked set, so a citation of one is accepted and a made-up one is not.
+- **The habits of a linking pair are in the pair** (`habitsOfTheTwoGroups`, worked out by code from the pair's own two groups): the same, differ, mixed and not-known lists, the changes both made the same way, or `comparable: false` and which group has too few signed transactions. Added after a test in which a model, asked whether two starting points were one operator, used the comparison of two groups of one starting point as support (the only habit comparison it had) and called a mixed feature a difference. The rule also says that no wallet in common says nothing about who owns the wallets.
 
 ## Tests
 

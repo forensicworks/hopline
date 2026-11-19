@@ -75,6 +75,9 @@ def test_a_pair_says_which_starting_point_each_side_descends_from(tpage, mock):
     links = t["linksBetweenStartingPoints"]
     assert len(links) == 1 and links[0]["pairs"][0]["transactionFromStartingPointA"] == tid(1) and links[0]["pairs"][0]["gapSeconds"] == 58, "the pair that links two starting points is listed by itself, first"
     assert [g["descendsFromStartingPoints"] for g in t["habits"]["groups"]] == [[tid(1), tid(2), tid(3)], [tid(4), tid(5), tid(6)]]
+    h = links[0]["pairs"][0]["habitsOfTheTwoGroups"]
+    assert h["comparable"] is True and h["differ"] == [] and "shape 1in/1out" in h["same"], "the habits of the pair's own two groups are in the pair"
+    assert sorted(h["notKnown"]) == ["lock", "sequence", "version"], "the mock transactions carry no version or locktime: not known, neither the same nor different"
 
 
 def test_a_group_of_wallets_tagged_victim_is_left_out_of_the_pairs_and_counted(fpage, mock):

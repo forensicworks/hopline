@@ -254,6 +254,25 @@ test('trail links: each side of a link is named by the starting point it came fr
   assert.deepEqual(swapped.txids, [tid(1), tid(4)], 'the pair keeps its own order');
 });
 
+test('trail links: each pair carries the habits of its own two groups, or says which group is too thin to be compared', () => {
+  const S1 = 'addr:' + adr('start1'), S2 = 'addr:' + adr('start2'), T_ = (n) => ID.tx(tid(n));
+  const linkOf = (txs) => {
+    const g = build(txs); seen(g, 1, T0 + 520); seen(g, 4, T0 + 578);
+    return run(g, { trails: new Map([[T_(1), [S1]], [T_(4), [S2]]]) }).trailLinks[0].pairs[0];
+  };
+  const both = linkOf([signed(1, 'aa', 600), signed(2, 'aa', 1200), signed(3, 'aa', 1800), signed(4, 'bb', 600), signed(5, 'bb', 1200), signed(6, 'bb', 1800)]).habits;
+  assert.equal(both.comparable, true);
+  assert.deepEqual([both.agree, both.agreeCommon], [2, 3], 'the two groups of the pair, not any other two: shape and fee rate agree, three settings agree but are what most wallets do');
+  assert.deepEqual(both.rows.map((r) => r.feature), ['version', 'lock', 'sequence', 'shape', 'feeRate']);
+  const thinA = linkOf([signed(1, 'aa', 600), signed(4, 'bb', 600), signed(5, 'bb', 1200), signed(6, 'bb', 1800)]).habits;
+  assert.deepEqual(thinA, { comparable: false, thin: [{ group: ID.addr(adr('aa')), signed: 1 }] }, 'one signed transaction is not a habit: not compared, and the group is named');
+  const thinBoth = linkOf([signed(1, 'aa', 600), signed(2, 'aa', 1200), signed(4, 'bb', 600)]).habits;
+  assert.deepEqual(thinBoth.thin, [{ group: ID.addr(adr('aa')), signed: 2 }, { group: ID.addr(adr('bb')), signed: 1 }], 'both are named, in the order of the pair');
+  const apart = linkOf([signed(1, 'aa', 600), signed(2, 'aa', 1200), signed(3, 'aa', 1800), signed(4, 'bb', 600, { version: 1 }), signed(5, 'bb', 1200, { version: 1 }), signed(6, 'bb', 1800, { version: 1 })]).habits;
+  const ver = apart.rows.find((r) => r.feature === 'version');
+  assert.deepEqual([ver.a, ver.b, ver.same, ver.mixed], ['v2', 'v1', false, false], 'the first group is the one of the transaction that came from the first starting point');
+});
+
 test('compare: two groups that descend from the same starting point share it and do not link two; groups on two trails do', () => {
   const txs = [];
   [1, 2, 3].forEach((n) => txs.push(signed(n, 'aa', n * 100)));
