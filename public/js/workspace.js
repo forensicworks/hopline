@@ -3520,6 +3520,7 @@
       if (kinds.addr && kinds.addr < ids.length) narrow.push(el('button', { type: 'button', text: 'Wallets only (' + kinds.addr + ')', title: 'Narrow the selection to its wallets', onclick: function () { narrowSelection('addr'); } }));
       if (kinds.tx && kinds.tx < ids.length) narrow.push(el('button', { type: 'button', text: 'Transactions only (' + kinds.tx + ')', title: 'Narrow the selection to its transactions', onclick: function () { narrowSelection('tx'); } }));
       if (narrow.length) box.appendChild(el('div', { 'class': 'insp-actions' }, narrow));
+      var cmpSec = compareSection(ids); if (cmpSec) box.appendChild(cmpSec);
       box.appendChild(el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Tag all ' + ids.length }), tagControls(ids)]));
       return;
     }
@@ -3988,6 +3989,85 @@
   function sameBlockOf(n) {
     var r = n && n.type === 'tx' ? sameBlock() : null;
     return r ? r.byTx.get(n.id) || null : null;
+  }
+
+  // ---- two groups side by side (hopline-timing.js compareGroups): a similarity or a coincidence to weigh, never a finding ------------------------------------------------------
+  var cmps = [];                                                                       // the comparisons asked for in this session: [{ ids: [a, b] }]; the result is worked out again from what is loaded and is never saved
+  function cmpKey(ids) { return ids.slice().sort().join('|'); }
+  function cmpSig() { return cmps.map(function (c) { return cmpKey(c.ids); }).join(','); }
+  function cmpResult(c) {
+    var an = analysis(), ka = HoplineTiming.groupOf(state.graph, an, c.ids[0]), kb = HoplineTiming.groupOf(state.graph, an, c.ids[1]);
+    if (!ka || !kb) return { error: 'A vertex of this comparison is not loaded any more.' };
+    return HoplineTiming.compareGroups(state.graph, an, ka, kb, { label: timingLabel, trails: timingTrails() });
+  }
+  function groupShort(k) { return /^addr:/.test(k) ? S.shortId(k.slice(5), 6) : /^tx:/.test(k) ? 'tx ' + S.shortId(k.slice(3), 6) : k; }
+  function cmpStartsText(a) { return a.slice(0, 3).map(groupShort).join(', ') + (a.length > 3 ? ' and ' + (a.length - 3) + ' more' : ''); }
+  function groupName(g) { return g.label ? g.label + ' (' + groupShort(g.key) + ')' : groupShort(g.key); }
+  /** The card of one comparison: who, where each group came from, the pairs close in time between them, how many such pairs chance gives, the habits side by side, and what limits it. */
+  function cmpCard(c, r) {
+    var box = el('div', { 'class': 'cmpcard' });
+    if (r.error) { box.appendChild(el('p', { 'class': 'hint', text: r.error })); box.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', text: 'Remove', onclick: function () { cmpRemove(c); } })])); return box; }
+    var A = r.groups[0], B = r.groups[1], dl = el('dl', { 'class': 'kv' }), sp = r.startingPoints;
+    box.appendChild(el('h4', { text: groupName(A) + '  vs  ' + groupName(B) }));
+    box.appendChild(el('p', { 'class': 'hint', text: 'Two groups side by side: a similarity or a coincidence to weigh, not a finding.' }));
+    kv(dl, 'Signed transactions', A.signed + ' and ' + B.signed + ' (' + S.fmtTime(A.first, false) + ' to ' + S.fmtTime(A.last, false) + ' and ' + S.fmtTime(B.first, false) + ' to ' + S.fmtTime(B.last, false) + ')');
+    kv(dl, 'Starting points', sp.shared.length ? 'both descend from ' + cmpStartsText(sp.shared) + ': a similarity between them does not link two starting points'
+                             : sp.linksTwoTrails ? 'from ' + cmpStartsText(sp.a) + ' and from ' + cmpStartsText(sp.b) + ': this links two starting points' : 'none given');
+    var ex = r.expected, exp = [];
+    if (ex.sameBlock != null) exp.push('about ' + HoplineSameBlock.chanceText(ex.sameBlock).replace(/^about /, '') + ' in the same block');
+    if (ex.closeFirstSeen != null) exp.push('about ' + HoplineSameBlock.chanceText(ex.closeFirstSeen).replace(/^about /, '') + ' first seen within ' + HoplineTiming.DEFAULTS.windowSeconds + ' s');
+    kv(dl, 'Expected by chance', exp.length ? exp.join(' and ') + ' if their transactions were spread at random (activity comes in bursts, so the real chance is higher)' : 'not worked out (no first-seen times and no blocks)');
+    kv(dl, 'Pairs close in time', r.pairs.length ? String(r.pairs.length) : 'none');
+    box.appendChild(dl);
+    r.pairs.slice(0, 10).forEach(function (p) {
+      var ids = p.txids.map(function (t) { return ID.tx(t); }).filter(function (id) { return state.graph.nodes.has(id); });
+      var line = el('button', { type: 'button', 'class': 'linkrow', title: 'Select the two transactions', onclick: function () { selectIds(ids, 'transactions of the pair'); } },
+                    [el('span', { text: S.shortId(p.txids[0], 6) + ' \u2194 ' + S.shortId(p.txids[1], 6) + ' \u00B7 ' + p.why.join(' and ') }), el('span', { 'class': 'amt', text: p.gapSeconds + ' s' })]);
+      if (ids.length) lit(line, ids, null);
+      box.appendChild(line);
+      p.considerations.forEach(function (t) { box.appendChild(el('p', { 'class': 'hint', text: t })); });
+    });
+    if (r.pairs.length > 10) box.appendChild(el('div', { 'class': 'hint', text: '\u2026 and ' + (r.pairs.length - 10) + ' more' }));
+    box.appendChild(el('span', { 'class': 'lbl', text: 'Habits' }));
+    r.habits.rows.forEach(function (x) {
+      var none = x.missing ? 'not known' : 'no single value', left = x.feature + ': ' + (x.a == null ? none : x.a) + ' / ' + (x.b == null ? none : x.b);
+      box.appendChild(el('div', { 'class': 'hint', text: left + (x.missing ? ' \u2014 not known' : x.mixed ? ' \u2014 mixed' : x.same ? ' \u2014 same' + (x.common ? ' (what most wallets do)' : '') : ' \u2014 different') }));
+    });
+    r.habits.changeMatches.forEach(function (m) {
+      box.appendChild(el('div', { 'class': 'hint', text: 'Both changed ' + m.feature + ' ' + m.from + ' \u2192 ' + m.to + ' (one between ' + S.fmtTime(m.windowA[0]) + ' and ' + S.fmtTime(m.windowA[1]) + ', the other between ' + S.fmtTime(m.windowB[0]) + ' and ' + S.fmtTime(m.windowB[1])
+                                                    + (m.overlap ? '; the windows overlap' : '; the windows do not overlap') + ')' }));
+    });
+    r.considerations.forEach(function (t) { box.appendChild(el('p', { 'class': 'hint', text: t })); });
+    var acts = [];
+    var allIds = []; r.pairs.forEach(function (p) { p.txids.forEach(function (t) { var id = ID.tx(t); if (state.graph.nodes.has(id) && allIds.indexOf(id) < 0) allIds.push(id); }); });
+    if (allIds.length) acts.push(el('button', { type: 'button', text: 'Select the ' + allIds.length + ' transactions of the pairs', onclick: function () { selectIds(allIds, 'transactions of the pairs'); } }));
+    acts.push(el('button', { type: 'button', text: 'Remove', title: 'Take this comparison out of the list (nothing is deleted from the workspace)', onclick: function () { cmpRemove(c); } }));
+    box.appendChild(el('div', { 'class': 'insp-actions' }, acts));
+    return box;
+  }
+  function cmpRemove(c) { var i = cmps.indexOf(c); if (i >= 0) cmps.splice(i, 1); showInspector(); updateFindings(); }
+  /** In the details of two selected vertices: the button, and the card once it was pressed (kept for this session). null unless exactly two vertices of two groups are selected. */
+  function compareSection(ids) {
+    if (ids.length !== 2) return null;
+    var an = analysis(), keys = ids.map(function (id) { return HoplineTiming.groupOf(state.graph, an, id); });
+    if (!keys[0] || !keys[1]) return null;
+    var k = cmpKey(ids), have = cmps.filter(function (c) { return cmpKey(c.ids) === k; })[0], one = keys[0] === keys[1];
+    var btn = el('button', { type: 'button', text: 'Compare these two groups', disabled: one ? 'disabled' : null,
+                             title: one ? 'Both belong to one group (one owner): pick wallets or transactions of two groups' : 'Put the two groups side by side: the pairs of transactions close in time between them and their habits. A similarity or a coincidence to weigh, not a finding.',
+                             onclick: function () { if (!have) cmps.push({ ids: ids.slice() }); showInspector(); updateFindings(); } });
+    var sec = el('div', { 'class': 'insp-section' }, [el('span', { 'class': 'lbl', text: 'Groups' }), el('div', { 'class': 'insp-actions' }, [btn])]);
+    if (have) sec.appendChild(cmpCard(have, cmpResult(have)));
+    return sec;
+  }
+  /** The comparisons of this session, in the Findings, each folded open to its card. */
+  function compareBlock(box, h) {
+    if (!cmps.length) return;
+    box.appendChild(h.head('Group comparisons', 'compare'));
+    cmps.forEach(function (c) {
+      var r = cmpResult(c);
+      box.appendChild(el('details', { 'class': 'cmpdet' }, [el('summary', { text: r.error ? 'unavailable' : groupName(r.groups[0]) + ' vs ' + groupName(r.groups[1]) + ' \u00B7 ' + plural(r.pairs.length, 'pair') }), cmpCard(c, r)]));
+    });
+    box.appendChild(el('p', { 'class': 'hint', text: 'Comparisons made in this session, worked out again from what is loaded: a similarity or a coincidence to weigh, not a finding, and not saved in the file.' }));
   }
 
   // the three hooks the canvas calls for every vertex it draws: they only read what refresh() computed
@@ -5457,7 +5537,7 @@
     updateFindStrip();
     var box = $('anFindings');
     if (!state.graph.nodes.size) { box.textContent = ''; findingsFor = null; detRefresh(); return; }
-    var an = analysis(), byKind = {}, kinds, loaded = 0, stamp = routeStamp() + '|' + holdings().sig + '|' + moneySig() + '|' + zoneSig() + '|' + patternsSig() + '|' + lossSig();
+    var an = analysis(), byKind = {}, kinds, loaded = 0, stamp = routeStamp() + '|' + holdings().sig + '|' + moneySig() + '|' + zoneSig() + '|' + patternsSig() + '|' + lossSig() + '|' + cmpSig();
     if (findingsFor === an && findingsStamp === stamp && box.firstChild) return;      // nothing it shows has changed: leave the buttons alone (a replay refreshes many times a second)
     findingsFor = an; findingsStamp = stamp; previewOff(); box.textContent = ''; detRefresh();
     state.graph.nodes.forEach(function (n) { if (n.type === 'tx' && n.loaded) loaded++; });
@@ -5486,6 +5566,7 @@
     }
     routeBlock(box, { row: row, head: head });
     offscreenBlock(box, { row: row, head: head });
+    compareBlock(box, { row: row, head: head });
     if (sanc.length) {
       box.appendChild(head('Sanctions', 'sanctions'));
       sanc.slice(0, 30).forEach(function (n) { box.appendChild(walletRow(n)); }); more(sanc, 30);
@@ -6630,7 +6711,7 @@
     state.trace = emptyTrace(); state.vgroups = new Map(); state.hidden = new Set(); state.hideUndo = []; state.hideRedo = []; state.arrange = DEFAULT_ARRANGE;
     try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* not allowed here: the old hash stays, harmless */ }
     renderer.cur = new Map(); renderer.target = new Map(); renderer.anim = null;
-    hideStale(); state.updated = null; syncUpdateChip();
+    hideStale(); state.updated = null; syncUpdateChip(); cmps.length = 0;
     afterGraphChange({ fit: true }); syncSelection(); updateNavUi(); updateTraceUi(); store.del(SAVE_KEY); log('Workspace cleared');
     if (had) toast('Cleared the workspace (' + plural(had, 'vertex', 'vertices') + ').', false, snap && !snap.tooBig ? { text: 'Undo clear', fn: undoLoad } : null, 8000);
   }

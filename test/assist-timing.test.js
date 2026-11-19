@@ -80,6 +80,18 @@ test('prompt: the block is in the evidence as rows with named fields, the times 
   assert.match(JSON.stringify(ev.legend), /timing block holds facts/);
 });
 
+test('prompt: a habit one group has no record of is listed as not known, never as a difference', () => {
+  const g = new Graph();
+  [1, 2, 3].forEach((n) => g.addTx(signed(n, 'aa', n * 1000)));
+  [4, 5, 6].forEach((n) => { const t = signed(n, 'bb', n * 1000); t.version = null; g.addTx(t); });
+  g.refreshDerived();
+  [4, 5, 6].forEach((n) => { g.nodes.get(ID.tx(tid(n))).version = null; g.nodes.get(ID.tx(tid(n))).locktime = null; });
+  const an = AN.analyse(g, {}), sum = As.summary(g, an, { timing: TM.build(g, an, { sameBlock: false }) });
+  const cmp = evidenceOf(As.prompt(sum, 'triage')).timing.habits.compare[0];
+  assert.deepEqual(cmp.notKnown, ['version', 'lock', 'sequence'], 'no record of them for one group');
+  assert.deepEqual(cmp.differ, [], 'and not a difference between the groups');
+});
+
 test('prompt: three states for a habit, the changes two groups share, the caveats of a pair, times with milliseconds, and a rule for which way a fact points', () => {
   const g = new Graph();
   const sg = (n, who, at, version) => { const t = signed(n, who, at); t.version = version; return t; };
@@ -131,7 +143,7 @@ test('trails and roles: the starting points are named without their prefixes, a 
   assert.deepEqual([row.startingPointsOfA, row.startingPointsOfB, row.linksTwoStartingPoints], [[adr('start1')], [adr('start2')], true]);
   assert.equal(t.linksBetweenStartingPoints.length, 1, 'the pairs that link two starting points are listed first and by themselves');
   const link = t.linksBetweenStartingPoints[0];
-  assert.deepEqual([link.startingPointA, link.startingPointB, link.pairs.length, link.pairs[0].gapSeconds], [adr('start1'), adr('start2'), 1, 58]);
+  assert.deepEqual([link.startingPointA, link.startingPointB, link.pairs.length, link.pairs[0].gapSeconds], [{ address: adr('start1') }, { address: adr('start2') }, 1, 58], 'a starting point nobody tagged or labelled is just its address');
   assert.deepEqual([link.pairs[0].transactionFromStartingPointA, link.pairs[0].transactionFromStartingPointB, link.pairs[0].groupOfTransactionA, link.pairs[0].groupOfTransactionB], [tid(1), tid(4), adr('aa'), adr('bb')],
     'each side of the link is named by the starting point it came from, with its group: nothing to mix up');
   const cmp0 = t.habits.compare.find((c) => c.groups.includes(adr('aa')) && c.groups.includes(adr('bb')));
@@ -151,6 +163,20 @@ test('compare: a similarity between two groups on the same trail says so, and sa
   assert.deepEqual(c.startingPointsOfGroupA, [adr('start1')]);
   assert.deepEqual(c.considerations, ['both groups descend from the same starting point (' + adr('start1') + '), so their similarity does not link two starting points']);
   assert.equal(sum.timing.habits.compare[0].sharedStartingPoints[0], adr('start1'), 'no vertex prefix in the summary');
+});
+
+test('starting points: each is named with the tag and label the person gave its wallet, wherever the prompt shows it', () => {
+  const g = scene(), an = AN.analyse(g, {});
+  g.nodes.get(ID.addr(adr('aa'))).tag = 'THREAT'; g.nodes.get(ID.addr(adr('bb'))).tag = 'THREAT'; g.nodes.get(ID.addr(adr('bb'))).label = 'second case';
+  const S1 = 'addr:' + adr('aa'), S2 = 'addr:' + adr('bb');
+  const trails = new Map([1, 2, 3].map((n) => [ID.tx(tid(n)), [S1]]).concat([4, 5, 6].map((n) => [ID.tx(tid(n)), [S2]])));
+  const end = { count: 0, sats: 0, unchecked: 0, notLoaded: 0, named: [], rows: [] };
+  const trace = { reference: S1, referenceName: '', handoffs: [], openEnds: { next: end, prev: end }, starts: [S1, S2] };
+  const sum = As.summary(g, an, { timing: TM.build(g, an, { sameBlock: false, trails }), trace });
+  const ev = evidenceOf(As.prompt(sum, 'triage'));
+  assert.deepEqual(ev.trace.startingPoints, [{ address: adr('aa'), tag: 'THREAT' }, { address: adr('bb'), tag: 'THREAT', label: 'second case' }]);
+  const link = ev.timing.linksBetweenStartingPoints[0];
+  assert.deepEqual([link.startingPointA, link.startingPointB], [{ address: adr('aa'), tag: 'THREAT' }, { address: adr('bb'), tag: 'THREAT', label: 'second case' }], 'so a question about the threat wallets can be answered from the two entries');
 });
 
 test('prompt: a label cannot close the evidence block or start a new instruction', () => {
@@ -178,7 +204,7 @@ test('trace: the hand-off row names the service wallet and the wallet on the tra
   const ev = evidenceOf(As.prompt(two, 'triage')).trace;
   assert.equal(ev.handoffColumns, undefined, 'a hand-off is an object with named fields, so there are no columns to misread');
   assert.deepEqual([ev.handoffs[0].serviceWallet, ev.handoffs[0].txid, ev.handoffs[0].trailWallet], [adr('svc'), tid(1), adr('trail')], 'the service wallet is its own field and the wallet before the deposit is another');
-  assert.deepEqual(ev.startingPoints, [adr('aa'), adr('bb')]);
+  assert.deepEqual(ev.startingPoints, [{ address: adr('aa') }, { address: adr('bb') }]);
   assert.equal(evidenceOf(As.prompt(one, 'triage')).trace.startingPoints, undefined, 'one starting point says nothing the reference does not');
   assert.deepEqual(two.trace.startingPoints, [adr('aa'), adr('bb')]);
   assert.ok(As.idSets(two, g).evidence.addresses.has(adr('bb')), 'a starting point can be cited');
