@@ -199,6 +199,37 @@ test('prompt: the habits of a linking pair keep a mixed feature apart from a dif
   assert.ok(h.sharedHabitChanges[0].startsWith('version v1 to v2: ' + adr('aa') + ' between 2023-11-15 00:33:20 UTC and 2023-11-15 00:50:00 UTC, ' + adr('bb') + ' between 2023-11-15 00:40:00 UTC and 2023-11-15 00:56:40 UTC; the windows overlap from '), 'each window is named by its group, the first of the pair first: ' + h.sharedHabitChanges[0]);
 });
 
+test('idSets: the signing groups named in the timing block are in the evidence, a cluster name is no address, and so are the groups of a link', () => {
+  const { g, sum } = make();
+  const ev = As.idSets(sum, g).evidence;
+  assert.ok(ev.addresses.has(adr('aa')) && ev.addresses.has(adr('bb')), 'a group that is a wallet is an address of the evidence');
+  assert.equal(As.checkCitations('The group ' + adr('aa') + '.', As.idSets(sum, g)).cited.addresses[0].where, 'evidence', 'and the check says so');
+  sum.timing.habits.groups.forEach((x) => { x.group = 'C3'; }); sum.timing.pairs.forEach((p) => { p.groups = [adr('onlypair1'), adr('onlypair2')]; });
+  const onlyPairs = As.idSets(sum, null).evidence;
+  assert.ok(onlyPairs.addresses.has(adr('onlypair1')) && onlyPairs.addresses.has(adr('onlypair2')), 'the groups of a pair are in the evidence by themselves');
+  assert.ok(!onlyPairs.addresses.has('C3'), 'the name of a cluster is not an address');
+  sum.timing.habits.groups[0].group = adr('onlyhabit'); sum.timing.pairs.forEach((p) => { p.groups = ['C3', 'C4']; });
+  const onlyHabits = As.idSets(sum, null).evidence;
+  assert.ok(onlyHabits.addresses.has(adr('onlyhabit')), 'and so is the group of a habit row');
+  assert.ok(!onlyHabits.addresses.has('C4') && !onlyHabits.addresses.has('C3'), 'whatever the name of a cluster');
+  sum.timing.trailLinks = [{ startingPoints: [adr('s1'), tid(7)], pairs: [{ groupOfA: adr('gx'), groupOfB: 'C9', txids: [], why: [] }] }];
+  const ev3 = As.idSets(sum, null).evidence;
+  assert.ok(ev3.addresses.has(adr('s1')) && ev3.txids.has(tid(7)) && ev3.addresses.has(adr('gx')) && !ev3.addresses.has('C9'), 'a link names its starting points and groups');
+});
+
+test('prompt: sameBlock.expected is said to cover all the loaded blocks together, in the legend, the rule and beside the number', () => {
+  const g = scene(), an = AN.analyse(g, {});
+  const stub = { find: () => ({ pairs: 2, blocks: [{ height: 1001, ids: [] }, { height: 1005, ids: [] }], eligible: 118, span: 19857, expected: 0.348, byTx: new Map() }) };
+  const sum = As.summary(g, an, { timing: TM.build(g, an, { sameBlock: stub }) });
+  const p = As.prompt(sum, 'triage'), ev = evidenceOf(p), t = ev.timing;
+  assert.deepEqual(Object.keys(t.sameBlock), ['pairs', 'blocks', 'eligible', 'span', 'expected', 'expectedIs']);
+  assert.deepEqual([t.sameBlock.pairs, t.sameBlock.blocks, t.sameBlock.expected], [2, [1001, 1005], 0.348], 'the numbers are the summary\'s');
+  assert.match(t.sameBlock.expectedIs, /over all the loaded blocks together, not for one block/);
+  assert.match(JSON.stringify(ev.legend), /expected is how many pairs a random spread would give over ALL the loaded blocks together: one number for the whole set, never a figure for one block/);
+  assert.match(t.rule, /sameBlock\.expected is for all the loaded blocks together, never for one block: compare it with sameBlock\.pairs/);
+  assert.deepEqual(sum.timing.sameBlock, { pairs: 2, blocks: [1001, 1005], eligible: 118, span: 19857, expected: 0.348 }, 'the summary keeps its own field names');
+});
+
 test('compare: a similarity between two groups on the same trail says so, and says it does not link two starting points', () => {
   const g = scene(), an = AN.analyse(g, {}), S1 = 'addr:' + adr('start1');
   const trails = new Map([1, 2, 3, 4, 5, 6].map((n) => [ID.tx(tid(n)), [S1]]));

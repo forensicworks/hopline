@@ -38,7 +38,7 @@
     coinjoin: 'Several wallets\' inputs and several outputs of exactly the same value to different addresses. The addresses spent together are probably different owners.',
     swap: 'An OP_RETURN that asks THORChain to swap the payment into an asset on another chain (a swap memo: the asset, the address it is to be paid out to, the limit, the streaming split and an affiliate), that THORChain writes on a payment it makes (OUT: and the hash of the inbound transaction of a swap it pays out, REFUND: and the hash of a payment it gives back), that carries the request ID of a cross-chain service such as Relay (0x and 64 hex digits, which says nothing about where the money went), or that is a Rootstock peg-in (RSKT, a version and the destination address on Rootstock). It is what the sender wrote, not proof that anything was carried out; the payment to the service is another output of the transaction.',
     round: 'An output that is a round amount: a number somebody chose, where a wallet computes an amount such as change to the last satoshi. Often the payment, with the other output the change. A service paying a fixed amount, a policy or a test gives the same, so it does not say who or what chose it.',
-    timing: 'The timing block holds facts about WHEN and HOW transactions were made, none of them a finding. firstSeen: the time a service says its node first saw a transaction (a claim, not the time of broadcast; waitSeconds is the block time minus it). pairs: transactions of different signing groups that are close in time (the same block with no wallet in common, or first seen within windowSeconds); a block holds thousands of transactions, so expectedByChance and expectedClosePairs say how many pairs a random spread would give. habits: for each signing group (the owner the analysis gives the inputs of a transaction) the transaction version, locktime kind, input sequence, shape (inputs and outputs), fee rate, the hours of the day (UTC) its transactions happened, the points where a habit changes and stays changed, and for pairs of groups what agrees and what differs. A habit marked common is what ordinary wallet software does by default, so agreement on it says little. patternFlags (round, peel, consolidation) are shapes the analysis found in the transactions, never wallet settings and never a common habit. A habit listed as mixed means the group has no single value for it. Weigh a match by how rare it is, and say how strong a link is and what would change it.'
+    timing: 'The timing block holds facts about WHEN and HOW transactions were made, none of them a finding. firstSeen: the time a service says its node first saw a transaction (a claim, not the time of broadcast; waitSeconds is the block time minus it). pairs: transactions of different signing groups that are close in time (the same block with no wallet in common, or first seen within windowSeconds); a block holds thousands of transactions, so expectedByChance and expectedClosePairs say how many pairs a random spread would give. sameBlock: pairs is how many such same-block pairs there are in all the loaded blocks, blocks says which, and expected is how many pairs a random spread would give over ALL the loaded blocks together: one number for the whole set, never a figure for one block. habits: for each signing group (the owner the analysis gives the inputs of a transaction) the transaction version, locktime kind, input sequence, shape (inputs and outputs), fee rate, the hours of the day (UTC) its transactions happened, the points where a habit changes and stays changed, and for pairs of groups what agrees and what differs. A habit marked common is what ordinary wallet software does by default, so agreement on it says little. patternFlags (round, peel, consolidation) are shapes the analysis found in the transactions, never wallet settings and never a common habit. A habit listed as mixed means the group has no single value for it. Weigh a match by how rare it is, and say how strong a link is and what would change it.'
   };
   var NOTES = [
     'Every pattern, change guess and cluster is a heuristic computed from the transactions that were loaded. None of it proves who controls what.',
@@ -333,6 +333,10 @@
       var tm = sum.timing;
       if (tm.firstSeen) tm.firstSeen.rows.forEach(function (r) { ev.txids.add(r.txid); });
       tm.pairs.forEach(function (p) { addAll(ev.txids, p.txids); });
+      var named = function (x) { if (typeof x !== 'string') return; if (RE_ID_TXID.test(x)) ev.txids.add(x); else if (RE_ID_ADDR.test(x)) ev.addresses.add(x); };       // a signing group is an address, or the name of a cluster (which is no address)
+      tm.pairs.forEach(function (p) { (p.groups || []).forEach(named); });
+      tm.habits.groups.forEach(function (x) { named(x.group); });
+      (tm.trailLinks || []).forEach(function (l) { (l.startingPoints || []).forEach(named); l.pairs.forEach(function (p) { named(p.groupOfA); named(p.groupOfB); }); });
       tm.habits.groups.forEach(function (x) { addAll(ev.txids, x.txids); x.changes.forEach(function (c) { ev.txids.add(c.txidBefore); ev.txids.add(c.txidAfter); }); });
     }
     if (focusFacts) {
@@ -516,7 +520,8 @@
       rule: 'The timing block holds facts about when and how transactions were made. A first-seen time is a service\'s claim, a habit is a setting that many wallets share (those marked common say little), and two transactions close in time are a coincidence to weigh: say how strong a link is, how rare the match is, what would change your mind, and never name who is behind it. A pair close in time SUPPORTS a link; what weakens it is: a missing habit record, a single pair, a setting most wallets use, the first-seen times coming from different services, and a bursty spread (see considerations and expectedClosePairs). When asked what weakens or supports a link, say which way each fact points. gapSeconds is exact: use it and do not subtract the written times. startingPointsOfA and startingPointsOfB say which starting point of the trail (often one for each case) each transaction descends from; a pair with linksTwoStartingPoints true is the kind that links two cases, and a pair on one trail is expected. Never answer yes or no to whether two wallets or cases have the same operator: say what supports it, what limits it and what the evidence does not hold; the absence of a link in the evidence is not evidence of different operators. Groups tagged VICTIM are left out of the comparisons. Copy rows exactly when you quote them. For a question about the starting points or the cases, read linksBetweenStartingPoints first: a pair listed there is the evidence that connects two starting points, so never say there is none when one is listed. sharedHabitChanges lists a change of habit that two groups made the same way. shareWithDefaultSettings is the share of a group\'s transactions that use the settings most wallets use by default (0 means none). No wallet in common is the condition that makes a close pair a coincidence: it is never a weakness. A habit similarity between two groups that descend from the same starting point says nothing about a link between starting points: only linksBetweenStartingPoints does, and the habits of the two groups of a linking pair are in its habitsOfTheTwoGroups: when comparable is false, say they cannot be compared and do not use the comparison of two other groups in their place. '
             + 'No wallet in common says nothing about who owns the wallets: never say the owners are different or distinct. A feature listed under mixed is not a difference: only what is listed under differ differs. A pair close in time, even with every caveat read, does not make the data support the same operator: say what it supports and what it leaves open. '
             + 'A tag is the investigator\'s own mark: two wallets with the same tag are not thereby linked. Describe only the relations the evidence lists (a pair, a link between starting points, a shared habit change): never say that starting points, wallets or groups converged, merged or were joined unless a listed field says so. '
-            + 'A habit marked common is the default combination of version, locktime and sequence that Bitcoin Core and many wallets use; when a group\'s settings are not that combination, none of the three is marked, even though one of them (a locktime of none, for example) is ordinary on its own, so a habit that is not marked common is not for that reason unusual.',
+            + 'A habit marked common is the default combination of version, locktime and sequence that Bitcoin Core and many wallets use; when a group\'s settings are not that combination, none of the three is marked, even though one of them (a locktime of none, for example) is ordinary on its own, so a habit that is not marked common is not for that reason unusual. '
+            + 'sameBlock.expected is for all the loaded blocks together, never for one block: compare it with sameBlock.pairs, which counts the pairs in all of them.',
       linksBetweenStartingPoints: t.trailLinks == null ? undefined : t.trailLinks.map(function (l) {
         return { startingPointA: who(l.startingPoints[0]), startingPointB: who(l.startingPoints[1]),
                  pairs: l.pairs.map(function (p) {
@@ -532,7 +537,8 @@
                }) },
       firstSeen: fs ? { count: fs.count, windowSeconds: fs.windowSeconds, expectedClosePairs: fs.expectedClosePairs,
                         rows: rows.map(function (r) { var o = { txid: r.txid, firstSeen: whenS(r.firstSeen), blockTime: whenS(r.blockTime), waitSeconds: r.waitSeconds, sources: r.sources.join(' + '), group: r.group, relayRecorded: r.relayRecorded }; if (withPeer) o.relay = r.relay || null; return o; }) } : undefined,
-      sameBlock: t.sameBlock || undefined,
+      sameBlock: t.sameBlock ? { pairs: t.sameBlock.pairs, blocks: t.sameBlock.blocks, eligible: t.sameBlock.eligible, span: t.sameBlock.span, expected: t.sameBlock.expected,
+                                 expectedIs: 'the pairs a random spread would give over all the loaded blocks together, not for one block; pairs is the count in all of them' } : undefined,
       habits: {
         victimGroupsLeftOut: t.habits.victimGroupsLeftOut || undefined,
         groups: groups.map(function (x) {
@@ -667,14 +673,29 @@
 
   /**
    * The block of actions in a model's answer: one fenced JSON block holding "actions". Read strictly: a block that is not JSON, an unknown action, a missing or too long field or a malformed id is
-   * dropped with its reason, and only the first 8 entries are read. Several blocks: the last is read (the others may be examples the model quoted).
+   * dropped with its reason, and only the first 8 entries are read. Several blocks: the last is read (the others may be examples the model quoted). With no fenced block, the last bare JSON object that starts with "actions" is read.
    * Returns { found, error?, blocks, total, actions: [{ n, action, why, ... }], dropped: [{ n, reason }] }.
    */
+  /** The last bare JSON object that starts with "actions" (a model that leaves the fence out): from its brace to the matching one, strings and escapes respected; null when there is none. */
+  function bareBlock(text) {
+    var re = /\{\s*"actions"\s*:/g, m, at = -1;
+    while ((m = re.exec(text))) at = m.index;
+    if (at < 0) return null;
+    var depth = 0, inStr = false, esc = false;
+    for (var i = at; i < text.length; i++) {
+      var c = text[i];
+      if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true; else if (c === '{') depth++; else if (c === '}') { depth--; if (depth === 0) return text.slice(at, i + 1); }
+    }
+    return text.slice(at);                                                       // never closed (an answer cut off): it will not parse, and the block says so
+  }
+
   function parseActions(text) {
     var out = { found: false, blocks: 0, total: 0, actions: [], dropped: [] };
     text = String(text == null ? '' : text);
     var found = [], re = /```[ \t]*(?:json)?[ \t]*\r?\n([\s\S]*?)```/gi, m;
     while ((m = re.exec(text))) { if (/"actions"\s*:/.test(m[1])) found.push(m[1]); }
+    if (!found.length) { var bare = bareBlock(text); if (bare) found.push(bare); }                  // the format asks for a fence; a model that leaves it out is still read, as strictly
     if (!found.length) return out;
     out.found = true; out.blocks = found.length;
     var d;

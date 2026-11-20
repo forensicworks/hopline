@@ -23,11 +23,27 @@ test('parse: a valid block, wherever it is in the answer, and no block at all', 
   assert.equal(middle.actions.length, 5, 'a block in the middle of an answer is read');
   const bare = As.parseActions('```\n' + JSON.stringify(a) + '\n```');
   assert.equal(bare.actions.length, 5, 'a fence without the word json is read too');
-  const none = As.parseActions('No block here. {"actions":[]} is not fenced.');
-  assert.deepEqual([none.found, none.actions.length], [false, 0], 'JSON that is not in a fence is not read');
+  const none = As.parseActions('No block here, only words about actions and a {brace} or two.');
+  assert.deepEqual([none.found, none.actions.length], [false, 0], 'words are not a block');
   assert.deepEqual([As.parseActions('').found, As.parseActions(null).found], [false, false]);
   const empty = As.parseActions(block({ actions: [] }));
   assert.deepEqual([empty.found, empty.total, empty.actions.length, empty.error], [true, 0, 0, undefined], 'an empty list is a valid answer: nothing worth doing');
+});
+
+test('parse: with no fence a bare JSON object that starts with "actions" is read, as strictly, and a fenced block wins', () => {
+  const a = { actions: [act({ why: 'closes } early, and "quotes" too' }), { action: 'select', ids: [tid(1)], why: 'x' }] };
+  const bare = As.parseActions('The answer.\n\n' + JSON.stringify(a) + '\nThat is all.');
+  assert.deepEqual([bare.found, bare.blocks, bare.actions.length], [true, 1, 2]);
+  assert.equal(bare.actions[0].why, 'closes } early, and "quotes" too', 'braces and quotes inside a string do not end the object');
+  const several = As.parseActions('An example: {"actions":[{"action":"load","id":"<id>","why":"x"}]}\n\nThe real one:\n' + JSON.stringify({ actions: [act({ why: 'last' })] }));
+  assert.deepEqual([several.actions.length, several.actions[0].why], [1, 'last'], 'of several bare objects the last is read');
+  const fenced = As.parseActions(JSON.stringify({ actions: [act({ why: 'bare' })] }) + '\n\n' + block({ actions: [act({ why: 'fenced' })] }));
+  assert.equal(fenced.actions[0].why, 'fenced', 'a fenced block wins over a bare one');
+  const cut = As.parseActions('Answer.\n{"actions":[{"action":"load","id":"' + tid(9) + '","why":"cut off');
+  assert.deepEqual([cut.found, cut.actions.length], [true, 0]); assert.match(cut.error, /not valid JSON/);
+  const nope = As.parseActions('{"actions":[{"action":"nope","why":"x"}, {"action":"load","id":"short","why":"x"}]}');
+  assert.deepEqual([nope.actions.length, nope.dropped.length], [0, 2], 'a bare block is checked as strictly as a fenced one');
+  assert.deepEqual(As.parseActions('the word "actions" and {"action": 1} are no block').found, false);
 });
 
 test('parse: several blocks read the last one, and a block of something else is not an action block', () => {
