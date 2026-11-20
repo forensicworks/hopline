@@ -91,7 +91,7 @@ The workspace can ask a model for you. The address must be on this computer (`lo
 
 The reply is shown in an editable box labelled as a model's draft, and its ids are checked at once. A reply is never added to the graph or to a report by itself.
 
-This part has been tested against a stand-in server that behaves like those servers; it has not been run against a real model yet.
+This part is tested against a stand-in server that behaves like those servers, and has been run against a real model (`gpt-oss:20b` on Ollama). To ask several models the same questions and score what they answer by code (invented ids, answers cut off, the block of actions, phrases you expect), see [model-comparison.md](model-comparison.md): `node tools/compare-models.js`.
 
 ## No hosted models
 
