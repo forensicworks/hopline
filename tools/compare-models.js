@@ -45,18 +45,21 @@ function usage() {
     '  --max-rows N        pattern rows in the prompt (default 60, as in the workspace)',
     '  --timeout-min N     give up on one answer after N minutes (default 10)',
     '  --temperature X     the sampling temperature (default: the workspace\'s, 0.2)',
+    '  --stream            ask for the answer as it is written: Node gives up on a server that sends nothing for 5 minutes, which a slow answer to a big prompt can do',
+    '  --retries N         ask again, up to N times, when the connection to the server fails (refused, dropped); not for a timeout or an error the server sent (default 0)',
+    '  --retry-wait S      seconds to wait before asking again (default 5)',
     '',
     'It prints counts only, never an id. The answers are written to --out: keep that folder out of any repository.'
   ].join('\n');
 }
 
 function parseArgs(argv) {
-  var out = { _: [], flags: {} }, valued = { '--models': 1, '--endpoint': 1, '--questions': 1, '--expect': 1, '--runs': 1, '--out': 1, '--max-rows': 1, '--timeout-min': 1, '--temperature': 1 };
+  var out = { _: [], flags: {} }, valued = { '--models': 1, '--endpoint': 1, '--questions': 1, '--expect': 1, '--runs': 1, '--out': 1, '--max-rows': 1, '--timeout-min': 1, '--temperature': 1, '--retries': 1, '--retry-wait': 1 };
   for (var i = 0; i < argv.length; i++) {
     var a = argv[i];
     if (a.slice(0, 2) !== '--') { out._.push(a); continue; }
     if (valued[a]) { if (i + 1 >= argv.length) fail('Option ' + a + ' needs a value.'); out.flags[a.slice(2)] = argv[++i]; }
-    else if (a === '--actions' || a === '--list' || a === '--help') out.flags[a.slice(2)] = true;
+    else if (a === '--actions' || a === '--list' || a === '--help' || a === '--stream') out.flags[a.slice(2)] = true;
     else fail('Unknown option ' + a + '. Try: node tools/compare-models.js --help');
   }
   return out;
@@ -113,23 +116,67 @@ function judge(ex, text) {
   return out;
 }
 
-/** One question to one model. Resolves to { text, cut } or rejects with a message in words. */
-function askModel(base, model, p, timeoutMs, temperature) {
+/** Why a request that never got an answer failed, in words, with the code Node gives (a refused connection, a reset, Node's own wait of 5 minutes for a first byte). */
+function connectionError(base, e) {
+  var code = (e && e.cause && (e.cause.code || e.cause.name)) || '';
+  var slow = code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT';
+  var err = new Error(slow ? 'the server sent nothing for 5 minutes and Node gives up then (' + code + '): run again with --stream, which keeps the connection alive'
+                           : 'could not reach the model server at ' + base + (code ? ' (' + code + ')' : '') + ' (is it running?)');
+  err.retryable = !slow;                                                          // a refused or dropped connection may be a server busy loading a model; waiting 5 more minutes would only fail again
+  return err;
+}
+
+/** The text of a streamed reply (server-sent events, as the OpenAI chat format sends them). */
+async function readStream(res) {
+  var reader = res.body.getReader(), dec = new TextDecoder(), buf = '', text = '', finish = null;
+  function line(l) {
+    l = l.trim();
+    if (l.indexOf('data:') !== 0) return;
+    var d = l.slice(5).trim();
+    if (!d || d === '[DONE]') return;
+    var j; try { j = JSON.parse(d); } catch (e) { return; }
+    if (j.error) throw new Error('the model server said: ' + AS.plainText(typeof j.error === 'string' ? j.error : j.error.message || 'an error', 200));
+    var c = j.choices && j.choices[0];
+    if (!c) return;
+    if (c.delta && typeof c.delta.content === 'string') text += c.delta.content;
+    if (typeof c.finish_reason === 'string') finish = c.finish_reason;
+  }
+  for (;;) {
+    var x = await reader.read();
+    if (x.done) break;
+    buf += dec.decode(x.value, { stream: true });
+    var lines = buf.split('\n'); buf = lines.pop();
+    lines.forEach(line);
+  }
+  buf += dec.decode(); if (buf) line(buf);
+  if (!text.trim()) throw new Error('the model sent no text');
+  return { text: text, cut: finish === 'length' || finish === 'max_tokens' };
+}
+
+/** One question to one model. Resolves to { text, cut } or rejects with a message in words (with .retryable on a connection that failed). */
+async function askModel(base, model, p, timeoutMs, temperature, stream) {
   var req = AS.chatRequest({ base: base, model: model, system: p.system, user: p.user });
-  if (temperature != null) { var b = JSON.parse(req.init.body); b.temperature = temperature; req.init.body = JSON.stringify(b); }
+  if (temperature != null || stream) {
+    var b = JSON.parse(req.init.body);
+    if (temperature != null) b.temperature = temperature;
+    if (stream) b.stream = true;
+    req.init.body = JSON.stringify(b);
+  }
   var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, timeoutMs);
   req.init.signal = ctl.signal;
-  return fetch(req.url, req.init).then(function (r) {
-    return r.text().then(function (body) {
-      if (!r.ok) throw new Error('the model server answered ' + r.status + ': ' + AS.plainText(body, 200));
-      return { text: AS.parseChat(body), cut: AS.chatFinish(body).truncated };
-    });
-  }).catch(function (e) {
+  try {
+    var r = await fetch(req.url, req.init);
+    if (!r.ok) throw new Error('the model server answered ' + r.status + ': ' + AS.plainText(await r.text(), 200));
+    if (stream) return await readStream(r);
+    var body = await r.text();
+    return { text: AS.parseChat(body), cut: AS.chatFinish(body).truncated };
+  } catch (e) {
     if (e && e.name === 'AbortError') throw new Error('no answer within ' + Math.round(timeoutMs / 60000) + ' minutes');
-    if (e && e.name === 'TypeError') throw new Error('could not reach the model server at ' + base + ' (is it running?)');
+    if (e && e.name === 'TypeError') throw connectionError(base, e);
     throw e;
-  }).then(function (r) { clearTimeout(timer); return r; }, function (e) { clearTimeout(timer); throw e; });
+  } finally { clearTimeout(timer); }
 }
+function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
 
 /** The ids an answer cites, the block of actions, and the phrases, scored with the CLI's own checks. */
 function scoreAnswer(ws, text, withActions, ex) {
@@ -174,7 +221,22 @@ function table(rows, head) {
   var line = function (cells) { return '| ' + cells.join(' | ') + ' |'; };
   return [line(head), line(head.map(function () { return '---'; }))].concat(rows.map(line)).join('\n');
 }
-function summaryMarkdown(info, totals, perQuestion) {
+/** The runs that failed, by model and reason, with how long they took before failing. */
+function failuresMarkdown(results) {
+  var by = {}, order = [];
+  results.filter(function (r) { return r.error; }).forEach(function (r) {
+    var k = r.model + '\u0000' + r.error;
+    if (!by[k]) { by[k] = { model: r.model, error: r.error, n: 0, seconds: [] }; order.push(k); }
+    by[k].n++; by[k].seconds.push(r.seconds || 0);
+  });
+  if (!order.length) return '';
+  return ['## Failed runs', ''].concat(order.map(function (k) {
+    var f = by[k];
+    return '- **' + f.model + '**: ' + f.n + ' run' + (f.n === 1 ? '' : 's') + ', after ' + r1(mean(f.seconds)) + ' s on average: ' + f.error;
+  })).concat(['']).join('\n') + '\n';
+}
+
+function summaryMarkdown(info, totals, perQuestion, failures) {
   var withActions = info.actions;
   var head = ['model', 'runs', 'failed', 'cut off', 'mean s', 'runs with an invented id', 'invented ids', 'copy slips', 'cited nothing'].concat(info.expect ? ['phrases held'] : []).concat(withActions ? ['runs with a block', 'bad block', 'actions accepted / dropped'] : []);
   var rows = totals.map(function (t) {
@@ -183,7 +245,7 @@ function summaryMarkdown(info, totals, perQuestion) {
       .concat(withActions ? [t.actions.runsWithABlock + ' of ' + t.actions.of, t.actions.runsWithABadBlock, t.actions.accepted + ' / ' + t.actions.dropped] : []);
   });
   var md = ['# Model comparison', '', 'Made ' + info.generated + ' with the workspace file `' + info.workspace + '`, ' + info.questions.length + ' questions, ' + info.runs + ' run' + (info.runs === 1 ? '' : 's') + ' each, ' + info.endpoint + '.',
-            'About ' + info.promptTokens + ' tokens in the largest prompt.', '', table(rows, head), '',
+            'About ' + info.promptTokens + ' tokens in the largest prompt.', '', table(rows, head), '', failures || '',
             '## How to read it', '',
             '- **runs with an invented id**: an answer cited a transaction id or address that is not in the workspace (made up or garbled: the most serious slip in a forensic answer). **copy slips** are the ones one or two characters from a real id.',
             '- **cut off**: the model ran out of room before it finished (raise the context window of the server, or lower the pattern rows).',
@@ -225,6 +287,7 @@ async function main() {
   var runs = intFlag(args, 'runs', 1, 1, 20), maxRows = intFlag(args, 'max-rows', 60, 5, 400), timeoutMs = intFlag(args, 'timeout-min', 10, 1, 120) * 60000;
   var temperature = args.flags.temperature == null ? null : Number(args.flags.temperature);
   if (temperature != null && !(temperature >= 0 && temperature <= 2)) fail('--temperature is a number from 0 to 2.');
+  var retries = intFlag(args, 'retries', 0, 0, 5), retryWait = intFlag(args, 'retry-wait', 5, 0, 60), stream = args.flags.stream === true;
   var withActions = args.flags.actions === true, questions = readQuestions(args.flags.questions, withActions), expect = readExpect(args.flags.expect);
   var anyActions = withActions || questions.some(function (q) { return q.task === 'next'; });                // the next-steps question carries the actions text whatever the flag says
   var out = args.flags.out || path.join(path.dirname(path.resolve(ws)), 'compare-models-' + new Date().toISOString().replace(/[-:]/g, '').slice(0, 13));
@@ -249,18 +312,28 @@ async function main() {
       for (var k = 1; k <= runs; k++) {
         var rec = { model: model, question: qi + 1, run: k }, t0 = Date.now();
         try {
-          var ans = await askModel(ep.base, model, prompts[qi], timeoutMs, temperature);
+          var ans, attempts = 0;
+          for (;;) {
+            attempts++;
+            try { ans = await askModel(ep.base, model, prompts[qi], timeoutMs, temperature, stream); break; }
+            catch (e) {
+              if (!(e && e.retryable && attempts <= retries)) throw e;
+              note('  ' + model + ' question ' + (qi + 1) + ' run ' + k + ': ' + e.message + '; asking again in ' + retryWait + ' s (' + attempts + ' of ' + retries + ')');
+              await sleep(retryWait * 1000);
+            }
+          }
+          if (attempts > 1) rec.attempts = attempts;
           rec.seconds = r1((Date.now() - t0) / 1000); rec.cut = ans.cut; rec.chars = ans.text.length;
           fs.writeFileSync(path.join(out, safeName(model), 'q' + (qi + 1) + '-run' + k + '.txt'), ans.text + (ans.cut ? '\n\n[Cut off: the model stopped before it finished.]' : ''));
           rec.score = scoreAnswer(ws, ans.text, withActions || questions[qi].task === 'next', expectationsFor(expect, qi + 1));
-        } catch (e) { rec.error = e && e.message ? e.message : String(e); }
+        } catch (e) { rec.error = e && e.message ? e.message : String(e); rec.seconds = r1((Date.now() - t0) / 1000); }
         results.push(rec); done++;
-        note('[' + done + '/' + total + '] ' + model + '  question ' + (qi + 1) + '  run ' + k + ': ' + (rec.error ? 'FAILED: ' + rec.error : rec.seconds + ' s, ' + rec.score.ids.unknown + ' invented id' + (rec.score.ids.unknown === 1 ? '' : 's') + (rec.cut ? ', cut off' : '')));
+        note('[' + done + '/' + total + '] ' + model + '  question ' + (qi + 1) + '  run ' + k + ': ' + (rec.error ? 'FAILED after ' + rec.seconds + ' s: ' + rec.error : rec.seconds + ' s, ' + rec.score.ids.unknown + ' invented id' + (rec.score.ids.unknown === 1 ? '' : 's') + (rec.cut ? ', cut off' : '')));
       }
     }
   }
 
-  var info = { generated: new Date().toISOString(), workspace: path.basename(ws), endpoint: ep.base, runs: runs, actions: anyActions, expect: !!args.flags.expect, promptTokens: promptTokens,
+  var info = { generated: new Date().toISOString(), workspace: path.basename(ws), endpoint: ep.base, runs: runs, stream: stream, retries: retries, actions: anyActions, expect: !!args.flags.expect, promptTokens: promptTokens,
                questions: questions.map(function (q, i) { return { n: i + 1, task: q.task, question: q.question || null }; }) };
   var totals = summarise(results, models, anyActions);
   var perQuestion = questions.map(function (q, i) {
@@ -272,11 +345,12 @@ async function main() {
              }) };
   });
   fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify({ info: info, totals: totals, runs: results }, null, 2));
-  var md = summaryMarkdown(info, totals, perQuestion);
+  var md = summaryMarkdown(info, totals, perQuestion, failuresMarkdown(results));
   fs.writeFileSync(path.join(out, 'summary.md'), md);
   process.stdout.write(md);
   note('Written to ' + out);
   return 0;
 }
 
-main().then(function (code) { process.exitCode = code; }, function (e) { fail(e && e.message ? e.message : String(e)); });
+if (require.main === module) main().then(function (code) { process.exitCode = code; }, function (e) { fail(e && e.message ? e.message : String(e)); });
+module.exports = { connectionError: connectionError };                  // for the tests: the one failure that cannot be made to happen in a few seconds is Node's own five-minute wait

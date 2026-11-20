@@ -25,6 +25,8 @@ The models are asked one after the other, each question `--runs` times (the defa
 | `--actions` | let the models propose actions, as the workspace setting *Let the model propose actions* does, and score the block they return |
 | `--out FOLDER` | where the answers, `results.json` and `summary.md` go; by default a new folder next to the workspace file |
 | `--endpoint URL` | the server; default `http://127.0.0.1:11434/v1` |
+| `--stream` | ask for the answer as it is written. Node gives up on a server that sends nothing for 5 minutes, which a slow answer to a big prompt can do (the failed run then says `UND_ERR_HEADERS_TIMEOUT`); with `--stream` the words keep arriving. The answers and the scores are the same |
+| `--retries N`, `--retry-wait S` | ask again, up to N times (0 to 5, default 0), after S seconds (default 5), when the connection to the server fails (refused or dropped, for example while it loads a model). Not after a timeout or an error the server sent |
 | `--max-rows N`, `--timeout-min N`, `--temperature X` | pattern rows in the prompt (60, as in the workspace), minutes to wait for one answer (10), sampling temperature (the workspace's, 0.2) |
 
 ## What is scored
@@ -49,7 +51,7 @@ What it does **not** score is whether the reasoning is good. It narrows a long a
 
 ## What it writes
 
-- `summary.md`: a table with a row per model (failed runs, cut off, mean seconds, runs with an invented id, phrases held, actions accepted and dropped), then a table per question. It is also printed.
+- `summary.md`: a table with a row per model (failed runs, cut off, mean seconds, runs with an invented id, phrases held, actions accepted and dropped), a **Failed runs** list (which model, how many, after how many seconds, and why: a model that is not pulled says `model 'x' not found`, a refused connection says so with its code), then a table per question. It is also printed.
 - `results.json`: every run with its numbers.
 - `<model>/q<N>-run<K>.txt`: every answer, as the model wrote it.
 

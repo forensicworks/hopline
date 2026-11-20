@@ -358,6 +358,10 @@ test('actions: the block in an answer is read, checked against the workspace and
   assert.deepEqual(j.actions.map((x) => x.text), ['Select 2 vertices (2 transactions)', 'Load transaction fafafa\u2026fafafa']);
   assert.deepEqual(j.dropped.map((d) => d.n), [3, 4]);
   assert.match(j.dropped[0].reason, /not in the evidence or the workspace/); assert.match(j.dropped[1].reason, /unknown action "ask_arkham"/);
+  fs.writeFileSync(path.join(dir, 'answer-loaded.txt'), '```json\n' + JSON.stringify({ actions: [{ action: 'load', id: tid(10), why: 'to look at it' }, { action: 'load', id: tid(11), why: 'and at this' }] }) + '\n```');
+  const conv = run(['actions', FILE, 'answer-loaded.txt']).json();
+  assert.deepEqual(conv.actions.map((x) => [x.action, x.text, x.note]), [['select', 'Select 2 vertices (2 transactions)', 'The model asked to load these 2, but they are already loaded, so this selects them.']], 'a load of loaded transactions comes back as one select row');
+  assert.deepEqual(conv.dropped, []);
   const none = run(['actions', FILE, '-'], { input: 'No block in this answer.' });
   assert.equal(none.code, 1); assert.equal(none.json().found, false);
   const bad = run(['actions', FILE, '-'], { input: '```json\n{"actions":[\n```' });
