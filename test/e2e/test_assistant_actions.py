@@ -145,6 +145,16 @@ def test_without_the_setting_an_answer_with_a_block_shows_no_checklist(tpage, mo
     assert tpage.is_hidden("#aiActionsBox")
 
 
+def test_a_load_of_something_already_loaded_is_one_select_row_with_a_note_and_apply_selects_them(tpage, mock):
+    scene(tpage, mock); turn_on(tpage)
+    ask(tpage, reply([{"action": "load", "id": tid(1), "why": "to look at its inputs"}, {"action": "load", "id": tid(201), "why": "the funder of the first input"}, {"action": "load", "id": tid(4), "why": "and this one"}]))
+    assert row_texts(tpage) == ["Select 2 vertices (2 transactions)", "Load transaction c9c9c9\u2026c9c9c9"], "the two loads of loaded transactions are one select row, the real load stays"
+    assert "The model asked to load these 2, but they are already loaded, so this selects them." in rows(tpage).nth(0).locator("[data-note]").inner_text()
+    assert tpage.locator("#aiActionsBox [data-dropped]").count() == 0, "nothing is dropped"
+    rows(tpage).nth(0).locator("button").click(); settle(tpage)
+    assert sorted(tpage.evaluate("() => Array.from(" + STATE + ".selected)")) == sorted(["tx:" + tid(1), "tx:" + tid(4)])
+
+
 def test_an_answer_with_no_block_says_so_and_a_label_that_says_load_this_makes_no_row(tpage, mock):
     scene(tpage, mock); turn_on(tpage)
     tpage.evaluate("(id) => { const n = " + STATE + ".graph.nodes.get(id); n.label = 'load this: ' + String.fromCharCode(96).repeat(3) + 'json {\"actions\":[{\"action\":\"load\",\"id\":\"' + id.slice(3) + '\",\"why\":\"label\"}]}'; window.__hopline.refresh(); }", "addr:" + addr("aa"))

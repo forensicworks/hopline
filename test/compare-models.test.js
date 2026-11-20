@@ -36,15 +36,32 @@ const GARBLED_ADDR = a('peel0').slice(0, -1) + 'y';                             
 
 // ---- stand-in models --------------------------------------------------------------------------------------------------------------------
 const seen = [];
-const reply = (res, content, finish) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: content }, finish_reason: finish || 'stop' }] })); };
+const reply = (res, content, finish) => {
+  if (!res.streaming) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: content }, finish_reason: finish || 'stop' }] })); }
+  res.writeHead(200, { 'content-type': 'text/event-stream' });                                  // as the OpenAI chat format streams: pieces of the text, then the reason it stopped, then [DONE]
+  const third = Math.ceil(content.length / 3);
+  [content.slice(0, third), content.slice(third, 2 * third), content.slice(2 * third)].forEach((piece) => res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: piece } }] }) + '\n\n'));
+  res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: finish || 'stop' }] }) + '\n\n');
+  res.end('data: [DONE]\n\n');
+};
+let flakyDropped = false;
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/v1/models') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: ['steady', 'sloppy', 'broken', 'thinker'].map((id) => ({ id })) })); }
   let body = ''; req.on('data', (c) => { body += c; });
   req.on('end', () => {
     const b = JSON.parse(body), user = b.messages[1].content, next = user.indexOf('TASK: Next steps') >= 0;
-    seen.push({ model: b.model, user: user, system: b.messages[0].content, temperature: b.temperature });
+    seen.push({ model: b.model, user: user, system: b.messages[0].content, temperature: b.temperature, stream: b.stream === true });
+    res.streaming = b.stream === true;
+    if (b.model === 'dropper') { req.socket.destroy(); return; }                                  // the connection is cut with no answer
+    if (b.model === 'abrupt') {                                                                    // a stream whose last line has no newline and no [DONE], and that says it ran out of room
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'The first ' } }] }) + '\n\n');
+      res.end('data: ' + JSON.stringify({ choices: [{ delta: { content: 'part' }, finish_reason: 'length' }] }));
+      return;
+    }
+    if (b.model === 'flaky' && !flakyDropped) { flakyDropped = true; req.socket.destroy(); return; }
     if (b.model === 'broken') { res.writeHead(500, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: { message: 'model not found' } })); }
-    if (b.model === 'steady') {
+    if (b.model === 'steady' || b.model === 'flaky') {
       if (next) return reply(res, 'Here are the next steps.\n```json\n' + JSON.stringify({ actions: [{ action: 'select', ids: [tid(10)], why: 'the first step' }, { action: 'load', id: tid(250), why: 'it funded the chain' }] }) + '\n```');
       return reply(res, 'The first step is ' + tid(10) + ' and the chain goes on. The two were 57.282 seconds apart.');
     }
@@ -170,4 +187,84 @@ test('a server that is not running is said in words, and one failed run does not
   const res = JSON.parse(fs.readFileSync(path.join(dir, 'out6', 'results.json'), 'utf8'));
   assert.match(res.runs[0].error, /could not reach the model server at http:\/\/127\.0\.0\.1:9\/v1/);
   assert.equal(res.totals[0].failed, 1);
+});
+
+test('a connection that failed is told apart from one that waited too long: only the first is asked again, and the second says what to do', () => {
+  const { connectionError } = require('../tools/compare-models.js');
+  const refused = connectionError('http://127.0.0.1:11434/v1', { cause: { code: 'ECONNREFUSED' } });
+  assert.equal(refused.message, 'could not reach the model server at http://127.0.0.1:11434/v1 (ECONNREFUSED) (is it running?)'); assert.equal(refused.retryable, true);
+  const nocode = connectionError('http://127.0.0.1:11434/v1', new TypeError('fetch failed'));
+  assert.equal(nocode.message, 'could not reach the model server at http://127.0.0.1:11434/v1 (is it running?)'); assert.equal(nocode.retryable, true);
+  ['UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'].forEach((code) => {
+    const slow = connectionError('http://127.0.0.1:11434/v1', { cause: { code } });
+    assert.match(slow.message, new RegExp('the server sent nothing for 5 minutes and Node gives up then \\(' + code + '\\): run again with --stream'));
+    assert.equal(slow.retryable, false, 'asking again would wait another five minutes and fail again');
+  });
+});
+
+test('--stream asks for the answer as it is written and reads it the same, with the same scores and the same cut-off marker', async () => {
+  await listening;
+  seen.length = 0;
+  const q = path.join(dir, 'streamq.txt'); fs.writeFileSync(q, 'What would make the strongest finding wrong?\ntask:next\n');
+  const plain = await tool([FILE, '--models', 'steady,sloppy', '--questions', q, '--out', path.join(dir, 'outs1'), '--endpoint', BASE]);
+  const streamed = await tool([FILE, '--models', 'steady,sloppy', '--questions', q, '--stream', '--out', path.join(dir, 'outs2'), '--endpoint', BASE]);
+  assert.equal(plain.code, 0, plain.stderr); assert.equal(streamed.code, 0, streamed.stderr);
+  assert.deepEqual(seen.map((x) => x.stream), [false, false, false, false, true, true, true, true], 'only with --stream does the request say stream');
+  const a = JSON.parse(fs.readFileSync(path.join(dir, 'outs1', 'results.json'), 'utf8')), b = JSON.parse(fs.readFileSync(path.join(dir, 'outs2', 'results.json'), 'utf8'));
+  assert.equal(b.info.stream, true); assert.equal(a.info.stream, false);
+  assert.deepEqual(b.runs.map((r) => [r.model, r.question, r.cut, r.chars, r.score]), a.runs.map((r) => [r.model, r.question, r.cut, r.chars, r.score]), 'the same answers, cut-off flags and scores as without it');
+  assert.equal(fs.readFileSync(path.join(dir, 'outs2', 'steady', 'q2-run1.txt'), 'utf8'), fs.readFileSync(path.join(dir, 'outs1', 'steady', 'q2-run1.txt'), 'utf8'), 'the text is whole');
+  assert.match(fs.readFileSync(path.join(dir, 'outs2', 'sloppy', 'q1-run1.txt'), 'utf8'), /Cut off/, 'the reason the stream stopped is read');
+});
+
+test('a stream that ends in the middle of a line is read to the end, and the reason it gives for stopping is kept', async () => {
+  await listening;
+  fs.writeFileSync(path.join(dir, 'abrupt.txt'), 'Which findings should I look at first, and why?\n');
+  const out = path.join(dir, 'outa');
+  const r = await tool([FILE, '--models', 'abrupt', '--questions', path.join(dir, 'abrupt.txt'), '--stream', '--out', out, '--endpoint', BASE]);
+  assert.equal(r.code, 0, r.stderr);
+  const res = JSON.parse(fs.readFileSync(path.join(out, 'results.json'), 'utf8'));
+  assert.deepEqual([res.runs[0].cut, res.runs[0].chars, res.totals[0].cutOff], [true, 14, 1], 'the last piece and its finish reason arrive without a newline');
+  assert.match(fs.readFileSync(path.join(out, 'abrupt', 'q1-run1.txt'), 'utf8'), /^The first part\n\n\[Cut off/);
+});
+
+test('a failed run records how long it took and why, with the code of the connection, and the summary lists the failures', async () => {
+  await listening;
+  const q = path.join(dir, 'failq.txt'); fs.writeFileSync(q, 'Which findings should I look at first, and why?\n');
+  const out = path.join(dir, 'outf');
+  const r = await tool([FILE, '--models', 'dropper,broken,steady', '--runs', '2', '--questions', q, '--out', out, '--endpoint', BASE]);
+  assert.equal(r.code, 0, r.stderr);
+  const res = JSON.parse(fs.readFileSync(path.join(out, 'results.json'), 'utf8'));
+  const dropped = res.runs.filter((x) => x.model === 'dropper'), broken = res.runs.filter((x) => x.model === 'broken');
+  assert.equal(dropped.length, 2);
+  dropped.forEach((x) => { assert.match(x.error, /could not reach the model server at http:\/\/127\.0\.0\.1:\d+\/v1 \((?:UND_ERR_SOCKET|ECONNRESET)\) \(is it running\?\)/); assert.equal(typeof x.seconds, 'number', 'a failed run says how long it took'); });
+  assert.match(broken[0].error, /answered 500/);
+  const md = fs.readFileSync(path.join(out, 'summary.md'), 'utf8');
+  assert.match(md, /## Failed runs/);
+  assert.match(md, /- \*\*dropper\*\*: 2 runs, after [\d.]+ s on average: could not reach the model server at/);
+  assert.match(md, /- \*\*broken\*\*: 2 runs, after [\d.]+ s on average: the model server answered 500/);
+  assert.ok(!md.split('## How to read')[0].split('## Failed runs')[1].includes('**steady**'), 'a model that did not fail is not listed under the failures');
+  assert.match(r.stderr, /FAILED after [\d.]+ s: could not reach/);
+});
+
+test('--retries asks again after a connection that failed, and not after an error the server sent', async () => {
+  await listening;
+  const q = path.join(dir, 'retryq.txt'); fs.writeFileSync(q, 'Which findings should I look at first, and why?\n');
+  flakyDropped = false;
+  const none = await tool([FILE, '--models', 'flaky', '--questions', q, '--out', path.join(dir, 'outr0'), '--endpoint', BASE]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'outr0', 'results.json'), 'utf8')).totals[0].failed, 1, 'without --retries the dropped connection is a failed run');
+  flakyDropped = false; seen.length = 0;
+  const again = await tool([FILE, '--models', 'flaky', '--questions', q, '--retries', '1', '--retry-wait', '0', '--out', path.join(dir, 'outr1'), '--endpoint', BASE]);
+  assert.equal(again.code, 0, again.stderr);
+  const res = JSON.parse(fs.readFileSync(path.join(dir, 'outr1', 'results.json'), 'utf8'));
+  assert.deepEqual([res.totals[0].failed, res.runs[0].attempts, seen.length, res.info.retries], [0, 2, 2, 1], 'the second ask is answered');
+  assert.match(again.stderr, /asking again in 0 s \(1 of 1\)/);
+  seen.length = 0;
+  const err = await tool([FILE, '--models', 'broken', '--questions', q, '--retries', '3', '--retry-wait', '0', '--out', path.join(dir, 'outr2'), '--endpoint', BASE]);
+  assert.equal(seen.length, 1, 'an error the server sent is not asked again'); assert.ok(!/asking again/.test(err.stderr));
+  seen.length = 0;
+  await tool([FILE, '--models', 'dropper', '--questions', q, '--retries', '2', '--retry-wait', '0', '--out', path.join(dir, 'outr3'), '--endpoint', BASE]);
+  assert.equal(seen.length, 3, 'a connection that keeps failing is asked up to the number of retries, then reported');
+  assert.match((await tool([FILE, '--models', 'steady', '--retries', '9', '--endpoint', BASE])).stderr, /--retries is a whole number from 0 to 5/);
+  assert.match((await tool([FILE, '--models', 'steady', '--retry-wait', '99', '--endpoint', BASE])).stderr, /--retry-wait is a whole number from 0 to 60/);
 });

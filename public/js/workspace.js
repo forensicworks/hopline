@@ -5096,6 +5096,7 @@
   function aiActionRow(e) {
     var a = e.a, done = aiIsApplied(e), row = el('div', { 'class': 'actrow', 'data-n': String(a.n) });
     row.appendChild(el('div', { 'class': 'acttext', text: a.text + (a.idsLeftOut ? ' — ' + (a.idsLeftOut === 1 ? '1 id was' : a.idsLeftOut + ' ids were') + ' left out (not loaded, or not in the workspace)' : '') }));
+    if (a.note) row.appendChild(el('div', { 'class': 'hint', 'data-note': '1', text: a.note }));                // Hopline's own words, e.g. that a load asked for something already loaded
     row.appendChild(el('div', { 'class': 'hint', text: 'The model says: ' + a.why }));
     if (a.action === 'load' || a.action === 'follow') row.appendChild(el('div', { 'class': 'hint', text: 'Asks ' + (state.client ? hostOf(state.client.base) : 'the data source') + ', like any load; it counts against the request limit and Undo load takes it back.' }));
     row.appendChild(el('div', { 'class': 'insp-actions' }, [el('button', { type: 'button', text: done ? 'Applied' : 'Apply', disabled: done ? 'disabled' : null, onclick: function () { aiApplyRow(e); } })]));

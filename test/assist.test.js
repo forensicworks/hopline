@@ -411,7 +411,7 @@ test('summary: the trail is in the evidence, its names are cleaned and listed as
   assert.equal(s.trace.handoffs[0].timeText, '2022-04-15 05:30 UTC');
   assert.deepEqual([s.trace.handoffs[0].direction, s.trace.handoffs[0].sats, s.trace.handoffs[0].walletBeforeOrAfter, s.trace.handoffs[1].walletBeforeOrAfter], ['withdrawal', 900, a('vic'), null]);
   assert.ok(!/[‮]/.test(s.trace.openEnds.next.named[0].label));
-  assert.deepEqual(s.trace.openEnds.next.rows[0], { kind: 'unchecked', address: a('q3'), sats: 80, txid: tid(3), steps: 1 });
+  assert.deepEqual(s.trace.openEnds.next.rows[0], { kind: 'unchecked', address: a('q3'), sats: 80, txid: tid(3), next: null, steps: 1 }, 'the id of the transaction that is not loaded is kept only when it is another one');
   ['trace.referenceName', 'trace.handoffs[].service', 'trace.openEnds.next.named[].label'].forEach((f) => assert.ok(s.untrustedFields.includes(f), f));
 });
 
@@ -452,6 +452,41 @@ test('idSets: what the trail names may be cited by an answer, and nothing else',
   assert.equal(As.checkCitations('See ' + tid(77) + '.', sets).ok, false);
 });
 
+function endsOf(rows) {
+  const g = new Graph();
+  add(g, 1, [IN(90, 0, a('ex'), 1000)], [OUT(a('vic'), 900)]);
+  const t = traceFixture();
+  t.openEnds.next = { count: rows.length, sats: 0, unchecked: 1, notLoaded: rows.length - 1, resting: null, named: [], rows: rows };
+  const sum = As.summary(g, An.analyse(g, {}), { trace: t }), p = As.prompt(sum, 'triage', {});
+  return { sum, ev: JSON.parse(p.user.slice(p.user.indexOf('<<EVIDENCE (JSON)\n') + 18, p.user.lastIndexOf('\nEVIDENCE>>'))) };
+}
+
+test('open ends in the prompt: each kind says what is missing, and names the transaction that is not loaded apart from the one that is', () => {
+  const { sum, ev } = endsOf([
+    { kind: 'unchecked', address: a('w1'), amount: 5000, txid: tid(21), next: tid(21), depth: 1 },
+    { kind: 'spent', address: null, amount: null, txid: tid(22), next: tid(22), depth: 2 },
+    { kind: 'funder', address: a('w2'), amount: 7000, txid: tid(23), next: tid(24), depth: 1 },
+    { kind: 'funder', address: null, amount: null, txid: tid(25), next: tid(25), depth: 3 }]);
+  assert.deepEqual(ev.trace.openEnds.next.rows, [
+    { kind: 'spendingNeverChecked', loadedTransaction: tid(21), outputToWallet: a('w1'), btc: 5e-5, steps: 1 },
+    { kind: 'spenderNotLoaded', notLoadedTransaction: tid(22), steps: 2 },
+    { kind: 'funderNotLoaded', loadedTransaction: tid(23), inputFromWallet: a('w2'), btc: 7e-5, notLoadedTransaction: tid(24), steps: 1 },
+    { kind: 'funderNotLoaded', notLoadedTransaction: tid(25), steps: 3 }]);
+  assert.deepEqual(sum.trace.openEnds.next.rows.map((r) => r.next), [null, null, tid(24), null], 'the summary keeps next only where it is another transaction');
+  assert.match(ev.trace.openEndKinds.spendingNeverChecked, /follow the loadedTransaction forward/);
+  assert.match(ev.trace.openEndKinds.spenderNotLoaded, /load the notLoadedTransaction/);
+  assert.match(ev.trace.openEndKinds.funderNotLoaded, /load the notLoadedTransaction, or follow the loadedTransaction backward/);
+});
+
+test('idSets: the transaction that an open end says is not loaded is an id of the evidence, so a load of it is valid', () => {
+  const { sum } = endsOf([{ kind: 'funder', address: a('w2'), amount: 7000, txid: tid(23), next: tid(24), depth: 1 }]);
+  const ids = As.idSets(sum, null).evidence.txids;
+  assert.ok(ids.has(tid(24)) && ids.has(tid(23)), 'both the loaded transaction at the edge and the one beyond it');
+  const parsed = As.parseActions('```json\n' + JSON.stringify({ actions: [{ action: 'load', id: tid(24), why: 'the funder is not loaded' }] }) + '\n```');
+  const r = As.validateActions(parsed, { evidence: As.idSets(sum, null).evidence, workspace: As.idSets(sum, null).workspace, loaded: () => false, groupOf: () => null });
+  assert.deepEqual([r.actions.length, r.dropped.length, r.actions[0].text], [1, 0, 'Load transaction ' + tid(24).slice(0, 6) + '\u2026' + tid(24).slice(-6)]);
+});
+
 test('prompt: a short form of the trail goes into the evidence, with the first hand-offs and open ends and its limits', () => {
   const g = new Graph();
   add(g, 1, [IN(90, 0, a('ex'), 1000)], [OUT(a('vic'), 900)]);
@@ -462,7 +497,9 @@ test('prompt: a short form of the trail goes into the evidence, with the first h
   assert.equal(ev.trace.handoffs.length, 12);
   assert.equal(ev.trace.handoffs[0].trailWallet !== undefined, true);
   assert.equal(ev.trace.openEnds.next.neverLookedUp, 1);
-  assert.deepEqual(ev.trace.openEnds.next.rows[0], [tid(3), a('q3'), 8e-7]);
+  assert.deepEqual(ev.trace.openEnds.next.rows[0], { kind: 'spendingNeverChecked', loadedTransaction: tid(3), outputToWallet: a('q3'), btc: 8e-7, steps: 1 }, 'named fields, not a list of columns');
+  assert.equal(ev.trace.openEndColumns, undefined, 'the list of column names is gone');
+  assert.deepEqual(Object.keys(ev.trace.openEndKinds), ['spendingNeverChecked', 'spenderNotLoaded', 'funderNotLoaded'], 'what each kind means is written once, in the prompt');
   assert.ok(ev.limits.some((l) => /12 of 20 service hand-offs/.test(l)));
   assert.equal(JSON.parse(As.prompt(As.summary(g, An.analyse(g, {}), {}), 'triage', {}).user.split('<<EVIDENCE (JSON)\n')[1].split('\nEVIDENCE>>')[0]).trace, undefined, 'no trail, no field');
 });
