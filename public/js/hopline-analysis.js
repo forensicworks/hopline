@@ -29,7 +29,7 @@
     peel: { maxRatio: 0.5, minLength: 4, minSmall: 1000 } // one input, two outputs, the small one at most half the large and not dust (satoshis); this many in a row
   };
 
-  var COLORS = { consolidation: '#b58cff', batch: '#6be675', coinjoin: '#ff7aa2', peel: '#ffb347', change: '#ff9f43', round: '#2ec4b6', swap: '#d98a3d' };                // swap is the colour of the SWAP tag too
+  var COLORS = { consolidation: '#b58cff', batch: '#6be675', coinjoin: '#ff7aa2', peel: '#ffb347', change: '#ff9f43', round: '#2ec4b6', swap: '#d98a3d', omni: '#f0d264' };                // swap is the colour of the SWAP tag too
   var CONFIDENCE = { low: 1, medium: 2, high: 3 };
   // one colour per peel chain, picked from the chain's own start so it stays the same whatever else is loaded
   var CHAIN_COLORS = ['#ffb347', '#4dd0e1', '#f48fb1', '#c5e1a5', '#ce93d8', '#fff176', '#90caf9', '#ff8a65'];
@@ -228,6 +228,40 @@
     });
     return hit;
   }
+  // ---- Omni Layer -----------------------------------------------------------------------------------
+  /** The Omni Layer instruction in one of a transaction's OP_RETURN outputs, with the output it is in: { vout, id, omni (see decodeOmni in hopline-model.js) }, or null. */
+  function omniOf(v) {
+    var hit = null;
+    if (!v || v.coinbase) return null;
+    v.outputs.forEach(function (o) {
+      if (hit || o.type !== 'data') return;
+      var n = v.graph.nodes.get(o.id), d = n && n.dataHex ? Model.decodeOmni(n.dataHex) : null;
+      if (d) hit = { vout: o.vout, id: o.id, omni: d };
+    });
+    return hit;
+  }
+  /**
+   * Who sends and who receives a simple send: the sender is the one wallet the inputs come from, the receiver the one other wallet the transaction pays (Omni has its own rule for choosing the
+   * reference output when there are several, which is not applied here). Either is null when it is not one wallet. Only for a simple send.
+   */
+  function omniParties(v, m) {
+    if (!m || m.omni.type !== 0) return { sender: null, receiver: null };
+    var from = new Set(), to = new Set();
+    v.inputs.forEach(function (i) { if (i.address) from.add(i.address); });
+    var sender = from.size === 1 ? Array.from(from)[0] : null;
+    v.outputs.forEach(function (o) { if (o.type === 'addr' && o.address && o.address !== sender) to.add(o.address); });
+    return { sender: sender, receiver: to.size === 1 ? Array.from(to)[0] : null };
+  }
+  /** A transaction whose OP_RETURN holds an Omni Layer instruction: { kind: 'omni', ... } or null. What the sender wrote, as the title says: the Omni ledger decides whether it is carried out. */
+  function omniFlag(v) {
+    var m = omniOf(v);
+    if (!m) return null;
+    var p = omniParties(v, m), who = p.sender && p.receiver ? ' From ' + p.sender + ' to ' + p.receiver + '.' : p.sender ? ' From ' + p.sender + '.' : '';
+    return { kind: 'omni', short: 'OMNI', color: COLORS.omni, memo: m,
+             title: 'Omni Layer instruction in an OP_RETURN: ' + m.omni.text + '.' + who + ' The tokens move on the Omni ledger, not on Bitcoin: the bitcoin amounts of this transaction are not the value moved (the small output to the receiver is only a marker, the rest is '
+                    + 'change), so do not follow them as money. It is what the sender wrote: the Omni ledger decides whether it is carried out (enough tokens, the right owner), and Hopline cannot check that.' };
+  }
+
   function shortId(x) { return x.slice(0, 10) + '…' + x.slice(-6); }
   /** What a memo says, in words: for a swap, where the payment is to be swapped to, how, and the fee asked for; for a request ID, the ID; for a payout or a refund, the hash it names; for a peg-in, where it goes. */
   function swapText(m) {
@@ -296,6 +330,7 @@
                    title: 'Batch payment: ' + nIn + ' input' + (nIn === 1 ? '' : 's') + ' paying ' + outs.length + ' outputs. Typical of an exchange or service paying many people at once.' });
     }
     if (!flags.length) { var rnd = roundFlag(v, opts); if (rnd) flags.push(rnd); }
+    var omn = omniFlag(v); if (omn) flags.unshift(omn);                                     // an Omni instruction is said outright too, and the sort of transaction it is does not matter
     var swp = swapFlag(v); if (swp) flags.unshift(swp);                                     // a memo is said outright, so it goes with whatever shape the transaction has, and first: it gets the badge text where two would not fit
     return flags;
   }
@@ -536,11 +571,12 @@
     ['batch', /^BATCH \d{1,5}→\d{1,5}$/],
     ['round', /^ROUND \d[\d.]{0,14} BTC$/],
     ['swap', /^(?:SWAP OUT|SWAP REFUND|PEG-IN RSK|SWAP ID|SWAP → [A-Z0-9]{1,12})$/],
+    ['omni', /^OMNI$/],
     ['peel', /^PEEL \d{1,4}\/\d{1,4}$/]
   ];
   var CARRY_MAX = 6;
   var CARRY_SAYS = { coinjoin: 'a CoinJoin', consolidation: 'a consolidation (many inputs gathered into one or two outputs)', batch: 'a batch payment (a few inputs paying many outputs)',
-                     round: 'a round amount', swap: 'a swap memo', peel: 'a step of a peel chain' };
+                     round: 'a round amount', swap: 'a swap memo', omni: 'an Omni Layer instruction', peel: 'a step of a peel chain' };
   /** The marks in `list` that this analysis could have written, as flags { kind, short, color, title, carried: true }; anything else is dropped. */
   function carriedFlags(list) {
     var out = [];
@@ -647,7 +683,7 @@
   }
 
   return {
-    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, roundFlag: roundFlag, swapMemo: swapMemo, outMemo: outMemo, rootstockMemo: rootstockMemo, swapGoesIn: swapGoesIn, requestIdMemo: requestIdMemo, swapOf: swapOf, swapText: swapText, swapLabel: swapLabel, swapFlag: swapFlag, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
+    DEFAULTS: DEFAULTS, COLORS: COLORS, CHAIN_COLORS: CHAIN_COLORS, txView: txView, fingerprint: fingerprint, sameWallet: sameWallet, payOuts: payOuts, classify: classify, roundFlag: roundFlag, omniOf: omniOf, omniParties: omniParties, omniFlag: omniFlag, swapMemo: swapMemo, outMemo: outMemo, rootstockMemo: rootstockMemo, swapGoesIn: swapGoesIn, requestIdMemo: requestIdMemo, swapOf: swapOf, swapText: swapText, swapLabel: swapLabel, swapFlag: swapFlag, coinjoinLike: coinjoinLike, guessChange: guessChange, changeTitle: changeTitle, changeCaution: changeCaution,
     CHANGE_SIGNALS: CHANGE_SIGNALS, signalOf: signalOf, peelStep: peelStep, peelChains: peelChains, clusters: clusters, suggestNames: suggestNames, analyse: analyse, carriedFlags: carriedFlags, successors: successors, rank: function (c) { return CONFIDENCE[c] || 0; }
   };
 }));

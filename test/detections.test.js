@@ -53,7 +53,7 @@ test('detections: one row per flag, oldest first', () => {
   const d = Det.build(g, an);
   assert.deepEqual(d.rows.map((r) => r.id), [early, ...chain, late]);
   assert.ok(d.rows.every((r, i) => i === 0 || d.rows[i - 1].time <= r.time));
-  assert.deepEqual(d.counts, { peel: 5, consolidation: 2, batch: 0, coinjoin: 0, round: 0, swap: 0, total: 7 });
+  assert.deepEqual(d.counts, { peel: 5, consolidation: 2, batch: 0, coinjoin: 0, round: 0, swap: 0, omni: 0, total: 7 });
 });
 
 test('detections: a transaction that has not been confirmed comes last, and a flag keeps its colour and short text', () => {
