@@ -34,7 +34,7 @@ function usage() {
     'Hopline on the command line (no browser, no network).',
     '',
     '  summary    <workspace.json>                       the evidence summary',
-    '  detections <workspace.json> [--kind K] [--chain L]  every pattern found, oldest first (K: peel, consolidation, batch, coinjoin, round, swap)',
+    '  detections <workspace.json> [--kind K] [--chain L]  every pattern found, oldest first (K: peel, consolidation, batch, coinjoin, round, swap, omni)',
     '  chains     <workspace.json>                       every possible peel chain with its steps and payments',
     '  focus      <workspace.json> <ref>                 one transaction id, address, peel chain name (P-65a1) or cluster name (C3)',
     '  prompt     <workspace.json> --task T [--focus ref] [--question Q] [--max-rows N] [--actions] [--json]',

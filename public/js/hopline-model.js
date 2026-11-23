@@ -63,6 +63,71 @@
     return { hex: hex, text: text };
   }
 
+  // ---- Omni Layer ------------------------------------------------------------------------------------------------------
+  // The Omni Layer (the Mastercoin protocol; Tether's USDT began there) keeps its own ledger of tokens and reads its instructions from a Bitcoin transaction's OP_RETURN: the four bytes "omni", a
+  // version and a type (two bytes each), then what the type needs. The bitcoin amounts of such a transaction are NOT the value moved (the output to the receiver is only a marker, the rest is
+  // change); the tokens move on the Omni ledger, which this decodes the payload of and cannot check: Omni nodes decide whether an instruction is valid (enough tokens, the right owner).
+  var OMNI_MAGIC = '6f6d6e69';
+  var OMNI_PROPERTIES = { 1: { name: 'Omni', symbol: 'OMNI', divisible: true }, 2: { name: 'Test Omni', symbol: 'TOMNI', divisible: true },
+                          3: { name: 'MaidSafeCoin', symbol: 'MAID', divisible: false }, 31: { name: 'TetherUS', symbol: 'USDT', divisible: true } };
+  var OMNI_TYPES = { 0: 'simple send', 3: 'send to owners', 4: 'send all', 20: 'DEx sell offer', 21: 'MetaDEx trade', 22: 'MetaDEx cancel at price', 23: 'MetaDEx cancel by pair', 24: 'MetaDEx cancel all',
+                     50: 'create a token (fixed supply)', 51: 'create a token (crowdsale)', 53: 'close a crowdsale', 54: 'create a token (managed)', 55: 'grant tokens', 56: 'revoke tokens',
+                     70: 'change issuer', 71: 'enable freezing', 72: 'disable freezing', 185: 'freeze tokens', 186: 'unfreeze tokens' };
+  function omniUint(b, at, n) {                                                                // n bytes from `at` as a decimal string (eight bytes are more than a JavaScript number holds)
+    var h = ''; for (var i = 0; i < n; i++) h += (b[at + i] < 16 ? '0' : '') + b[at + i].toString(16);
+    return BigInt('0x' + h).toString();
+  }
+  function omniText(b, at) {                                                                    // a zero-ended string of printable ASCII, and where the next starts
+    var s = '', i = at;
+    while (i < b.length && b[i] !== 0) { s += (b[i] >= 32 && b[i] < 127) ? String.fromCharCode(b[i]) : '.'; i++; }
+    return { text: s.slice(0, 60), next: i + 1 };
+  }
+  /** An Omni amount as the owner of a token would read it: a divisible token has eight decimals, an indivisible one none; a token Hopline does not know is given in its own units. */
+  function omniAmount(property, units) {
+    var p = OMNI_PROPERTIES[property], u = String(units), whole, frac = '';
+    if (p && p.divisible) {
+      var pad = ('00000000' + u).slice(-Math.max(8, u.length)); whole = pad.slice(0, pad.length - 8); frac = pad.slice(-8).replace(/0+$/, '');
+      if (!whole) whole = '0';
+    } else whole = u;
+    var num = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (frac ? '.' + frac : '');
+    return p ? num + ' ' + p.name + ' (' + p.symbol + ')' : num + (num === '1' ? ' unit' : ' units') + ' of property ' + property + ' (Hopline does not know its name or its decimals)';
+  }
+  /**
+   * The Omni Layer instruction in an OP_RETURN payload (hex), or null when it is not one. { version, type, typeName (null when Hopline does not know the type), property, amount (units, a decimal
+   * string), ... as the type has them, text: what it asks in words }. It is what the sender WROTE: whether the Omni ledger carried it out is not known here.
+   */
+  function decodeOmni(payloadHex) {
+    var h = String(payloadHex == null ? '' : payloadHex).toLowerCase();
+    if (h.length < 16 || h.length % 2 || !/^[0-9a-f]+$/.test(h) || h.slice(0, 8) !== OMNI_MAGIC) return null;
+    var b = hexToBytes(h), len = b.length, r = { version: b[4] * 256 + b[5], type: b[6] * 256 + b[7] };
+    r.typeName = OMNI_TYPES[r.type] || null;
+    var tName = r.typeName || 'type ' + r.type;
+    function prop(at) { return b[at] * 16777216 + (b[at + 1] << 16) + (b[at + 2] << 8) + b[at + 3]; }
+    function has(n) { return len >= n; }
+    function who(p) { return OMNI_PROPERTIES[p] ? OMNI_PROPERTIES[p].name + ' (' + OMNI_PROPERTIES[p].symbol + ')' : 'property ' + p; }
+    var text = null;
+    if ((r.type === 0 || r.type === 3 || r.type === 55 || r.type === 56) && has(20)) {
+      r.property = prop(8); r.amount = omniUint(b, 12, 8);
+      text = r.type === 0 ? 'simple send of ' + omniAmount(r.property, r.amount)
+           : r.type === 3 ? 'send to the owners of ' + who(r.property) + ': ' + omniAmount(r.property, r.amount) + ' shared out to them'
+           : r.type === 55 ? 'the issuer grants ' + omniAmount(r.property, r.amount) : 'the issuer revokes ' + omniAmount(r.property, r.amount);
+    } else if (r.type === 4 && has(9)) { r.ecosystem = b[8]; text = 'send all tokens of the ' + (b[8] === 1 ? 'main' : b[8] === 2 ? 'test' : 'unknown') + ' ecosystem'; }
+    else if (r.type === 20 && has(20)) { r.property = prop(8); r.amount = omniUint(b, 12, 8); text = 'DEx sell offer of ' + omniAmount(r.property, r.amount) + ' for bitcoin'; }
+    else if ((r.type === 21 || r.type === 22) && has(32)) {
+      r.property = prop(8); r.amount = omniUint(b, 12, 8); r.desiredProperty = prop(20); r.desiredAmount = omniUint(b, 24, 8);
+      text = (r.type === 21 ? 'MetaDEx trade: sells ' : 'MetaDEx cancel at price: the offer of ') + omniAmount(r.property, r.amount) + ' for ' + omniAmount(r.desiredProperty, r.desiredAmount);
+    } else if (r.type === 23 && has(16)) { r.property = prop(8); r.desiredProperty = prop(12); text = 'MetaDEx cancel by pair: every offer of ' + who(r.property) + ' for ' + who(r.desiredProperty); }
+    else if (r.type === 24 && has(9)) { r.ecosystem = b[8]; text = 'MetaDEx cancel all offers of the ' + (b[8] === 1 ? 'main' : b[8] === 2 ? 'test' : 'unknown') + ' ecosystem'; }
+    else if ((r.type === 53 || r.type === 70 || r.type === 71 || r.type === 72 || r.type === 185 || r.type === 186) && has(12)) { r.property = prop(8); text = tName + ' for ' + who(r.property); }
+    else if ((r.type === 50 || r.type === 51 || r.type === 54) && has(16)) {
+      var s = omniText(b, 15), cat = s, sub = omniText(b, cat.next), nm = omniText(b, sub.next);
+      r.ecosystem = b[8]; r.name = nm.text; text = tName + (nm.text ? ' named "' + nm.text + '"' : '');
+    }
+    r.text = text || (r.typeName ? tName + ' (Hopline does not read its fields)' : 'an Omni Layer instruction of type ' + r.type + ' (Hopline does not know this type)');
+    if (r.version !== 0 && r.version !== 1) r.text += ' (version ' + r.version + ')';
+    return r;
+  }
+
   // ---- Graph ----------------------------------------------------------------------------------
   function Graph() {
     this.nodes = new Map();
@@ -452,5 +517,5 @@
     return g;
   };
 
-  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, mergeInto: mergeInto, balanceOf: balanceOf, balanceState: balanceState, historyRead: historyRead, historyOpen: historyOpen, txPartial: txPartial, spendingComplete: spendingComplete };
+  return { Graph: Graph, ID: ID, decodeOpReturn: decodeOpReturn, decodeOmni: decodeOmni, omniAmount: omniAmount, OMNI_PROPERTIES: OMNI_PROPERTIES, mergeInto: mergeInto, balanceOf: balanceOf, balanceState: balanceState, historyRead: historyRead, historyOpen: historyOpen, txPartial: txPartial, spendingComplete: spendingComplete };
 }));

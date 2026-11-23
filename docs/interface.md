@@ -10,7 +10,7 @@ Needs Node.js 18 or newer. `workspace.json` is a file made by **Export > JSON** 
 
 ```sh
 node tools/hopline-cli.js summary    workspace.json
-node tools/hopline-cli.js detections workspace.json [--kind peel] [--chain P-65a1]
+node tools/hopline-cli.js detections workspace.json [--kind peel|consolidation|batch|coinjoin|round|swap|omni] [--chain P-65a1]
 node tools/hopline-cli.js chains     workspace.json
 node tools/hopline-cli.js focus      workspace.json <transaction id | address | P-65a1 | C3>
 node tools/hopline-cli.js prompt     workspace.json --task triage [--focus <ref>] [--max-rows 60] [--actions] [--json]
@@ -40,7 +40,7 @@ Label packs and the labels you typed are not in the built-in list; a label or ta
 | `counts` | Transactions loaded and not loaded, wallets, movements, and how many detections, peel chains, clusters and change guesses there are. |
 | `timeSpan` | The first and last time among the loaded transactions. |
 | `sources` | Which data source answered, and for how many transactions. |
-| `detections[]` | One per pattern per transaction, oldest first: `txid`, `time`, `kind` (`peel`, `consolidation`, `batch`, `coinjoin`), `pattern` (`PEEL 3/6`, `CONSOL 34→2`), `chain`, `step`, `of`, and `why`, the reason in words. |
+| `detections[]` | One per pattern per transaction, oldest first: `txid`, `time`, `kind` (`peel`, `consolidation`, `batch`, `coinjoin`, `round`, `swap`, `omni`), `pattern` (`PEEL 3/6`, `CONSOL 34→2`), `chain`, `step`, `of`, and `why`, the reason in words. |
 | `chains[]` | Every possible peel chain: `label` (`P-65a1`, named after its first transaction), `txids` in order, `startedWithSats`, `endedWithSats`, `totalPeeledSats`, `continues`, and `payments[]` (`txid`, `vout`, `address`, `sats`, `passedOnSats`). |
 | `clusters[]` | Addresses spent together as inputs of one transaction: `label`, `size`, the first `addresses` and `txids`. |
 | `change[]` | Likely-change guesses of medium or high confidence: `txid`, `vout`, `address`, `sats`, `confidence`, `reasons`. |

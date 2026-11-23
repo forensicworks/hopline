@@ -53,7 +53,7 @@
     fiat: { currency: 'off', basis: 'each', show: 'both', ref: null }, books: {},
     rightTab: 'details', findTotal: 0, findForce: false, sideCollapsed: true, inspCollapsed: false, tbCollapsed: false, tbTxs: [], tbHover: null, tbGeom: null, edgeLabels: true, viaWallets: true, bundleEdges: true, hoverPreview: true,
     trace: emptyTrace(), vgroups: new Map(), vseq: 0, routeRef: null, routeFocus: null, openDir: 'next',
-    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true, swap: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60, actions: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
+    undoLoads: [], redoLoads: [], redoSig: '', expandRange: null, tbSuppress: false, analysis: { flags: true, change: true, clusters: true, kinds: { peel: true, consolidation: true, batch: true, coinjoin: true, round: true, swap: true, omni: true }, round: { minZeros: 4, minSats: 1000000 } }, assist: { endpoint: 'http://127.0.0.1:11434/v1', model: '', rows: 60, actions: false }, an: null, anSig: '', anGraph: null, packs: [], shipped: [], shippedChoices: {}, knownVersion: 0,
     hidden: new Set(), hideUndo: [], hideRedo: [], arrange: DEFAULT_ARRANGE, boxMode: false,
     stepMode: 'ask', stepSize: 5, shareMax: SH.DEFAULT_LIMIT, autoBalance: true, autoHistory: true, autoUpdate: false, autoTag: true, tagSeen: new Set(), arrowsInRange: true, chooseSort: 'big', groupRows: true, groupBy: 'party', dustSats: 10000, walletView: { dir: 'all', sort: 'new', who: 'any', unspent: false, more: 40, open: new Set(), groupMore: {}, ticked: new Set(), tickFor: null },
     auto: { dir: 'next', hops: 3, follow: 'all', maxTx: 40, maxReq: 150, perTx: 6, minSats: 0, stopLabel: true, stopMix: true },
@@ -189,7 +189,7 @@
     a = a && typeof a === 'object' ? a : {};
     var k = a.kinds && typeof a.kinds === 'object' ? a.kinds : {};
     var r = a.round && typeof a.round === 'object' ? a.round : {};
-    return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false, kinds: { peel: k.peel !== false, consolidation: k.consolidation !== false, batch: k.batch !== false, coinjoin: k.coinjoin !== false, round: k.round !== false, swap: k.swap !== false },
+    return { flags: a.flags !== false, change: a.change !== false, clusters: a.clusters !== false, kinds: { peel: k.peel !== false, consolidation: k.consolidation !== false, batch: k.batch !== false, coinjoin: k.coinjoin !== false, round: k.round !== false, swap: k.swap !== false, omni: k.omni !== false },
              round: { minZeros: num(r.minZeros, 3, 6, 4), minSats: num(r.minSats, 1, 2100000000000000, 1000000) } };
   }
 
@@ -3620,6 +3620,8 @@
       if (n.type === 'data') {
         kv(dl, 'Output', S.shortId(n.txid, 8) + ':' + n.vout);
         kv(dl, 'Text', n.dataText); kv(dl, 'Hex', n.dataHex ? (n.dataHex.length > 160 ? n.dataHex.slice(0, 160) + '…' : n.dataHex) : '(empty)');
+        var omni = n.dataHex ? M.decodeOmni(n.dataHex) : null;
+        if (omni) kv(dl, 'Omni Layer', omni.text + '. The tokens move on the Omni ledger, not on Bitcoin, so the bitcoin amounts of this transaction are not the value moved; Hopline cannot check that the ledger carried it out.');
       } else if (n.type === 'nonstd') {
         kv(dl, 'Output', S.shortId(n.txid, 8) + ':' + n.vout); kv(dl, 'Script type', n.scriptType);
       } else kv(dl, 'Note', 'Newly created coins paid to the miner of the block');
@@ -3940,7 +3942,7 @@
   // ---- analysis: patterns, likely change, clusters ----------------------------------------------
   // All of it is a guess from what is loaded; every result carries its reasons (see hopline-analysis.js).
   var CLUSTER_COLORS = ['#00d1b2', '#ff7aa2', '#ffd23f', '#7aa2ff', '#b58cff', '#ff9f43', '#6be675', '#e0e0e0'];
-  var FLAG_NAME = { consolidation: 'CONSOL', batch: 'BATCH', coinjoin: 'COINJOIN?', peel: 'PEEL', round: 'ROUND', swap: 'SWAP' };
+  var FLAG_NAME = { consolidation: 'CONSOL', batch: 'BATCH', coinjoin: 'COINJOIN?', peel: 'PEEL', round: 'ROUND', swap: 'SWAP', omni: 'OMNI' };
 
   /** What marks a wallet as already known: your label, your tag, or the known list. null when nothing does. */
   function markOf(address) {
@@ -4114,7 +4116,7 @@
 
   // ---- detections: every pattern found, oldest first ------------------------------------------------
   var DET_ROWS = 400;                                                                   // rows drawn at once; Select these and Copy list still take all of them
-  var DET_KINDS = [['all', 'All'], ['peel', 'PEEL'], ['consolidation', 'CONSOL'], ['batch', 'BATCH'], ['coinjoin', 'COINJOIN?'], ['round', 'ROUND'], ['swap', 'SWAP']];
+  var DET_KINDS = [['all', 'All'], ['peel', 'PEEL'], ['consolidation', 'CONSOL'], ['batch', 'BATCH'], ['coinjoin', 'COINJOIN?'], ['round', 'ROUND'], ['swap', 'SWAP'], ['omni', 'OMNI']];
   var det = { kind: 'all', chain: '', data: null, an: null, graph: null, rows: [] };
   function detOpenNow() { return $('detSection').open; }
   /** The detections of the current analysis; built again only when the analysis was. */
@@ -5199,7 +5201,7 @@
   /** The Analysis panel: what was found, as lists that select the vertices involved. */
   var findingsFor = null, findingsStamp = '';
   // ---- what was found, in one strip over the graph ----------------------------------------------------------------------
-  var FIND_NAME = { coinjoin: 'COINJOIN?', consolidation: 'CONSOL', batch: 'BATCH', peel: 'PEEL', round: 'ROUND', swap: 'SWAP' };
+  var FIND_NAME = { coinjoin: 'COINJOIN?', consolidation: 'CONSOL', batch: 'BATCH', peel: 'PEEL', round: 'ROUND', swap: 'SWAP', omni: 'OMNI' };
 
   // ---- a finding under the pointer shows where it is, and a vertex under the pointer shows its findings -------------------------------------------------
   // Pointing at (or focusing) a chip or a row that stands for vertices rings them in the finding's colour and fades the rest of the graph until the pointer leaves, after a
@@ -5554,6 +5556,12 @@
                            k === 'swap' ? plural(byKind[k].ids.length, 'transaction') + ' with a swap or bridge memo: a swap in THORChain\'s format (an OP_RETURN asking for the payment to be swapped into an asset on another chain, and the address it is to be paid out to), a payout or refund memo THORChain writes on a payment it makes (OUT: or REFUND: and a hash), a cross-chain request ID (the text a service such as Relay writes so that its request can be found) or a Rootstock peg-in. What the sender wrote, not proof that anything was carried out. Click to select them.'
                                         : plural(byKind[k].ids.length, 'transaction') + ' flagged ' + FIND_NAME[k] + '. Click to select them.');
       });
+      if (byKind.omni) {                                                                        // an Omni Layer instruction: a chip like the others, but what the sender wrote, not a pattern to weigh, so it is not counted in the findings
+        var no = byKind.omni.ids.length;
+        out.push({ key: 'omni', text: FIND_NAME.omni, count: no, ids: byKind.omni.ids, color: byKind.omni.f.color, bad: false, what: 'transactions with an Omni Layer instruction',
+                   title: plural(no, 'transaction') + ' with an Omni Layer instruction in an OP_RETURN (tokens such as Tether\'s USDT move on the Omni ledger, not on Bitcoin: the bitcoin amounts of such a transaction are not the value moved). '
+                          + 'Not a finding: it is what the sender wrote, and Hopline cannot check that the Omni ledger carried it out. Click to select them.' });
+      }
       if (byKind.peel && an.chains.length) {
         var pids = []; an.chains.forEach(function (c) { c.ids.forEach(function (id) { if (pids.indexOf(id) < 0) pids.push(id); }); });
         var chainCount = an.chains.length;
@@ -5591,7 +5599,7 @@
     var box = $('findStrip'), chips = state.graph.nodes.size ? findingChips() : [];
     lastChips = chips;
     var sig = chips.map(function (c) { return c.key + ':' + c.count + (c.sig ? ':' + c.sig : ''); }).join('|') + '#' + routeData().key;                // a chip's title names the starting points: another start, the same count, is a new title
-    var total = 0; chips.forEach(function (c) { if (c.key !== 'known' && c.key !== 'open' && c.key !== 'handoff' && c.key !== 'offscreen' && c.key !== 'holding') total += c.count; });
+    var total = 0; chips.forEach(function (c) { if (c.key !== 'known' && c.key !== 'open' && c.key !== 'handoff' && c.key !== 'offscreen' && c.key !== 'holding' && c.key !== 'omni') total += c.count; });
     $('anCount').textContent = total ? '(' + total + ')' : ''; $('findCount').textContent = total ? '(' + total + ')' : '';
     var was = state.findTotal, forced = state.findForce; state.findTotal = total; if (!chips.length) state.findForce = false;
     if (was !== total || forced !== state.findForce) showInspector(true);                // the panel appears when there is something to show in it, and goes when there is not
@@ -5826,7 +5834,7 @@
     $('autoHops').value = a.hops; $('autoFollow').value = a.follow; $('autoMaxTx').value = a.maxTx; $('autoMaxReq').value = a.maxReq; $('autoPerTx').value = a.perTx; $('autoMin').value = a.minSats;
     $('autoStopLabel').checked = a.stopLabel; $('autoStopMix').checked = a.stopMix;
     $('anFlags').checked = state.analysis.flags; $('anChange').checked = state.analysis.change; $('anClusters').checked = state.analysis.clusters;
-    $('anKPeel').checked = state.analysis.kinds.peel; $('anKConsol').checked = state.analysis.kinds.consolidation; $('anKBatch').checked = state.analysis.kinds.batch; $('anKCoinjoin').checked = state.analysis.kinds.coinjoin; $('anKRound').checked = state.analysis.kinds.round; $('anKSwap').checked = state.analysis.kinds.swap;
+    $('anKPeel').checked = state.analysis.kinds.peel; $('anKConsol').checked = state.analysis.kinds.consolidation; $('anKBatch').checked = state.analysis.kinds.batch; $('anKCoinjoin').checked = state.analysis.kinds.coinjoin; $('anKRound').checked = state.analysis.kinds.round; $('anKSwap').checked = state.analysis.kinds.swap; $('anKOmni').checked = state.analysis.kinds.omni;
     $('anRoundMin').value = String(state.analysis.round.minSats / 1e8); $('anRoundZeros').value = String(state.analysis.round.minZeros); syncAssistUi();
     updateAutoUi();
   }
@@ -6066,6 +6074,9 @@
     }
     if (state.analysis.flags && state.analysis.kinds.swap !== false && state.an && Array.from(state.an.tx.values()).some(function (r) { return r.flags.some(function (f) { return f.kind === 'swap'; }); })) {
       box.appendChild(legendItem(AN.COLORS.swap, 'orange ring = a swap memo or a cross-chain request ID: the trail leaves Bitcoin here (what the sender wrote)'));
+    }
+    if (state.analysis.flags && state.analysis.kinds.omni !== false && state.an && Array.from(state.an.tx.values()).some(function (r) { return r.flags.some(function (f) { return f.kind === 'omni'; }); })) {
+      box.appendChild(legendItem(AN.COLORS.omni, 'yellow ring = an Omni Layer instruction (tokens such as USDT): the value moves on the Omni ledger, not in the bitcoin amounts'));
     }
     if (traceOn() && state.trace.groups.size) box.appendChild(el('div', { 'class': 'item groupitem' }, [el('span', { 'class': 'tagsw', text: '▤' }), el('span', { text: 'Stack = several vertices folded into one group (click it to open them)' })]));
     var tags = TG.summarise(Array.from(state.graph.nodes.values()).concat(traceOn() ? Array.from(state.trace.groups.values()) : []));
@@ -6917,7 +6928,7 @@
     ['autoHops', 'autoFollow', 'autoMaxTx', 'autoMaxReq', 'autoPerTx', 'autoMin', 'autoStopLabel', 'autoStopMix'].forEach(function (id) { $(id).addEventListener('change', readAuto); });
     $('autoGo').addEventListener('click', function () { var id = autoTarget(); if (id) autoExpand(id); });
     wireDetections(); wireAssistant();
-    [['anKPeel', 'peel'], ['anKConsol', 'consolidation'], ['anKBatch', 'batch'], ['anKCoinjoin', 'coinjoin'], ['anKRound', 'round'], ['anKSwap', 'swap']].forEach(function (p) {
+    [['anKPeel', 'peel'], ['anKConsol', 'consolidation'], ['anKBatch', 'batch'], ['anKCoinjoin', 'coinjoin'], ['anKRound', 'round'], ['anKSwap', 'swap'], ['anKOmni', 'omni']].forEach(function (p) {
       $(p[0]).addEventListener('change', function () { state.analysis.kinds[p[1]] = this.checked; savePrefs(); refresh(); });
     });
     ['anRoundMin', 'anRoundZeros'].forEach(function (id) {                                // what counts as a round amount: the smallest one (in BTC) and how round (a multiple of ...)
